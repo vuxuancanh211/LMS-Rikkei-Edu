@@ -1,0 +1,25 @@
+# Git
+.git/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Maven build output
+target/
+
+# Logs
+logs/
+*.log
+
+# Environment
+../.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node
+node_modules/
