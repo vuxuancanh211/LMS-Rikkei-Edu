@@ -1,37 +1,26 @@
 package project.lms_rikkei_edu.modules.ai.service.ingestion;
 
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.poi.xwpf.usermodel.XWPFDocument;
+import org.apache.poi.xwpf.usermodel.XWPFParagraph;
+import org.springframework.stereotype.Component;
+import project.lms_rikkei_edu.infrastructure.s3.S3Service;
 import project.lms_rikkei_edu.modules.ai.entity.AiSource;
 import project.lms_rikkei_edu.modules.ai.entity.enums.SourceType;
+import software.amazon.awssdk.core.ResponseInputStream;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 
+import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Placeholder for Word document (.docx) ingestion — NOT yet registered as a Spring bean.
- *
- * <h3>How to activate:</h3>
- * <ol>
- *   <li>Add Apache POI to pom.xml:</li>
- *   <pre>{@code
- *   <dependency>
- *       <groupId>org.apache.poi</groupId>
- *       <artifactId>poi-ooxml</artifactId>
- *       <version>5.3.0</version>
- *   </dependency>
- *   }</pre>
- *   <li>Uncomment {@code @Component} on this class.</li>
- *   <li>Implement {@code extractText} to:
- *       <ul>
- *         <li>Download the .docx from S3 using the {@code s3Key} in metadata.</li>
- *         <li>Open it with {@code XWPFDocument}.</li>
- *         <li>Return one {@code String} per paragraph or per page.</li>
- *       </ul>
- *   </li>
- * </ol>
- */
 @Slf4j
-// @Component   ← uncomment when implemented
+@Component
+@RequiredArgsConstructor
 public class DocIngestionHandler implements SourceIngestionHandler {
+
+    private final S3Service s3Service;
 
     @Override
     public SourceType supportedType() {
@@ -40,8 +29,39 @@ public class DocIngestionHandler implements SourceIngestionHandler {
 
     @Override
     public List<String> extractText(AiSource source) {
-        throw new UnsupportedOperationException(
-                "DOC ingestion is not yet implemented. " +
-                "See class Javadoc for activation instructions.");
+        String s3Key = source.getExternalId();
+        if (s3Key == null || s3Key.isBlank()) {
+            throw new IllegalArgumentException("AiSource missing S3 key (externalId) for DOC: " + source.getId());
+        }
+
+        log.info("Extracting DOCX text from S3 key={}", s3Key);
+
+        try (ResponseInputStream<GetObjectResponse> s3Stream = s3Service.getObject(s3Key);
+             XWPFDocument doc = new XWPFDocument(s3Stream)) {
+
+            List<String> paragraphs = new ArrayList<>();
+            StringBuilder current = new StringBuilder();
+
+            for (XWPFParagraph para : doc.getParagraphs()) {
+                String text = para.getText().trim();
+                if (text.isEmpty()) {
+                    if (!current.isEmpty()) {
+                        paragraphs.add(current.toString().trim());
+                        current.setLength(0);
+                    }
+                } else {
+                    current.append(text).append("\n");
+                }
+            }
+            if (!current.isEmpty()) {
+                paragraphs.add(current.toString().trim());
+            }
+
+            log.info("DOCX extracted: s3Key={}, paragraphs={}", s3Key, paragraphs.size());
+            return paragraphs;
+
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to extract text from DOCX: " + s3Key, e);
+        }
     }
 }

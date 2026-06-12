@@ -66,6 +66,9 @@ public class Course {
     @Column(name = "published_at")
     private Instant publishedAt;
 
+    @Column(name = "pending_update_at")
+    private Instant pendingUpdateAt;
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private Instant createdAt;

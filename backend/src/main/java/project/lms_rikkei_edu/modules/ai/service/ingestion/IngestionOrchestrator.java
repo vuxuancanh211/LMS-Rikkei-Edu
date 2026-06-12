@@ -110,7 +110,7 @@ public class IngestionOrchestrator {
                         .chunkText(allChunks.get(i))
                         .createdAt(OffsetDateTime.now())
                         .build();
-                chunkRepo.save(chunk);
+                chunkRepo.saveAndFlush(chunk);
                 vectorSearch.saveEmbedding(chunk.getId(), embeddings.get(i));
             }
 

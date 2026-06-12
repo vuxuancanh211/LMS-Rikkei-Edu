@@ -6,5 +6,6 @@ public enum CourseStatus {
     APPROVED,
     REJECTED,
     PUBLISHED,
+    PENDING_UPDATE,
     ARCHIVED
 }

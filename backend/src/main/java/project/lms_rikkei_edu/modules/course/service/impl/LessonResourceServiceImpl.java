@@ -5,13 +5,16 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import project.lms_rikkei_edu.infrastructure.s3.S3Service;
+import project.lms_rikkei_edu.modules.ai.service.ingestion.CourseEmbeddingService;
 import project.lms_rikkei_edu.modules.course.dto.request.ResourceConfirmUploadRequest;
 import project.lms_rikkei_edu.modules.course.dto.request.ResourceUploadPresignRequest;
 import project.lms_rikkei_edu.modules.course.dto.response.LessonResourceResponse;
 import project.lms_rikkei_edu.modules.course.dto.response.ResourceDownloadUrlResponse;
 import project.lms_rikkei_edu.modules.course.dto.response.ResourceUploadPresignResponse;
+import project.lms_rikkei_edu.modules.course.entity.Course;
 import project.lms_rikkei_edu.modules.course.entity.Lesson;
 import project.lms_rikkei_edu.modules.course.entity.LessonResource;
+import project.lms_rikkei_edu.modules.course.enums.CourseStatus;
 import project.lms_rikkei_edu.modules.course.exception.CourseNotOwnedException;
 import project.lms_rikkei_edu.modules.course.exception.LessonNotFoundException;
 import project.lms_rikkei_edu.modules.course.mapper.LessonResourceMapper;
@@ -38,6 +41,7 @@ public class LessonResourceServiceImpl implements LessonResourceService {
     private final CourseRepository courseRepository;
     private final S3Service s3Service;
     private final LessonResourceMapper lessonResourceMapper;
+    private final CourseEmbeddingService embeddingService;
 
     @Value("${app.s3.presigned-url-expiry:3600}")
     private long presignedUrlExpiry;
@@ -95,7 +99,18 @@ public class LessonResourceServiceImpl implements LessonResourceService {
                 .uploadedAt(Instant.now())
                 .build();
 
-        return lessonResourceMapper.toResponse(lessonResourceRepository.save(resource));
+        LessonResource saved = lessonResourceRepository.save(resource);
+
+        // If course is PUBLISHED, mark as PENDING_UPDATE and queue for embedding after admin approval
+        courseRepository.findById(courseId).ifPresent(course -> {
+            if (course.getStatus() == CourseStatus.PUBLISHED) {
+                course.setStatus(CourseStatus.PENDING_UPDATE);
+                course.setPendingUpdateAt(Instant.now());
+                courseRepository.save(course);
+            }
+        });
+
+        return lessonResourceMapper.toResponse(saved);
     }
 
     @Override
@@ -141,6 +156,9 @@ public class LessonResourceServiceImpl implements LessonResourceService {
         resource.setDeletedAt(Instant.now());
         resource.setStatus("DELETED");
         lessonResourceRepository.save(resource);
+
+        // Xóa embedding của resource này
+        embeddingService.deleteEmbeddingsByResource(resourceId);
 
         // Xóa thật trên S3
         s3Service.deleteObject(resource.getS3Key());

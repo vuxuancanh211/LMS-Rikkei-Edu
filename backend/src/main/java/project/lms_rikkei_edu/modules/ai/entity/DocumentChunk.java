@@ -32,7 +32,7 @@ public class DocumentChunk {
     @Column(name = "source_id", nullable = false)
     private UUID sourceId;
 
-    @Column(name = "course_id", nullable = false)
+    @Column(name = "course_id")
     private UUID courseId;
 
     @Column(name = "chunk_index")

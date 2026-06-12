@@ -83,6 +83,7 @@ CREATE TABLE "courses" (
                            "chat_enabled" boolean DEFAULT false,
                            "submitted_at" timestamptz,
                            "published_at" timestamptz,
+                           "pending_update_at" timestamptz,
                            "created_at" timestamptz,
                            "updated_at" timestamptz
 );
@@ -164,7 +165,9 @@ CREATE TABLE "video_upload_jobs" (
 
 CREATE TABLE "ai_sources" (
                               "id" uuid PRIMARY KEY,
-                              "course_id" uuid NOT NULL,
+                              "course_id" uuid,
+                              "lesson_id" uuid,
+                              "resource_id" uuid,
                               "uploaded_by" uuid,
                               "source_type" varchar(30),
                               "source_name" varchar(255),
@@ -195,7 +198,7 @@ CREATE TABLE "ai_ingestion_jobs" (
 CREATE TABLE "document_chunks" (
                                    "id" uuid PRIMARY KEY,
                                    "source_id" uuid NOT NULL,
-                                   "course_id" uuid NOT NULL,
+                                   "course_id" uuid,
                                    "chunk_index" int,
                                    "page_number" int,
                                    "section_title" varchar(255),
@@ -639,6 +642,10 @@ CREATE UNIQUE INDEX ON "course_enrollments" ("course_id", "student_id");
 
 CREATE INDEX ON "ai_sources" ("course_id");
 
+CREATE INDEX ON "ai_sources" ("lesson_id");
+
+CREATE INDEX ON "ai_sources" ("resource_id");
+
 CREATE INDEX ON "ai_sources" ("source_type");
 
 CREATE INDEX ON "ai_sources" ("ingest_status");
@@ -715,7 +722,7 @@ COMMENT ON COLUMN "bulk_import_jobs"."status" IS 'PENDING | PROCESSING | DONE | 
 
 COMMENT ON COLUMN "courses"."level" IS 'BEGINNER | INTERMEDIATE | ADVANCED';
 
-COMMENT ON COLUMN "courses"."status" IS 'DRAFT | PENDING | APPROVED | REJECTED | PUBLISHED | ARCHIVED';
+COMMENT ON COLUMN "courses"."status" IS 'DRAFT | PENDING | APPROVED | REJECTED | PUBLISHED | PENDING_UPDATE | ARCHIVED';
 
 COMMENT ON COLUMN "course_approval_logs"."action" IS 'APPROVED | REJECTED | REVERTED';
 
@@ -834,6 +841,10 @@ ALTER TABLE "video_upload_jobs" ADD FOREIGN KEY ("lesson_id") REFERENCES "lesson
 ALTER TABLE "video_upload_jobs" ADD FOREIGN KEY ("instructor_id") REFERENCES "users" ("id") DEFERRABLE INITIALLY IMMEDIATE;
 
 ALTER TABLE "ai_sources" ADD FOREIGN KEY ("course_id") REFERENCES "courses" ("id") DEFERRABLE INITIALLY IMMEDIATE;
+
+ALTER TABLE "ai_sources" ADD FOREIGN KEY ("lesson_id") REFERENCES "lessons" ("id") DEFERRABLE INITIALLY IMMEDIATE;
+
+ALTER TABLE "ai_sources" ADD FOREIGN KEY ("resource_id") REFERENCES "lesson_resources" ("id") DEFERRABLE INITIALLY IMMEDIATE;
 
 ALTER TABLE "ai_sources" ADD FOREIGN KEY ("uploaded_by") REFERENCES "users" ("id") DEFERRABLE INITIALLY IMMEDIATE;
 

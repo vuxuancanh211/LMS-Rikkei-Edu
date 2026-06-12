@@ -197,12 +197,23 @@ public class CourseServiceImpl implements CourseService {
         Lesson lesson = lessonRepository.findByIdAndCourseId(lessonId, courseId)
                 .orElseThrow(() -> new LessonNotFoundException(lessonId));
 
+        boolean contentChanged = request.getContentText() != null &&
+                !request.getContentText().equals(lesson.getContentText());
+
         if (request.getTitle() != null) lesson.setTitle(request.getTitle());
         if (request.getType() != null) lesson.setType(request.getType());
         if (request.getContentText() != null) lesson.setContentText(request.getContentText());
         if (request.getIsPreview() != null) lesson.setIsPreview(request.getIsPreview());
 
-        return lessonMapper.toResponse(lessonRepository.save(lesson));
+        LessonResponse saved = lessonMapper.toResponse(lessonRepository.save(lesson));
+
+        if (contentChanged && course.getStatus() == CourseStatus.PUBLISHED) {
+            course.setStatus(CourseStatus.PENDING_UPDATE);
+            course.setPendingUpdateAt(java.time.Instant.now());
+            courseRepository.save(course);
+        }
+
+        return saved;
     }
 
     @Override

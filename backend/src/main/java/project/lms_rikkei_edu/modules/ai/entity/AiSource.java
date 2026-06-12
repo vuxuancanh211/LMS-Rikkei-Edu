@@ -23,8 +23,14 @@ public class AiSource {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    @Column(name = "course_id", nullable = false)
+    @Column(name = "course_id")
     private UUID courseId;
+
+    @Column(name = "lesson_id")
+    private UUID lessonId;
+
+    @Column(name = "resource_id")
+    private UUID resourceId;
 
     @Column(name = "uploaded_by")
     private UUID uploadedBy;

@@ -53,21 +53,37 @@ public class VectorSearchService {
     public List<ScoredChunk> search(UUID courseId, float[] queryEmbedding, int topK, double minSimilarity) {
         String vecStr = toVectorString(queryEmbedding);
 
-        String sql = """
-                SELECT dc.id,
-                       dc.source_id,
-                       dc.course_id,
-                       dc.chunk_index,
-                       dc.section_title,
-                       dc.chunk_text,
-                       1 - (dc.embedding <=> ?::vector) AS similarity
-                FROM document_chunks dc
-                WHERE dc.course_id = ?
-                  AND dc.embedding IS NOT NULL
-                  AND 1 - (dc.embedding <=> ?::vector) >= ?
-                ORDER BY dc.embedding <=> ?::vector
-                LIMIT ?
-                """;
+        String sql;
+        Object[] params;
+
+        if (courseId != null) {
+            sql = """
+                  SELECT dc.id, dc.source_id, dc.course_id, dc.chunk_index,
+                         dc.section_title, dc.chunk_text,
+                         1 - (dc.embedding <=> ?::vector) AS similarity
+                  FROM document_chunks dc
+                  WHERE dc.course_id = ?
+                    AND dc.embedding IS NOT NULL
+                    AND 1 - (dc.embedding <=> ?::vector) >= ?
+                  ORDER BY dc.embedding <=> ?::vector
+                  LIMIT ?
+                  """;
+            params = new Object[]{vecStr, courseId, vecStr, minSimilarity, vecStr, topK};
+        } else {
+            // system documents (course_id IS NULL)
+            sql = """
+                  SELECT dc.id, dc.source_id, dc.course_id, dc.chunk_index,
+                         dc.section_title, dc.chunk_text,
+                         1 - (dc.embedding <=> ?::vector) AS similarity
+                  FROM document_chunks dc
+                  WHERE dc.course_id IS NULL
+                    AND dc.embedding IS NOT NULL
+                    AND 1 - (dc.embedding <=> ?::vector) >= ?
+                  ORDER BY dc.embedding <=> ?::vector
+                  LIMIT ?
+                  """;
+            params = new Object[]{vecStr, vecStr, minSimilarity, vecStr, topK};
+        }
 
         try {
             return jdbc.query(sql,
@@ -80,11 +96,9 @@ public class VectorSearchService {
                             rs.getString("chunk_text"),
                             rs.getDouble("similarity")
                     ),
-                    vecStr, courseId, vecStr, minSimilarity, vecStr, topK
+                    params
             );
         } catch (DataAccessException ex) {
-            // embedding column is TEXT instead of vector(N) — pgvector extension not enabled
-            // or table not yet migrated. Return empty so the chat still works without RAG context.
             log.warn("Vector search unavailable for courseId={}: {}. " +
                      "Run: ALTER TABLE document_chunks ALTER COLUMN embedding TYPE vector(1024) USING embedding::vector",
                      courseId, ex.getMostSpecificCause().getMessage());

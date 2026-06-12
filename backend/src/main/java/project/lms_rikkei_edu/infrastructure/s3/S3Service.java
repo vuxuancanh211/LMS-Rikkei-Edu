@@ -3,8 +3,11 @@ package project.lms_rikkei_edu.infrastructure.s3;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
@@ -60,6 +63,16 @@ public class S3Service {
                         .key(key)
                 )
         );
+    }
+
+    /**
+     * Download object từ S3 dưới dạng stream. Caller phải đóng stream sau khi dùng.
+     */
+    public ResponseInputStream<GetObjectResponse> getObject(String key) {
+        return s3Client.getObject(GetObjectRequest.builder()
+                .bucket(bucket)
+                .key(key)
+                .build());
     }
 
     /**

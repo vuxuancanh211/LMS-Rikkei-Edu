@@ -1,42 +1,27 @@
 package project.lms_rikkei_edu.modules.ai.service.ingestion;
 
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.pdfbox.Loader;
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.text.PDFTextStripper;
+import org.springframework.stereotype.Component;
+import project.lms_rikkei_edu.infrastructure.s3.S3Service;
 import project.lms_rikkei_edu.modules.ai.entity.AiSource;
 import project.lms_rikkei_edu.modules.ai.entity.enums.SourceType;
+import software.amazon.awssdk.core.ResponseInputStream;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 
+import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Placeholder for PDF ingestion — NOT yet registered as a Spring bean (@Component).
- *
- * <h3>How to activate:</h3>
- * <ol>
- *   <li>Add the PDF parsing library to pom.xml (e.g. Apache PDFBox or iText):</li>
- *   <pre>{@code
- *   <dependency>
- *       <groupId>org.apache.pdfbox</groupId>
- *       <artifactId>pdfbox</artifactId>
- *       <version>3.0.2</version>
- *   </dependency>
- *   }</pre>
- *   <li>Uncomment {@code @Component} on this class.</li>
- *   <li>Inject {@code software.amazon.awssdk.services.s3.S3Client} and implement
- *       {@code extractText} to:
- *       <ul>
- *         <li>Read {@code source.getMetadata().get("s3Key")} for the object path.</li>
- *         <li>Download the PDF bytes from S3.</li>
- *         <li>Parse each page with {@code PDDocument} → {@code PDFTextStripper}.</li>
- *         <li>Return one {@code String} per page.</li>
- *       </ul>
- *   </li>
- * </ol>
- *
- * No changes needed in {@link IngestionOrchestrator} — it auto-discovers all
- * {@link SourceIngestionHandler} beans at startup.
- */
 @Slf4j
-// @Component   ← uncomment when implemented
+@Component
+@RequiredArgsConstructor
 public class PdfIngestionHandler implements SourceIngestionHandler {
+
+    private final S3Service s3Service;
 
     @Override
     public SourceType supportedType() {
@@ -45,8 +30,33 @@ public class PdfIngestionHandler implements SourceIngestionHandler {
 
     @Override
     public List<String> extractText(AiSource source) {
-        throw new UnsupportedOperationException(
-                "PDF ingestion is not yet implemented. " +
-                "See class Javadoc for activation instructions.");
+        String s3Key = source.getExternalId();
+        if (s3Key == null || s3Key.isBlank()) {
+            throw new IllegalArgumentException("AiSource missing S3 key (externalId) for PDF: " + source.getId());
+        }
+
+        log.info("Extracting PDF text from S3 key={}", s3Key);
+
+        try (ResponseInputStream<GetObjectResponse> s3Stream = s3Service.getObject(s3Key);
+             PDDocument doc = Loader.loadPDF(s3Stream.readAllBytes())) {
+
+            PDFTextStripper stripper = new PDFTextStripper();
+            List<String> pages = new ArrayList<>();
+
+            for (int page = 1; page <= doc.getNumberOfPages(); page++) {
+                stripper.setStartPage(page);
+                stripper.setEndPage(page);
+                String text = stripper.getText(doc).trim();
+                if (!text.isEmpty()) {
+                    pages.add(text);
+                }
+            }
+
+            log.info("PDF extracted: s3Key={}, pages={}, non-empty={}", s3Key, doc.getNumberOfPages(), pages.size());
+            return pages;
+
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to extract text from PDF: " + s3Key, e);
+        }
     }
 }

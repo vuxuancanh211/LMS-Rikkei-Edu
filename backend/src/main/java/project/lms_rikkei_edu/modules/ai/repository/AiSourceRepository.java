@@ -12,4 +12,8 @@ public interface AiSourceRepository extends JpaRepository<AiSource, UUID> {
     List<AiSource> findByCourseIdAndDeletedAtIsNull(UUID courseId);
 
     List<AiSource> findByCourseIdAndIngestStatusAndDeletedAtIsNull(UUID courseId, IngestStatus ingestStatus);
+
+    List<AiSource> findByLessonIdAndDeletedAtIsNull(UUID lessonId);
+
+    List<AiSource> findByResourceIdAndDeletedAtIsNull(UUID resourceId);
 }
