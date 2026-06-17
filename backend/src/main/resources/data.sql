@@ -13,43 +13,43 @@ BEGIN;
 -- ============================================================
 INSERT INTO users (id, email, full_name, password_hash, role, status, phone_number, bio, created_at, updated_at) VALUES
                                                                                                                      ('00000000-0000-0000-0000-000000000001', 'admin@rikkei.edu', 'Admin System',
-                                                                                                                      '$2a$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj4J/HS.iA0y',
+                                                                                                                       '$2a$12$/QAOcn2xjmgJaJcv..kixeLeMtxbIpoG0ms7eO021B.qW.wzW0RG2',
                                                                                                                       'ADMIN', 'ACTIVE', '0900000001', 'Quản trị viên hệ thống', now(), now()),
 
                                                                                                                      ('00000000-0000-0000-0000-000000000002', 'instructor1@rikkei.edu', 'Nguyễn Văn Minh',
-                                                                                                                      '$2a$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj4J/HS.iA0y',
+                                                                                                                       '$2a$12$/QAOcn2xjmgJaJcv..kixeLeMtxbIpoG0ms7eO021B.qW.wzW0RG2',
                                                                                                                       'INSTRUCTOR', 'ACTIVE', '0900000002', 'Giảng viên Java Backend 8 năm kinh nghiệm', now(), now()),
 
                                                                                                                      ('00000000-0000-0000-0000-000000000003', 'instructor2@rikkei.edu', 'Trần Thị Lan',
-                                                                                                                      '$2a$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj4J/HS.iA0y',
+                                                                                                                       '$2a$12$/QAOcn2xjmgJaJcv..kixeLeMtxbIpoG0ms7eO021B.qW.wzW0RG2',
                                                                                                                       'INSTRUCTOR', 'ACTIVE', '0900000003', 'Giảng viên Frontend ReactJS & UX Design', now(), now()),
 
                                                                                                                      ('00000000-0000-0000-0000-000000000004', 'student1@rikkei.edu', 'Phạm Quốc Hùng',
-                                                                                                                      '$2a$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj4J/HS.iA0y',
+                                                                                                                       '$2a$12$/QAOcn2xjmgJaJcv..kixeLeMtxbIpoG0ms7eO021B.qW.wzW0RG2',
                                                                                                                       'STUDENT', 'ACTIVE', '0900000004', NULL, now(), now()),
 
                                                                                                                      ('00000000-0000-0000-0000-000000000005', 'student2@rikkei.edu', 'Lê Thị Mai',
-                                                                                                                      '$2a$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj4J/HS.iA0y',
+                                                                                                                       '$2a$12$/QAOcn2xjmgJaJcv..kixeLeMtxbIpoG0ms7eO021B.qW.wzW0RG2',
                                                                                                                       'STUDENT', 'ACTIVE', '0900000005', NULL, now(), now()),
 
                                                                                                                      ('00000000-0000-0000-0000-000000000006', 'student3@rikkei.edu', 'Hoàng Minh Tuấn',
-                                                                                                                      '$2a$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj4J/HS.iA0y',
+                                                                                                                       '$2a$12$/QAOcn2xjmgJaJcv..kixeLeMtxbIpoG0ms7eO021B.qW.wzW0RG2',
                                                                                                                       'STUDENT', 'ACTIVE', '0900000006', NULL, now(), now()),
 
                                                                                                                      ('00000000-0000-0000-0000-000000000007', 'student4@rikkei.edu', 'Đặng Thị Hoa',
-                                                                                                                      '$2a$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj4J/HS.iA0y',
+                                                                                                                       '$2a$12$/QAOcn2xjmgJaJcv..kixeLeMtxbIpoG0ms7eO021B.qW.wzW0RG2',
                                                                                                                       'STUDENT', 'ACTIVE', '0900000007', NULL, now(), now()),
 
                                                                                                                      ('00000000-0000-0000-0000-000000000008', 'student5@rikkei.edu', 'Vũ Đức Long',
-                                                                                                                      '$2a$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj4J/HS.iA0y',
+                                                                                                                       '$2a$12$/QAOcn2xjmgJaJcv..kixeLeMtxbIpoG0ms7eO021B.qW.wzW0RG2',
                                                                                                                       'STUDENT', 'ACTIVE', '0900000008', NULL, now(), now()),
 
                                                                                                                      ('00000000-0000-0000-0000-000000000009', 'student6@rikkei.edu', 'Bùi Thị Thu',
-                                                                                                                      '$2a$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj4J/HS.iA0y',
+                                                                                                                       '$2a$12$/QAOcn2xjmgJaJcv..kixeLeMtxbIpoG0ms7eO021B.qW.wzW0RG2',
                                                                                                                       'STUDENT', 'ACTIVE', '0900000009', NULL, now(), now()),
 
                                                                                                                      ('00000000-0000-0000-0000-000000000010', 'student7@rikkei.edu', 'Ngô Thanh Bình',
-                                                                                                                      '$2a$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj4J/HS.iA0y',
+                                                                                                                       '$2a$12$/QAOcn2xjmgJaJcv..kixeLeMtxbIpoG0ms7eO021B.qW.wzW0RG2',
                                                                                                                       'STUDENT', 'ACTIVE', '0900000010', NULL, now(), now());
 
 -- ============================================================

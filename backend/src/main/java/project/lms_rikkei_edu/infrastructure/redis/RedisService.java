@@ -21,6 +21,9 @@ public class RedisService {
     @Value("${app.redis.ttl.refresh-token}")
     private long refreshTokenTtl;
 
+    @Value("${app.redis.ttl.password-reset-token}")
+    private long passwordResetTokenTtl;
+
     @Value("${app.redis.ttl.rate-limit-window}")
     private long rateLimitWindow;
 
@@ -72,6 +75,22 @@ public class RedisService {
 
     public void deleteRefreshToken(UUID userId) {
         delete(RedisKeyConstants.REFRESH_TOKEN + userId);
+    }
+
+    // ── Password Reset Token ─────────────────────────────────────────────────
+
+    public void savePasswordResetToken(String tokenHash, UUID userId) {
+        set(RedisKeyConstants.PASSWORD_RESET_TOKEN + tokenHash, userId.toString(), passwordResetTokenTtl);
+    }
+
+    public Optional<UUID> getPasswordResetUserId(String tokenHash) {
+        return get(RedisKeyConstants.PASSWORD_RESET_TOKEN + tokenHash)
+                .map(Object::toString)
+                .map(UUID::fromString);
+    }
+
+    public void deletePasswordResetToken(String tokenHash) {
+        delete(RedisKeyConstants.PASSWORD_RESET_TOKEN + tokenHash);
     }
 
     // ── Rate Limit ────────────────────────────────────────────────────────────
