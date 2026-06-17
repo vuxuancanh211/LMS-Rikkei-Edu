@@ -25,6 +25,18 @@ public interface CourseRepository extends JpaRepository<Course, UUID> {
     @Query("SELECT c FROM Course c LEFT JOIN FETCH c.category WHERE c.id = :id")
     Optional<Course> findByIdWithCategory(@Param("id") UUID id);
 
-    @Query("SELECT c FROM Course c LEFT JOIN FETCH c.category LEFT JOIN FETCH c.chapters ch LEFT JOIN FETCH ch.lessons l LEFT JOIN FETCH l.resources WHERE c.id = :id")
+    @Query("SELECT c FROM Course c LEFT JOIN FETCH c.category LEFT JOIN FETCH c.chapters ch LEFT JOIN FETCH ch.lessons WHERE c.id = :id")
     Optional<Course> findByIdWithFullStructure(@Param("id") UUID id);
+
+    @Query("SELECT DISTINCT c FROM Course c LEFT JOIN FETCH c.chapters ch LEFT JOIN FETCH ch.lessons l LEFT JOIN FETCH l.resources WHERE c.id = :id")
+    Optional<Course> findByIdWithResources(@Param("id") UUID id);
+
+    @Query(value = "SELECT * FROM courses WHERE id = :id", nativeQuery = true)
+    Optional<Course> findByIdIncludingDeleted(@Param("id") UUID id);
+
+    @Query(value = "SELECT * FROM courses WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC", nativeQuery = true)
+    List<Course> findAllDeleted();
+
+    @Query(value = "SELECT * FROM courses WHERE deleted_at IS NOT NULL AND instructor_id = :instructorId ORDER BY deleted_at DESC", nativeQuery = true)
+    List<Course> findAllDeletedByInstructorId(@Param("instructorId") UUID instructorId);
 }

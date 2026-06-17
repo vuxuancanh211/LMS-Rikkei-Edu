@@ -43,6 +43,15 @@ public class AdminCourseServiceImpl implements AdminCourseService {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public Page<CourseResponse> listAllCourses(Pageable pageable) {
+        return courseRepo.findAllByStatusIn(
+                List.of(CourseStatus.DRAFT, CourseStatus.PENDING, CourseStatus.PENDING_UPDATE,
+                        CourseStatus.PUBLISHED, CourseStatus.REJECTED, CourseStatus.ARCHIVED), pageable)
+                .map(courseMapper::toResponse);
+    }
+
+    @Override
     public CourseDetailResponse approveCourse(UUID adminId, UUID courseId) {
         Course course = loadCourse(courseId);
 

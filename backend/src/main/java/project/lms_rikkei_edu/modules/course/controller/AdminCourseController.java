@@ -27,6 +27,11 @@ public class AdminCourseController {
         return ResponseEntity.ok(adminCourseService.listPendingCourses(pageable));
     }
 
+    @GetMapping
+    public ResponseEntity<Page<CourseResponse>> listAll(Pageable pageable) {
+        return ResponseEntity.ok(adminCourseService.listAllCourses(pageable));
+    }
+
     @PostMapping("/{courseId}/approve")
     public ResponseEntity<CourseDetailResponse> approve(
             @RequestHeader("X-User-Id") UUID adminId,

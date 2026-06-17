@@ -84,6 +84,7 @@ CREATE TABLE "courses" (
                            "submitted_at" timestamptz,
                            "published_at" timestamptz,
                            "pending_update_at" timestamptz,
+                           "deleted_at" timestamptz,
                            "created_at" timestamptz,
                            "updated_at" timestamptz
 );

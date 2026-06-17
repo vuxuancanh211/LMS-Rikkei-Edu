@@ -60,9 +60,14 @@ public class CourseServiceImpl implements CourseService {
     @Override
     @Transactional(readOnly = true)
     public CourseDetailResponse getCourseDetail(UUID instructorId, UUID courseId) {
+        // Load course + chapters + lessons (avoids MultipleBagFetchException)
         Course course = courseRepository.findByIdWithFullStructure(courseId)
                 .orElseThrow(() -> new CourseNotFoundException(courseId));
         assertOwner(course, instructorId);
+        // Force-init resources for each lesson while still in transaction
+        course.getChapters().forEach(ch ->
+            ch.getLessons().forEach(l -> l.getResources().size())
+        );
         return courseMapper.toDetailResponse(course);
     }
 
@@ -97,7 +102,8 @@ public class CourseServiceImpl implements CourseService {
         if (course.getStatus() == CourseStatus.PUBLISHED) {
             throw new CourseStateException("Cannot delete a published course");
         }
-        courseRepository.delete(course);
+        course.setDeletedAt(Instant.now());
+        courseRepository.save(course);
     }
 
     @Override

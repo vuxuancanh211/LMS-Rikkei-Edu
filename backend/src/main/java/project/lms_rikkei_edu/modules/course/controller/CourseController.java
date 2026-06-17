@@ -14,9 +14,10 @@ import project.lms_rikkei_edu.modules.course.dto.request.*;
 import project.lms_rikkei_edu.modules.course.dto.response.*;
 import project.lms_rikkei_edu.modules.course.service.CourseService;
 import project.lms_rikkei_edu.modules.course.service.LessonResourceService;
+import project.lms_rikkei_edu.infrastructure.s3.S3Service;
 
+import java.time.Instant;
 import java.util.List;
-
 import java.util.UUID;
 
 @RestController
@@ -27,6 +28,7 @@ public class CourseController {
     private final CourseService courseService;
     private final LessonResourceService lessonResourceService;
     private final InstructorContext instructorContext;
+    private final S3Service s3Service;
 
     // ── Course ────────────────────────────────────────────────────────────────
 
@@ -37,6 +39,20 @@ public class CourseController {
         UUID instructorId = instructorContext.getCurrentInstructorId(httpRequest);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(courseService.createCourse(instructorId, request));
+    }
+
+    @PostMapping("/presign-thumbnail")
+    public ResponseEntity<ThumbnailPresignResponse> presignThumbnail(
+            @RequestParam String mimeType,
+            HttpServletRequest httpRequest) {
+        instructorContext.getCurrentInstructorId(httpRequest); // auth check
+        String ext = mimeType.contains("png") ? "png" : "jpg";
+        String s3Key = "courses/thumbnails/" + UUID.randomUUID() + "." + ext;
+        long expirySeconds = 3600;
+        String uploadUrl = s3Service.generatePresignedPutUrl(s3Key, mimeType, expirySeconds).url().toString();
+        String viewUrl = s3Service.generatePresignedGetUrl(s3Key, 7 * 24 * 3600).url().toString();
+        return ResponseEntity.ok(ThumbnailPresignResponse.builder()
+                .uploadUrl(uploadUrl).s3Key(s3Key).viewUrl(viewUrl).build());
     }
 
     @GetMapping

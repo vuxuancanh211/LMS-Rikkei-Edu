@@ -3,6 +3,7 @@ package project.lms_rikkei_edu.modules.course.entity;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.SQLRestriction;
 import org.hibernate.annotations.UpdateTimestamp;
 import project.lms_rikkei_edu.modules.course.enums.CourseLevel;
 import project.lms_rikkei_edu.modules.course.enums.CourseStatus;
@@ -14,6 +15,7 @@ import java.util.UUID;
 
 @Entity
 @Table(name = "courses")
+@SQLRestriction("deleted_at IS NULL")
 @Getter
 @Setter
 @NoArgsConstructor
@@ -68,6 +70,9 @@ public class Course {
 
     @Column(name = "pending_update_at")
     private Instant pendingUpdateAt;
+
+    @Column(name = "deleted_at")
+    private Instant deletedAt;
 
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)

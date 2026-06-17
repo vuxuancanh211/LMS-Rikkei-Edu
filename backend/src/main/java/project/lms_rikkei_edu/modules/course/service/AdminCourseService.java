@@ -11,6 +11,8 @@ public interface AdminCourseService {
 
     Page<CourseResponse> listPendingCourses(Pageable pageable);
 
+    Page<CourseResponse> listAllCourses(Pageable pageable);
+
     CourseDetailResponse approveCourse(UUID adminId, UUID courseId);
 
     CourseDetailResponse rejectCourse(UUID adminId, UUID courseId, String reason);

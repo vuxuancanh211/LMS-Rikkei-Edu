@@ -50,3 +50,5 @@ Thumbs.db
 mvnw
 mvnw.cmd
 .mvn/
+
+frontend/
