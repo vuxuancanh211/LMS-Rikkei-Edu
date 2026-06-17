@@ -1,15 +1,18 @@
 package project.lms_rikkei_edu.common.exception;
 
 import lombok.extern.slf4j.Slf4j;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
-import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.bind.annotation.ResponseBody;
 import project.lms_rikkei_edu.modules.ai.exception.*;
 import project.lms_rikkei_edu.modules.course.exception.*;
 
-import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.stream.Collectors;
 
@@ -17,89 +20,117 @@ import java.util.stream.Collectors;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    // ── Auth / Business exceptions ────────────────────────────────────────────
+
+    @ExceptionHandler(BusinessException.class)
+    public ResponseEntity<ErrorResponse> handleBusinessException(
+            BusinessException ex, HttpServletRequest request) {
+        return error(HttpStatus.BAD_REQUEST, ex.getMessage(), request.getRequestURI(), null);
+    }
+
     // ── Course exceptions ─────────────────────────────────────────────────────
 
     @ExceptionHandler(CourseNotFoundException.class)
-    public ResponseEntity<Map<String, Object>> handleCourseNotFound(CourseNotFoundException ex) {
-        return error(HttpStatus.NOT_FOUND, "COURSE_NOT_FOUND", ex.getMessage());
+    public ResponseEntity<ErrorResponse> handleCourseNotFound(
+            CourseNotFoundException ex, HttpServletRequest request) {
+        return error(HttpStatus.NOT_FOUND, ex.getMessage(), request.getRequestURI(), null);
     }
 
     @ExceptionHandler({ChapterNotFoundException.class, LessonNotFoundException.class})
-    public ResponseEntity<Map<String, Object>> handleNotFound(RuntimeException ex) {
-        return error(HttpStatus.NOT_FOUND, "NOT_FOUND", ex.getMessage());
+    public ResponseEntity<ErrorResponse> handleNotFound(
+            RuntimeException ex, HttpServletRequest request) {
+        return error(HttpStatus.NOT_FOUND, ex.getMessage(), request.getRequestURI(), null);
     }
 
     @ExceptionHandler(CourseNotOwnedException.class)
-    public ResponseEntity<Map<String, Object>> handleNotOwned(CourseNotOwnedException ex) {
-        return error(HttpStatus.FORBIDDEN, "FORBIDDEN", ex.getMessage());
+    public ResponseEntity<ErrorResponse> handleNotOwned(
+            CourseNotOwnedException ex, HttpServletRequest request) {
+        return error(HttpStatus.FORBIDDEN, ex.getMessage(), request.getRequestURI(), null);
     }
 
     @ExceptionHandler(CourseStateException.class)
-    public ResponseEntity<Map<String, Object>> handleCourseState(CourseStateException ex) {
-        return error(HttpStatus.CONFLICT, "INVALID_COURSE_STATE", ex.getMessage());
+    public ResponseEntity<ErrorResponse> handleCourseState(
+            CourseStateException ex, HttpServletRequest request) {
+        return error(HttpStatus.CONFLICT, ex.getMessage(), request.getRequestURI(), null);
     }
 
     // ── AI exceptions ─────────────────────────────────────────────────────────
 
     @ExceptionHandler(UserContextException.class)
-    public ResponseEntity<Map<String, Object>> handleUserContext(UserContextException ex) {
-        return error(HttpStatus.NOT_FOUND, "USER_NOT_FOUND", ex.getMessage());
+    public ResponseEntity<ErrorResponse> handleUserContext(
+            UserContextException ex, HttpServletRequest request) {
+        return error(HttpStatus.NOT_FOUND, ex.getMessage(), request.getRequestURI(), null);
     }
 
     @ExceptionHandler(AiSourceNotFoundException.class)
-    public ResponseEntity<Map<String, Object>> handleAiSourceNotFound(AiSourceNotFoundException ex) {
-        return error(HttpStatus.NOT_FOUND, "AI_SOURCE_NOT_FOUND", ex.getMessage());
+    public ResponseEntity<ErrorResponse> handleAiSourceNotFound(
+            AiSourceNotFoundException ex, HttpServletRequest request) {
+        return error(HttpStatus.NOT_FOUND, ex.getMessage(), request.getRequestURI(), null);
     }
 
     @ExceptionHandler(ConversationNotFoundException.class)
-    public ResponseEntity<Map<String, Object>> handleConversationNotFound(ConversationNotFoundException ex) {
-        return error(HttpStatus.NOT_FOUND, "CONVERSATION_NOT_FOUND", ex.getMessage());
+    public ResponseEntity<ErrorResponse> handleConversationNotFound(
+            ConversationNotFoundException ex, HttpServletRequest request) {
+        return error(HttpStatus.NOT_FOUND, ex.getMessage(), request.getRequestURI(), null);
     }
 
     @ExceptionHandler(IngestionException.class)
-    public ResponseEntity<Map<String, Object>> handleIngestion(IngestionException ex) {
-        return error(HttpStatus.UNPROCESSABLE_ENTITY, "INGESTION_FAILED", ex.getMessage());
+    public ResponseEntity<ErrorResponse> handleIngestion(
+            IngestionException ex, HttpServletRequest request) {
+        return error(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage(), request.getRequestURI(), null);
     }
 
     // ── Generic exceptions ────────────────────────────────────────────────────
 
     @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<Map<String, Object>> handleIllegalArgument(IllegalArgumentException ex) {
-        return error(HttpStatus.BAD_REQUEST, "BAD_REQUEST", ex.getMessage());
+    public ResponseEntity<ErrorResponse> handleIllegalArgument(
+            IllegalArgumentException ex, HttpServletRequest request) {
+        return error(HttpStatus.BAD_REQUEST, ex.getMessage(), request.getRequestURI(), null);
     }
 
     @ExceptionHandler(IllegalStateException.class)
-    public ResponseEntity<Map<String, Object>> handleIllegalState(IllegalStateException ex) {
-        return error(HttpStatus.CONFLICT, "INVALID_STATE", ex.getMessage());
+    public ResponseEntity<ErrorResponse> handleIllegalState(
+            IllegalStateException ex, HttpServletRequest request) {
+        return error(HttpStatus.CONFLICT, ex.getMessage(), request.getRequestURI(), null);
     }
 
     @ExceptionHandler(UnsupportedOperationException.class)
-    public ResponseEntity<Map<String, Object>> handleUnsupported(UnsupportedOperationException ex) {
-        return error(HttpStatus.BAD_REQUEST, "UNSUPPORTED_OPERATION", ex.getMessage());
+    public ResponseEntity<ErrorResponse> handleUnsupported(
+            UnsupportedOperationException ex, HttpServletRequest request) {
+        return error(HttpStatus.BAD_REQUEST, ex.getMessage(), request.getRequestURI(), null);
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<Map<String, Object>> handleValidation(MethodArgumentNotValidException ex) {
-        String details = ex.getBindingResult().getFieldErrors().stream()
-                .map(e -> e.getField() + ": " + e.getDefaultMessage())
-                .collect(Collectors.joining(", "));
-        return error(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED", details);
+    public ResponseEntity<ErrorResponse> handleValidation(
+            MethodArgumentNotValidException ex, HttpServletRequest request) {
+        Map<String, String> validationErrors = new LinkedHashMap<>();
+        ex.getBindingResult().getFieldErrors().forEach(e ->
+                validationErrors.put(e.getField(), e.getDefaultMessage())
+        );
+        return error(HttpStatus.BAD_REQUEST, "Validation failed", request.getRequestURI(), validationErrors);
     }
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<Map<String, Object>> handleGeneral(Exception ex) {
+    public ResponseEntity<ErrorResponse> handleGeneral(
+            Exception ex, HttpServletRequest request) {
         log.error("Unhandled exception: {}", ex.getMessage(), ex);
-        return error(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR",
-                "Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.");
+        return error(HttpStatus.INTERNAL_SERVER_ERROR,
+                "Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.",
+                request.getRequestURI(), null);
     }
 
     // ── helper ────────────────────────────────────────────────────────────────
 
-    private ResponseEntity<Map<String, Object>> error(HttpStatus status, String code, String message) {
-        return ResponseEntity.status(status).body(Map.of(
-                "code", code,
-                "message", message,
-                "timestamp", Instant.now().toString()
-        ));
+    private ResponseEntity<ErrorResponse> error(HttpStatus status, String message, String path,
+                                                 Map<String, String> validationErrors) {
+        ErrorResponse body = ErrorResponse.builder()
+                .timestamp(OffsetDateTime.now())
+                .status(status.value())
+                .error(status.getReasonPhrase())
+                .message(message)
+                .path(path)
+                .validationErrors(validationErrors)
+                .build();
+        return ResponseEntity.status(status).body(body);
     }
 }
