@@ -26,4 +26,18 @@ public class EmailService {
 
         mailSender.send(message);
     }
+
+    public void sendPasswordResetMail(String to, String resetLink) {
+        SimpleMailMessage message = new SimpleMailMessage();
+
+        message.setFrom(from);
+        message.setTo(to);
+        message.setSubject("Reset your Rikkei Edu password");
+        message.setText("We received a request to reset your password.\n\n"
+                + "Use this link to reset your password. This link expires in 15 minutes:\n"
+                + resetLink
+                + "\n\nIf you did not request this, you can ignore this email.");
+
+        mailSender.send(message);
+    }
 }
