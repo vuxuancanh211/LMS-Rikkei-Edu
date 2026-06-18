@@ -469,6 +469,7 @@ CREATE TABLE "forum_replies" (
                                  "post_id" uuid NOT NULL,
                                  "course_id" uuid NOT NULL,
                                  "author_id" uuid NOT NULL,
+                                  "parent_reply_id" uuid,
                                  "content" text,
                                  "is_deleted" boolean DEFAULT false,
                                  "deleted_by" uuid,
@@ -930,6 +931,8 @@ ALTER TABLE "forum_replies" ADD FOREIGN KEY ("course_id") REFERENCES "courses" (
 ALTER TABLE "forum_replies" ADD FOREIGN KEY ("author_id") REFERENCES "users" ("id") DEFERRABLE INITIALLY IMMEDIATE;
 
 ALTER TABLE "forum_replies" ADD FOREIGN KEY ("deleted_by") REFERENCES "users" ("id") DEFERRABLE INITIALLY IMMEDIATE;
+
+ALTER TABLE "forum_replies" ADD FOREIGN KEY ("parent_reply_id") REFERENCES "forum_replies" ("id") DEFERRABLE INITIALLY IMMEDIATE;
 
 ALTER TABLE "forum_reports" ADD FOREIGN KEY ("reporter_id") REFERENCES "users" ("id") DEFERRABLE INITIALLY IMMEDIATE;
 

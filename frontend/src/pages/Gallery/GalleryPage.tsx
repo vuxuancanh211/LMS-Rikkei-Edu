@@ -48,8 +48,8 @@ function registerGalleryPage() {
     ],
   };
   const SCREENS = {
-    student: { dashboard: "StuDashboard", courses: "StuCourses", tasks: "StuTasks", forum: "StuForum", chat: "ChatScreen", certs: "StuCerts", settings: "Settings" },
-    instructor: { dashboard: "InsDashboard", courses: "InsCourses", courseDetail: "InsCourseDetail", groups: "InsGroups", groupDetail: "InsGroupDetail", assess: "InsAssess", grading: "InsGrading", students: "InsStudents", forum: "StuForum", chat: "ChatScreen", settings: "Settings" },
+    student: { dashboard: "StuDashboard", courses: "StuCourses", tasks: "StuTasks", forum: "ForumPage", chat: "ChatScreen", certs: "StuCerts", settings: "Settings" },
+    instructor: { dashboard: "InsDashboard", courses: "InsCourses", courseDetail: "InsCourseDetail", groups: "InsGroups", groupDetail: "InsGroupDetail", assess: "InsAssess", grading: "InsGrading", students: "InsStudents", forum: "ForumPage", chat: "ChatScreen", settings: "Settings" },
     admin: { dashboard: "AdminDashboard", users: "AdminUsers", courses: "AdminCourses", approval: "AdminApproval", reports: "AdminReports", logs: "AdminLogs", settings: "Settings" },
   };
   const FULLBARE = { player: "LecturePlayer", quiz: "QuizPlayer", result: "QuizResult" };
