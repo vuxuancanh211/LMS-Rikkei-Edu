@@ -73,6 +73,7 @@ import { useAuthStore } from '../../store';
   function LoginScreen({ onLogin, onForgot }) {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [showPassword, setShowPassword] = useState(false);
     const [remember, setRemember] = useState(true);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
@@ -113,7 +114,20 @@ import { useAuthStore } from '../../store';
           <div className="field-icon" style={{ marginBottom: 18 }}><Ic n="mail" /><input className="input" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email@rikkei.edu" autoComplete="email" disabled={loading} /></div>
 
           <label className="t-label" style={{ display: 'block', marginBottom: 7 }}>Mật khẩu</label>
-          <div className="field-icon" style={{ marginBottom: 16 }}><Ic n="lock" /><input className="input" value={password} onChange={(e) => setPassword(e.target.value)} type="password" placeholder="••••••••" autoComplete="current-password" disabled={loading} /></div>
+          <div className="field-icon" style={{ marginBottom: 16 }}>
+            <Ic n="lock" />
+            <input className="input has-right-action" value={password} onChange={(e) => setPassword(e.target.value)} type={showPassword ? 'text' : 'password'} placeholder="••••••••" autoComplete="current-password" disabled={loading} />
+            <button
+              type="button"
+              className="field-action"
+              onClick={() => setShowPassword((value) => !value)}
+              aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+              title={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+              disabled={loading}
+            >
+              <Ic n={showPassword ? 'eye_off' : 'eye'} />
+            </button>
+          </div>
 
           <div className="between" style={{ marginBottom: 22 }}>
             <label className="row gap-8" style={{ cursor: 'pointer', fontSize: 13.5, color: 'var(--text-2)' }}><input checked={remember} onChange={(e) => setRemember(e.target.checked)} type="checkbox" style={{ width: 17, height: 17 }} />Ghi nhớ đăng nhập</label>
