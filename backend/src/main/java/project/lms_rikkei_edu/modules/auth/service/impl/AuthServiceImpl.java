@@ -2,6 +2,7 @@ package project.lms_rikkei_edu.modules.auth.service.impl;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -66,14 +67,14 @@ public class AuthServiceImpl implements AuthService {
         enforceRateLimit(RedisKeyConstants.AUTH_RATE_LIMIT_LOGIN + email);
 
         UserEntity user = userRepository.findByEmailIgnoreCaseAndDeletedAtIsNull(email)
-                .orElseThrow(() -> new BusinessException("Email or password is incorrect"));
+                .orElseThrow(() -> new BusinessException("Email or password is incorrect", HttpStatus.UNAUTHORIZED));
 
         if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
-            throw new BusinessException("Email or password is incorrect");
+            throw new BusinessException("Email or password is incorrect", HttpStatus.UNAUTHORIZED);
         }
 
         if (user.getStatus() != UserStatus.ACTIVE || user.getDisabledAt() != null) {
-            throw new BusinessException("User account is not active");
+            throw new BusinessException("User account is not active", HttpStatus.FORBIDDEN);
         }
 
         user.setLastLoginAt(OffsetDateTime.now());
@@ -96,10 +97,10 @@ public class AuthServiceImpl implements AuthService {
 
         UserEntity user = userRepository.findById(currentUserId)
                 .filter(existingUser -> existingUser.getDeletedAt() == null)
-                .orElseThrow(() -> new BusinessException("User not found"));
+                .orElseThrow(() -> new BusinessException("User not found", HttpStatus.NOT_FOUND));
 
         if (user.getStatus() != UserStatus.ACTIVE || user.getDisabledAt() != null) {
-            throw new BusinessException("User account is not active");
+            throw new BusinessException("User account is not active", HttpStatus.FORBIDDEN);
         }
 
         return userMapper.toResponse(user);
@@ -110,19 +111,19 @@ public class AuthServiceImpl implements AuthService {
         UUID userId = extractUserIdFromRefreshToken(request.getRefreshToken());
         String requestTokenHash = hashToken(request.getRefreshToken());
         String storedTokenHash = redisService.getRefreshToken(userId)
-                .orElseThrow(() -> new BusinessException("Refresh token is invalid or expired"));
+                .orElseThrow(() -> new BusinessException("Refresh token is invalid or expired", HttpStatus.UNAUTHORIZED));
 
         if (!isSameHash(requestTokenHash, storedTokenHash)) {
-            throw new BusinessException("Refresh token is invalid or expired");
+            throw new BusinessException("Refresh token is invalid or expired", HttpStatus.UNAUTHORIZED);
         }
 
         UserEntity user = userRepository.findById(userId)
                 .filter(existingUser -> existingUser.getDeletedAt() == null)
-                .orElseThrow(() -> new BusinessException("Refresh token is invalid or expired"));
+                .orElseThrow(() -> new BusinessException("Refresh token is invalid or expired", HttpStatus.UNAUTHORIZED));
 
         if (user.getStatus() != UserStatus.ACTIVE || user.getDisabledAt() != null) {
             redisService.deleteRefreshToken(userId);
-            throw new BusinessException("User account is not active");
+            throw new BusinessException("User account is not active", HttpStatus.FORBIDDEN);
         }
 
         String newRefreshToken = generateRefreshToken(user.getId());
@@ -140,12 +141,12 @@ public class AuthServiceImpl implements AuthService {
     public LogoutResponse logout(String authorizationHeader) {
         String accessToken = jwtService.resolveToken(authorizationHeader);
         if (accessToken == null) {
-            throw new BusinessException("Authorization token is required");
+            throw new BusinessException("Authorization token is required", HttpStatus.UNAUTHORIZED);
         }
 
         String jti = jwtService.extractJti(accessToken);
         if (jti == null || jti.isBlank()) {
-            throw new BusinessException("Invalid access token");
+            throw new BusinessException("Invalid access token", HttpStatus.UNAUTHORIZED);
         }
 
         Date tokenExpiration = jwtService.extractExpiration(accessToken);
@@ -286,7 +287,7 @@ public class AuthServiceImpl implements AuthService {
 
     private void enforceRateLimit(String key) {
         if (redisService.isRateLimited(key)) {
-            throw new BusinessException(TOO_MANY_ATTEMPTS_MESSAGE);
+            throw new BusinessException(TOO_MANY_ATTEMPTS_MESSAGE, HttpStatus.TOO_MANY_REQUESTS);
         }
     }
 
