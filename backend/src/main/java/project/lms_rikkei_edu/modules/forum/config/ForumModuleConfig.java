@@ -5,9 +5,12 @@ import org.springframework.context.annotation.Configuration;
 import project.lms_rikkei_edu.common.security.CurrentUserProvider;
 import project.lms_rikkei_edu.modules.forum.repository.ForumCourseRepository;
 import project.lms_rikkei_edu.modules.forum.repository.ForumPostRepository;
+import project.lms_rikkei_edu.modules.forum.repository.ForumReactionRepository;
+import project.lms_rikkei_edu.modules.forum.repository.ForumReportRepository;
 import project.lms_rikkei_edu.modules.forum.repository.ForumReplyRepository;
 import project.lms_rikkei_edu.modules.forum.service.ForumService;
 import project.lms_rikkei_edu.modules.forum.service.impl.ForumServiceImpl;
+import project.lms_rikkei_edu.modules.notification.service.NotificationService;
 import project.lms_rikkei_edu.modules.user.repository.UserRepository;
 
 @Configuration
@@ -18,6 +21,9 @@ public class ForumModuleConfig {
             ForumPostRepository forumPostRepository,
             ForumReplyRepository forumReplyRepository,
             ForumCourseRepository forumCourseRepository,
+            ForumReactionRepository forumReactionRepository,
+            ForumReportRepository forumReportRepository,
+            NotificationService notificationService,
             UserRepository userRepository,
             CurrentUserProvider currentUserProvider
     ) {
@@ -25,6 +31,9 @@ public class ForumModuleConfig {
                 forumPostRepository,
                 forumReplyRepository,
                 forumCourseRepository,
+                forumReactionRepository,
+                forumReportRepository,
+                notificationService,
                 userRepository,
                 currentUserProvider
         );

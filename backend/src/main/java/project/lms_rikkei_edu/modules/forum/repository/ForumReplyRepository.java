@@ -14,6 +14,9 @@ public interface ForumReplyRepository extends JpaRepository<ForumReplyEntity, UU
     @Query("""
             select r from ForumReplyEntity r
             join fetch r.author a
+            join fetch r.post p
+            join fetch r.course c
+            left join fetch r.parentReply
             where r.post.id = :postId and r.deleted = false
             order by r.createdAt asc
             """)
@@ -24,6 +27,7 @@ public interface ForumReplyRepository extends JpaRepository<ForumReplyEntity, UU
             join fetch r.post p
             join fetch r.course c
             join fetch r.author a
+            left join fetch r.parentReply
             where r.id = :replyId and r.deleted = false
             """)
     Optional<ForumReplyEntity> findActiveById(@Param("replyId") UUID replyId);

@@ -17,6 +17,8 @@ public class ForumReplyResponse {
     private ForumAuthorResponse author;
     private String content;
     private int depth;
+    private int upvoteCount;
+    private boolean upvoted;
     private List<ForumReplyResponse> replies;
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;

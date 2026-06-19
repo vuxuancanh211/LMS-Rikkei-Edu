@@ -479,7 +479,7 @@ INSERT INTO certificates (id, student_id, course_id, credential_id, pdf_s3_key, 
 -- ============================================================
 -- 17. NOTIFICATIONS
 -- ============================================================
-INSERT INTO notifications (id, recipient_id, idempotency_key, type, title, body, reference_type, reference_id, actor_id, actor_name, priority, is_read, email_sent, push_sent, created_at) VALUES
+INSERT INTO notifications (id, recipient_id, idempotency_key, notification_type, title, body, reference_type, reference_id, actor_id, actor_name, priority, is_read, email_sent, push_sent, created_at) VALUES
                                                                                                                                                                                                (gen_random_uuid(), '00000000-0000-0000-0000-000000000004',
                                                                                                                                                                                                 'cert-issued-20000000-0000-0000-0000-000000000001-00000000-0000-0000-0000-000000000004',
                                                                                                                                                                                                 'CERTIFICATE_ISSUED', '🎉 Chúc mừng bạn đã hoàn thành khoá học!',

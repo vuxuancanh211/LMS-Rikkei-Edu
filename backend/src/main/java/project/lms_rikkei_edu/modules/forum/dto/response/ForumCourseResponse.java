@@ -10,4 +10,6 @@ import java.util.UUID;
 public class ForumCourseResponse {
     private UUID id;
     private String title;
+    private boolean canCreatePost;
+    private boolean canPinPost;
 }

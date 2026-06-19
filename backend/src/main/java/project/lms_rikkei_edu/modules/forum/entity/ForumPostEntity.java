@@ -31,6 +31,9 @@ public class ForumPostEntity {
     @JoinColumn(name = "author_id", nullable = false)
     private UserEntity author;
 
+    @Column(length = 30)
+    private String topic;
+
     @Column(length = 200, nullable = false)
     private String title;
 
@@ -42,6 +45,9 @@ public class ForumPostEntity {
 
     @Column(name = "reply_count")
     private Integer replyCount;
+
+    @Column(name = "upvote_count")
+    private Integer upvoteCount;
 
     @Column(name = "is_deleted")
     private Boolean deleted;

@@ -9,6 +9,9 @@ import lombok.Setter;
 @Setter
 public class UpdateForumPostRequest {
 
+    @Size(max = 30, message = "Topic must not exceed 30 characters")
+    private String topic;
+
     @NotBlank(message = "Title is required")
     @Size(max = 200, message = "Title must not exceed 200 characters")
     private String title;

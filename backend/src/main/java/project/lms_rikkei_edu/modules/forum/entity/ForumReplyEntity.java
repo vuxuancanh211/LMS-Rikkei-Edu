@@ -42,6 +42,9 @@ public class ForumReplyEntity {
     @Column(columnDefinition = "text")
     private String content;
 
+    @Column(name = "upvote_count")
+    private Integer upvoteCount;
+
     @Column(name = "is_deleted")
     private Boolean deleted;
 

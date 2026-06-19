@@ -451,13 +451,15 @@ CREATE TABLE "submission_files" (
 
 CREATE TABLE "forum_posts" (
                                "id" uuid PRIMARY KEY,
-                               "course_id" uuid NOT NULL,
-                               "author_id" uuid NOT NULL,
-                               "title" varchar(200) NOT NULL,
-                               "content" text,
-                               "is_pinned" boolean DEFAULT false,
-                               "reply_count" int DEFAULT 0,
-                               "is_deleted" boolean DEFAULT false,
+                                "course_id" uuid NOT NULL,
+                                "author_id" uuid NOT NULL,
+                                "topic" varchar(30),
+                                "title" varchar(200) NOT NULL,
+                                "content" text,
+                                "is_pinned" boolean DEFAULT false,
+                                "reply_count" int DEFAULT 0,
+                                "upvote_count" int DEFAULT 0,
+                                "is_deleted" boolean DEFAULT false,
                                "deleted_by" uuid,
                                "deleted_at" timestamptz,
                                "created_at" timestamptz,
@@ -469,13 +471,26 @@ CREATE TABLE "forum_replies" (
                                  "post_id" uuid NOT NULL,
                                  "course_id" uuid NOT NULL,
                                  "author_id" uuid NOT NULL,
-                                  "parent_reply_id" uuid,
-                                 "content" text,
-                                 "is_deleted" boolean DEFAULT false,
+                                   "parent_reply_id" uuid,
+                                  "content" text,
+                                  "upvote_count" int DEFAULT 0,
+                                  "is_deleted" boolean DEFAULT false,
                                  "deleted_by" uuid,
                                  "deleted_at" timestamptz,
                                  "created_at" timestamptz,
                                  "updated_at" timestamptz
+);
+
+CREATE TABLE "forum_reactions" (
+                                  "id" uuid PRIMARY KEY,
+                                  "post_id" uuid,
+                                  "reply_id" uuid,
+                                  "user_id" uuid NOT NULL,
+                                  "created_at" timestamptz DEFAULT (now()),
+                                  CONSTRAINT chk_forum_reaction_target CHECK (
+                                      (post_id IS NOT NULL AND reply_id IS NULL) OR
+                                      (post_id IS NULL AND reply_id IS NOT NULL)
+                                  )
 );
 
 CREATE TABLE "forum_reports" (
@@ -592,7 +607,7 @@ CREATE TABLE "notifications" (
                                  "id" uuid PRIMARY KEY DEFAULT (gen_random_uuid()),
                                  "recipient_id" uuid NOT NULL,
                                  "idempotency_key" varchar(200) UNIQUE,
-                                 "type" varchar(40) NOT NULL,
+                                 "notification_type" varchar(40) NOT NULL,
                                  "title" varchar(200) NOT NULL,
                                  "body" varchar(500),
                                  "reference_type" varchar(30),
@@ -691,6 +706,8 @@ CREATE UNIQUE INDEX ON "assignment_groups" ("assignment_id", "group_id");
 CREATE UNIQUE INDEX ON "assignment_submissions" ("assignment_id", "student_id", "submission_number");
 
 CREATE UNIQUE INDEX ON "forum_reports" ("target_type", "target_id", "reporter_id");
+
+CREATE UNIQUE INDEX ON "forum_reactions" (COALESCE("post_id", "reply_id"), "user_id");
 
 CREATE UNIQUE INDEX ON "chat_room_members" ("room_id", "user_id");
 
@@ -937,6 +954,12 @@ ALTER TABLE "forum_replies" ADD FOREIGN KEY ("parent_reply_id") REFERENCES "foru
 ALTER TABLE "forum_reports" ADD FOREIGN KEY ("reporter_id") REFERENCES "users" ("id") DEFERRABLE INITIALLY IMMEDIATE;
 
 ALTER TABLE "forum_reports" ADD FOREIGN KEY ("reviewed_by") REFERENCES "users" ("id") DEFERRABLE INITIALLY IMMEDIATE;
+
+ALTER TABLE "forum_reactions" ADD FOREIGN KEY ("post_id") REFERENCES "forum_posts" ("id") DEFERRABLE INITIALLY IMMEDIATE;
+
+ALTER TABLE "forum_reactions" ADD FOREIGN KEY ("reply_id") REFERENCES "forum_replies" ("id") DEFERRABLE INITIALLY IMMEDIATE;
+
+ALTER TABLE "forum_reactions" ADD FOREIGN KEY ("user_id") REFERENCES "users" ("id") DEFERRABLE INITIALLY IMMEDIATE;
 
 ALTER TABLE "chat_rooms" ADD FOREIGN KEY ("course_id") REFERENCES "courses" ("id") DEFERRABLE INITIALLY IMMEDIATE;
 

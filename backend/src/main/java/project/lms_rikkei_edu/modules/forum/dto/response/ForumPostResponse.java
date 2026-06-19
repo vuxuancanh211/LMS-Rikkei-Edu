@@ -13,10 +13,13 @@ public class ForumPostResponse {
     private UUID courseId;
     private String courseTitle;
     private ForumAuthorResponse author;
+    private String topic;
     private String title;
     private String content;
     private boolean pinned;
     private int replyCount;
+    private int upvoteCount;
+    private boolean upvoted;
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;
 }

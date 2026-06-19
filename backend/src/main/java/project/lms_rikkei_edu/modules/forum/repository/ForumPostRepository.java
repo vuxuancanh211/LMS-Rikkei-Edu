@@ -20,107 +20,39 @@ public interface ForumPostRepository extends JpaRepository<ForumPostEntity, UUID
             """)
     Optional<ForumPostEntity> findActiveById(@Param("postId") UUID postId);
 
-    @Query(value = """
-            select p from ForumPostEntity p
-            join fetch p.course c
-            join fetch p.author a
-            where p.deleted = false
-              and (:courseId is null or c.id = :courseId)
-            order by p.pinned desc, p.createdAt desc
-            """,
-            countQuery = """
-            select count(p) from ForumPostEntity p
-            where p.deleted = false
-              and (:courseId is null or p.course.id = :courseId)
-            """)
-    Page<ForumPostEntity> findVisibleForAdmin(@Param("courseId") UUID courseId, Pageable pageable);
+@Query(value = """
+        select p from ForumPostEntity p
+        join fetch p.course c
+        join fetch p.author a
+        where p.deleted = false
+          and (:courseId is null or c.id = :courseId)
+          and (:topic is null or p.topic = :topic)
+        order by p.pinned desc, p.createdAt desc
+        """,
+        countQuery = """
+        select count(p) from ForumPostEntity p
+        where p.deleted = false
+          and (:courseId is null or p.course.id = :courseId)
+          and (:topic is null or p.topic = :topic)
+        """)
+Page<ForumPostEntity> findAllActive(@Param("courseId") UUID courseId, @Param("topic") String topic, Pageable pageable);
 
-    @Query(value = """
-            select p from ForumPostEntity p
-            join fetch p.course c
-            join fetch p.author a
-            where p.deleted = false
-              and (:courseId is null or c.id = :courseId)
-              and (lower(p.title) like lower(concat('%', :keyword, '%')) or lower(coalesce(p.content, '')) like lower(concat('%', :keyword, '%')))
-            order by p.pinned desc, p.createdAt desc
-            """,
-            countQuery = """
-            select count(p) from ForumPostEntity p
-            where p.deleted = false
-              and (:courseId is null or p.course.id = :courseId)
-              and (lower(p.title) like lower(concat('%', :keyword, '%')) or lower(coalesce(p.content, '')) like lower(concat('%', :keyword, '%')))
-            """)
-    Page<ForumPostEntity> searchVisibleForAdmin(@Param("courseId") UUID courseId, @Param("keyword") String keyword, Pageable pageable);
-
-    @Query(value = """
-            select p from ForumPostEntity p
-            join fetch p.course c
-            join fetch p.author a
-            where p.deleted = false
-              and c.instructorId = :userId
-              and (:courseId is null or c.id = :courseId)
-            order by p.pinned desc, p.createdAt desc
-            """,
-            countQuery = """
-            select count(p) from ForumPostEntity p
-            where p.deleted = false
-              and p.course.instructorId = :userId
-              and (:courseId is null or p.course.id = :courseId)
-            """)
-    Page<ForumPostEntity> findVisibleForInstructor(@Param("userId") UUID userId, @Param("courseId") UUID courseId, Pageable pageable);
-
-    @Query(value = """
-            select p from ForumPostEntity p
-            join fetch p.course c
-            join fetch p.author a
-            where p.deleted = false
-              and c.instructorId = :userId
-              and (:courseId is null or c.id = :courseId)
-              and (lower(p.title) like lower(concat('%', :keyword, '%')) or lower(coalesce(p.content, '')) like lower(concat('%', :keyword, '%')))
-            order by p.pinned desc, p.createdAt desc
-            """,
-            countQuery = """
-            select count(p) from ForumPostEntity p
-            where p.deleted = false
-              and p.course.instructorId = :userId
-              and (:courseId is null or p.course.id = :courseId)
-              and (lower(p.title) like lower(concat('%', :keyword, '%')) or lower(coalesce(p.content, '')) like lower(concat('%', :keyword, '%')))
-            """)
-    Page<ForumPostEntity> searchVisibleForInstructor(@Param("userId") UUID userId, @Param("courseId") UUID courseId, @Param("keyword") String keyword, Pageable pageable);
-
-    @Query(value = """
-            select p from ForumPostEntity p
-            join fetch p.course c
-            join fetch p.author a
-            where p.deleted = false
-              and exists (select 1 from ForumCourseEnrollmentEntity ce where ce.courseId = c.id and ce.studentId = :userId)
-              and (:courseId is null or c.id = :courseId)
-            order by p.pinned desc, p.createdAt desc
-            """,
-            countQuery = """
-            select count(p) from ForumPostEntity p
-            where p.deleted = false
-              and exists (select 1 from ForumCourseEnrollmentEntity ce where ce.courseId = p.course.id and ce.studentId = :userId)
-              and (:courseId is null or p.course.id = :courseId)
-            """)
-    Page<ForumPostEntity> findVisibleForStudent(@Param("userId") UUID userId, @Param("courseId") UUID courseId, Pageable pageable);
-
-    @Query(value = """
-            select p from ForumPostEntity p
-            join fetch p.course c
-            join fetch p.author a
-            where p.deleted = false
-              and exists (select 1 from ForumCourseEnrollmentEntity ce where ce.courseId = c.id and ce.studentId = :userId)
-              and (:courseId is null or c.id = :courseId)
-              and (lower(p.title) like lower(concat('%', :keyword, '%')) or lower(coalesce(p.content, '')) like lower(concat('%', :keyword, '%')))
-            order by p.pinned desc, p.createdAt desc
-            """,
-            countQuery = """
-            select count(p) from ForumPostEntity p
-            where p.deleted = false
-              and exists (select 1 from ForumCourseEnrollmentEntity ce where ce.courseId = p.course.id and ce.studentId = :userId)
-              and (:courseId is null or p.course.id = :courseId)
-              and (lower(p.title) like lower(concat('%', :keyword, '%')) or lower(coalesce(p.content, '')) like lower(concat('%', :keyword, '%')))
-            """)
-    Page<ForumPostEntity> searchVisibleForStudent(@Param("userId") UUID userId, @Param("courseId") UUID courseId, @Param("keyword") String keyword, Pageable pageable);
+@Query(value = """
+        select p from ForumPostEntity p
+        join fetch p.course c
+        join fetch p.author a
+        where p.deleted = false
+          and (:courseId is null or c.id = :courseId)
+          and (:topic is null or p.topic = :topic)
+          and (lower(p.title) like lower(concat('%', :keyword, '%')) or lower(coalesce(p.content, '')) like lower(concat('%', :keyword, '%')))
+        order by p.pinned desc, p.createdAt desc
+        """,
+        countQuery = """
+        select count(p) from ForumPostEntity p
+        where p.deleted = false
+          and (:courseId is null or p.course.id = :courseId)
+          and (:topic is null or p.topic = :topic)
+          and (lower(p.title) like lower(concat('%', :keyword, '%')) or lower(coalesce(p.content, '')) like lower(concat('%', :keyword, '%')))
+        """)
+Page<ForumPostEntity> searchActive(@Param("courseId") UUID courseId, @Param("keyword") String keyword, @Param("topic") String topic, Pageable pageable);
 }

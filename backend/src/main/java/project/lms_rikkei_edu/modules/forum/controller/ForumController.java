@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import project.lms_rikkei_edu.modules.forum.dto.request.CreateForumPostRequest;
 import project.lms_rikkei_edu.modules.forum.dto.request.CreateForumReplyRequest;
+import project.lms_rikkei_edu.modules.forum.dto.request.CreateForumReportRequest;
 import project.lms_rikkei_edu.modules.forum.dto.request.UpdateForumPostRequest;
 import project.lms_rikkei_edu.modules.forum.dto.response.ForumPostDetailResponse;
 import project.lms_rikkei_edu.modules.forum.dto.response.ForumCourseResponse;
@@ -46,9 +47,10 @@ public class ForumController {
     public ResponseEntity<Page<ForumPostResponse>> getPosts(
             @RequestParam(required = false) UUID courseId,
             @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) String topic,
             @PageableDefault(size = 10) Pageable pageable
     ) {
-        return ResponseEntity.ok(forumService.getPosts(courseId, keyword, pageable));
+        return ResponseEntity.ok(forumService.getPosts(courseId, keyword, topic, pageable));
     }
 
     @GetMapping("/posts/{postId}")
@@ -59,6 +61,11 @@ public class ForumController {
     @PostMapping("/posts")
     public ResponseEntity<ForumPostResponse> createPost(@Valid @RequestBody CreateForumPostRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(forumService.createPost(request));
+    }
+
+    @PatchMapping("/posts/{postId}/pin")
+    public ResponseEntity<ForumPostResponse> togglePin(@PathVariable UUID postId) {
+        return ResponseEntity.ok(forumService.togglePin(postId));
     }
 
     @PostMapping("/posts/{postId}/replies")
@@ -83,6 +90,28 @@ public class ForumController {
             @Valid @RequestBody CreateForumReplyRequest request
     ) {
         return ResponseEntity.ok(forumService.updateReply(replyId, request));
+    }
+
+    @PostMapping("/posts/{postId}/upvote")
+    public ResponseEntity<ForumPostResponse> toggleUpvote(@PathVariable UUID postId) {
+        return ResponseEntity.ok(forumService.toggleUpvote(postId));
+    }
+
+    @PostMapping("/replies/{replyId}/upvote")
+    public ResponseEntity<ForumReplyResponse> toggleReplyUpvote(@PathVariable UUID replyId) {
+        return ResponseEntity.ok(forumService.toggleReplyUpvote(replyId));
+    }
+
+    @PostMapping("/posts/{postId}/report")
+    public ResponseEntity<Void> reportPost(@PathVariable UUID postId, @Valid @RequestBody CreateForumReportRequest request) {
+        forumService.reportPost(postId, request);
+        return ResponseEntity.ok().build();
+    }
+
+    @PostMapping("/replies/{replyId}/report")
+    public ResponseEntity<Void> reportReply(@PathVariable UUID replyId, @Valid @RequestBody CreateForumReportRequest request) {
+        forumService.reportReply(replyId, request);
+        return ResponseEntity.ok().build();
     }
 
     @DeleteMapping("/posts/{postId}")
