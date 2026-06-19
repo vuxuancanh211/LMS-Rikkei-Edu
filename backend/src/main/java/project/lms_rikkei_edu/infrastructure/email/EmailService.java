@@ -40,4 +40,18 @@ public class EmailService {
 
         mailSender.send(message);
     }
+
+    public void sendTemporaryPasswordMail(String to, String temporaryPassword) {
+        SimpleMailMessage message = new SimpleMailMessage();
+
+        message.setFrom(from);
+        message.setTo(to);
+        message.setSubject("Your Rikkei Edu account has been created");
+        message.setText("Your account has been created by an administrator.\n\n"
+                + "Use the following temporary password to log in:\n"
+                + temporaryPassword
+                + "\n\nPlease change your password after logging in for security reasons.");
+
+        mailSender.send(message);
+    }
 }
