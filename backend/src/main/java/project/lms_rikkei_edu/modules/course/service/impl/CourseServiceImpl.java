@@ -60,11 +60,10 @@ public class CourseServiceImpl implements CourseService {
     @Override
     @Transactional(readOnly = true)
     public CourseDetailResponse getCourseDetail(UUID instructorId, UUID courseId) {
-        // Load course + chapters + lessons (avoids MultipleBagFetchException)
-        Course course = courseRepository.findByIdWithFullStructure(courseId)
+        // Load course + category only; lazy-load collections within transaction to avoid MultipleBagFetchException
+        Course course = courseRepository.findByIdWithCategory(courseId)
                 .orElseThrow(() -> new CourseNotFoundException(courseId));
         assertOwner(course, instructorId);
-        // Force-init resources for each lesson while still in transaction
         course.getChapters().forEach(ch ->
             ch.getLessons().forEach(l -> l.getResources().size())
         );
@@ -122,6 +121,21 @@ public class CourseServiceImpl implements CourseService {
         course.setStatus(CourseStatus.PENDING);
         course.setSubmittedAt(Instant.now());
         course.setRejectionReason(null);
+
+        Course saved = courseRepository.save(course);
+        return courseMapper.toDetailResponse(saved);
+    }
+
+    @Override
+    public CourseDetailResponse withdrawFromReview(UUID instructorId, UUID courseId) {
+        Course course = loadOwnedCourse(instructorId, courseId);
+
+        if (course.getStatus() != CourseStatus.PENDING && course.getStatus() != CourseStatus.PENDING_UPDATE) {
+            throw new CourseStateException("Only PENDING or PENDING_UPDATE courses can be withdrawn");
+        }
+
+        course.setStatus(CourseStatus.DRAFT);
+        course.setSubmittedAt(null);
 
         Course saved = courseRepository.save(course);
         return courseMapper.toDetailResponse(saved);

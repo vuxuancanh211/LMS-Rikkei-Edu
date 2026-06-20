@@ -17,4 +17,6 @@ public class LessonResourceResponse {
     private String mimeType;
     private Boolean isDownloadable;
     private Integer orderIndex;
+    /** Có giá trị khi resource là external URL (s3Key bắt đầu bằng "ext://") */
+    private String externalUrl;
 }

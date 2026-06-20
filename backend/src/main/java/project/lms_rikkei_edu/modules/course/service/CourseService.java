@@ -21,6 +21,8 @@ public interface CourseService {
 
     CourseDetailResponse submitForApproval(UUID instructorId, UUID courseId);
 
+    CourseDetailResponse withdrawFromReview(UUID instructorId, UUID courseId);
+
     ChapterResponse addChapter(UUID instructorId, UUID courseId, CreateChapterRequest request);
 
     ChapterResponse updateChapter(UUID instructorId, UUID courseId, UUID chapterId, UpdateChapterRequest request);

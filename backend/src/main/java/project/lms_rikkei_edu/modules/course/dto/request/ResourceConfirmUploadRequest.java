@@ -10,8 +10,10 @@ import project.lms_rikkei_edu.modules.course.enums.ResourceType;
 @Setter
 public class ResourceConfirmUploadRequest {
 
-    @NotBlank
     private String s3Key;
+
+    /** Thay thế s3Key khi resource là URL ngoài (YouTube, CDN, ...) */
+    private String externalUrl;
 
     @NotNull
     private ResourceType resourceType;

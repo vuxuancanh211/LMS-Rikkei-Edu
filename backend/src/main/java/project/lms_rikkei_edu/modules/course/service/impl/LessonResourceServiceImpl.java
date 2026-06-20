@@ -74,8 +74,18 @@ public class LessonResourceServiceImpl implements LessonResourceService {
                                                 ResourceConfirmUploadRequest request) {
         Lesson lesson = loadOwnedLesson(instructorId, courseId, lessonId);
 
-        if (!s3Service.objectExists(request.getS3Key())) {
-            throw new IllegalStateException("File chưa được upload lên S3: " + request.getS3Key());
+        boolean isExternal = request.getExternalUrl() != null && !request.getExternalUrl().isBlank();
+        String s3Key;
+        if (isExternal) {
+            s3Key = "ext://" + request.getExternalUrl().trim();
+        } else {
+            if (request.getS3Key() == null || request.getS3Key().isBlank()) {
+                throw new IllegalArgumentException("Phải cung cấp s3Key hoặc externalUrl");
+            }
+            if (!s3Service.objectExists(request.getS3Key())) {
+                throw new IllegalStateException("File chưa được upload lên S3: " + request.getS3Key());
+            }
+            s3Key = request.getS3Key();
         }
 
         int nextOrder = lessonResourceRepository
@@ -85,7 +95,7 @@ public class LessonResourceServiceImpl implements LessonResourceService {
                 .lesson(lesson)
                 .courseId(courseId)
                 .uploadedBy(instructorId)
-                .s3Key(request.getS3Key())
+                .s3Key(s3Key)
                 .resourceType(request.getResourceType())
                 .displayName(request.getDisplayName() != null
                         ? request.getDisplayName()
@@ -162,6 +172,22 @@ public class LessonResourceServiceImpl implements LessonResourceService {
 
         // Xóa thật trên S3
         s3Service.deleteObject(resource.getS3Key());
+    }
+
+    @Override
+    public LessonResourceResponse renameResource(UUID instructorId, UUID courseId, UUID lessonId, UUID resourceId, String displayName) {
+        loadOwnedLesson(instructorId, courseId, lessonId);
+
+        LessonResource resource = lessonResourceRepository.findById(resourceId)
+                .filter(r -> lessonId.equals(r.getLesson().getId()))
+                .filter(r -> r.getDeletedAt() == null)
+                .orElseThrow(() -> new IllegalArgumentException("Resource không tồn tại: " + resourceId));
+
+        if (displayName != null && !displayName.isBlank()) {
+            resource.setDisplayName(displayName.trim());
+            lessonResourceRepository.save(resource);
+        }
+        return lessonResourceMapper.toResponse(resource);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

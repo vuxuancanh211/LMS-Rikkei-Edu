@@ -27,4 +27,7 @@ public interface LessonResourceService {
 
     /** Xóa resource (xóa mềm + xóa trên S3) */
     void deleteResource(UUID instructorId, UUID courseId, UUID lessonId, UUID resourceId);
+
+    /** Đổi tên hiển thị của resource */
+    LessonResourceResponse renameResource(UUID instructorId, UUID courseId, UUID lessonId, UUID resourceId, String displayName);
 }

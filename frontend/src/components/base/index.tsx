@@ -2,6 +2,8 @@
 /* ============================================================
    RIKKEI EDU — Shared components
    ============================================================ */
+import { createPortal } from 'react-dom';
+
 const { useState, useEffect, useRef } = React;
 const I = window.Icon;
 const { avatarColor, initials } = window.UI;
@@ -175,18 +177,24 @@ function Pager({ page, pages, onPage }) {
 }
 
 /* ---------- Modal ---------- */
-function Modal({ open, onClose, children, max }) {
+function Modal({ open, onClose, children, max, maxHeight }) {
   useEffect(() => {
     if (!open) return;
     const h = (e) => e.key === "Escape" && onClose();
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     window.addEventListener("keydown", h);
-    return () => window.removeEventListener("keydown", h);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", h);
+    };
   }, [open]);
   if (!open) return null;
-  return (
+  return createPortal(
     <div className="overlay" onClick={onClose}>
-      <div className="modal" style={{ maxWidth: max }} onClick={(e) => e.stopPropagation()}>{children}</div>
-    </div>
+      <div className="modal" style={{ maxWidth: max, maxHeight }} onClick={(e) => e.stopPropagation()}>{children}</div>
+    </div>,
+    document.body
   );
 }
 function ModalHead({ title, sub, onClose, icon, iconBg, iconColor }) {

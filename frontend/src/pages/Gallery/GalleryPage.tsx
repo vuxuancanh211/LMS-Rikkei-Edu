@@ -52,7 +52,7 @@ function registerGalleryPage() {
     instructor: { dashboard: "InsDashboard", courses: "InsCourses", courseDetail: "InsCourseDetail", groups: "InsGroups", groupDetail: "InsGroupDetail", assess: "InsAssess", grading: "InsGrading", students: "InsStudents", forum: "StuForum", chat: "ChatScreen", settings: "Settings" },
     admin: { dashboard: "AdminDashboard", users: "AdminUsers", courses: "AdminCourses", approval: "AdminApproval", reports: "AdminReports", logs: "AdminLogs", settings: "Settings" },
   };
-  const FULLBARE = { player: "LecturePlayer", quiz: "QuizPlayer", result: "QuizResult" };
+  const FULLBARE = { player: "LecturePlayer", quiz: "QuizPlayer", result: "QuizResult", preview: "PreviewPlayer" };
   const ROLES = [["student", "Học viên"], ["instructor", "Giảng viên"], ["admin", "Quản trị"]];
   const ALIAS = { groupDetail: "groups", courseDetail: "courses" };
 

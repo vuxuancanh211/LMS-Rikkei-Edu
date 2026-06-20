@@ -19,7 +19,9 @@ public class CourseResponse {
     private String thumbnailUrl;
     private String description;
     private Boolean chatEnabled;
+    private UUID instructorId;
     private CourseCategoryResponse category;
+    private Instant submittedAt;
     private Instant createdAt;
     private Instant updatedAt;
 }

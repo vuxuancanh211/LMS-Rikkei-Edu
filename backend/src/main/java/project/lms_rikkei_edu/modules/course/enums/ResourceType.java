@@ -5,5 +5,6 @@ public enum ResourceType {
     DOC,
     SLIDE,
     IMAGE,
+    VIDEO,
     OTHER
 }

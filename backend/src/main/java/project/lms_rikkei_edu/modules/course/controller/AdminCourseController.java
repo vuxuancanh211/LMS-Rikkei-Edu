@@ -5,11 +5,15 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import project.lms_rikkei_edu.common.exception.BusinessException;
+import project.lms_rikkei_edu.common.security.CurrentUserProvider;
 import project.lms_rikkei_edu.modules.course.dto.request.CourseRejectRequest;
 import project.lms_rikkei_edu.modules.course.dto.response.CourseDetailResponse;
 import project.lms_rikkei_edu.modules.course.dto.response.CourseResponse;
+import project.lms_rikkei_edu.modules.course.dto.response.ResourceDownloadUrlResponse;
 import project.lms_rikkei_edu.modules.course.service.AdminCourseService;
 
 import java.util.UUID;
@@ -21,6 +25,12 @@ import java.util.UUID;
 public class AdminCourseController {
 
     private final AdminCourseService adminCourseService;
+    private final CurrentUserProvider currentUserProvider;
+
+    private UUID currentUserId() {
+        return currentUserProvider.getCurrentUserId()
+                .orElseThrow(() -> new BusinessException("Unauthorized", HttpStatus.UNAUTHORIZED));
+    }
 
     @GetMapping("/pending")
     public ResponseEntity<Page<CourseResponse>> listPending(Pageable pageable) {
@@ -32,34 +42,37 @@ public class AdminCourseController {
         return ResponseEntity.ok(adminCourseService.listAllCourses(pageable));
     }
 
-    @PostMapping("/{courseId}/approve")
-    public ResponseEntity<CourseDetailResponse> approve(
-            @RequestHeader("X-User-Id") UUID adminId,
-            @PathVariable UUID courseId) {
+    @GetMapping("/{courseId}")
+    public ResponseEntity<CourseDetailResponse> getCourseDetail(@PathVariable UUID courseId) {
+        return ResponseEntity.ok(adminCourseService.getCourseDetail(courseId));
+    }
 
-        return ResponseEntity.ok(adminCourseService.approveCourse(adminId, courseId));
+    @GetMapping("/resources/{resourceId}/download-url")
+    public ResponseEntity<ResourceDownloadUrlResponse> getResourceDownloadUrl(@PathVariable UUID resourceId) {
+        return ResponseEntity.ok(adminCourseService.getResourceDownloadUrl(resourceId));
+    }
+
+    @PostMapping("/{courseId}/approve")
+    public ResponseEntity<CourseDetailResponse> approve(@PathVariable UUID courseId) {
+        return ResponseEntity.ok(adminCourseService.approveCourse(currentUserId(), courseId));
     }
 
     @PostMapping("/{courseId}/reject")
     public ResponseEntity<CourseDetailResponse> reject(
-            @RequestHeader("X-User-Id") UUID adminId,
             @PathVariable UUID courseId,
             @Valid @RequestBody CourseRejectRequest request) {
-        return ResponseEntity.ok(adminCourseService.rejectCourse(adminId, courseId, request.getReason()));
+        return ResponseEntity.ok(adminCourseService.rejectCourse(currentUserId(), courseId, request.getReason()));
     }
 
     @PostMapping("/{courseId}/approve-update")
-    public ResponseEntity<CourseDetailResponse> approveUpdate(
-            @RequestHeader("X-User-Id") UUID adminId,
-            @PathVariable UUID courseId) {
-        return ResponseEntity.ok(adminCourseService.approveUpdate(adminId, courseId));
+    public ResponseEntity<CourseDetailResponse> approveUpdate(@PathVariable UUID courseId) {
+        return ResponseEntity.ok(adminCourseService.approveUpdate(currentUserId(), courseId));
     }
 
     @PostMapping("/{courseId}/reject-update")
     public ResponseEntity<CourseDetailResponse> rejectUpdate(
-            @RequestHeader("X-User-Id") UUID adminId,
             @PathVariable UUID courseId,
             @Valid @RequestBody CourseRejectRequest request) {
-        return ResponseEntity.ok(adminCourseService.rejectUpdate(adminId, courseId, request.getReason()));
+        return ResponseEntity.ok(adminCourseService.rejectUpdate(currentUserId(), courseId, request.getReason()));
     }
 }

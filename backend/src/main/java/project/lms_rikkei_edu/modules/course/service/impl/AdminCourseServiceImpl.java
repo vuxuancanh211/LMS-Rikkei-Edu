@@ -6,16 +6,20 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import project.lms_rikkei_edu.infrastructure.s3.S3Service;
 import project.lms_rikkei_edu.modules.ai.service.ingestion.CourseEmbeddingService;
 import project.lms_rikkei_edu.modules.course.dto.response.CourseDetailResponse;
 import project.lms_rikkei_edu.modules.course.dto.response.CourseResponse;
+import project.lms_rikkei_edu.modules.course.dto.response.ResourceDownloadUrlResponse;
 import project.lms_rikkei_edu.modules.course.entity.Course;
+import project.lms_rikkei_edu.modules.course.entity.LessonResource;
 import project.lms_rikkei_edu.modules.course.enums.CourseStatus;
 import project.lms_rikkei_edu.modules.course.exception.CourseNotFoundException;
 import project.lms_rikkei_edu.modules.course.exception.CourseStateException;
 import project.lms_rikkei_edu.modules.course.mapper.CourseMapper;
 import project.lms_rikkei_edu.modules.course.repository.CourseApprovalLogRepository;
 import project.lms_rikkei_edu.modules.course.repository.CourseRepository;
+import project.lms_rikkei_edu.modules.course.repository.LessonResourceRepository;
 import project.lms_rikkei_edu.modules.course.service.AdminCourseService;
 import project.lms_rikkei_edu.modules.course.entity.CourseApprovalLog;
 
@@ -33,6 +37,8 @@ public class AdminCourseServiceImpl implements AdminCourseService {
     private final CourseMapper courseMapper;
     private final CourseEmbeddingService embeddingService;
     private final CourseApprovalLogRepository approvalLogRepo;
+    private final LessonResourceRepository lessonResourceRepo;
+    private final S3Service s3Service;
 
     @Override
     @Transactional(readOnly = true)
@@ -49,6 +55,30 @@ public class AdminCourseServiceImpl implements AdminCourseService {
                 List.of(CourseStatus.DRAFT, CourseStatus.PENDING, CourseStatus.PENDING_UPDATE,
                         CourseStatus.PUBLISHED, CourseStatus.REJECTED, CourseStatus.ARCHIVED), pageable)
                 .map(courseMapper::toResponse);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public CourseDetailResponse getCourseDetail(UUID courseId) {
+        Course course = courseRepo.findByIdWithCategory(courseId)
+                .orElseThrow(() -> new CourseNotFoundException(courseId));
+        course.getChapters().forEach(ch ->
+            ch.getLessons().forEach(l -> l.getResources().size())
+        );
+        return courseMapper.toDetailResponse(course);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ResourceDownloadUrlResponse getResourceDownloadUrl(UUID resourceId) {
+        LessonResource resource = lessonResourceRepo.findById(resourceId)
+                .filter(r -> r.getDeletedAt() == null)
+                .orElseThrow(() -> new IllegalArgumentException("Resource không tồn tại: " + resourceId));
+        String url = s3Service.generatePresignedGetUrl(resource.getS3Key()).url().toString();
+        return ResourceDownloadUrlResponse.builder()
+                .url(url)
+                .expiresAt(Instant.now().plusSeconds(3600))
+                .build();
     }
 
     @Override

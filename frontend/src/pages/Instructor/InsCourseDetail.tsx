@@ -1,16 +1,72 @@
 // @ts-nocheck
 /* ============================================================
-   RIKKEI EDU — Giảng viên · Chi tiết Khóa học (+ popup thêm video / tài liệu)
+     RIKKEI EDU – Giảng viên · Chi tiết Khóa học
    ============================================================ */
 (function () {
-  const { useState } = React;
-  const Ic = window.Icon, D = window.DATA;
-  const { Avatar, Status, Progress, StatCard, CourseCard, Search, Tabs, Select, Section, Pager, Modal, ModalHead, Empty, LineChart, BarChart, Donut } = window;
+  const { useState, useEffect, useRef } = React;
+  const Ic = window.Icon;
+  const { Status, StatCard, Tabs, Select, Section, Modal, ModalHead, Empty } = window;
+  const api = window.httpClient;
 
-  const myCourses = D.courses.filter(c => ["Nguyễn Văn An", "Trần Thị Bình", "Lê Văn Cường", "Phạm Thị Dung"].includes(c.instructor)).slice(0, 9);
+  const CATS   = ["Frontend", "Backend", "DevOps", "Database", "AI/ML", "Mobile", "Testing", "Design", "Security", "Quy trình"];
+  const LEVELS = [
+    { label: "Cơ bản",    value: "BEGINNER"     },
+    { label: "Trung cấp", value: "INTERMEDIATE" },
+    { label: "Nâng cao",  value: "ADVANCED"     },
+  ];
 
-  const CATS = ["Frontend", "Backend", "DevOps", "Database", "AI/ML", "Mobile", "Testing", "Design", "Security", "Quy trình"];
-  const LEVELS = ["Cơ bản", "Trung cấp", "Nâng cao"];
+  const STATUS_LABEL = {
+    DRAFT:          "Bản nháp",
+    PENDING:        "Chờ duyệt",
+    PUBLISHED:      "Đã xuất bản",
+    REJECTED:       "Từ chối",
+    PENDING_UPDATE: "Chờ cập nhật",
+    ARCHIVED:       "Lưu trữ",
+  };
+  const STATUS_COLOR = {
+    DRAFT:          { bg: "#f1f5f9", color: "#64748b" },
+    PENDING:        { bg: "#fef9c3", color: "#a16207" },
+    PUBLISHED:      { bg: "#dcfce7", color: "#16a34a" },
+    REJECTED:       { bg: "#fee2e2", color: "#dc2626" },
+    PENDING_UPDATE: { bg: "#e0f2fe", color: "#0284c7" },
+    ARCHIVED:       { bg: "#f1f5f9", color: "#475569" },
+  };
+
+  const RES_TYPE = {
+    VIDEO: { ic: "video",  bg: "#eaf1ff", fg: "#2563eb" },
+    PDF:   { ic: "file",   bg: "#fdecec", fg: "#dc2626" },
+    DOC:   { ic: "file",   bg: "#eaf1ff", fg: "#2563eb" },
+    SLIDE: { ic: "layers", bg: "#fef5e6", fg: "#d97706" },
+    IMAGE: { ic: "image",  bg: "#f0fdf4", fg: "#16a34a" },
+    OTHER: { ic: "file",   bg: "#f1f5f9", fg: "#475569" },
+  };
+
+  /* ── helpers ──────────────────────────────────────────── */
+  function fmtDur(s) {
+    if (!s) return null;
+    return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+  }
+
+  function mapCourse(data) {
+    return (data.chapters || []).map(ch => ({
+      id:    ch.id,
+      name:  ch.title,
+      items: (ch.lessons || []).map(l => ({
+        lessonId:   l.id,
+        title:      l.title,
+        lessonType: l.lessonType,
+        dur:        fmtDur(l.durationSeconds),
+        resources:  (l.resources || []).map(r => ({
+          resourceId:   r.id,
+          title:        r.displayName || r.originalFilename,
+          resourceType: r.resourceType,
+          kind:         r.resourceType?.toLowerCase(),
+          externalUrl:  r.externalUrl || null,
+          mimeType:     r.mimeType || null,
+        })),
+      })),
+    }));
+  }
 
   function Field({ label, children, hint, full }) {
     return (
@@ -21,209 +77,808 @@
       </div>
     );
   }
-  function Dropzone({ icon, title, hint, h }) {
+
+  function Dropzone({ icon, title, hint, h, file, onClick, onDrop }) {
     return (
       <div style={{ border: "2px dashed var(--border-strong)", borderRadius: 12, padding: h || 26, textAlign: "center", color: "var(--text-3)", cursor: "pointer", background: "var(--surface-2)", transition: ".15s" }}
+        onClick={onClick}
         onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--accent)"; e.currentTarget.style.background = "var(--accent-soft)"; }}
-        onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border-strong)"; e.currentTarget.style.background = "var(--surface-2)"; }}>
-        <div className="stat-ic" style={{ width: 46, height: 46, borderRadius: 12, background: "#fff", color: "var(--accent)", margin: "0 auto 10px" }}><Ic n={icon} size={22} /></div>
-        <div style={{ fontWeight: 600, fontSize: 14, color: "var(--text)" }}>{title}</div>
-        <div className="t-xs" style={{ marginTop: 4 }}>{hint}</div>
+        onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border-strong)"; e.currentTarget.style.background = "var(--surface-2)"; }}
+        onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = "var(--accent)"; }}
+        onDragLeave={e => { e.currentTarget.style.borderColor = "var(--border-strong)"; }}
+        onDrop={e => { e.preventDefault(); e.currentTarget.style.borderColor = "var(--border-strong)"; onDrop?.(e.dataTransfer.files?.[0]); }}>
+        {file
+          ? <div style={{ fontWeight: 600, color: "var(--text)", fontSize: 14 }}>{file.name} <span className="muted t-xs">({(file.size / 1024 / 1024).toFixed(1)} MB)</span></div>
+          : <>
+              <div className="stat-ic" style={{ width: 46, height: 46, borderRadius: 12, background: "#fff", color: "var(--accent)", margin: "0 auto 10px" }}><Ic n={icon} size={22} /></div>
+              <div style={{ fontWeight: 600, fontSize: 14, color: "var(--text)" }}>{title}</div>
+              <div className="t-xs" style={{ marginTop: 4 }}>{hint}</div>
+            </>}
       </div>
     );
   }
 
-  /* ---------------- Add Video / Add Document modals ---------------- */
-  function AddVideoModal({ open, onClose, onAdd }) {
-    const [mode, setMode] = useState("upload");
+  /* Inline edit tên chương / bài giảng */
+  function InlineEdit({ value, onSave, style, placeholder }) {
+    const [editing, setEditing] = useState(false);
+    const [val, setVal]         = useState(value);
+    const ref = useRef();
+    useEffect(() => { setVal(value); }, [value]);
+    useEffect(() => { if (editing) ref.current?.select(); }, [editing]);
+    function commit() {
+      setEditing(false);
+      const t = val.trim();
+      if (t && t !== value) onSave(t); else setVal(value);
+    }
+    if (editing) return (
+      <input ref={ref} value={val} onChange={e => setVal(e.target.value)}
+        onBlur={commit}
+        onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); commit(); } if (e.key === "Escape") { setEditing(false); setVal(value); } }}
+        onClick={e => e.stopPropagation()}
+        style={{ background: "var(--surface)", border: "1px solid var(--accent)", borderRadius: 6, padding: "3px 8px", fontSize: "inherit", fontWeight: "inherit", color: "inherit", outline: "none", width: "100%", ...style }} />
+    );
     return (
-      <Modal open={open} onClose={onClose} max={560}>
-        <ModalHead title="Thêm bài giảng (Video)" sub="Tải video hoặc nhúng từ đường dẫn" icon="video" iconBg="#eaf1ff" iconColor="#2563eb" onClose={onClose} />
+      <span style={{ cursor: "text", ...style }} title="Nhấn để đổi tên" onClick={e => { e.stopPropagation(); setEditing(true); }}>
+        {value || <span style={{ color: "var(--text-3)", fontStyle: "italic" }}>{placeholder}</span>}
+      </span>
+    );
+  }
+
+  /* ── Modal thêm chương ──────────────────────────────────── */
+  function AddChapterModal({ open, onClose, courseId, onAdded }) {
+    const [title, setTitle]   = useState("");
+    const [saving, setSaving] = useState(false);
+    const [err, setErr]       = useState(null);
+    const close = () => { setTitle(""); setErr(null); onClose(); };
+    async function handleAdd() {
+      if (!title.trim()) { setErr("Vui lòng nhập tên chương"); return; }
+      setSaving(true); setErr(null);
+      try { await api.post(`/instructor/courses/${courseId}/chapters`, { title: title.trim() }); close(); onAdded?.(); }
+      catch (e) { setErr(e?.response?.data?.message || "Thêm chương thất bại"); }
+      finally { setSaving(false); }
+    }
+    if (!open) return null;
+    return (
+      <Modal open={open} onClose={close} max={440}>
+        <ModalHead title="Thêm chương mới" icon="layers" iconBg="#eaf1ff" iconColor="#2563eb" onClose={close} />
+        <div className="modal-body">
+          <label className="t-label" style={{ display: "block", marginBottom: 7 }}>Tên chương</label>
+          <input className="input" value={title} onChange={e => setTitle(e.target.value)}
+            placeholder="VD: Session 01 – Tổng quan & Cài đặt" autoFocus
+            onKeyDown={e => e.key === "Enter" && handleAdd()} />
+          {err && <div style={{ color: "var(--error)", fontSize: 13, marginTop: 8 }}>{err}</div>}
+        </div>
+        <div className="modal-foot">
+          <button className="btn btn-ghost" onClick={close}>Hủy</button>
+          <button className="btn btn-primary" disabled={saving} onClick={handleAdd}>
+            <Ic n="plus" size={16} />{saving ? "Đang thêm..." : "Thêm chương"}
+          </button>
+        </div>
+      </Modal>
+    );
+  }
+
+  /* ── Modal tạo bài giảng (chỉ title) ───────────────────── */
+  function AddLessonModal({ open, onClose, courseId, chapterId, onAdded }) {
+    const [title, setTitle]   = useState("");
+    const [saving, setSaving] = useState(false);
+    const [err, setErr]       = useState(null);
+    const close = () => { setTitle(""); setErr(null); onClose(); };
+    async function handleAdd() {
+      if (!title.trim()) { setErr("Vui lòng nhập tên bài giảng"); return; }
+      if (title.trim().length < 3) { setErr("Tên phải có ít nhất 3 ký tự"); return; }
+      setSaving(true); setErr(null);
+      try {
+        await api.post(`/instructor/courses/${courseId}/chapters/${chapterId}/lessons`, { title: title.trim(), type: "TEXT" });
+        close(); onAdded?.();
+      } catch (e) { setErr(e?.response?.data?.message || "Thêm bài giảng thất bại"); }
+      finally { setSaving(false); }
+    }
+    if (!open) return null;
+    return (
+      <Modal open={open} onClose={close} max={460}>
+        <ModalHead title="Thêm bài giảng" icon="book" iconBg="#f0fdf4" iconColor="#16a34a" onClose={close} />
+        <div className="modal-body">
+          <label className="t-label" style={{ display: "block", marginBottom: 7 }}>Tên bài giảng</label>
+          <input className="input" value={title} onChange={e => setTitle(e.target.value)}
+            placeholder="VD: Giới thiệu về React Hooks" autoFocus
+            onKeyDown={e => e.key === "Enter" && handleAdd()} />
+          {err && <div style={{ color: "var(--error)", fontSize: 13, marginTop: 8 }}>{err}</div>}
+        </div>
+        <div className="modal-foot">
+          <button className="btn btn-ghost" onClick={close}>Hủy</button>
+          <button className="btn btn-primary" disabled={saving} onClick={handleAdd}>
+            <Ic n="plus" size={16} />{saving ? "Đang thêm..." : "Thêm bài giảng"}
+          </button>
+        </div>
+      </Modal>
+    );
+  }
+
+  /* ── Modal thêm nội dung vào bài giảng (video hoặc tài liệu) ── */
+  function AddResourceModal({ open, onClose, courseId, lessonId, lessonTitle, onAdded }) {
+    const [tab, setTab]             = useState("video");
+    const [videoMode, setVideoMode] = useState("upload");
+    const [videoFile, setVideoFile] = useState(null);
+    const [videoName, setVideoName] = useState("");
+    const [videoUrl, setVideoUrl]   = useState("");
+    const [docFile, setDocFile]     = useState(null);
+    const [docName, setDocName]     = useState("");
+    const [saving, setSaving]       = useState(false);
+    const [progress, setProgress]   = useState(0);
+    const [err, setErr]             = useState(null);
+    const videoFileRef = useRef();
+    const docFileRef   = useRef();
+    const nameRef      = useRef();
+
+    const close = () => {
+      setTab("video"); setVideoMode("upload");
+      setVideoFile(null); setVideoName(""); setVideoUrl("");
+      setDocFile(null); setDocName("");
+      setSaving(false); setProgress(0); setErr(null); onClose();
+    };
+
+    function onVideoFilePick(f) {
+      if (!f) return;
+      if (f.size > 2 * 1024 * 1024 * 1024) { setErr("File vượt quá 2GB"); return; }
+      setVideoFile(f);
+      setVideoName(prev => prev || f.name.replace(/\.[^.]+$/, ""));
+      setErr(null);
+      setTimeout(() => { nameRef.current?.focus(); nameRef.current?.select(); }, 50);
+    }
+    function onDocFilePick(f) {
+      if (!f) return;
+      if (f.size > 50 * 1024 * 1024) { setErr("File vượt quá 50MB"); return; }
+      setDocFile(f);
+      setDocName(prev => prev || f.name.replace(/\.[^.]+$/, ""));
+      setErr(null);
+      setTimeout(() => { nameRef.current?.focus(); nameRef.current?.select(); }, 50);
+    }
+
+    async function handleSave() {
+      setSaving(true); setErr(null); setProgress(0);
+      try {
+        if (tab === "video") {
+          if (!videoFile && !videoUrl.trim()) { setErr("Vui lòng chọn file hoặc nhập URL"); setSaving(false); return; }
+          if (videoUrl.trim()) { try { new URL(videoUrl.trim()); } catch { setErr("URL không hợp lệ"); setSaving(false); return; } }
+          if (videoFile) {
+            const displayName = videoName.trim() || videoFile.name.replace(/\.[^.]+$/, "");
+            const { data: p } = await api.post(`/instructor/courses/${courseId}/lessons/${lessonId}/resources/presign-upload`,
+              { originalFilename: videoFile.name, mimeType: videoFile.type || "video/mp4", fileSizeBytes: videoFile.size, resourceType: "VIDEO", displayName });
+            await new Promise((res, rej) => {
+              const xhr = new XMLHttpRequest();
+              xhr.open("PUT", p.presignedUrl); xhr.setRequestHeader("Content-Type", videoFile.type || "video/mp4");
+              xhr.upload.onprogress = e => { if (e.lengthComputable) setProgress(Math.round(e.loaded / e.total * 100)); };
+              xhr.onload = () => xhr.status < 300 ? res() : rej(new Error("Upload thất bại"));
+              xhr.onerror = () => rej(new Error("Mất kết nối")); xhr.send(videoFile);
+            });
+            await api.post(`/instructor/courses/${courseId}/lessons/${lessonId}/resources/confirm-upload`,
+              { s3Key: p.s3Key, originalFilename: videoFile.name, resourceType: "VIDEO", displayName });
+          } else {
+            await api.post(`/instructor/courses/${courseId}/lessons/${lessonId}/resources/confirm-upload`,
+              { externalUrl: videoUrl.trim(), resourceType: "VIDEO", displayName: videoName.trim() || "Video" });
+          }
+        } else {
+          if (!docFile) { setErr("Vui lòng chọn file tài liệu"); setSaving(false); return; }
+          if (!docName.trim()) { setErr("Vui lòng nhập tên tài liệu"); setSaving(false); return; }
+          const ext = docFile.name.split(".").pop()?.toLowerCase() || "";
+          const resourceType = ext === "pdf" ? "PDF" : (ext === "doc" || ext === "docx") ? "DOC"
+            : (ext === "ppt" || ext === "pptx") ? "SLIDE" : (["png","jpg","jpeg","gif"].includes(ext)) ? "IMAGE" : "OTHER";
+          const { data: p } = await api.post(`/instructor/courses/${courseId}/lessons/${lessonId}/resources/presign-upload`,
+            { originalFilename: docFile.name, mimeType: docFile.type || "application/octet-stream", fileSizeBytes: docFile.size, resourceType, displayName: docName.trim() });
+          await new Promise((res, rej) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open("PUT", p.presignedUrl); xhr.setRequestHeader("Content-Type", docFile.type || "application/octet-stream");
+            xhr.upload.onprogress = e => { if (e.lengthComputable) setProgress(Math.round(e.loaded / e.total * 100)); };
+            xhr.onload = () => xhr.status < 300 ? res() : rej(new Error("Upload thất bại"));
+            xhr.onerror = () => rej(new Error("Mất kết nối")); xhr.send(docFile);
+          });
+          await api.post(`/instructor/courses/${courseId}/lessons/${lessonId}/resources/confirm-upload`,
+            { s3Key: p.s3Key, originalFilename: docFile.name, resourceType, displayName: docName.trim() });
+        }
+        close(); onAdded?.();
+      } catch (e) { setErr(e?.response?.data?.message || e?.message || "Thao tác thất bại"); }
+      finally { setSaving(false); }
+    }
+
+    if (!open) return null;
+    return (
+      <Modal open={open} onClose={close} max={560}>
+        <ModalHead title="Thêm nội dung" sub={lessonTitle} icon="plus" iconBg="#f0fdf4" iconColor="#16a34a" onClose={close} />
         <div className="modal-body" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <Field label="Tiêu đề bài giảng"><input className="input" id="vtitle" placeholder="VD: Giới thiệu về React Hooks" /></Field>
           <div className="tabs" style={{ width: "fit-content" }}>
-            <button className={mode === "upload" ? "on" : ""} onClick={() => setMode("upload")}>Tải lên</button>
-            <button className={mode === "url" ? "on" : ""} onClick={() => setMode("url")}>Nhúng URL</button>
+            <button className={tab === "video" ? "on" : ""} onClick={() => { setTab("video"); setErr(null); }}>Video</button>
+            <button className={tab === "doc" ? "on" : ""} onClick={() => { setTab("doc"); setErr(null); }}>Tài liệu</button>
           </div>
-          {mode === "upload"
-            ? <Dropzone icon="video" title="Kéo thả file video vào đây" hint="MP4, MOV, WebM · tối đa 2GB · Streaming bảo mật" h={32} />
-            : <Field label="Đường dẫn video"><input className="input" placeholder="https://..." /></Field>}
-          <div className="grid grid-2" style={{ gap: 14 }}>
-            <Field label="Thời lượng"><input className="input" placeholder="VD: 12:40" /></Field>
-            <Field label="Chương"><Select value="1" onChange={()=>{}} options={[{v:"1",label:"Session 01"},{v:"2",label:"Session 02"},{v:"3",label:"Session 03"}]} /></Field>
-          </div>
-          <label className="row gap-10" style={{ padding: "11px 14px", background: "var(--surface-2)", borderRadius: 11, cursor: "pointer" }}>
-            <input type="checkbox" style={{ width: 18, height: 18 }} defaultChecked /><span style={{ fontSize: 13.5, fontWeight: 500 }}>Cho phép xem thử (preview miễn phí)</span>
-          </label>
+
+          {tab === "video" && (<>
+            <div className="tabs" style={{ width: "fit-content" }}>
+              <button className={videoMode === "upload" ? "on" : ""} onClick={() => setVideoMode("upload")}>Tải lên</button>
+              <button className={videoMode === "url" ? "on" : ""} onClick={() => setVideoMode("url")}>Nhúng URL</button>
+            </div>
+            {videoMode === "upload" ? (<>
+              <input ref={videoFileRef} type="file" accept="video/mp4,video/quicktime,video/webm" style={{ display: "none" }}
+                onChange={e => onVideoFilePick(e.target.files?.[0])} />
+              <Dropzone icon="video" title="Kéo thả file video vào đây" hint="MP4, MOV, WebM · tối đa 2GB"
+                h={32} file={videoFile} onClick={() => videoFileRef.current?.click()} onDrop={onVideoFilePick} />
+              {videoFile && (
+                <Field label="Tên hiển thị video">
+                  <input ref={nameRef} className="input" value={videoName} onChange={e => setVideoName(e.target.value)}
+                    placeholder={videoFile.name.replace(/\.[^.]+$/, "")} />
+                </Field>
+              )}
+              {saving && videoFile && (
+                <div>
+                  <div style={{ height: 5, borderRadius: 999, background: "var(--border)", overflow: "hidden" }}>
+                    <div style={{ width: progress + "%", height: "100%", background: "var(--accent)", transition: "width .2s" }} />
+                  </div>
+                  <div className="t-xs muted" style={{ marginTop: 4, textAlign: "center" }}>Đang upload... {progress}%</div>
+                </div>
+              )}
+            </>) : (<>
+              <Field label="Đường dẫn video (YouTube, MP4 URL...)">
+                <input className="input" value={videoUrl} onChange={e => setVideoUrl(e.target.value)} placeholder="https://..." autoFocus />
+              </Field>
+              <Field label="Tên hiển thị">
+                <input ref={nameRef} className="input" value={videoName} onChange={e => setVideoName(e.target.value)} placeholder="VD: Bài giảng Chương 1" />
+              </Field>
+            </>)}
+          </>)}
+
+          {tab === "doc" && (<>
+            <input ref={docFileRef} type="file" accept=".pdf,.pptx,.ppt,.docx,.doc,.xlsx,.xls,.png,.jpg,.jpeg" style={{ display: "none" }}
+              onChange={e => onDocFilePick(e.target.files?.[0])} />
+            <Dropzone icon="upload" title="Kéo thả tài liệu vào đây" hint="PDF, PPTX, DOCX, ảnh · tối đa 50MB"
+              h={32} file={docFile} onClick={() => docFileRef.current?.click()} onDrop={onDocFilePick} />
+            <Field label="Tên hiển thị">
+              <input ref={nameRef} className="input" value={docName} onChange={e => setDocName(e.target.value)}
+                placeholder="VD: Giáo trình chương 1" autoFocus={!docFile} />
+            </Field>
+            {saving && docFile && (
+              <div>
+                <div style={{ height: 5, borderRadius: 999, background: "var(--border)", overflow: "hidden" }}>
+                  <div style={{ width: progress + "%", height: "100%", background: "var(--accent)", transition: "width .2s" }} />
+                </div>
+                <div className="t-xs muted" style={{ marginTop: 4, textAlign: "center" }}>Đang upload... {progress}%</div>
+              </div>
+            )}
+          </>)}
+
+          {err && <div style={{ color: "var(--error)", fontSize: 13 }}>{err}</div>}
         </div>
-        <div className="modal-foot"><button className="btn btn-ghost" onClick={onClose}>Hủy</button><button className="btn btn-primary" onClick={() => { const t = (document.getElementById("vtitle") || {}).value; onAdd("video", t || "Bài giảng mới"); onClose(); }}><Ic n="plus" size={16} />Thêm bài giảng</button></div>
+        <div className="modal-foot">
+          <button className="btn btn-ghost" onClick={close}>Hủy</button>
+          <button className="btn btn-primary" disabled={saving} onClick={handleSave}>
+            <Ic n="plus" size={16} />{saving ? "Đang lưu..." : "Thêm"}
+          </button>
+        </div>
       </Modal>
     );
   }
-  function AddDocModal({ open, onClose, onAdd }) {
+
+  /* ── Modal xem & cập nhật tài liệu/video ─────────────────── */
+  function EditResourceInner({ s, rm, isVideo, isImage, isYT, ytId, onClose, onSave, courseId, onReplaced }) {
+    const [name, setName]               = useState(s.title);
+    const [replaceOpen, setReplaceOpen] = useState(false);
+    const [newFile, setNewFile]         = useState(null);
+    const [newUrl, setNewUrl]           = useState(s.externalUrl || "");
+    const [urlMode, setUrlMode]         = useState(false);
+    const [saving, setSaving]           = useState(false);
+    const [progress, setProgress]       = useState(0);
+    const [err, setErr]                 = useState(null);
+    const fileRef = useRef();
+
+    const canEmbed = s.externalUrl && s.externalUrl.match(/\.(mp4|webm|ogg)(\?.*)?$/i);
+
+    async function handleSave() {
+      if (!name.trim()) { setErr("Tên không được để trống"); return; }
+      setSaving(true); setErr(null);
+      try {
+        if (replaceOpen) {
+          if (!newFile && !newUrl.trim()) { setErr("Vui lòng chọn file hoặc nhập URL"); setSaving(false); return; }
+          if (newUrl.trim()) {
+            try { new URL(newUrl.trim()); } catch { setErr("URL không hợp lệ"); setSaving(false); return; }
+            await api.delete(`/instructor/courses/${courseId}/lessons/${s.lessonId}/resources/${s.resourceId}`);
+            await api.post(`/instructor/courses/${courseId}/lessons/${s.lessonId}/resources/confirm-upload`,
+              { externalUrl: newUrl.trim(), resourceType: s.resourceType, displayName: name.trim() });
+          } else {
+            const { data: p } = await api.post(`/instructor/courses/${courseId}/lessons/${s.lessonId}/resources/presign-upload`,
+              { originalFilename: newFile.name, mimeType: newFile.type || "application/octet-stream", fileSizeBytes: newFile.size, resourceType: s.resourceType, displayName: name.trim() });
+            await new Promise((res, rej) => {
+              const xhr = new XMLHttpRequest();
+              xhr.open("PUT", p.presignedUrl);
+              xhr.setRequestHeader("Content-Type", newFile.type || "application/octet-stream");
+              xhr.upload.onprogress = e => { if (e.lengthComputable) setProgress(Math.round(e.loaded / e.total * 100)); };
+              xhr.onload = () => xhr.status < 300 ? res() : rej(new Error("Upload thất bại"));
+              xhr.onerror = () => rej(new Error("Mất kết nối"));
+              xhr.send(newFile);
+            });
+            await api.delete(`/instructor/courses/${courseId}/lessons/${s.lessonId}/resources/${s.resourceId}`);
+            await api.post(`/instructor/courses/${courseId}/lessons/${s.lessonId}/resources/confirm-upload`,
+              { s3Key: p.s3Key, originalFilename: newFile.name, resourceType: s.resourceType, displayName: name.trim() });
+          }
+          onReplaced?.();
+        } else {
+          onSave(name.trim());
+        }
+      } catch (e) { setErr(e?.response?.data?.message || e?.message || "Thao tác thất bại"); setSaving(false); }
+    }
+
     return (
-      <Modal open={open} onClose={onClose} max={520}>
-        <ModalHead title="Thêm tài liệu" sub="PDF, Slide, Word đính kèm cho bài giảng" icon="file" iconBg="#fef5e6" iconColor="#d97706" onClose={onClose} />
-        <div className="modal-body" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <Field label="Tên tài liệu"><input className="input" id="dtitle" placeholder="VD: Giáo trình chương 1" /></Field>
-          <div className="grid grid-2" style={{ gap: 14 }}>
-            <Field label="Loại tài liệu"><Select value="pdf" onChange={()=>{}} options={[{v:"pdf",label:"PDF"},{v:"slide",label:"Slide (PPTX)"},{v:"doc",label:"Word (DOCX)"}]} /></Field>
-            <Field label="Chương"><Select value="1" onChange={()=>{}} options={[{v:"1",label:"Session 01"},{v:"2",label:"Session 02"}]} /></Field>
+      <Modal open onClose={onClose} max={580}>
+        <ModalHead title="Chỉnh sửa tài liệu" icon="edit" iconBg={rm.bg} iconColor={rm.fg} onClose={onClose} />
+        <div className="modal-body" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+
+          {/* Preview */}
+          <div style={{ borderRadius: 10, overflow: "hidden", background: "var(--surface-2)", border: "1px solid var(--border)" }}>
+            {isYT && ytId ? (
+              <div style={{ position: "relative", paddingBottom: "56.25%", height: 0 }}>
+                <iframe src={`https://www.youtube.com/embed/${ytId}`}
+                  style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none" }} allowFullScreen />
+              </div>
+            ) : isVideo && canEmbed ? (
+              <video src={s.externalUrl} controls style={{ width: "100%", maxHeight: 260, display: "block", background: "#000" }} />
+            ) : isImage && s.externalUrl ? (
+              <img src={s.externalUrl} style={{ width: "100%", maxHeight: 260, objectFit: "contain", display: "block" }} />
+            ) : (
+              <div className="row gap-12" style={{ padding: "16px 20px" }}>
+                <div className="stat-ic" style={{ width: 44, height: 44, borderRadius: 10, background: rm.bg, color: rm.fg, flex: "none" }}>
+                  <Ic n={rm.ic} size={20} />
+                </div>
+                <div className="grow" style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: 14 }} className="truncate">{s.title}</div>
+                  <div className="muted t-xs" style={{ marginTop: 2 }}>{(s.resourceType || "").toUpperCase()}</div>
+                </div>
+                {s.externalUrl && (
+                  <a href={s.externalUrl} target="_blank" rel="noreferrer" className="btn btn-ghost btn-sm">
+                    <Ic n="external_link" size={14} />Mở file
+                  </a>
+                )}
+              </div>
+            )}
           </div>
-          <Dropzone icon="upload" title="Kéo thả tài liệu vào đây" hint="PDF, PPTX, DOCX · tối đa 50MB" h={32} />
+
+          {/* Tên hiển thị */}
+          <div>
+            <label className="t-label" style={{ display: "block", marginBottom: 7 }}>Tên hiển thị</label>
+            <input className="input" value={name} onChange={e => setName(e.target.value)} autoFocus
+              onKeyDown={e => { if (e.key === "Enter" && !replaceOpen) handleSave(); }} />
+          </div>
+
+          {/* Toggle thay thế */}
+          <button className="btn btn-ghost btn-sm" style={{ alignSelf: "flex-start", gap: 6 }}
+            onClick={() => { setReplaceOpen(v => !v); setErr(null); setNewFile(null); }}>
+            <Ic n={replaceOpen ? "chevron_down" : "chevron_right"} size={14} />
+            {replaceOpen ? "Ẩn thay thế nội dung" : "Thay thế nội dung"}
+          </button>
+
+          {replaceOpen && (
+            <div style={{ padding: 14, borderRadius: 10, border: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: 12, background: "var(--surface-2)" }}>
+              {isVideo && (
+                <div className="tabs" style={{ width: "fit-content" }}>
+                  <button className={!urlMode ? "on" : ""} onClick={() => { setUrlMode(false); }}>Tải file lên</button>
+                  <button className={urlMode ? "on" : ""} onClick={() => { setUrlMode(true); setNewFile(null); }}>Nhúng URL</button>
+                </div>
+              )}
+              {(isVideo && urlMode) ? (
+                <div>
+                  <label className="t-label" style={{ display: "block", marginBottom: 7 }}>URL mới</label>
+                  <input className="input" value={newUrl} onChange={e => setNewUrl(e.target.value)} placeholder="https://..." autoFocus />
+                </div>
+              ) : (
+                <>
+                  <input ref={fileRef} type="file" style={{ display: "none" }}
+                    accept={isVideo ? "video/mp4,video/quicktime,video/webm" : ".pdf,.pptx,.ppt,.docx,.doc,.xlsx,.xls,.png,.jpg,.jpeg"}
+                    onChange={e => { const f = e.target.files?.[0]; if (f) { setNewFile(f); setErr(null); } }} />
+                  <Dropzone icon={isVideo ? "video" : "upload"}
+                    title={isVideo ? "Chọn file video mới" : "Chọn file tài liệu mới"}
+                    hint={isVideo ? "MP4, MOV, WebM · tối đa 2GB" : "PDF, PPTX, DOCX · tối đa 50MB"}
+                    h={20} file={newFile} onClick={() => fileRef.current?.click()} onDrop={f => { setNewFile(f); setErr(null); }} />
+                </>
+              )}
+              {saving && newFile && (
+                <div>
+                  <div style={{ height: 4, borderRadius: 999, background: "var(--border)", overflow: "hidden" }}>
+                    <div style={{ width: progress + "%", height: "100%", background: "var(--accent)", transition: "width .2s" }} />
+                  </div>
+                  <div className="t-xs muted" style={{ textAlign: "center", marginTop: 4 }}>Đang upload... {progress}%</div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {err && <div style={{ color: "var(--error)", fontSize: 13 }}>{err}</div>}
         </div>
-        <div className="modal-foot"><button className="btn btn-ghost" onClick={onClose}>Hủy</button><button className="btn btn-primary" onClick={() => { const t = (document.getElementById("dtitle") || {}).value; onAdd("doc", t || "Tài liệu mới"); onClose(); }}><Ic n="plus" size={16} />Thêm tài liệu</button></div>
+        <div className="modal-foot">
+          <button className="btn btn-ghost" onClick={onClose}>Hủy</button>
+          <button className="btn btn-primary" disabled={saving} onClick={handleSave}>
+            <Ic n="check" size={15} />{saving ? "Đang lưu..." : replaceOpen ? "Lưu & Thay thế" : "Lưu tên"}
+          </button>
+        </div>
       </Modal>
     );
   }
 
-
-  /* ---------------- Course Detail (curriculum builder) ---------------- */
+  /* ── Trang chi tiết khóa học ─────────────────────────────── */
   function InsCourseDetail({ nav }) {
-    const [tab, setTab] = useState("content");
-    const [open, setOpen] = useState(0);
-    const [vid, setVid] = useState(false);
-    const [doc, setDoc] = useState(false);
-    const [targetCh, setTargetCh] = useState(0);
-    // editable curriculum state
-    const [chapters, setChapters] = useState([
-      { id: 1, name: "Session 01 — Tổng quan & Cài đặt", items: [
-        { t: "video", title: "Giới thiệu khóa học & lộ trình", dur: "08:24" },
-        { t: "video", title: "Cài đặt môi trường phát triển", dur: "12:40" },
-        { t: "doc", title: "Giáo trình chi tiết - Chương 1.pdf", kind: "pdf" },
-      ]},
-      { id: 2, name: "Session 02 — Components & Props", items: [
-        { t: "video", title: "Functional Components", dur: "15:10" },
-        { t: "video", title: "Props & State cơ bản", dur: "18:05" },
-        { t: "doc", title: "Slide bài giảng buổi 2.pptx", kind: "slide" },
-        { t: "quiz", title: "Quiz chương 2: Components", q: 10 },
-      ]},
-      { id: 3, name: "Session 03 — Hooks nâng cao", items: [
-        { t: "video", title: "useState & useEffect", dur: "20:30" },
-        { t: "doc", title: "Bài tập thực hành.docx", kind: "doc" },
-      ]},
-    ]);
-    const counts = chapters.reduce((a, c) => { c.items.forEach(i => { a[i.t] = (a[i.t] || 0) + 1; }); return a; }, {});
-    const addChapter = () => setChapters(cs => [...cs, { id: Date.now(), name: "Session " + String(cs.length + 1).padStart(2, "0") + " — Chương mới", items: [] }]);
-    const addItem = (type, title) => setChapters(cs => cs.map((c, i) => i === targetCh ? { ...c, items: [...c.items, type === "video" ? { t: "video", title, dur: "00:00" } : { t: "doc", title, kind: "pdf" }] } : c));
-    const removeItem = (ci, ii) => setChapters(cs => cs.map((c, i) => i === ci ? { ...c, items: c.items.filter((_, j) => j !== ii) } : c));
+    const courseId = window.__selectedCourseId || sessionStorage.getItem("selectedCourseId") || null;
 
-    const ITEM_META = {
-      video: { ic: "play", bg: "var(--chip-info-bg)", fg: "var(--accent)", lbl: "Video" },
-      doc: { ic: "file", bg: "#fef5e6", fg: "#d97706", lbl: "Tài liệu" },
-      quiz: { ic: "clipboard", bg: "#f3edff", fg: "#7c3aed", lbl: "Trắc nghiệm" },
+    const [course, setCourse]     = useState(null);
+    const [chapters, setChapters] = useState([]);
+    const [loading, setLoading]   = useState(true);
+    const [err, setErr]           = useState(null);
+    const [tab, setTab]           = useState("content");
+    const [open, setOpen]         = useState(0);
+    const [submitting, setSubmitting] = useState(false);
+    const [submitMsg, setSubmitMsg]   = useState(null);
+
+    const [editTitle,   setEditTitle]   = useState("");
+    const [editDesc,    setEditDesc]    = useState("");
+    const [editOutcome, setEditOutcome] = useState("");
+    const [editLevel,   setEditLevel]   = useState(LEVELS[1].value);
+    const [infoSaving,  setInfoSaving]  = useState(false);
+    const [infoMsg,     setInfoMsg]     = useState(null);
+
+    const [addChapterOpen,    setAddChapterOpen]    = useState(false);
+    const [addLessonState,    setAddLessonState]    = useState(null);
+    const [addResourceState,  setAddResourceState]  = useState(null);
+    const [renameLessonState, setRenameLessonState] = useState(null);
+    const [editResourceState, setEditResourceState] = useState(null);
+    const [showPreview,       setShowPreview]       = useState(false);
+
+    function loadCourse(silent = false) {
+      if (!courseId) { setLoading(false); return; }
+      if (!silent) { setLoading(true); setErr(null); }
+      const scrollEl = document.querySelector(".page");
+      const savedScroll = scrollEl?.scrollTop ?? 0;
+      api.get(`/instructor/courses/${courseId}`)
+        .then(r => {
+          setCourse(r.data);
+          setChapters(mapCourse(r.data));
+          setEditTitle(r.data.title || "");
+          setEditDesc(r.data.description || "");
+          setEditLevel(r.data.level || LEVELS[1].value);
+          if (silent) requestAnimationFrame(() => { scrollEl?.scrollTo({ top: savedScroll }); });
+        })
+        .catch(e => setErr(e?.response?.data?.message || "Không thể tải khóa học"))
+        .finally(() => { if (!silent) setLoading(false); });
+    }
+    useEffect(() => { loadCourse(); }, [courseId]);
+
+    async function handleSubmit() {
+      setSubmitting(true); setSubmitMsg(null);
+      try { await api.put(`/instructor/courses/${courseId}/submit`); setSubmitMsg("Đã gửi duyệt thành công!"); loadCourse(true); }
+      catch (e) { setSubmitMsg(e?.response?.data?.message || "Gửi duyệt thất bại"); }
+      finally { setSubmitting(false); }
+    }
+
+    async function handleWithdraw() {
+      if (!confirm("Rút khỏi hàng chờ duyệt và chuyển về Bản nháp?")) return;
+      setSubmitting(true); setSubmitMsg(null);
+      try { await api.put(`/instructor/courses/${courseId}/withdraw`); setSubmitMsg("Đã rút duyệt – khóa học trở về Bản nháp."); loadCourse(true); }
+      catch (e) { setSubmitMsg(e?.response?.data?.message || "Rút duyệt thất bại"); }
+      finally { setSubmitting(false); }
+    }
+
+    async function handleSaveInfo() {
+      if (!editTitle.trim()) { setInfoMsg("Vui lòng nhập tên khóa học"); return; }
+      setInfoSaving(true); setInfoMsg(null);
+      try {
+        await api.put(`/instructor/courses/${courseId}`, { title: editTitle.trim(), description: editDesc.trim() || null, level: editLevel });
+        setInfoMsg("Đã lưu thay đổi!"); loadCourse(true);
+      } catch (e) { setInfoMsg(e?.response?.data?.message || "Lưu thất bại"); }
+      finally { setInfoSaving(false); }
+    }
+
+    async function handleRenameChapter(chapterId, newTitle) {
+      try { await api.put(`/instructor/courses/${courseId}/chapters/${chapterId}`, { title: newTitle }); loadCourse(true); } catch { }
+    }
+    async function handleRenameLesson(chapterId, lessonId, newTitle) {
+      try { await api.put(`/instructor/courses/${courseId}/chapters/${chapterId}/lessons/${lessonId}`, { title: newTitle }); loadCourse(true); } catch { }
+    }
+    async function handleDeleteChapter(chapterId) {
+      if (!confirm("Xóa chương này và toàn bộ bài giảng bên trong?")) return;
+      try { await api.delete(`/instructor/courses/${courseId}/chapters/${chapterId}`); loadCourse(true); }
+      catch (e) { alert(e?.response?.data?.message || "Xóa thất bại"); }
+    }
+    async function handleDeleteLesson(chapterId, lessonId) {
+      if (!confirm("Xóa bài giảng này?")) return;
+      try { await api.delete(`/instructor/courses/${courseId}/chapters/${chapterId}/lessons/${lessonId}`); loadCourse(true); }
+      catch (e) { alert(e?.response?.data?.message || "Xóa thất bại"); }
+    }
+    async function handleDeleteResource(lessonId, resourceId) {
+      if (!confirm("Xóa tài liệu này?")) return;
+      try { await api.delete(`/instructor/courses/${courseId}/lessons/${lessonId}/resources/${resourceId}`); loadCourse(true); }
+      catch (e) { alert(e?.response?.data?.message || "Xóa thất bại"); }
+    }
+    async function handleRenameResource(lessonId, resourceId, newTitle) {
+      try { await api.patch(`/instructor/courses/${courseId}/lessons/${lessonId}/resources/${resourceId}`, { displayName: newTitle }); loadCourse(true); }
+      catch (e) { alert(e?.response?.data?.message || "Đổi tên thất bại"); }
+    }
+
+    /* guards */
+    if (!courseId) return (
+      <div className="page fade-in">
+        <div className="page-head"><h1 className="t-h1">Chi tiết Khóa học</h1></div>
+        <Empty icon="book" title="Chưa chọn khóa học" sub="Quay lại danh sách và chọn một khóa học." />
+        <button className="btn btn-ghost" style={{ marginTop: 24 }} onClick={() => nav("courses")}><Ic n="arrow_left" size={16} />Quay lại</button>
+      </div>
+    );
+    if (loading) return <div className="page fade-in"><div className="muted" style={{ textAlign: "center", padding: 80 }}>Đang tải...</div></div>;
+    if (err) return (
+      <div className="page fade-in">
+        <div style={{ color: "var(--error)", padding: 24 }}>{err}</div>
+        <button className="btn btn-ghost" onClick={() => nav("courses")}><Ic n="arrow_left" size={16} />Quay lại</button>
+      </div>
+    );
+
+    const canEdit = course?.status === "DRAFT" || course?.status === "REJECTED";
+    const sc      = STATUS_COLOR[course?.status] || {};
+
+    const allLessons   = chapters.flatMap(ch => ch.items);
+    const allResources = allLessons.flatMap(l => l.resources || []);
+    const counts = {
+      lessons: allLessons.length,
+      VIDEO:   allResources.filter(r => r.resourceType === "VIDEO").length,
+      doc:     allResources.filter(r => r.resourceType !== "VIDEO").length,
     };
 
     return (
       <div className="page fade-in">
-        <div className="row gap-10" style={{ marginBottom: 16, cursor: "pointer", color: "var(--text-2)" }} onClick={() => nav("courses")}><Ic n="arrow_left" size={18} /><span style={{ fontWeight: 600 }}>Quay lại danh sách khóa học</span></div>
-
-        {/* hero */}
-        <div className="card" style={{ overflow: "hidden", marginBottom: 22 }}>
-          <div style={{ height: 150, background: `#0f172a url(${D.T.react}) center/cover`, position: "relative" }}>
-            <button className="btn btn-ghost btn-sm" style={{ position: "absolute", right: 16, top: 16, background: "rgba(255,255,255,.92)" }}><Ic n="upload" size={15} />Đổi ảnh bìa</button>
+        {/* Header */}
+        <div className="page-head between" style={{ marginBottom: 20 }}>
+          <button className="btn btn-ghost btn-sm" onClick={() => nav("courses")} style={{ gap: 6 }}>
+            <Ic n="arrow_left" size={18} /><span style={{ fontWeight: 600 }}>Quay lại danh sách khóa học</span>
+          </button>
+          <div className="row gap-10">
+            <button className="btn btn-ghost btn-sm" onClick={() => setShowPreview(true)}><Ic n="eye" size={15} />Xem trước</button>
+            {course?.status === "DRAFT" && (
+              <button className="btn btn-success btn-sm" disabled={submitting} onClick={handleSubmit}><Ic n="send" size={15} />{submitting ? "Đang gửi..." : "Gửi duyệt"}</button>
+            )}
+            {(course?.status === "PENDING" || course?.status === "PENDING_UPDATE") && (
+              <button className="btn btn-ghost btn-sm" disabled={submitting} onClick={handleWithdraw}>Rút duyệt</button>
+            )}
           </div>
-          <div className="card-pad between wrap" style={{ gap: 16 }}>
-            <div style={{ minWidth: 0 }}>
-              <div className="row gap-10" style={{ marginBottom: 8 }}><span className="chip chip-info">Frontend</span><Status s="published" /><span className="chip chip-neutral">Nâng cao</span></div>
-              <h1 className="t-h2" style={{ margin: 0 }}>Lập trình ReactJS Nâng cao & Redux Toolkit</h1>
-              <div className="row gap-16 wrap" style={{ marginTop: 10, color: "var(--text-2)" }}>
-                <span className="meta-row"><Ic n="users" size={15} /> 842 học viên</span>
-                <span className="meta-row"><Ic n="layers" size={15} /> {chapters.length} chương</span>
-                <span className="meta-row"><Ic n="video" size={15} /> {counts.video || 0} bài giảng</span>
-                <span className="meta-row" style={{ color: "var(--warning)" }}><Ic n="star" size={15} fill="currentColor" /> <b style={{ color: "var(--text)" }}>4.8</b></span>
-              </div>
-            </div>
-            <div className="row gap-10">
-              <button className="btn btn-ghost" onClick={() => nav("player")}><Ic n="eye" size={16} />Xem trước</button>
-              <button className="btn btn-primary"><Ic n="check" size={16} />Lưu & Gửi duyệt</button>
+        </div>
+
+        {/* Course title + status */}
+        <div className="row gap-14" style={{ marginBottom: 16, alignItems: "flex-start" }}>
+          <div className="grow">
+            <h1 className="t-h1" style={{ marginBottom: 4 }}>{course?.title}</h1>
+            <div className="row gap-10 wrap">
+              <span className="chip" style={{ background: sc.bg, color: sc.color, fontWeight: 600 }}>{STATUS_LABEL[course?.status] || course?.status}</span>
+              {course?.level && <span className="meta-row"><Ic n="layers" size={15} /> {course.level}</span>}
+              <span className="meta-row"><Ic n="layers" size={15} /> {chapters.length} chương</span>
+              <span className="meta-row"><Ic n="video" size={15} /> {counts.VIDEO} video</span>
+              <span className="meta-row"><Ic n="file" size={15} /> {counts.doc} tài liệu</span>
             </div>
           </div>
         </div>
 
+        {submitMsg && (
+          <div style={{ padding: "10px 16px", borderRadius: 10, marginBottom: 14, fontSize: 13.5,
+            background: submitMsg.startsWith("Đã") ? "#dcfce7" : "#fee2e2",
+            color: submitMsg.startsWith("Đã") ? "#16a34a" : "#dc2626" }}>{submitMsg}</div>
+        )}
+
+        {/* Stat cards */}
         <div className="grid grid-stats" style={{ marginBottom: 22 }}>
-          <StatCard icon="video" iconBg="#eaf1ff" iconColor="#2563eb" value={counts.video || 0} label="Bài giảng video" />
-          <StatCard icon="file" iconBg="#fef5e6" iconColor="#d97706" value={counts.doc || 0} label="Tài liệu" />
-          <StatCard icon="clipboard" iconBg="#f3edff" iconColor="#7c3aed" value={counts.quiz || 0} label="Bài trắc nghiệm" />
-          <StatCard icon="clock" iconBg="#e7f8f0" iconColor="#059669" value="~32h" label="Tổng thời lượng" />
+          <StatCard icon="layers" iconBg="#e7f8f0" iconColor="#059669" value={chapters.length}  label="Số chương" />
+          <StatCard icon="book"   iconBg="#f0fdf4" iconColor="#16a34a" value={counts.lessons}   label="Số bài giảng" />
+          <StatCard icon="video"  iconBg="#eaf1ff" iconColor="#2563eb" value={counts.VIDEO}     label="Video" />
+          <StatCard icon="file"   iconBg="#fef5e6" iconColor="#d97706" value={counts.doc}       label="Tài liệu" />
         </div>
 
-        <div className="toolbar"><Tabs items={[{v:"content",label:"Nội dung khóa học"},{v:"info",label:"Thông tin"},{v:"price",label:"Học phí & Cài đặt"}]} value={tab} onChange={setTab} /></div>
+        {/* Tabs */}
+        <div className="toolbar">
+          <Tabs items={[{ v: "content", label: "Nội dung khóa học" }, { v: "info", label: "Thông tin" }]} value={tab} onChange={setTab} />
+        </div>
 
-        {tab === "content" ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        {/* ── Content tab ── */}
+        {tab === "content" && (
+          <Section>
+            <div className="between" style={{ marginBottom: 16 }}>
+              <h2 className="t-h2">Chương trình học</h2>
+              {canEdit && (
+                <button className="btn btn-ghost btn-sm" onClick={() => setAddChapterOpen(true)}>
+                  <Ic n="plus" size={15} />Thêm chương
+                </button>
+              )}
+            </div>
+
+            {chapters.length === 0 && (
+              <Empty icon="layers" title="Chưa có chương nào" sub="Nhấn 'Thêm chương' để bắt đầu xây dựng nội dung." />
+            )}
+
             {chapters.map((ch, ci) => (
-              <div key={ch.id} className="card" style={{ overflow: "hidden" }}>
-                <div className="row gap-12" style={{ padding: "16px 20px", borderBottom: open === ci ? "1px solid var(--border)" : "none", cursor: "pointer", background: "var(--surface-2)" }} onClick={() => setOpen(open === ci ? -1 : ci)}>
-                  <Ic n="chevron_down" size={18} style={{ transform: open === ci ? "none" : "rotate(-90deg)", transition: ".2s", color: "var(--text-3)" }} />
-                  <div className="grow" style={{ minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: 15 }} className="truncate">{ch.name}</div>
-                    <div className="t-xs muted" style={{ marginTop: 2 }}>{ch.items.length} mục · {ch.items.filter(i => i.t === "video").length} video · {ch.items.filter(i => i.t === "doc").length} tài liệu</div>
+              <div key={ch.id} style={{ border: "1px solid var(--border)", borderRadius: 12, marginBottom: 10, overflow: "hidden" }}>
+                <div className="row gap-12" style={{ padding: "12px 16px", background: "var(--surface-2)", cursor: "pointer", userSelect: "none" }}
+                  onClick={() => setOpen(open === ci ? -1 : ci)}>
+                  <Ic n="chevron_down" size={18} style={{ transform: open === ci ? "none" : "rotate(-90deg)", transition: ".2s", color: "var(--text-3)", flexShrink: 0 }} />
+                  <div className="grow" style={{ fontWeight: 600, fontSize: 14.5 }}>
+                    {canEdit
+                      ? <InlineEdit value={ch.name} onSave={t => handleRenameChapter(ch.id, t)} placeholder="Tên chương..." />
+                      : ch.name}
                   </div>
-                  <button className="icon-btn" style={{ width: 34, height: 34 }} onClick={e => e.stopPropagation()}><Ic n="edit" size={16} /></button>
-                  <button className="icon-btn" style={{ width: 34, height: 34, color: "var(--error)" }} onClick={e => { e.stopPropagation(); setChapters(cs => cs.filter((_, i) => i !== ci)); }}><Ic n="x" size={16} /></button>
+                  <span className="muted t-xs">{ch.items.length} bài giảng</span>
+                  {canEdit && (
+                    <button className="icon-btn" style={{ width: 34, height: 34, color: "var(--error)" }}
+                      onClick={e => { e.stopPropagation(); handleDeleteChapter(ch.id); }}>
+                      <Ic n="x" size={15} />
+                    </button>
+                  )}
                 </div>
+
                 {open === ci && (
-                  <div style={{ padding: 12 }}>
-                    {ch.items.length === 0 && <div className="t-sm muted" style={{ textAlign: "center", padding: "18px 0" }}>Chưa có nội dung. Thêm bài giảng hoặc tài liệu bên dưới.</div>}
-                    {ch.items.map((it, ii) => {
-                      const m = ITEM_META[it.t];
+                  <div style={{ padding: "8px 0" }}>
+                    {ch.items.length === 0 && (
+                      <div className="muted t-xs" style={{ padding: "12px 24px" }}>Chưa có bài giảng nào.</div>
+                    )}
+                    {ch.items.map(lesson => {
+                      const videoCount = (lesson.resources || []).filter(r => r.resourceType === "VIDEO").length;
+                      const docCount   = (lesson.resources || []).filter(r => r.resourceType !== "VIDEO").length;
                       return (
-                        <div key={ii} className="row gap-12" style={{ padding: "11px 12px", borderRadius: 11, border: "1px solid var(--border)", marginBottom: 8 }}>
-                          <Ic n="dots" size={16} style={{ color: "var(--text-3)", cursor: "grab" }} />
-                          <div className="stat-ic" style={{ width: 40, height: 40, borderRadius: 10, background: m.bg, color: m.fg, flex: "none" }}><Ic n={m.ic} size={18} fill={it.t === "video" ? m.fg : "none"} /></div>
-                          <div className="grow" style={{ minWidth: 0 }}>
-                            <div style={{ fontWeight: 600, fontSize: 14 }} className="truncate">{it.title}</div>
-                            <div className="t-xs muted row gap-7" style={{ marginTop: 2 }}>
-                              <span className={"chip chip-" + (it.t === "video" ? "info" : it.t === "doc" ? "warning" : "neutral")} style={{ padding: "1px 8px", fontSize: 11 }}>{m.lbl}</span>
-                              {it.dur && <span className="row gap-4"><Ic n="clock" size={12} />{it.dur}</span>}
-                              {it.kind && <span>{it.kind.toUpperCase()}</span>}
-                              {it.q && <span>{it.q} câu hỏi</span>}
+                        <div key={lesson.lessonId}>
+                          <div className="row gap-12" style={{ padding: "10px 16px 10px 24px", borderBottom: "1px solid var(--border-soft)" }}>
+                            <div className="stat-ic" style={{ width: 40, height: 40, borderRadius: 10, background: "#f0fdf4", color: "#16a34a", flex: "none" }}>
+                              <Ic n="book" size={17} />
                             </div>
+                            <div className="grow" style={{ minWidth: 0 }}>
+                              <div style={{ fontWeight: 500, fontSize: 14 }} className="truncate">
+                                {canEdit
+                                  ? <InlineEdit value={lesson.title} onSave={t => handleRenameLesson(ch.id, lesson.lessonId, t)} />
+                                  : lesson.title}
+                              </div>
+                              <div className="row gap-8 wrap" style={{ marginTop: 3 }}>
+                                <span className="chip" style={{ background: "#f0fdf4", color: "#16a34a", fontSize: 11, padding: "1px 8px" }}>Bài giảng</span>
+                                {videoCount > 0 && <span className="muted t-xs">{videoCount} video</span>}
+                                {docCount > 0   && <span className="muted t-xs">{docCount} tài liệu</span>}
+                                {lesson.dur     && <span className="muted t-xs">{lesson.dur}</span>}
+                              </div>
+                            </div>
+                            {canEdit && <>
+                              <button className="icon-btn" style={{ width: 32, height: 32 }} title="Đổi tên bài giảng"
+                                onClick={() => setRenameLessonState({ chapterId: ch.id, lessonId: lesson.lessonId, title: lesson.title })}>
+                                <Ic n="edit" size={15} />
+                              </button>
+                              <button className="icon-btn" style={{ width: 32, height: 32, color: "#16a34a" }} title="Thêm nội dung"
+                                onClick={() => setAddResourceState({ lessonId: lesson.lessonId, lessonTitle: lesson.title })}>
+                                <Ic n="plus" size={15} />
+                              </button>
+                              <button className="icon-btn" style={{ width: 32, height: 32, color: "var(--error)" }} title="Xóa bài giảng"
+                                onClick={() => handleDeleteLesson(ch.id, lesson.lessonId)}>
+                                <Ic n="x" size={15} />
+                              </button>
+                            </>}
                           </div>
-                          <button className="icon-btn" style={{ width: 32, height: 32 }}><Ic n="edit" size={15} /></button>
-                          <button className="icon-btn" style={{ width: 32, height: 32, color: "var(--error)" }} onClick={() => removeItem(ci, ii)}><Ic n="x" size={15} /></button>
+                          {lesson.resources?.length > 0 && (
+                            <div style={{ paddingLeft: 64, paddingBottom: 8 }}>
+                              {lesson.resources.map(r => {
+                                const rm = RES_TYPE[r.resourceType] || RES_TYPE.OTHER;
+                                return (
+                                  <div key={r.resourceId} className="row gap-12" style={{ padding: "8px 12px", borderRadius: 9, border: "1px solid var(--border)", marginBottom: 4, background: "var(--surface-2)" }}>
+                                    <div className="stat-ic" style={{ width: 30, height: 30, borderRadius: 7, background: rm.bg, color: rm.fg, flex: "none" }}>
+                                      <Ic n={rm.ic} size={14} />
+                                    </div>
+                                    <div className="grow" style={{ minWidth: 0 }}>
+                                      <div style={{ fontSize: 13, fontWeight: 500 }} className="truncate">{r.title}</div>
+                                      {r.kind && <span className="chip t-xs" style={{ padding: "1px 7px", fontSize: 10.5, background: rm.bg, color: rm.fg }}>{r.kind.toUpperCase()}</span>}
+                                    </div>
+                                    {canEdit && <>
+                                      <button className="icon-btn" style={{ width: 28, height: 28 }} title="Đổi tên"
+                                        onClick={() => setEditResourceState({ lessonId: lesson.lessonId, resourceId: r.resourceId, title: r.title, resourceType: r.resourceType, externalUrl: r.externalUrl, mimeType: r.mimeType })}>
+                                        <Ic n="edit" size={13} />
+                                      </button>
+                                      <button className="icon-btn" style={{ width: 28, height: 28, color: "var(--error)" }} title="Xóa tài liệu"
+                                        onClick={() => handleDeleteResource(lesson.lessonId, r.resourceId)}>
+                                        <Ic n="x" size={13} />
+                                      </button>
+                                    </>}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
                         </div>
                       );
                     })}
-                    <div className="row gap-10 wrap" style={{ marginTop: 6 }}>
-                      <button className="btn btn-soft btn-sm" onClick={() => { setTargetCh(ci); setVid(true); }}><Ic n="video" size={15} />Thêm video</button>
-                      <button className="btn btn-ghost btn-sm" onClick={() => { setTargetCh(ci); setDoc(true); }}><Ic n="file" size={15} />Thêm tài liệu</button>
-                      <button className="btn btn-ghost btn-sm"><Ic n="clipboard" size={15} />Thêm trắc nghiệm</button>
-                    </div>
+                    {canEdit && (
+                      <div style={{ padding: "10px 24px" }}>
+                        <button className="btn btn-ghost btn-sm" onClick={() => setAddLessonState({ chapterId: ch.id })}>
+                          <Ic n="plus" size={14} />Thêm bài giảng
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
             ))}
-            <button className="btn btn-ghost btn-block" style={{ borderStyle: "dashed", height: 52 }} onClick={addChapter}><Ic n="plus" size={17} />Thêm chương mới</button>
-          </div>
-        ) : tab === "info" ? (
-          <Section>
-            <div className="grid grid-2" style={{ gap: 16 }}>
-              <Field label="Tên khóa học" full><input className="input" defaultValue="Lập trình ReactJS Nâng cao & Redux Toolkit" /></Field>
-              <Field label="Danh mục"><Select value="Frontend" onChange={()=>{}} options={CATS} /></Field>
-              <Field label="Cấp độ"><Select value="Nâng cao" onChange={()=>{}} options={LEVELS} /></Field>
-              <Field label="Mô tả" full><textarea className="input" style={{ height: 110, padding: 12, resize: "none" }} defaultValue="Khóa học chuyên sâu về ReactJS và Redux Toolkit, đi từ component nâng cao đến quản lý state phức tạp trong ứng dụng thực tế." /></Field>
-              <Field label="Bạn sẽ học được gì" full><textarea className="input" style={{ height: 90, padding: 12, resize: "none" }} defaultValue={"• Thành thạo React Hooks\n• Quản lý state với Redux Toolkit\n• Tối ưu hiệu năng ứng dụng"} /></Field>
-            </div>
-            <div className="row gap-10" style={{ marginTop: 20, justifyContent: "flex-end" }}><button className="btn btn-ghost">Hủy</button><button className="btn btn-primary">Lưu thay đổi</button></div>
-          </Section>
-        ) : (
-          <Section>
-            <div className="grid grid-2" style={{ gap: 16, maxWidth: 560 }}>
-              <Field label="Học phí (VND)"><input className="input" defaultValue="2,400,000" /></Field>
-              <Field label="Giảm giá (%)"><input className="input" defaultValue="20" /></Field>
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 18, maxWidth: 560 }}>
-              {[["Cho phép tải tài liệu", true], ["Cấp chứng chỉ khi hoàn thành", true], ["Bật bình luận / diễn đàn", true], ["Giới hạn thời gian truy cập", false]].map((s, i) => (
-                <label key={i} className="between" style={{ padding: "14px 4px", borderBottom: "1px solid var(--border)", cursor: "pointer" }}><span style={{ fontWeight: 500, fontSize: 14.5 }}>{s[0]}</span><span className="toggle" data-on={s[1]} /></label>
-              ))}
-            </div>
           </Section>
         )}
 
-        <AddVideoModal open={vid} onClose={() => setVid(false)} onAdd={addItem} />
-        <AddDocModal open={doc} onClose={() => setDoc(false)} onAdd={addItem} />
+        {/* ── Info tab ── */}
+        {tab === "info" && (
+          <Section>
+            <h2 className="t-h2" style={{ marginBottom: 20 }}>Thông tin khóa học</h2>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
+              <Field label="Tên khóa học" full>
+                <input className="input" value={editTitle} onChange={e => setEditTitle(e.target.value)} disabled={!canEdit} />
+              </Field>
+              <Field label="Cấp độ">
+                <Select value={editLevel} onChange={setEditLevel} options={LEVELS.map(l => ({ v: l.value, label: l.label }))} disabled={!canEdit} />
+              </Field>
+              <Field label="Mô tả" full>
+                <textarea className="input" style={{ height: 100, padding: 12, resize: "none" }} value={editDesc}
+                  onChange={e => setEditDesc(e.target.value)} disabled={!canEdit}
+                  placeholder="Mô tả ngắn gọn về khóa học..." />
+              </Field>
+              <Field label="Mục tiêu học tập" full>
+                <textarea className="input" style={{ height: 100, padding: 12, resize: "none" }} value={editOutcome}
+                  onChange={e => setEditOutcome(e.target.value)} disabled={!canEdit}
+                  placeholder={"• Thành thạo React Hooks\n• Quản lý state với Redux Toolkit"} />
+              </Field>
+            </div>
+            {infoMsg && (
+              <div style={{ marginTop: 12, padding: "10px 14px", borderRadius: 10, fontSize: 13.5,
+                background: infoMsg.startsWith("Đã") ? "#dcfce7" : "#fee2e2",
+                color: infoMsg.startsWith("Đã") ? "#16a34a" : "#dc2626" }}>{infoMsg}
+              </div>
+            )}
+            {canEdit && (
+              <div className="row gap-10" style={{ marginTop: 20, justifyContent: "flex-end" }}>
+                <button className="btn btn-ghost" onClick={() => { setEditTitle(course?.title || ""); setEditDesc(course?.description || ""); setInfoMsg(null); }}>Hủy</button>
+                <button className="btn btn-primary" disabled={infoSaving} onClick={handleSaveInfo}>{infoSaving ? "Đang lưu..." : "Lưu thay đổi"}</button>
+              </div>
+            )}
+          </Section>
+        )}
+
+        {/* Modals */}
+        <AddChapterModal   open={addChapterOpen}     onClose={() => setAddChapterOpen(false)}   courseId={courseId} onAdded={() => loadCourse(true)} />
+        <AddLessonModal    open={!!addLessonState}   onClose={() => setAddLessonState(null)}    courseId={courseId} chapterId={addLessonState?.chapterId} onAdded={() => loadCourse(true)} />
+        <AddResourceModal  open={!!addResourceState} onClose={() => setAddResourceState(null)}  courseId={courseId} lessonId={addResourceState?.lessonId} lessonTitle={addResourceState?.lessonTitle} onAdded={() => loadCourse(true)} />
+
+        {showPreview && React.createElement(window.PreviewPlayer, { onBack: () => setShowPreview(false) })}
+
+        {renameLessonState && (() => {
+          const s = renameLessonState;
+          let name = s.title;
+          return (
+            <Modal open onClose={() => setRenameLessonState(null)} max={420}>
+              <ModalHead title="Đổi tên bài giảng" icon="edit" iconBg="#f0fdf4" iconColor="#16a34a" onClose={() => setRenameLessonState(null)} />
+              <div className="modal-body">
+                <label className="t-label" style={{ display: "block", marginBottom: 7 }}>Tên bài giảng</label>
+                <input className="input" defaultValue={s.title} autoFocus
+                  onChange={e => { name = e.target.value; }}
+                  onKeyDown={e => { if (e.key === "Enter") { handleRenameLesson(s.chapterId, s.lessonId, name); setRenameLessonState(null); } }} />
+              </div>
+              <div className="modal-foot">
+                <button className="btn btn-ghost" onClick={() => setRenameLessonState(null)}>Hủy</button>
+                <button className="btn btn-primary" onClick={() => { handleRenameLesson(s.chapterId, s.lessonId, name); setRenameLessonState(null); }}>
+                  <Ic n="check" size={15} />Lưu
+                </button>
+              </div>
+            </Modal>
+          );
+        })()}
+
+        {editResourceState && (() => {
+          const s   = editResourceState;
+          const rm  = RES_TYPE[s.resourceType] || RES_TYPE.OTHER;
+          const isVideo = s.resourceType === "VIDEO";
+          const isImage = s.resourceType === "IMAGE";
+          const isYT = !!(s.externalUrl && /youtube\.com|youtu\.be/.test(s.externalUrl));
+          const ytId = isYT ? (s.externalUrl.match(/(?:v=|youtu\.be\/)([^&?/]+)/)?.[1] || "") : null;
+          return (
+            <EditResourceInner
+              s={s} rm={rm} isVideo={isVideo} isImage={isImage} isYT={isYT} ytId={ytId}
+              onClose={() => setEditResourceState(null)}
+              onSave={newName => { handleRenameResource(s.lessonId, s.resourceId, newName); setEditResourceState(null); }}
+              courseId={courseId}
+              onReplaced={() => { loadCourse(true); setEditResourceState(null); }}
+            />
+          );
+        })()}
       </div>
     );
   }
