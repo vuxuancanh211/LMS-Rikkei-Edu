@@ -16,4 +16,6 @@ regexes = [
     '''test_access_key''',
     '''test_secret_key''',
     '''lms_test_pwd''',
+    '''lms-rikkei-edu''',
+    '''vuxuancanh211_LMS-Rikkei-Edu''',
 ]
