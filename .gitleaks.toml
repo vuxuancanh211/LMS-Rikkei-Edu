@@ -1,0 +1,14 @@
+title = "gitleaks config"
+
+[
+extend
+]
+useDefault = true
+
+[
+allowlist
+]
+description = "Bo qua secret gia trong file test"
+paths = [
+    '''backend/src/test/resources/application-test\.properties'''
+]
