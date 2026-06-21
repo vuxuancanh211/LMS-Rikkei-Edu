@@ -62,6 +62,24 @@ public class Lesson {
     @Column(name = "hls_manifest_url", columnDefinition = "text")
     private String hlsManifestUrl;
 
+    /** true = lesson này vừa được tạo trong published course, chưa được admin duyệt */
+    @Column(name = "is_draft", nullable = false)
+    @Builder.Default
+    private Boolean isDraft = false;
+
+    /** true = instructor muốn xóa lesson này, chờ admin duyệt */
+    @Column(name = "pending_delete", nullable = false)
+    @Builder.Default
+    private Boolean pendingDelete = false;
+
+    /** Tiêu đề draft chờ duyệt (lesson live, title thay đổi) */
+    @Column(name = "draft_title", length = 200)
+    private String draftTitle;
+
+    /** Nội dung draft chờ duyệt */
+    @Column(name = "draft_content_text", columnDefinition = "text")
+    private String draftContentText;
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private Instant createdAt;

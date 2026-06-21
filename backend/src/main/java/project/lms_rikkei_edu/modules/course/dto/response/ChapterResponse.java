@@ -16,4 +16,6 @@ public class ChapterResponse {
     private Integer orderIndex;
     private List<LessonResponse> lessons;
     private Instant createdAt;
+    private Boolean isDraft;
+    private Boolean pendingDelete;
 }

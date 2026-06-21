@@ -25,6 +25,16 @@ public class CourseDetailResponse {
     private List<ChapterResponse> chapters;
     private Instant submittedAt;
     private Instant publishedAt;
+    private Instant pendingUpdateAt;
     private Instant createdAt;
     private Instant updatedAt;
+
+    // ── Hybrid draft fields ──
+    private boolean hasPendingDraft;
+    private String draftTitle;
+    private String draftDescription;
+    private String draftThumbnailUrl;
+    private CourseLevel draftLevel;
+    private String changeSummary;
+    private String draftRejectionReason;
 }

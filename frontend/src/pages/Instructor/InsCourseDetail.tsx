@@ -49,14 +49,20 @@
 
   function mapCourse(data) {
     return (data.chapters || []).map(ch => ({
-      id:    ch.id,
-      name:  ch.title,
+      id:            ch.id,
+      name:          ch.title,
+      isDraft:       ch.isDraft       || false,
+      pendingDelete: ch.pendingDelete || false,
       items: (ch.lessons || []).map(l => ({
-        lessonId:   l.id,
-        title:      l.title,
-        lessonType: l.lessonType,
-        dur:        fmtDur(l.durationSeconds),
-        resources:  (l.resources || []).map(r => ({
+        lessonId:         l.id,
+        title:            l.title,
+        lessonType:       l.lessonType,
+        dur:              fmtDur(l.durationSeconds),
+        isDraft:          l.isDraft          || false,
+        pendingDelete:    l.pendingDelete    || false,
+        draftTitle:       l.draftTitle       || null,
+        draftContentText: l.draftContentText || null,
+        resources:        (l.resources || []).map(r => ({
           resourceId:   r.id,
           title:        r.displayName || r.originalFilename,
           resourceType: r.resourceType,
@@ -228,7 +234,7 @@
     }
     function onDocFilePick(f) {
       if (!f) return;
-      if (f.size > 50 * 1024 * 1024) { setErr("File vượt quá 50MB"); return; }
+      if (f.size > 200 * 1024 * 1024) { setErr("File vượt quá 200MB"); return; }
       setDocFile(f);
       setDocName(prev => prev || f.name.replace(/\.[^.]+$/, ""));
       setErr(null);
@@ -328,7 +334,7 @@
           {tab === "doc" && (<>
             <input ref={docFileRef} type="file" accept=".pdf,.pptx,.ppt,.docx,.doc,.xlsx,.xls,.png,.jpg,.jpeg" style={{ display: "none" }}
               onChange={e => onDocFilePick(e.target.files?.[0])} />
-            <Dropzone icon="upload" title="Kéo thả tài liệu vào đây" hint="PDF, PPTX, DOCX, ảnh · tối đa 50MB"
+            <Dropzone icon="upload" title="Kéo thả tài liệu vào đây" hint="PDF, PPTX, DOCX, ảnh · tối đa 200MB"
               h={32} file={docFile} onClick={() => docFileRef.current?.click()} onDrop={onDocFilePick} />
             <Field label="Tên hiển thị">
               <input ref={nameRef} className="input" value={docName} onChange={e => setDocName(e.target.value)}
@@ -370,14 +376,22 @@
 
     const canEmbed = s.externalUrl && s.externalUrl.match(/\.(mp4|webm|ogg)(\?.*)?$/i);
 
+    function onReplacePick(f) {
+      if (!f) return;
+      const limit = isVideo ? 2 * 1024 * 1024 * 1024 : 200 * 1024 * 1024;
+      const label = isVideo ? "2GB" : "200MB";
+      if (f.size > limit) { setErr(`File vượt quá ${label}`); return; }
+      setNewFile(f); setErr(null);
+    }
+
     async function handleSave() {
       if (!name.trim()) { setErr("Tên không được để trống"); return; }
-      setSaving(true); setErr(null);
+      setSaving(true); setErr(null); setProgress(0);
       try {
         if (replaceOpen) {
-          if (!newFile && !newUrl.trim()) { setErr("Vui lòng chọn file hoặc nhập URL"); setSaving(false); return; }
+          if (!newFile && !newUrl.trim()) { setErr("Vui lòng chọn file hoặc nhập URL"); return; }
           if (newUrl.trim()) {
-            try { new URL(newUrl.trim()); } catch { setErr("URL không hợp lệ"); setSaving(false); return; }
+            try { new URL(newUrl.trim()); } catch { setErr("URL không hợp lệ"); return; }
             await api.delete(`/instructor/courses/${courseId}/lessons/${s.lessonId}/resources/${s.resourceId}`);
             await api.post(`/instructor/courses/${courseId}/lessons/${s.lessonId}/resources/confirm-upload`,
               { externalUrl: newUrl.trim(), resourceType: s.resourceType, displayName: name.trim() });
@@ -401,7 +415,8 @@
         } else {
           onSave(name.trim());
         }
-      } catch (e) { setErr(e?.response?.data?.message || e?.message || "Thao tác thất bại"); setSaving(false); }
+      } catch (e) { setErr(e?.response?.data?.message || e?.message || "Thao tác thất bại"); }
+      finally { setSaving(false); }
     }
 
     return (
@@ -469,16 +484,16 @@
                 <>
                   <input ref={fileRef} type="file" style={{ display: "none" }}
                     accept={isVideo ? "video/mp4,video/quicktime,video/webm" : ".pdf,.pptx,.ppt,.docx,.doc,.xlsx,.xls,.png,.jpg,.jpeg"}
-                    onChange={e => { const f = e.target.files?.[0]; if (f) { setNewFile(f); setErr(null); } }} />
+                    onChange={e => onReplacePick(e.target.files?.[0])} />
                   <Dropzone icon={isVideo ? "video" : "upload"}
                     title={isVideo ? "Chọn file video mới" : "Chọn file tài liệu mới"}
-                    hint={isVideo ? "MP4, MOV, WebM · tối đa 2GB" : "PDF, PPTX, DOCX · tối đa 50MB"}
-                    h={20} file={newFile} onClick={() => fileRef.current?.click()} onDrop={f => { setNewFile(f); setErr(null); }} />
+                    hint={isVideo ? "MP4, MOV, WebM · tối đa 2GB" : "PDF, PPTX, DOCX · tối đa 200MB"}
+                    h={20} file={newFile} onClick={() => fileRef.current?.click()} onDrop={onReplacePick} />
                 </>
               )}
               {saving && newFile && (
                 <div>
-                  <div style={{ height: 4, borderRadius: 999, background: "var(--border)", overflow: "hidden" }}>
+                  <div style={{ height: 5, borderRadius: 999, background: "var(--border)", overflow: "hidden" }}>
                     <div style={{ width: progress + "%", height: "100%", background: "var(--accent)", transition: "width .2s" }} />
                   </div>
                   <div className="t-xs muted" style={{ textAlign: "center", marginTop: 4 }}>Đang upload... {progress}%</div>
@@ -535,9 +550,11 @@
         .then(r => {
           setCourse(r.data);
           setChapters(mapCourse(r.data));
-          setEditTitle(r.data.title || "");
-          setEditDesc(r.data.description || "");
-          setEditLevel(r.data.level || LEVELS[1].value);
+          // Nếu đang live, hiện draft values trong form để instructor thấy và chỉnh tiếp
+          const isLiveStatus = r.data.status === "PUBLISHED" || r.data.status === "PENDING_UPDATE";
+          setEditTitle((isLiveStatus && r.data.draftTitle)       ? r.data.draftTitle       : r.data.title       || "");
+          setEditDesc ((isLiveStatus && r.data.draftDescription) ? r.data.draftDescription : r.data.description || "");
+          setEditLevel((isLiveStatus && r.data.draftLevel)       ? r.data.draftLevel       : r.data.level       || LEVELS[1].value);
           if (silent) requestAnimationFrame(() => { scrollEl?.scrollTo({ top: savedScroll }); });
         })
         .catch(e => setErr(e?.response?.data?.message || "Không thể tải khóa học"))
@@ -553,10 +570,18 @@
     }
 
     async function handleWithdraw() {
-      if (!confirm("Rút khỏi hàng chờ duyệt và chuyển về Bản nháp?")) return;
+      const isPendingUpdate = course?.status === "PENDING_UPDATE";
+      const msg = isPendingUpdate
+        ? "Hủy toàn bộ thay đổi đang chờ duyệt? Khóa học sẽ trở về trạng thái live gốc."
+        : "Rút khỏi hàng chờ duyệt và chuyển về Bản nháp?";
+      if (!confirm(msg)) return;
       setSubmitting(true); setSubmitMsg(null);
-      try { await api.put(`/instructor/courses/${courseId}/withdraw`); setSubmitMsg("Đã rút duyệt – khóa học trở về Bản nháp."); loadCourse(true); }
-      catch (e) { setSubmitMsg(e?.response?.data?.message || "Rút duyệt thất bại"); }
+      try {
+        await api.put(`/instructor/courses/${courseId}/withdraw`);
+        setSubmitMsg(isPendingUpdate ? "Đã hủy cập nhật – khóa học trở về trạng thái đang xuất bản." : "Đã rút duyệt – khóa học trở về Bản nháp.");
+        loadCourse(true);
+      }
+      catch (e) { setSubmitMsg(e?.response?.data?.message || "Thao tác thất bại"); }
       finally { setSubmitting(false); }
     }
 
@@ -612,7 +637,8 @@
       </div>
     );
 
-    const canEdit = course?.status === "DRAFT" || course?.status === "REJECTED";
+    const canEdit = ["DRAFT", "REJECTED", "PUBLISHED", "PENDING_UPDATE"].includes(course?.status);
+    const isLive  = course?.status === "PUBLISHED" || course?.status === "PENDING_UPDATE";
     const sc      = STATUS_COLOR[course?.status] || {};
 
     const allLessons   = chapters.flatMap(ch => ch.items);
@@ -632,11 +658,16 @@
           </button>
           <div className="row gap-10">
             <button className="btn btn-ghost btn-sm" onClick={() => setShowPreview(true)}><Ic n="eye" size={15} />Xem trước</button>
-            {course?.status === "DRAFT" && (
+            {(course?.status === "DRAFT" || course?.status === "REJECTED") && (
               <button className="btn btn-success btn-sm" disabled={submitting} onClick={handleSubmit}><Ic n="send" size={15} />{submitting ? "Đang gửi..." : "Gửi duyệt"}</button>
             )}
+            {course?.status === "PENDING_UPDATE" && course?.hasPendingDraft && (
+              <button className="btn btn-success btn-sm" disabled={submitting} onClick={handleSubmit}><Ic n="send" size={15} />{submitting ? "Đang gửi..." : "Gửi cập nhật"}</button>
+            )}
             {(course?.status === "PENDING" || course?.status === "PENDING_UPDATE") && (
-              <button className="btn btn-ghost btn-sm" disabled={submitting} onClick={handleWithdraw}>Rút duyệt</button>
+              <button className="btn btn-ghost btn-sm" disabled={submitting} onClick={handleWithdraw}>
+                {course?.status === "PENDING_UPDATE" ? "Hủy cập nhật" : "Rút duyệt"}
+              </button>
             )}
           </div>
         </div>
@@ -654,6 +685,30 @@
             </div>
           </div>
         </div>
+
+        {/* Banner: draft rejection reason (update bị từ chối) */}
+        {course?.draftRejectionReason && (
+          <div style={{ padding: "12px 16px", borderRadius: 10, marginBottom: 12, fontSize: 13.5, background: "#fee2e2", color: "#dc2626", display: "flex", gap: 10, alignItems: "center" }}>
+            <Ic n="x" size={16} style={{ flex: "none" }} />
+            <span><strong>Cập nhật bị từ chối:</strong> {course.draftRejectionReason}</span>
+          </div>
+        )}
+
+        {/* Banner: có thay đổi đang chờ duyệt */}
+        {course?.status === "PENDING_UPDATE" && (
+          <div style={{ padding: "12px 16px", borderRadius: 10, marginBottom: 12, fontSize: 13.5, background: "#e0f2fe", color: "#0284c7", display: "flex", gap: 10, alignItems: "center" }}>
+            <Ic n="eye" size={16} style={{ flex: "none" }} />
+            <span>Có thay đổi đang chờ admin duyệt. Khóa học vẫn hiển thị cho học viên theo nội dung cũ. Bạn có thể tiếp tục chỉnh sửa hoặc <strong>Hủy cập nhật</strong> để hủy toàn bộ thay đổi.</span>
+          </div>
+        )}
+
+        {/* Banner: đang published — chỉnh sửa sẽ tạo bản draft */}
+        {course?.status === "PUBLISHED" && (
+          <div style={{ padding: "12px 16px", borderRadius: 10, marginBottom: 12, fontSize: 13.5, background: "#f0fdf4", color: "#15803d", display: "flex", gap: 10, alignItems: "center" }}>
+            <Ic n="book" size={16} style={{ flex: "none" }} />
+            <span>Khóa học đang được xuất bản. Mọi thay đổi sẽ tạo bản nháp và gửi admin duyệt trước khi áp dụng.</span>
+          </div>
+        )}
 
         {submitMsg && (
           <div style={{ padding: "10px 16px", borderRadius: 10, marginBottom: 14, fontSize: 13.5,
@@ -691,14 +746,18 @@
             )}
 
             {chapters.map((ch, ci) => (
-              <div key={ch.id} style={{ border: "1px solid var(--border)", borderRadius: 12, marginBottom: 10, overflow: "hidden" }}>
+              <div key={ch.id} style={{ border: "1px solid var(--border)", borderRadius: 12, marginBottom: 10, overflow: "hidden",
+                opacity: ch.pendingDelete ? 0.55 : 1,
+                outline: ch.isDraft ? "2px solid #22c55e" : ch.pendingDelete ? "2px solid #ef4444" : "none" }}>
                 <div className="row gap-12" style={{ padding: "12px 16px", background: "var(--surface-2)", cursor: "pointer", userSelect: "none" }}
                   onClick={() => setOpen(open === ci ? -1 : ci)}>
                   <Ic n="chevron_down" size={18} style={{ transform: open === ci ? "none" : "rotate(-90deg)", transition: ".2s", color: "var(--text-3)", flexShrink: 0 }} />
-                  <div className="grow" style={{ fontWeight: 600, fontSize: 14.5 }}>
+                  <div className="grow" style={{ fontWeight: 600, fontSize: 14.5, display: "flex", alignItems: "center", gap: 8 }}>
                     {canEdit
                       ? <InlineEdit value={ch.name} onSave={t => handleRenameChapter(ch.id, t)} placeholder="Tên chương..." />
                       : ch.name}
+                    {ch.isDraft       && <span className="chip" style={{ fontSize: 10.5, padding: "1px 7px", background: "#dcfce7", color: "#16a34a", fontWeight: 700, flex: "none" }}>MỚI</span>}
+                    {ch.pendingDelete && <span className="chip" style={{ fontSize: 10.5, padding: "1px 7px", background: "#fee2e2", color: "#dc2626", fontWeight: 700, flex: "none" }}>Chờ xóa</span>}
                   </div>
                   <span className="muted t-xs">{ch.items.length} bài giảng</span>
                   {canEdit && (
@@ -719,16 +778,25 @@
                       const docCount   = (lesson.resources || []).filter(r => r.resourceType !== "VIDEO").length;
                       return (
                         <div key={lesson.lessonId}>
-                          <div className="row gap-12" style={{ padding: "10px 16px 10px 24px", borderBottom: "1px solid var(--border-soft)" }}>
+                          <div className="row gap-12" style={{ padding: "10px 16px 10px 24px", borderBottom: "1px solid var(--border-soft)",
+                            opacity: lesson.pendingDelete ? 0.5 : 1,
+                            background: lesson.isDraft ? "rgba(34,197,94,.04)" : "transparent" }}>
                             <div className="stat-ic" style={{ width: 40, height: 40, borderRadius: 10, background: "#f0fdf4", color: "#16a34a", flex: "none" }}>
                               <Ic n="book" size={17} />
                             </div>
                             <div className="grow" style={{ minWidth: 0 }}>
-                              <div style={{ fontWeight: 500, fontSize: 14 }} className="truncate">
+                              <div style={{ fontWeight: 500, fontSize: 14, display: "flex", alignItems: "center", gap: 7 }} className="truncate">
                                 {canEdit
                                   ? <InlineEdit value={lesson.title} onSave={t => handleRenameLesson(ch.id, lesson.lessonId, t)} />
-                                  : lesson.title}
+                                  : <span style={{ textDecoration: lesson.pendingDelete ? "line-through" : "none" }}>{lesson.title}</span>}
+                                {lesson.isDraft       && <span className="chip" style={{ fontSize: 10, padding: "1px 6px", background: "#dcfce7", color: "#16a34a", fontWeight: 700, flex: "none" }}>MỚI</span>}
+                                {lesson.pendingDelete && <span className="chip" style={{ fontSize: 10, padding: "1px 6px", background: "#fee2e2", color: "#dc2626", fontWeight: 700, flex: "none" }}>Chờ xóa</span>}
                               </div>
+                              {lesson.draftTitle && (
+                                <div className="t-xs" style={{ marginTop: 2, color: "#0284c7" }}>
+                                  Tên mới (chờ duyệt): <strong>{lesson.draftTitle}</strong>
+                                </div>
+                              )}
                               <div className="row gap-8 wrap" style={{ marginTop: 3 }}>
                                 <span className="chip" style={{ background: "#f0fdf4", color: "#16a34a", fontSize: 11, padding: "1px 8px" }}>Bài giảng</span>
                                 {videoCount > 0 && <span className="muted t-xs">{videoCount} video</span>}
@@ -799,9 +867,12 @@
         {/* ── Info tab ── */}
         {tab === "info" && (
           <Section>
-            <h2 className="t-h2" style={{ marginBottom: 20 }}>Thông tin khóa học</h2>
+            <div className="between" style={{ marginBottom: 20 }}>
+              <h2 className="t-h2">Thông tin khóa học</h2>
+              {isLive && <span className="chip" style={{ background: "#e0f2fe", color: "#0284c7", fontSize: 12 }}>Thay đổi sẽ tạo bản draft chờ duyệt</span>}
+            </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
-              <Field label="Tên khóa học" full>
+              <Field label={isLive && course?.draftTitle ? `Tên khóa học (hiện tại: ${course.title})` : "Tên khóa học"} full>
                 <input className="input" value={editTitle} onChange={e => setEditTitle(e.target.value)} disabled={!canEdit} />
               </Field>
               <Field label="Cấp độ">

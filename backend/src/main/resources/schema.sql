@@ -992,3 +992,30 @@ ALTER TABLE "certificates" ADD FOREIGN KEY ("student_id") REFERENCES "users" ("i
 ALTER TABLE "certificates" ADD FOREIGN KEY ("course_id") REFERENCES "courses" ("id") DEFERRABLE INITIALLY IMMEDIATE;
 
 ALTER TABLE "certificates" ADD FOREIGN KEY ("revoked_by") REFERENCES "users" ("id") DEFERRABLE INITIALLY IMMEDIATE;
+
+-- ============================================================
+-- HYBRID VERSIONING MIGRATION
+-- Thêm draft fields cho courses, chapters, lessons
+-- ============================================================
+
+ALTER TABLE "courses"
+    ADD COLUMN IF NOT EXISTS "draft_title"             varchar(200),
+    ADD COLUMN IF NOT EXISTS "draft_description"       text,
+    ADD COLUMN IF NOT EXISTS "draft_thumbnail_url"     text,
+    ADD COLUMN IF NOT EXISTS "draft_level"             varchar(20),
+    ADD COLUMN IF NOT EXISTS "change_summary"          varchar(500),
+    ADD COLUMN IF NOT EXISTS "draft_rejection_reason"  text;
+
+ALTER TABLE "chapters"
+    ADD COLUMN IF NOT EXISTS "is_draft"       boolean NOT NULL DEFAULT false,
+    ADD COLUMN IF NOT EXISTS "pending_delete" boolean NOT NULL DEFAULT false;
+
+ALTER TABLE "lessons"
+    ADD COLUMN IF NOT EXISTS "is_draft"            boolean NOT NULL DEFAULT false,
+    ADD COLUMN IF NOT EXISTS "pending_delete"      boolean NOT NULL DEFAULT false,
+    ADD COLUMN IF NOT EXISTS "draft_title"         varchar(200),
+    ADD COLUMN IF NOT EXISTS "draft_content_text"  text;
+
+CREATE INDEX IF NOT EXISTS idx_chapters_is_draft        ON chapters(course_id) WHERE is_draft = true;
+CREATE INDEX IF NOT EXISTS idx_lessons_is_draft         ON lessons(course_id) WHERE is_draft = true;
+CREATE INDEX IF NOT EXISTS idx_lessons_pending_delete   ON lessons(course_id) WHERE pending_delete = true;

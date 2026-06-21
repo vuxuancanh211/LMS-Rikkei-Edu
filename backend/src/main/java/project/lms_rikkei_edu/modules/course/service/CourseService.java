@@ -19,7 +19,7 @@ public interface CourseService {
 
     void deleteCourse(UUID instructorId, UUID courseId);
 
-    CourseDetailResponse submitForApproval(UUID instructorId, UUID courseId);
+    CourseDetailResponse submitForApproval(UUID instructorId, UUID courseId, String changeSummary);
 
     CourseDetailResponse withdrawFromReview(UUID instructorId, UUID courseId);
 

@@ -12,7 +12,8 @@ public interface CourseMapper {
     @Mapping(target = "category", source = "category")
     CourseResponse toResponse(Course course);
 
-    @Mapping(target = "category", source = "category")
-    @Mapping(target = "chapters", source = "chapters")
+    @Mapping(target = "category",        source = "category")
+    @Mapping(target = "chapters",        source = "chapters")
+    @Mapping(target = "hasPendingDraft", expression = "java(course.isHasPendingDraft())")
     CourseDetailResponse toDetailResponse(Course course);
 }

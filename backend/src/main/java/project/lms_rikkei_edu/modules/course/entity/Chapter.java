@@ -35,6 +35,16 @@ public class Chapter {
     @Column(name = "order_index", nullable = false)
     private Integer orderIndex;
 
+    /** true = chương này vừa được tạo, chưa được admin duyệt */
+    @Column(name = "is_draft", nullable = false)
+    @Builder.Default
+    private Boolean isDraft = false;
+
+    /** true = instructor muốn xóa chương này, chờ admin duyệt */
+    @Column(name = "pending_delete", nullable = false)
+    @Builder.Default
+    private Boolean pendingDelete = false;
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private Instant createdAt;

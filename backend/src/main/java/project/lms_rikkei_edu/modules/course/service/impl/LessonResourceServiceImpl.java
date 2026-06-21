@@ -15,6 +15,7 @@ import project.lms_rikkei_edu.modules.course.entity.Course;
 import project.lms_rikkei_edu.modules.course.entity.Lesson;
 import project.lms_rikkei_edu.modules.course.entity.LessonResource;
 import project.lms_rikkei_edu.modules.course.enums.CourseStatus;
+import project.lms_rikkei_edu.modules.course.enums.ResourceType;
 import project.lms_rikkei_edu.modules.course.exception.CourseNotOwnedException;
 import project.lms_rikkei_edu.modules.course.exception.LessonNotFoundException;
 import project.lms_rikkei_edu.modules.course.mapper.LessonResourceMapper;
@@ -34,7 +35,8 @@ import java.util.UUID;
 @Transactional
 public class LessonResourceServiceImpl implements LessonResourceService {
 
-    private static final long MAX_FILE_SIZE_BYTES = 50L * 1024 * 1024; // 50MB
+    private static final long MAX_VIDEO_SIZE_BYTES  = 2L  * 1024 * 1024 * 1024; // 2GB
+    private static final long MAX_DOC_SIZE_BYTES    = 200L * 1024 * 1024;        // 200MB
 
     private final LessonRepository lessonRepository;
     private final LessonResourceRepository lessonResourceRepository;
@@ -51,8 +53,11 @@ public class LessonResourceServiceImpl implements LessonResourceService {
                                                           ResourceUploadPresignRequest request) {
         Lesson lesson = loadOwnedLesson(instructorId, courseId, lessonId);
 
-        if (request.getFileSizeBytes() > MAX_FILE_SIZE_BYTES) {
-            throw new IllegalArgumentException("File vượt quá giới hạn 50MB");
+        boolean isVideo = request.getResourceType() == ResourceType.VIDEO;
+        long maxBytes = isVideo ? MAX_VIDEO_SIZE_BYTES : MAX_DOC_SIZE_BYTES;
+        String maxLabel = isVideo ? "2GB" : "200MB";
+        if (request.getFileSizeBytes() != null && request.getFileSizeBytes() > maxBytes) {
+            throw new IllegalArgumentException("File vượt quá giới hạn " + maxLabel);
         }
 
         String extension = extractExtension(request.getOriginalFilename());

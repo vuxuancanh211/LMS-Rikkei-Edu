@@ -21,6 +21,8 @@ import project.lms_rikkei_edu.modules.course.service.CourseService;
 
 import java.text.Normalizer;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
@@ -60,7 +62,6 @@ public class CourseServiceImpl implements CourseService {
     @Override
     @Transactional(readOnly = true)
     public CourseDetailResponse getCourseDetail(UUID instructorId, UUID courseId) {
-        // Load course + category only; lazy-load collections within transaction to avoid MultipleBagFetchException
         Course course = courseRepository.findByIdWithCategory(courseId)
                 .orElseThrow(() -> new CourseNotFoundException(courseId));
         assertOwner(course, instructorId);
@@ -82,15 +83,24 @@ public class CourseServiceImpl implements CourseService {
         Course course = loadOwnedCourse(instructorId, courseId);
         assertEditable(course);
 
-        if (request.getTitle() != null) {
-            course.setTitle(request.getTitle());
-            course.setSlug(generateUniqueSlug(request.getTitle(), courseId));
+        if (isLive(course)) {
+            // Khóa học đang published — ghi vào draft fields thay vì sửa trực tiếp
+            if (request.getTitle() != null) course.setDraftTitle(request.getTitle());
+            if (request.getDescription() != null) course.setDraftDescription(request.getDescription());
+            if (request.getLevel() != null) course.setDraftLevel(request.getLevel());
+            if (request.getThumbnailUrl() != null) course.setDraftThumbnailUrl(request.getThumbnailUrl());
+            markPendingUpdate(course);
+        } else {
+            if (request.getTitle() != null) {
+                course.setTitle(request.getTitle());
+                course.setSlug(generateUniqueSlug(request.getTitle(), courseId));
+            }
+            if (request.getDescription() != null) course.setDescription(request.getDescription());
+            if (request.getLevel() != null) course.setLevel(request.getLevel());
+            if (request.getThumbnailUrl() != null) course.setThumbnailUrl(request.getThumbnailUrl());
+            if (request.getChatEnabled() != null) course.setChatEnabled(request.getChatEnabled());
+            if (request.getCategoryId() != null) course.setCategory(resolveCategory(request.getCategoryId()));
         }
-        if (request.getDescription() != null) course.setDescription(request.getDescription());
-        if (request.getLevel() != null) course.setLevel(request.getLevel());
-        if (request.getThumbnailUrl() != null) course.setThumbnailUrl(request.getThumbnailUrl());
-        if (request.getChatEnabled() != null) course.setChatEnabled(request.getChatEnabled());
-        if (request.getCategoryId() != null) course.setCategory(resolveCategory(request.getCategoryId()));
 
         return courseMapper.toResponse(courseRepository.save(course));
     }
@@ -106,39 +116,55 @@ public class CourseServiceImpl implements CourseService {
     }
 
     @Override
-    public CourseDetailResponse submitForApproval(UUID instructorId, UUID courseId) {
+    public CourseDetailResponse submitForApproval(UUID instructorId, UUID courseId, String changeSummary) {
         Course course = loadOwnedCourse(instructorId, courseId);
 
-        if (course.getStatus() != CourseStatus.DRAFT && course.getStatus() != CourseStatus.REJECTED) {
-            throw new CourseStateException("Only DRAFT or REJECTED courses can be submitted");
+        if (course.getStatus() == CourseStatus.DRAFT || course.getStatus() == CourseStatus.REJECTED) {
+            // Lần đầu submit
+            long lessonCount = lessonRepository.countByCourseId(courseId);
+            if (lessonCount == 0) {
+                throw new CourseStateException("Course must have at least one lesson before submitting");
+            }
+            course.setStatus(CourseStatus.PENDING);
+            course.setSubmittedAt(Instant.now());
+            course.setRejectionReason(null);
+
+        } else if (course.getStatus() == CourseStatus.PENDING_UPDATE) {
+            // Submit bản cập nhật để admin duyệt
+            course.setChangeSummary(changeSummary);
+            course.setSubmittedAt(Instant.now());
+            course.setDraftRejectionReason(null);
+            // Status giữ nguyên PENDING_UPDATE, admin sẽ thấy trong queue
+
+        } else {
+            throw new CourseStateException("Course cannot be submitted in current status: " + course.getStatus());
         }
 
-        long lessonCount = lessonRepository.countByCourseId(courseId);
-        if (lessonCount == 0) {
-            throw new CourseStateException("Course must have at least one lesson before submitting");
-        }
-
-        course.setStatus(CourseStatus.PENDING);
-        course.setSubmittedAt(Instant.now());
-        course.setRejectionReason(null);
-
-        Course saved = courseRepository.save(course);
-        return courseMapper.toDetailResponse(saved);
+        return courseMapper.toDetailResponse(courseRepository.save(course));
     }
 
     @Override
     public CourseDetailResponse withdrawFromReview(UUID instructorId, UUID courseId) {
         Course course = loadOwnedCourse(instructorId, courseId);
 
-        if (course.getStatus() != CourseStatus.PENDING && course.getStatus() != CourseStatus.PENDING_UPDATE) {
+        if (course.getStatus() == CourseStatus.PENDING) {
+            // Lần đầu pending → về DRAFT
+            course.setStatus(CourseStatus.DRAFT);
+            course.setSubmittedAt(null);
+
+        } else if (course.getStatus() == CourseStatus.PENDING_UPDATE) {
+            // Rút lại update → về PUBLISHED, xóa tất cả draft content
+            initChapters(course);
+            clearAllDrafts(course);
+            course.setStatus(CourseStatus.PUBLISHED);
+            course.setPendingUpdateAt(null);
+            course.setSubmittedAt(null);
+
+        } else {
             throw new CourseStateException("Only PENDING or PENDING_UPDATE courses can be withdrawn");
         }
 
-        course.setStatus(CourseStatus.DRAFT);
-        course.setSubmittedAt(null);
-
-        Course saved = courseRepository.save(course);
-        return courseMapper.toDetailResponse(saved);
+        return courseMapper.toDetailResponse(courseRepository.save(course));
     }
 
     @Override
@@ -147,13 +173,20 @@ public class CourseServiceImpl implements CourseService {
         assertEditable(course);
 
         int nextOrder = chapterRepository.findMaxOrderIndexByCourseId(courseId) + 1;
+        boolean draft = isLive(course);
 
         Chapter chapter = Chapter.builder()
                 .course(course)
                 .title(request.getTitle())
                 .description(request.getDescription())
                 .orderIndex(nextOrder)
+                .isDraft(draft)
                 .build();
+
+        if (draft) {
+            markPendingUpdate(course);
+            courseRepository.save(course);
+        }
 
         return chapterMapper.toResponse(chapterRepository.save(chapter));
     }
@@ -166,6 +199,7 @@ public class CourseServiceImpl implements CourseService {
         Chapter chapter = chapterRepository.findByIdAndCourseId(chapterId, courseId)
                 .orElseThrow(() -> new ChapterNotFoundException(chapterId));
 
+        // Chapter title update: sửa trực tiếp ngay cả khi published (ít tác động, không cần draft)
         if (request.getTitle() != null) chapter.setTitle(request.getTitle());
         if (request.getDescription() != null) chapter.setDescription(request.getDescription());
 
@@ -180,7 +214,20 @@ public class CourseServiceImpl implements CourseService {
         Chapter chapter = chapterRepository.findByIdAndCourseId(chapterId, courseId)
                 .orElseThrow(() -> new ChapterNotFoundException(chapterId));
 
-        chapterRepository.delete(chapter);
+        if (isLive(course)) {
+            if (Boolean.TRUE.equals(chapter.getIsDraft())) {
+                // Chương draft chưa duyệt → xóa ngay không cần pending
+                chapterRepository.delete(chapter);
+            } else {
+                // Chương live → đánh dấu chờ admin duyệt xóa
+                chapter.setPendingDelete(true);
+                chapterRepository.save(chapter);
+                markPendingUpdate(course);
+                courseRepository.save(course);
+            }
+        } else {
+            chapterRepository.delete(chapter);
+        }
     }
 
     @Override
@@ -192,6 +239,7 @@ public class CourseServiceImpl implements CourseService {
                 .orElseThrow(() -> new ChapterNotFoundException(chapterId));
 
         int nextOrder = lessonRepository.findMaxOrderIndexByChapterId(chapterId) + 1;
+        boolean draft = isLive(course);
 
         Lesson lesson = Lesson.builder()
                 .chapter(chapter)
@@ -201,7 +249,13 @@ public class CourseServiceImpl implements CourseService {
                 .contentText(request.getContentText())
                 .isPreview(request.getIsPreview() != null ? request.getIsPreview() : false)
                 .orderIndex(nextOrder)
+                .isDraft(draft)
                 .build();
+
+        if (draft) {
+            markPendingUpdate(course);
+            courseRepository.save(course);
+        }
 
         return lessonMapper.toResponse(lessonRepository.save(lesson));
     }
@@ -217,23 +271,22 @@ public class CourseServiceImpl implements CourseService {
         Lesson lesson = lessonRepository.findByIdAndCourseId(lessonId, courseId)
                 .orElseThrow(() -> new LessonNotFoundException(lessonId));
 
-        boolean contentChanged = request.getContentText() != null &&
-                !request.getContentText().equals(lesson.getContentText());
-
-        if (request.getTitle() != null) lesson.setTitle(request.getTitle());
-        if (request.getType() != null) lesson.setType(request.getType());
-        if (request.getContentText() != null) lesson.setContentText(request.getContentText());
-        if (request.getIsPreview() != null) lesson.setIsPreview(request.getIsPreview());
-
-        LessonResponse saved = lessonMapper.toResponse(lessonRepository.save(lesson));
-
-        if (contentChanged && course.getStatus() == CourseStatus.PUBLISHED) {
-            course.setStatus(CourseStatus.PENDING_UPDATE);
-            course.setPendingUpdateAt(java.time.Instant.now());
+        if (isLive(course) && !Boolean.TRUE.equals(lesson.getIsDraft())) {
+            // Lesson live trong published course → ghi vào draft fields
+            if (request.getTitle() != null) lesson.setDraftTitle(request.getTitle());
+            if (request.getContentText() != null) lesson.setDraftContentText(request.getContentText());
+            if (request.getIsPreview() != null) lesson.setIsPreview(request.getIsPreview());
+            markPendingUpdate(course);
             courseRepository.save(course);
+        } else {
+            // DRAFT/REJECTED course, hoặc lesson chính nó đang là draft → sửa trực tiếp
+            if (request.getTitle() != null) lesson.setTitle(request.getTitle());
+            if (request.getType() != null) lesson.setType(request.getType());
+            if (request.getContentText() != null) lesson.setContentText(request.getContentText());
+            if (request.getIsPreview() != null) lesson.setIsPreview(request.getIsPreview());
         }
 
-        return saved;
+        return lessonMapper.toResponse(lessonRepository.save(lesson));
     }
 
     @Override
@@ -247,10 +300,82 @@ public class CourseServiceImpl implements CourseService {
         Lesson lesson = lessonRepository.findByIdAndCourseId(lessonId, courseId)
                 .orElseThrow(() -> new LessonNotFoundException(lessonId));
 
-        lessonRepository.delete(lesson);
+        if (isLive(course)) {
+            if (Boolean.TRUE.equals(lesson.getIsDraft())) {
+                // Lesson draft chưa duyệt → xóa ngay
+                lessonRepository.delete(lesson);
+            } else {
+                // Lesson live → đánh dấu chờ admin duyệt xóa
+                lesson.setPendingDelete(true);
+                lessonRepository.save(lesson);
+                markPendingUpdate(course);
+                courseRepository.save(course);
+            }
+        } else {
+            lessonRepository.delete(lesson);
+        }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /** True nếu khóa học đang live (PUBLISHED hoặc PENDING_UPDATE) */
+    private boolean isLive(Course course) {
+        return course.getStatus() == CourseStatus.PUBLISHED
+                || course.getStatus() == CourseStatus.PENDING_UPDATE;
+    }
+
+    /** Chuyển PUBLISHED → PENDING_UPDATE nếu cần */
+    private void markPendingUpdate(Course course) {
+        if (course.getStatus() == CourseStatus.PUBLISHED) {
+            course.setStatus(CourseStatus.PENDING_UPDATE);
+            course.setPendingUpdateAt(Instant.now());
+        }
+    }
+
+    /** Force-load chapters + lessons (cần gọi trong transaction) */
+    private void initChapters(Course course) {
+        course.getChapters().forEach(ch ->
+            ch.getLessons().forEach(l -> l.getResources().size())
+        );
+    }
+
+    /**
+     * Xóa toàn bộ nội dung draft khi instructor withdraw hoặc admin reject.
+     * Gọi sau initChapters().
+     */
+    private void clearAllDrafts(Course course) {
+        // Xóa draft metadata
+        course.setDraftTitle(null);
+        course.setDraftDescription(null);
+        course.setDraftLevel(null);
+        course.setDraftThumbnailUrl(null);
+        course.setChangeSummary(null);
+        course.setDraftRejectionReason(null);
+
+        List<Chapter> draftChapters = new ArrayList<>();
+        for (Chapter ch : course.getChapters()) {
+            if (Boolean.TRUE.equals(ch.getIsDraft())) {
+                draftChapters.add(ch);
+            } else {
+                ch.setPendingDelete(false);
+                // Xử lý lessons trong chương live
+                List<Lesson> draftLessons = new ArrayList<>();
+                for (Lesson l : ch.getLessons()) {
+                    if (Boolean.TRUE.equals(l.getIsDraft())) {
+                        draftLessons.add(l);
+                    } else {
+                        l.setPendingDelete(false);
+                        l.setDraftTitle(null);
+                        l.setDraftContentText(null);
+                    }
+                }
+                // Xóa draft lessons qua orphanRemoval
+                ch.getLessons().removeAll(draftLessons);
+            }
+        }
+        // Xóa draft chapters qua orphanRemoval
+        course.getChapters().removeAll(draftChapters);
+    }
 
     private Course loadOwnedCourse(UUID instructorId, UUID courseId) {
         Course course = courseRepository.findByIdWithCategory(courseId)
@@ -267,7 +392,7 @@ public class CourseServiceImpl implements CourseService {
 
     private void assertEditable(Course course) {
         if (course.getStatus() == CourseStatus.PENDING) {
-            throw new CourseStateException("Cannot modify a course that is pending approval");
+            throw new CourseStateException("Cannot modify a course pending first approval");
         }
         if (course.getStatus() == CourseStatus.ARCHIVED) {
             throw new CourseStateException("Cannot modify an archived course");

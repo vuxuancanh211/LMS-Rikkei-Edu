@@ -11,19 +11,16 @@ import project.lms_rikkei_edu.modules.ai.service.ingestion.CourseEmbeddingServic
 import project.lms_rikkei_edu.modules.course.dto.response.CourseDetailResponse;
 import project.lms_rikkei_edu.modules.course.dto.response.CourseResponse;
 import project.lms_rikkei_edu.modules.course.dto.response.ResourceDownloadUrlResponse;
-import project.lms_rikkei_edu.modules.course.entity.Course;
-import project.lms_rikkei_edu.modules.course.entity.LessonResource;
+import project.lms_rikkei_edu.modules.course.entity.*;
 import project.lms_rikkei_edu.modules.course.enums.CourseStatus;
 import project.lms_rikkei_edu.modules.course.exception.CourseNotFoundException;
 import project.lms_rikkei_edu.modules.course.exception.CourseStateException;
 import project.lms_rikkei_edu.modules.course.mapper.CourseMapper;
-import project.lms_rikkei_edu.modules.course.repository.CourseApprovalLogRepository;
-import project.lms_rikkei_edu.modules.course.repository.CourseRepository;
-import project.lms_rikkei_edu.modules.course.repository.LessonResourceRepository;
+import project.lms_rikkei_edu.modules.course.repository.*;
 import project.lms_rikkei_edu.modules.course.service.AdminCourseService;
-import project.lms_rikkei_edu.modules.course.entity.CourseApprovalLog;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -128,6 +125,56 @@ public class AdminCourseServiceImpl implements AdminCourseService {
             throw new CourseStateException("Only PENDING_UPDATE courses can have updates approved. Current status: " + course.getStatus());
         }
 
+        // Force-load toàn bộ nội dung
+        course.getChapters().forEach(ch ->
+            ch.getLessons().forEach(l -> l.getResources().size())
+        );
+
+        // 1. Áp dụng draft metadata
+        if (course.getDraftTitle() != null) course.setTitle(course.getDraftTitle());
+        if (course.getDraftDescription() != null) course.setDescription(course.getDraftDescription());
+        if (course.getDraftLevel() != null) course.setLevel(course.getDraftLevel());
+        if (course.getDraftThumbnailUrl() != null) course.setThumbnailUrl(course.getDraftThumbnailUrl());
+
+        // 2. Áp dụng draft chapters & lessons
+        List<Chapter> chaptersToRemove = new ArrayList<>();
+        for (Chapter ch : course.getChapters()) {
+            if (Boolean.TRUE.equals(ch.getPendingDelete())) {
+                chaptersToRemove.add(ch);
+            } else if (Boolean.TRUE.equals(ch.getIsDraft())) {
+                ch.setIsDraft(false);
+                ch.getLessons().forEach(l -> l.setIsDraft(false));
+            } else {
+                List<Lesson> lessonsToRemove = new ArrayList<>();
+                for (Lesson l : ch.getLessons()) {
+                    if (Boolean.TRUE.equals(l.getPendingDelete())) {
+                        lessonsToRemove.add(l);
+                    } else {
+                        if (Boolean.TRUE.equals(l.getIsDraft())) l.setIsDraft(false);
+                        if (l.getDraftTitle() != null) {
+                            l.setTitle(l.getDraftTitle());
+                            l.setDraftTitle(null);
+                        }
+                        if (l.getDraftContentText() != null) {
+                            l.setContentText(l.getDraftContentText());
+                            l.setDraftContentText(null);
+                        }
+                    }
+                }
+                ch.getLessons().removeAll(lessonsToRemove);
+            }
+        }
+        course.getChapters().removeAll(chaptersToRemove);
+
+        // 3. Xóa draft metadata
+        course.setDraftTitle(null);
+        course.setDraftDescription(null);
+        course.setDraftLevel(null);
+        course.setDraftThumbnailUrl(null);
+        course.setChangeSummary(null);
+        course.setDraftRejectionReason(null);
+
+        // 4. Cập nhật status
         course.setStatus(CourseStatus.PUBLISHED);
         course.setPendingUpdateAt(null);
         courseRepo.save(course);
@@ -148,13 +195,47 @@ public class AdminCourseServiceImpl implements AdminCourseService {
             throw new CourseStateException("Only PENDING_UPDATE courses can have updates rejected. Current status: " + course.getStatus());
         }
 
+        // Force-load toàn bộ nội dung
+        course.getChapters().forEach(ch ->
+            ch.getLessons().forEach(l -> l.getResources().size())
+        );
+
+        // Xóa tất cả draft content — course quay về trạng thái live gốc
+        List<Chapter> draftChapters = new ArrayList<>();
+        for (Chapter ch : course.getChapters()) {
+            if (Boolean.TRUE.equals(ch.getIsDraft())) {
+                draftChapters.add(ch);
+            } else {
+                ch.setPendingDelete(false);
+                List<Lesson> draftLessons = new ArrayList<>();
+                for (Lesson l : ch.getLessons()) {
+                    if (Boolean.TRUE.equals(l.getIsDraft())) {
+                        draftLessons.add(l);
+                    } else {
+                        l.setPendingDelete(false);
+                        l.setDraftTitle(null);
+                        l.setDraftContentText(null);
+                    }
+                }
+                ch.getLessons().removeAll(draftLessons);
+            }
+        }
+        course.getChapters().removeAll(draftChapters);
+
+        // Xóa draft metadata, lưu lý do reject
+        course.setDraftTitle(null);
+        course.setDraftDescription(null);
+        course.setDraftLevel(null);
+        course.setDraftThumbnailUrl(null);
+        course.setChangeSummary(null);
+        course.setDraftRejectionReason(reason);
+
         course.setStatus(CourseStatus.PUBLISHED);
         course.setPendingUpdateAt(null);
-        course.setRejectionReason(reason);
         courseRepo.save(course);
 
         saveLog(adminId, courseId, "REJECTED", reason);
-        log.info("Course update rejected: courseId={}, adminId={}", courseId, adminId);
+        log.info("Course update rejected: courseId={}, adminId={}, reason={}", courseId, adminId, reason);
 
         return courseMapper.toDetailResponse(course);
     }
@@ -167,13 +248,13 @@ public class AdminCourseServiceImpl implements AdminCourseService {
     }
 
     private void saveLog(UUID adminId, UUID courseId, String action, String reason) {
-        CourseApprovalLog log = CourseApprovalLog.builder()
+        CourseApprovalLog logEntry = CourseApprovalLog.builder()
                 .courseId(courseId)
                 .adminId(adminId)
                 .action(action)
                 .reason(reason)
                 .createdAt(Instant.now())
                 .build();
-        approvalLogRepo.save(log);
+        approvalLogRepo.save(logEntry);
     }
 }

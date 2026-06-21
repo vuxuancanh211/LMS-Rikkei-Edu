@@ -24,4 +24,8 @@ public class LessonResponse {
     private List<LessonResourceResponse> resources;
     private Instant createdAt;
     private Instant updatedAt;
+    private Boolean isDraft;
+    private Boolean pendingDelete;
+    private String draftTitle;
+    private String draftContentText;
 }

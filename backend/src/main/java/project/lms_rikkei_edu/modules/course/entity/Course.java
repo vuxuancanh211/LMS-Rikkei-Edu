@@ -71,6 +71,27 @@ public class Course {
     @Column(name = "pending_update_at")
     private Instant pendingUpdateAt;
 
+    // ── Hybrid draft fields (metadata chờ duyệt khi PUBLISHED) ──
+
+    @Column(name = "draft_title", length = 200)
+    private String draftTitle;
+
+    @Column(name = "draft_description", columnDefinition = "text")
+    private String draftDescription;
+
+    @Column(name = "draft_thumbnail_url", columnDefinition = "text")
+    private String draftThumbnailUrl;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "draft_level", length = 20)
+    private CourseLevel draftLevel;
+
+    @Column(name = "change_summary", length = 500)
+    private String changeSummary;
+
+    @Column(name = "draft_rejection_reason", columnDefinition = "text")
+    private String draftRejectionReason;
+
     @Column(name = "deleted_at")
     private Instant deletedAt;
 
@@ -86,4 +107,21 @@ public class Course {
     @OrderBy("orderIndex ASC")
     @Builder.Default
     private List<Chapter> chapters = new ArrayList<>();
+
+    /** True nếu có bất kỳ nội dung draft nào đang chờ duyệt */
+    public boolean isHasPendingDraft() {
+        if (draftTitle != null || draftDescription != null
+                || draftLevel != null || draftThumbnailUrl != null) return true;
+        if (chapters == null) return false;
+        return chapters.stream().anyMatch(ch ->
+                Boolean.TRUE.equals(ch.getIsDraft()) ||
+                Boolean.TRUE.equals(ch.getPendingDelete()) ||
+                ch.getLessons().stream().anyMatch(l ->
+                        Boolean.TRUE.equals(l.getIsDraft()) ||
+                        Boolean.TRUE.equals(l.getPendingDelete()) ||
+                        l.getDraftTitle() != null ||
+                        l.getDraftContentText() != null
+                )
+        );
+    }
 }

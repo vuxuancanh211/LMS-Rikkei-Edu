@@ -81,8 +81,11 @@ public class CourseController {
     }
 
     @PutMapping("/{courseId}/submit")
-    public ResponseEntity<CourseDetailResponse> submitForApproval(@PathVariable UUID courseId) {
-        return ResponseEntity.ok(courseService.submitForApproval(currentUserId(), courseId));
+    public ResponseEntity<CourseDetailResponse> submitForApproval(
+            @PathVariable UUID courseId,
+            @RequestBody(required = false) SubmitUpdateRequest request) {
+        String changeSummary = request != null ? request.getChangeSummary() : null;
+        return ResponseEntity.ok(courseService.submitForApproval(currentUserId(), courseId, changeSummary));
     }
 
     @PutMapping("/{courseId}/withdraw")
