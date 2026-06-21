@@ -8,3 +8,12 @@ description = "Bo qua secret gia trong file test"
 paths = [
     '''backend/src/test/resources/application-test\.properties'''
 ]
+
+regexes = [
+    '''test-secret-key-must-be-at-least-32-characters''',
+    '''test@example\.com''',
+    '''test_sendgrid_key''',
+    '''test_access_key''',
+    '''test_secret_key''',
+    '''lms_test_pwd''',
+]
