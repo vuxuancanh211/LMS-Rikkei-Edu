@@ -5,6 +5,8 @@ import org.springframework.data.domain.Pageable;
 import project.lms_rikkei_edu.modules.course.dto.request.*;
 import project.lms_rikkei_edu.modules.course.dto.response.*;
 
+import java.util.List;
+
 import java.util.UUID;
 
 public interface CourseService {
@@ -34,4 +36,6 @@ public interface CourseService {
     LessonResponse updateLesson(UUID instructorId, UUID courseId, UUID chapterId, UUID lessonId, UpdateLessonRequest request);
 
     void deleteLesson(UUID instructorId, UUID courseId, UUID chapterId, UUID lessonId);
+
+    List<CourseApprovalLogResponse> getCourseHistory(UUID instructorId, UUID courseId);
 }

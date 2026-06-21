@@ -12,6 +12,8 @@ import project.lms_rikkei_edu.common.exception.BusinessException;
 import project.lms_rikkei_edu.common.security.CurrentUserProvider;
 import project.lms_rikkei_edu.modules.course.dto.request.*;
 import project.lms_rikkei_edu.modules.course.dto.response.*;
+import project.lms_rikkei_edu.modules.course.entity.CourseCategory;
+import project.lms_rikkei_edu.modules.course.repository.CourseCategoryRepository;
 import project.lms_rikkei_edu.modules.course.service.CourseService;
 import project.lms_rikkei_edu.modules.course.service.LessonResourceService;
 import project.lms_rikkei_edu.infrastructure.s3.S3Service;
@@ -28,6 +30,7 @@ public class CourseController {
     private final LessonResourceService lessonResourceService;
     private final CurrentUserProvider currentUserProvider;
     private final S3Service s3Service;
+    private final CourseCategoryRepository categoryRepository;
 
     private UUID currentUserId() {
         return currentUserProvider.getCurrentUserId()
@@ -199,5 +202,20 @@ public class CourseController {
             @RequestBody java.util.Map<String, String> body) {
         String displayName = body.get("displayName");
         return ResponseEntity.ok(lessonResourceService.renameResource(currentUserId(), courseId, lessonId, resourceId, displayName));
+    }
+
+    // ── Categories ───────────────────────────────────────────────────────────
+
+    @GetMapping("/categories")
+    public ResponseEntity<List<CourseCategory>> getCategories() {
+        return ResponseEntity.ok(categoryRepository.findAll()
+                .stream().filter(c -> Boolean.TRUE.equals(c.getIsActive())).toList());
+    }
+
+    // ── Version history (Mức 1) ───────────────────────────────────────────────
+
+    @GetMapping("/{courseId}/history")
+    public ResponseEntity<List<CourseApprovalLogResponse>> getCourseHistory(@PathVariable UUID courseId) {
+        return ResponseEntity.ok(courseService.getCourseHistory(currentUserId(), courseId));
     }
 }

@@ -4,6 +4,7 @@ import lombok.Builder;
 import lombok.Getter;
 import project.lms_rikkei_edu.modules.course.enums.ResourceType;
 
+import java.time.Instant;
 import java.util.UUID;
 
 @Getter
@@ -19,4 +20,5 @@ public class LessonResourceResponse {
     private Integer orderIndex;
     /** Có giá trị khi resource là external URL (s3Key bắt đầu bằng "ext://") */
     private String externalUrl;
+    private Instant uploadedAt;
 }

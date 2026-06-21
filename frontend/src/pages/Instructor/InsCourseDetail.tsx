@@ -529,8 +529,9 @@
 
     const [editTitle,   setEditTitle]   = useState("");
     const [editDesc,    setEditDesc]    = useState("");
-    const [editOutcome, setEditOutcome] = useState("");
     const [editLevel,   setEditLevel]   = useState(LEVELS[1].value);
+    const [editCat,     setEditCat]     = useState(null);
+    const [categories,  setCategories]  = useState([]);
     const [infoSaving,  setInfoSaving]  = useState(false);
     const [infoMsg,     setInfoMsg]     = useState(null);
 
@@ -540,6 +541,8 @@
     const [renameLessonState, setRenameLessonState] = useState(null);
     const [editResourceState, setEditResourceState] = useState(null);
     const [showPreview,       setShowPreview]       = useState(false);
+    const [history,           setHistory]           = useState([]);
+    const [historyLoading,    setHistoryLoading]    = useState(false);
 
     function loadCourse(silent = false) {
       if (!courseId) { setLoading(false); return; }
@@ -555,12 +558,16 @@
           setEditTitle((isLiveStatus && r.data.draftTitle)       ? r.data.draftTitle       : r.data.title       || "");
           setEditDesc ((isLiveStatus && r.data.draftDescription) ? r.data.draftDescription : r.data.description || "");
           setEditLevel((isLiveStatus && r.data.draftLevel)       ? r.data.draftLevel       : r.data.level       || LEVELS[1].value);
+          setEditCat(r.data.category?.id || null);
           if (silent) requestAnimationFrame(() => { scrollEl?.scrollTo({ top: savedScroll }); });
         })
         .catch(e => setErr(e?.response?.data?.message || "Không thể tải khóa học"))
         .finally(() => { if (!silent) setLoading(false); });
     }
     useEffect(() => { loadCourse(); }, [courseId]);
+    useEffect(() => {
+      api.get("/instructor/courses/categories").then(r => setCategories(r.data || [])).catch(() => {});
+    }, []);
 
     async function handleSubmit() {
       setSubmitting(true); setSubmitMsg(null);
@@ -589,7 +596,12 @@
       if (!editTitle.trim()) { setInfoMsg("Vui lòng nhập tên khóa học"); return; }
       setInfoSaving(true); setInfoMsg(null);
       try {
-        await api.put(`/instructor/courses/${courseId}`, { title: editTitle.trim(), description: editDesc.trim() || null, level: editLevel });
+        await api.put(`/instructor/courses/${courseId}`, {
+          title: editTitle.trim(),
+          description: editDesc.trim() || null,
+          level: editLevel,
+          categoryId: editCat || null,
+        });
         setInfoMsg("Đã lưu thay đổi!"); loadCourse(true);
       } catch (e) { setInfoMsg(e?.response?.data?.message || "Lưu thất bại"); }
       finally { setInfoSaving(false); }
@@ -726,7 +738,20 @@
 
         {/* Tabs */}
         <div className="toolbar">
-          <Tabs items={[{ v: "content", label: "Nội dung khóa học" }, { v: "info", label: "Thông tin" }]} value={tab} onChange={setTab} />
+          <Tabs items={[
+            { v: "content", label: "Nội dung khóa học" },
+            { v: "info",    label: "Thông tin" },
+            { v: "history", label: "Lịch sử duyệt" },
+          ]} value={tab} onChange={v => {
+            setTab(v);
+            if (v === "history" && courseId && history.length === 0) {
+              setHistoryLoading(true);
+              api.get(`/instructor/courses/${courseId}/history`)
+                .then(r => setHistory(r.data || []))
+                .catch(() => {})
+                .finally(() => setHistoryLoading(false));
+            }
+          }} />
         </div>
 
         {/* ── Content tab ── */}
@@ -875,6 +900,14 @@
               <Field label={isLive && course?.draftTitle ? `Tên khóa học (hiện tại: ${course.title})` : "Tên khóa học"} full>
                 <input className="input" value={editTitle} onChange={e => setEditTitle(e.target.value)} disabled={!canEdit} />
               </Field>
+              <Field label="Danh mục">
+                <Select
+                  value={editCat}
+                  onChange={setEditCat}
+                  options={[{ v: null, label: "— Chưa chọn —" }, ...categories.map(c => ({ v: c.id, label: c.name }))]}
+                  disabled={!canEdit}
+                />
+              </Field>
               <Field label="Cấp độ">
                 <Select value={editLevel} onChange={setEditLevel} options={LEVELS.map(l => ({ v: l.value, label: l.label }))} disabled={!canEdit} />
               </Field>
@@ -882,11 +915,6 @@
                 <textarea className="input" style={{ height: 100, padding: 12, resize: "none" }} value={editDesc}
                   onChange={e => setEditDesc(e.target.value)} disabled={!canEdit}
                   placeholder="Mô tả ngắn gọn về khóa học..." />
-              </Field>
-              <Field label="Mục tiêu học tập" full>
-                <textarea className="input" style={{ height: 100, padding: 12, resize: "none" }} value={editOutcome}
-                  onChange={e => setEditOutcome(e.target.value)} disabled={!canEdit}
-                  placeholder={"• Thành thạo React Hooks\n• Quản lý state với Redux Toolkit"} />
               </Field>
             </div>
             {infoMsg && (
@@ -897,8 +925,72 @@
             )}
             {canEdit && (
               <div className="row gap-10" style={{ marginTop: 20, justifyContent: "flex-end" }}>
-                <button className="btn btn-ghost" onClick={() => { setEditTitle(course?.title || ""); setEditDesc(course?.description || ""); setInfoMsg(null); }}>Hủy</button>
+                <button className="btn btn-ghost" onClick={() => {
+                  setEditTitle(course?.title || "");
+                  setEditDesc(course?.description || "");
+                  setEditLevel(course?.level || LEVELS[1].value);
+                  setEditCat(course?.category?.id || null);
+                  setInfoMsg(null);
+                }}>Hủy</button>
                 <button className="btn btn-primary" disabled={infoSaving} onClick={handleSaveInfo}>{infoSaving ? "Đang lưu..." : "Lưu thay đổi"}</button>
+              </div>
+            )}
+          </Section>
+        )}
+
+        {/* ── History tab ── */}
+        {tab === "history" && (
+          <Section>
+            <h2 className="t-h2" style={{ marginBottom: 20 }}>Lịch sử duyệt</h2>
+            {historyLoading && <div className="muted" style={{ fontSize: 13.5 }}>Đang tải...</div>}
+            {!historyLoading && history.length === 0 && (
+              <Empty icon="clock" title="Chưa có lịch sử" sub="Lịch sử duyệt sẽ xuất hiện sau khi bạn nộp khóa học." />
+            )}
+            {!historyLoading && history.length > 0 && (
+              <div style={{ position: "relative", paddingLeft: 28 }}>
+                {/* Vertical line */}
+                <div style={{ position: "absolute", left: 9, top: 6, bottom: 6, width: 2, background: "var(--border)" }} />
+                {history.map((entry, i) => {
+                  const isInstructor = entry.actorType === "INSTRUCTOR";
+                  const color = entry.action.startsWith("APPROVED") ? "#16a34a"
+                    : entry.action.startsWith("REJECTED") ? "#dc2626"
+                    : "#0284c7";
+                  const bg = entry.action.startsWith("APPROVED") ? "#dcfce7"
+                    : entry.action.startsWith("REJECTED") ? "#fee2e2"
+                    : "#e0f2fe";
+                  const label = {
+                    SUBMITTED_FIRST:  "Nộp lần đầu",
+                    SUBMITTED_UPDATE: "Nộp cập nhật",
+                    APPROVED_FIRST:   "Duyệt xuất bản",
+                    APPROVED_UPDATE:  "Duyệt cập nhật",
+                    REJECTED:         "Từ chối xuất bản",
+                    REJECTED_UPDATE:  "Từ chối cập nhật",
+                    WITHDRAWN:        "Rút khỏi hàng chờ",
+                    DISCARDED:        "Hủy thay đổi",
+                  }[entry.action] || entry.action;
+                  return (
+                    <div key={entry.id || i} style={{ position: "relative", marginBottom: 20 }}>
+                      {/* Dot */}
+                      <div style={{ position: "absolute", left: -23, top: 4, width: 10, height: 10, borderRadius: "50%", background: color, border: "2px solid var(--surface)" }} />
+                      <div style={{ padding: "10px 14px", borderRadius: 10, background: "var(--surface-2)", border: "1px solid var(--border)" }}>
+                        <div className="row gap-10" style={{ marginBottom: entry.reason ? 6 : 0, flexWrap: "wrap" }}>
+                          <span style={{ fontWeight: 600, fontSize: 13.5, color }}>{label}</span>
+                          <span className="chip" style={{ background: bg, color, fontSize: 11.5 }}>
+                            {isInstructor ? "Giảng viên" : "Quản trị viên"}
+                          </span>
+                          <span className="muted" style={{ fontSize: 12, marginLeft: "auto" }}>
+                            {new Date(entry.createdAt).toLocaleString("vi-VN", { dateStyle: "short", timeStyle: "short" })}
+                          </span>
+                        </div>
+                        {entry.reason && (
+                          <div style={{ fontSize: 13, color: "var(--text-2)", borderTop: "1px solid var(--border)", marginTop: 6, paddingTop: 6 }}>
+                            <strong>Lý do:</strong> {entry.reason}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </Section>

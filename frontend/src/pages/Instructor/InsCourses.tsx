@@ -47,6 +47,10 @@
     const [title, setTitle]                   = useState("");
     const [desc, setDesc]                     = useState("");
     const [level, setLevel]                   = useState(LEVELS[1].value);
+    const [categoryId, setCategoryId]         = useState(null);
+    const [duration, setDuration]             = useState("");
+    const [prereq, setPrereq]                 = useState("");
+    const [categories, setCategories]         = useState([]);
     const [thumbFile, setThumbFile]           = useState(null);
     const [thumbPreview, setThumbPreview]     = useState(null);
     const [thumbUploading, setThumbUploading] = useState(false);
@@ -56,8 +60,16 @@
     const [err, setErr]                       = useState(null);
     const fileRef = useRef();
 
+    useEffect(() => {
+      if (!open || categories.length > 0) return;
+      api.get("/instructor/courses/categories")
+        .then(r => setCategories(r.data || []))
+        .catch(() => {});
+    }, [open]);
+
     const reset = () => {
-      setStep(1); setTitle(""); setDesc(""); setLevel(LEVELS[1].value); setErr(null);
+      setStep(1); setTitle(""); setDesc(""); setLevel(LEVELS[1].value);
+      setCategoryId(null); setDuration(""); setPrereq(""); setErr(null);
       setThumbFile(null); setThumbPreview(null); setThumbUrl(null); setThumbProgress(0);
     };
     const close = () => { reset(); onClose(); };
@@ -96,7 +108,11 @@
         let finalThumb = thumbUrl;
         if (thumbFile && !thumbUrl) finalThumb = await uploadThumb();
         const { data } = await api.post("/instructor/courses", {
-          title: title.trim(), description: desc.trim() || null, level, thumbnailUrl: finalThumb || null,
+          title: title.trim(),
+          description: desc.trim() || null,
+          level,
+          categoryId: categoryId || null,
+          thumbnailUrl: finalThumb || null,
         });
         window.__selectedCourseId = data.id; sessionStorage.setItem("selectedCourseId", data.id);
         reset(); onCreated && onCreated();
@@ -105,31 +121,45 @@
       } finally { setSaving(false); }
     }
 
+    const catOptions = categories.map(c => ({ v: c.id, label: c.name }));
+
     if (!open) return null;
     return (
       <Modal open={open} onClose={close} max={620}>
         <ModalHead title="Tạo khóa học mới"
-          sub={`Bước ${step}/2 · ${step === 1 ? "Thông tin cơ bản" : "Ảnh bìa & xuất bản"}`}
+          sub={`Bước ${step}/2 · ${step === 1 ? "Thông tin cơ bản" : "Ảnh bìa & chi tiết"}`}
           icon="book" iconBg="#eaf1ff" iconColor="#2563eb" onClose={close} />
+        {/* Progress bar */}
         <div style={{ padding: "0 24px" }}>
           <div className="row gap-8" style={{ marginTop: 4 }}>
-            {[1, 2].map(n => <div key={n} style={{ flex: 1, height: 4, borderRadius: 999, background: n <= step ? "var(--accent)" : "var(--border)" }} />)}
+            {[1, 2].map(n => (
+              <div key={n} style={{ flex: 1, height: 4, borderRadius: 999, background: n <= step ? "var(--accent)" : "var(--border)", transition: "background .2s" }} />
+            ))}
           </div>
         </div>
+
         <div className="modal-body" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
           {step === 1 ? (<>
             <Field label="Tên khóa học" full>
-              <input className="input" value={title} onChange={e => setTitle(e.target.value)} placeholder="VD: Lập trình ReactJS Nâng cao & Redux" />
+              <input className="input" value={title} onChange={e => setTitle(e.target.value)}
+                placeholder="VD: Lập trình ReactJS Nâng cao & Redux" autoFocus />
+            </Field>
+            <Field label="Danh mục">
+              {catOptions.length > 0
+                ? <Select value={categoryId} onChange={setCategoryId} options={[{ v: null, label: "— Chưa chọn —" }, ...catOptions]} />
+                : <input className="input" disabled value="Đang tải..." />}
             </Field>
             <Field label="Cấp độ">
               <Select value={level} onChange={setLevel} options={LEVELS.map(l => ({ v: l.value, label: l.label }))} />
             </Field>
             <Field label="Mô tả khóa học" full>
               <textarea className="input" style={{ height: 96, padding: 12, resize: "none" }} value={desc}
-                onChange={e => setDesc(e.target.value)} placeholder="Giới thiệu ngắn gọn nội dung, đối tượng và mục tiêu của khóa học..." />
+                onChange={e => setDesc(e.target.value)}
+                placeholder="Giới thiệu ngắn gọn nội dung, đối tượng và mục tiêu của khóa học..." />
             </Field>
             {err && <div style={{ gridColumn: "1/-1", color: "var(--error)", fontSize: 13 }}>{err}</div>}
           </>) : (<>
+            {/* Thumbnail dropzone */}
             <input ref={fileRef} type="file" accept="image/png,image/jpeg" style={{ display: "none" }}
               onChange={e => onThumbPick(e.target.files?.[0])} />
             <div style={{ gridColumn: "1/-1", border: "2px dashed var(--border-strong)", borderRadius: 12, overflow: "hidden", cursor: "pointer", background: "var(--surface-2)", aspectRatio: "16/7", position: "relative" }}
@@ -140,12 +170,19 @@
               {thumbPreview
                 ? <img src={thumbPreview} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
                 : <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", color: "var(--text-3)", padding: 20 }}>
-                    <div className="stat-ic" style={{ width: 46, height: 46, borderRadius: 12, background: "#fff", color: "var(--accent)", marginBottom: 10 }}><Ic n="upload" size={22} /></div>
+                    <div className="stat-ic" style={{ width: 46, height: 46, borderRadius: 12, background: "#fff", color: "var(--accent)", marginBottom: 10 }}>
+                      <Ic n="upload" size={22} />
+                    </div>
                     <div style={{ fontWeight: 600, fontSize: 14, color: "var(--text)" }}>Tải ảnh bìa khóa học</div>
                     <div className="t-xs" style={{ marginTop: 4 }}>PNG, JPG tối đa 4MB · tỉ lệ 16:9</div>
                   </div>}
-              {thumbPreview && <div style={{ position: "absolute", bottom: 8, right: 8, background: "rgba(0,0,0,.6)", color: "#fff", fontSize: 12, padding: "4px 10px", borderRadius: 6 }}>Nhấn để đổi ảnh</div>}
+              {thumbPreview && (
+                <div style={{ position: "absolute", bottom: 8, right: 8, background: "rgba(0,0,0,.6)", color: "#fff", fontSize: 12, padding: "4px 10px", borderRadius: 6 }}>
+                  Nhấn để đổi ảnh
+                </div>
+              )}
             </div>
+
             {thumbUploading && (
               <div style={{ gridColumn: "1/-1" }}>
                 <div style={{ height: 5, borderRadius: 999, background: "var(--border)", overflow: "hidden" }}>
@@ -154,6 +191,14 @@
                 <div className="t-xs muted" style={{ marginTop: 4, textAlign: "center" }}>Đang upload ảnh bìa... {thumbProgress}%</div>
               </div>
             )}
+
+            <Field label="Thời lượng dự kiến">
+              <input className="input" value={duration} onChange={e => setDuration(e.target.value)} placeholder="VD: 32 giờ" />
+            </Field>
+            <Field label="Yêu cầu đầu vào">
+              <input className="input" value={prereq} onChange={e => setPrereq(e.target.value)} placeholder="VD: Đã biết JavaScript cơ bản" />
+            </Field>
+
             <label className="row gap-10" style={{ gridColumn: "1/-1", padding: "12px 14px", background: "var(--chip-info-bg)", borderRadius: 11, cursor: "pointer" }}>
               <input type="checkbox" style={{ width: 18, height: 18 }} defaultChecked />
               <div>
@@ -161,11 +206,17 @@
                 <div className="t-xs" style={{ color: "var(--chip-info-fg)", opacity: .8 }}>Khóa học sẽ chuyển tới Quản trị viên để phê duyệt</div>
               </div>
             </label>
+
             {err && <div style={{ gridColumn: "1/-1", color: "var(--error)", fontSize: 13 }}>{err}</div>}
           </>)}
         </div>
+
         <div className="modal-foot">
-          {step === 2 && <button className="btn btn-ghost" onClick={() => setStep(1)} style={{ marginRight: "auto" }}><Ic n="chevron-left" size={16} />Quay lại</button>}
+          {step === 2 && (
+            <button className="btn btn-ghost" onClick={() => setStep(1)} style={{ marginRight: "auto" }}>
+              <Ic n="chevron-left" size={16} />Quay lại
+            </button>
+          )}
           <button className="btn btn-ghost" onClick={close}>Hủy</button>
           {step === 1
             ? <button className="btn btn-primary" onClick={() => {
@@ -174,7 +225,8 @@
                 setErr(null); setStep(2);
               }}>Tiếp theo<Ic n="chevron-right" size={16} /></button>
             : <button className="btn btn-success" disabled={saving || thumbUploading} onClick={handleCreate}>
-                <Ic n="check" size={16} />{saving ? "Đang tạo..." : thumbUploading ? "Đang upload..." : "Tạo & vào chỉnh sửa"}
+                <Ic n="check" size={16} />
+                {saving ? "Đang tạo..." : thumbUploading ? "Đang upload..." : "Tạo & vào chỉnh sửa"}
               </button>}
         </div>
       </Modal>

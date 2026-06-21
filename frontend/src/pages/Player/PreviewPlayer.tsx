@@ -92,8 +92,30 @@
     const activeCh   = useMemo(() => chapters.find(c => c.lessons?.some(l => l.id === active?.id)), [chapters, active]);
     const totalLessons = useMemo(() => allLessons.length, [allLessons]);
 
-    /* Reset expanded khi đổi bài */
-    useEffect(() => { setExpandedRes(null); }, [active?.id]);
+    /* Auto-expand tài liệu đầu tiên khi lesson không có text content */
+    useEffect(() => {
+      setExpandedRes(null);
+      if (!active) return;
+      const isNoContent = active.lessonType === "TEXT" && !active.contentText;
+      const firstRes = (active.resources || [])[0];
+      if (isNoContent && firstRes) {
+        setExpandedRes(firstRes.id);
+        // fetch URL cho resource đầu tiên
+        if (!resUrls[firstRes.id]?.url && !resUrls[firstRes.id]?.loading) {
+          if (firstRes.externalUrl) {
+            setResUrls(m => ({ ...m, [firstRes.id]: { url: firstRes.externalUrl, loading: false } }));
+          } else {
+            setResUrls(m => ({ ...m, [firstRes.id]: { loading: true } }));
+            const ep = role === "admin"
+              ? `/admin/courses/resources/${firstRes.id}/download-url`
+              : `/instructor/courses/${courseId}/lessons/${active.id}/resources/${firstRes.id}/download-url`;
+            api.get(ep)
+              .then(res => setResUrls(m => ({ ...m, [firstRes.id]: { url: res.data.url, loading: false } })))
+              .catch(() => setResUrls(m => ({ ...m, [firstRes.id]: { loading: false, error: true } })));
+          }
+        }
+      }
+    }, [active?.id]);
 
     /* Fetch URL khi mở resource */
     function fetchResUrl(r) {
@@ -285,8 +307,14 @@
                                   <div style={{ fontWeight: 600, fontSize: 13.5, color: isOpen ? C.accent : C.text }} className="truncate">{r.displayName || r.originalFilename}</div>
                                   <div style={{ fontSize: 11.5, color: C.text3 }}>{r.resourceType}{r.fileSizeBytes ? " · " + fmtSize(r.fileSizeBytes) : ""}</div>
                                 </div>
-                                {/* Download / YouTube link — stop propagation */}
-                                {url && !ytId && (
+                                {/* Actions — stop propagation */}
+                                {url && isEmbed && gdUrl && (
+                                  <a href={url} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
+                                    style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: C.accent, textDecoration: "none", border: `1px solid #bfdbfe`, borderRadius: 7, padding: "3px 9px", flexShrink: 0, background: "#fff" }}>
+                                    <Ic n="external_link" size={12} />Mở
+                                  </a>
+                                )}
+                                {url && !ytId && !isEmbed && (
                                   <a href={url} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
                                     style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: C.accent, textDecoration: "none", border: `1px solid #bfdbfe`, borderRadius: 7, padding: "3px 9px", flexShrink: 0, background: "#fff" }}>
                                     <Ic n="download" size={12} />Tải
@@ -328,9 +356,15 @@
                                     <video controls src={url} style={{ width: "100%", display: "block", background: "#000", maxHeight: 420 }} />
                                   )}
                                   {url && gdUrl && (
-                                    <iframe src={gdUrl} title={r.displayName || r.originalFilename}
-                                      style={{ width: "100%", height: 540, border: "none", display: "block" }}
-                                      sandbox="allow-scripts allow-same-origin allow-popups" />
+                                    <div style={{ position: "relative" }}>
+                                      <iframe src={gdUrl} title={r.displayName || r.originalFilename}
+                                        style={{ width: "100%", height: "calc(100vh - 260px)", minHeight: 500, border: "none", display: "block" }}
+                                        sandbox="allow-scripts allow-same-origin allow-popups" />
+                                      <a href={url} target="_blank" rel="noreferrer"
+                                        style={{ position: "absolute", top: 10, right: 10, background: "rgba(255,255,255,.9)", border: `1px solid ${C.border}`, borderRadius: 8, padding: "4px 10px", fontSize: 12, color: C.text2, textDecoration: "none", display: "flex", alignItems: "center", gap: 5, backdropFilter: "blur(4px)", boxShadow: "0 1px 6px rgba(0,0,0,.1)" }}>
+                                        <Ic n="external_link" size={12} />Mở tab mới
+                                      </a>
+                                    </div>
                                   )}
                                   {url && !isImg && !isVid && !isEmbed && (
                                     <div style={{ padding: "18px 16px", background: C.surface, textAlign: "center", color: C.text3, fontSize: 13 }}>

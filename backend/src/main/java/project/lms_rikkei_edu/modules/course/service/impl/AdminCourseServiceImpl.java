@@ -91,7 +91,7 @@ public class AdminCourseServiceImpl implements AdminCourseService {
         course.setRejectionReason(null);
         courseRepo.save(course);
 
-        saveLog(adminId, courseId, "APPROVED", null);
+        saveLog(adminId, courseId, "APPROVED_FIRST", null);
 
         embeddingService.embedCourseAsync(courseId);
         log.info("Course approved and embedding started: courseId={}, adminId={}", courseId, adminId);
@@ -179,7 +179,7 @@ public class AdminCourseServiceImpl implements AdminCourseService {
         course.setPendingUpdateAt(null);
         courseRepo.save(course);
 
-        saveLog(adminId, courseId, "APPROVED", null);
+        saveLog(adminId, courseId, "APPROVED_UPDATE", null);
 
         embeddingService.embedCourseAsync(courseId);
         log.info("Course update approved and re-embedding started: courseId={}, adminId={}", courseId, adminId);
@@ -195,47 +195,15 @@ public class AdminCourseServiceImpl implements AdminCourseService {
             throw new CourseStateException("Only PENDING_UPDATE courses can have updates rejected. Current status: " + course.getStatus());
         }
 
-        // Force-load toàn bộ nội dung
-        course.getChapters().forEach(ch ->
-            ch.getLessons().forEach(l -> l.getResources().size())
-        );
-
-        // Xóa tất cả draft content — course quay về trạng thái live gốc
-        List<Chapter> draftChapters = new ArrayList<>();
-        for (Chapter ch : course.getChapters()) {
-            if (Boolean.TRUE.equals(ch.getIsDraft())) {
-                draftChapters.add(ch);
-            } else {
-                ch.setPendingDelete(false);
-                List<Lesson> draftLessons = new ArrayList<>();
-                for (Lesson l : ch.getLessons()) {
-                    if (Boolean.TRUE.equals(l.getIsDraft())) {
-                        draftLessons.add(l);
-                    } else {
-                        l.setPendingDelete(false);
-                        l.setDraftTitle(null);
-                        l.setDraftContentText(null);
-                    }
-                }
-                ch.getLessons().removeAll(draftLessons);
-            }
-        }
-        course.getChapters().removeAll(draftChapters);
-
-        // Xóa draft metadata, lưu lý do reject
-        course.setDraftTitle(null);
-        course.setDraftDescription(null);
-        course.setDraftLevel(null);
-        course.setDraftThumbnailUrl(null);
-        course.setChangeSummary(null);
+        // Giữ lại toàn bộ draft — instructor có thể xem thay đổi bị từ chối và sửa lại
         course.setDraftRejectionReason(reason);
-
+        course.setChangeSummary(null);
         course.setStatus(CourseStatus.PUBLISHED);
         course.setPendingUpdateAt(null);
         courseRepo.save(course);
 
-        saveLog(adminId, courseId, "REJECTED", reason);
-        log.info("Course update rejected: courseId={}, adminId={}, reason={}", courseId, adminId, reason);
+        saveLog(adminId, courseId, "REJECTED_UPDATE", reason);
+        log.info("Course update rejected (drafts kept): courseId={}, adminId={}, reason={}", courseId, adminId, reason);
 
         return courseMapper.toDetailResponse(course);
     }

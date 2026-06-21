@@ -16,6 +16,7 @@ import project.lms_rikkei_edu.modules.course.exception.*;
 import project.lms_rikkei_edu.modules.course.mapper.ChapterMapper;
 import project.lms_rikkei_edu.modules.course.mapper.CourseMapper;
 import project.lms_rikkei_edu.modules.course.mapper.LessonMapper;
+import project.lms_rikkei_edu.modules.course.entity.CourseApprovalLog;
 import project.lms_rikkei_edu.modules.course.repository.*;
 import project.lms_rikkei_edu.modules.course.service.CourseService;
 
@@ -35,6 +36,7 @@ public class CourseServiceImpl implements CourseService {
     private final ChapterRepository chapterRepository;
     private final LessonRepository lessonRepository;
     private final CourseCategoryRepository categoryRepository;
+    private final CourseApprovalLogRepository approvalLogRepository;
     private final CourseMapper courseMapper;
     private final ChapterMapper chapterMapper;
     private final LessonMapper lessonMapper;
@@ -128,13 +130,23 @@ public class CourseServiceImpl implements CourseService {
             course.setStatus(CourseStatus.PENDING);
             course.setSubmittedAt(Instant.now());
             course.setRejectionReason(null);
+            saveLog(instructorId, courseId, "SUBMITTED_FIRST");
 
         } else if (course.getStatus() == CourseStatus.PENDING_UPDATE) {
-            // Submit bản cập nhật để admin duyệt
+            // Submit bản cập nhật đã có sẵn trong queue
             course.setChangeSummary(changeSummary);
             course.setSubmittedAt(Instant.now());
             course.setDraftRejectionReason(null);
-            // Status giữ nguyên PENDING_UPDATE, admin sẽ thấy trong queue
+            saveLog(instructorId, courseId, "SUBMITTED_UPDATE");
+
+        } else if (course.getStatus() == CourseStatus.PUBLISHED && course.isHasPendingDraft()) {
+            // Submit sau khi bị reject (draft được giữ lại) — chuyển về PENDING_UPDATE
+            course.setChangeSummary(changeSummary);
+            course.setSubmittedAt(Instant.now());
+            course.setDraftRejectionReason(null);
+            course.setStatus(CourseStatus.PENDING_UPDATE);
+            course.setPendingUpdateAt(Instant.now());
+            saveLog(instructorId, courseId, "SUBMITTED_UPDATE");
 
         } else {
             throw new CourseStateException("Course cannot be submitted in current status: " + course.getStatus());
@@ -153,15 +165,22 @@ public class CourseServiceImpl implements CourseService {
             course.setSubmittedAt(null);
 
         } else if (course.getStatus() == CourseStatus.PENDING_UPDATE) {
-            // Rút lại update → về PUBLISHED, xóa tất cả draft content
+            // Rút lại khỏi hàng chờ → về PUBLISHED, xóa tất cả draft content
             initChapters(course);
             clearAllDrafts(course);
             course.setStatus(CourseStatus.PUBLISHED);
             course.setPendingUpdateAt(null);
             course.setSubmittedAt(null);
 
+        } else if (course.getStatus() == CourseStatus.PUBLISHED && course.isHasPendingDraft()) {
+            // Hủy draft sau khi bị reject (PUBLISHED + còn draft) → xóa toàn bộ draft
+            initChapters(course);
+            clearAllDrafts(course);
+            course.setPendingUpdateAt(null);
+            course.setSubmittedAt(null);
+
         } else {
-            throw new CourseStateException("Only PENDING or PENDING_UPDATE courses can be withdrawn");
+            throw new CourseStateException("No pending draft to withdraw");
         }
 
         return courseMapper.toDetailResponse(courseRepository.save(course));
@@ -316,6 +335,21 @@ public class CourseServiceImpl implements CourseService {
         }
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public List<CourseApprovalLogResponse> getCourseHistory(UUID instructorId, UUID courseId) {
+        loadOwnedCourse(instructorId, courseId); // verify ownership
+        return approvalLogRepository.findByCourseIdOrderByCreatedAtAsc(courseId).stream()
+                .map(log -> CourseApprovalLogResponse.builder()
+                        .id(log.getId())
+                        .action(log.getAction())
+                        .reason(log.getReason())
+                        .createdAt(log.getCreatedAt())
+                        .actorType(isInstructorAction(log.getAction()) ? "INSTRUCTOR" : "ADMIN")
+                        .build())
+                .toList();
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     /** True nếu khóa học đang live (PUBLISHED hoặc PENDING_UPDATE) */
@@ -375,6 +409,20 @@ public class CourseServiceImpl implements CourseService {
         }
         // Xóa draft chapters qua orphanRemoval
         course.getChapters().removeAll(draftChapters);
+    }
+
+    private void saveLog(UUID actorId, UUID courseId, String action) {
+        approvalLogRepository.save(
+                CourseApprovalLog.builder()
+                        .courseId(courseId)
+                        .adminId(actorId)
+                        .action(action)
+                        .build()
+        );
+    }
+
+    private boolean isInstructorAction(String action) {
+        return action != null && (action.startsWith("SUBMITTED") || action.equals("WITHDRAWN") || action.equals("DISCARDED"));
     }
 
     private Course loadOwnedCourse(UUID instructorId, UUID courseId) {

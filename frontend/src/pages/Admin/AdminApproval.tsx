@@ -33,192 +33,226 @@
   /* ---------------- Detail modal content ---------------- */
   function DetailModal({ detail, onClose, onApprove, onReject, onPreview }) {
     const [imgFull, setImgFull] = useState(null);
-    const [view, setView]       = useState("overview"); // "overview" | "changes"
+    const [view, setView]       = useState("overview");
     const isPendUpd = isUpdate(detail);
     const isPending = mapStatus(detail.status) === "pending";
 
     const allLessons   = (detail.chapters || []).flatMap(ch => ch.lessons || []);
     const allResources = allLessons.flatMap(l => l.resources || []);
-
-    // Live counts (không tính draft/pendingDelete)
     const liveChapters = (detail.chapters || []).filter(ch => !ch.isDraft && !ch.pendingDelete);
     const liveLessons  = allLessons.filter(l => !l.isDraft && !l.pendingDelete);
 
-    const typeColor = { PDF: "#ef4444", DOC: "#2563eb", SLIDE: "#f59e0b", IMAGE: "#10b981" };
-    const typeBg   = { PDF: "#fdecec", DOC: "#eaf1ff", SLIDE: "#fef5e6", IMAGE: "#e7f8f0" };
+    const typeIc    = { VIDEO: "video", IMAGE: "image", PDF: "file", DOC: "file", SLIDE: "layers", OTHER: "file" };
+    const typeColor = { PDF: "#ef4444", DOC: "#2563eb", SLIDE: "#f59e0b", IMAGE: "#10b981", VIDEO: "#8b5cf6" };
+    const typeBg    = { PDF: "#fdecec", DOC: "#eaf1ff", SLIDE: "#fef5e6", IMAGE: "#e7f8f0", VIDEO: "#f3f0ff" };
 
-    // Diff tổng hợp
     const draftChanges = isPendUpd ? [
-      detail.draftTitle        && { label: "Tên mới",     old: detail.title,          next: detail.draftTitle },
-      detail.draftLevel        && { label: "Cấp độ mới",  old: detail.level,          next: detail.draftLevel },
-      detail.draftDescription  && { label: "Mô tả mới",   old: detail.description,    next: detail.draftDescription },
-      detail.draftThumbnailUrl && { label: "Thumbnail",   old: detail.thumbnailUrl,   next: detail.draftThumbnailUrl, isImg: true },
+      detail.draftTitle        && { label: "Tên khóa học",  old: detail.title,        next: detail.draftTitle },
+      detail.draftLevel        && { label: "Cấp độ",        old: detail.level,        next: detail.draftLevel },
+      detail.draftDescription  && { label: "Mô tả",         old: detail.description,  next: detail.draftDescription },
+      detail.draftThumbnailUrl && { label: "Thumbnail",     old: detail.thumbnailUrl, next: detail.draftThumbnailUrl, isImg: true },
     ].filter(Boolean) : [];
 
-    const newChapters      = isPendUpd ? (detail.chapters || []).filter(ch => ch.isDraft)                              : [];
-    const delChapters      = isPendUpd ? (detail.chapters || []).filter(ch => ch.pendingDelete)                         : [];
-    const newLessons       = isPendUpd ? allLessons.filter(l => l.isDraft)                                              : [];
-    const delLessons       = isPendUpd ? allLessons.filter(l => l.pendingDelete)                                        : [];
-    const renamedLessons   = isPendUpd ? allLessons.filter(l => !l.isDraft && l.draftTitle)                             : [];
-    const contentChangedLessons = isPendUpd ? allLessons.filter(l => !l.isDraft && !l.draftTitle && l.draftContentText) : [];
-    const thumbnailDiff = draftChanges.find(d => d.isImg) || null;
-    const hasDiff = draftChanges.length || newChapters.length || delChapters.length ||
-                    newLessons.length || delLessons.length || renamedLessons.length || contentChangedLessons.length;
+    const newChapters           = isPendUpd ? (detail.chapters || []).filter(ch => ch.isDraft)                              : [];
+    const delChapters           = isPendUpd ? (detail.chapters || []).filter(ch => ch.pendingDelete)                         : [];
+    const newLessons            = isPendUpd ? allLessons.filter(l => l.isDraft)                                              : [];
+    const delLessons            = isPendUpd ? allLessons.filter(l => l.pendingDelete)                                        : [];
+    const renamedLessons        = isPendUpd ? allLessons.filter(l => !l.isDraft && l.draftTitle)                             : [];
+    const contentChangedLessons = isPendUpd ? allLessons.filter(l => !l.isDraft && !l.draftTitle && l.draftContentText)      : [];
+    const thumbnailDiff         = draftChanges.find(d => d.isImg) || null;
 
-    // Banner thumbnail: dùng draft nếu có
+    const pendingUpdateAt = detail.pendingUpdateAt ? new Date(detail.pendingUpdateAt).getTime() : null;
+    const newResources = (isPendUpd && pendingUpdateAt)
+      ? allResources.filter(r => r.uploadedAt && new Date(r.uploadedAt).getTime() > pendingUpdateAt)
+      : [];
+
+    const totalDiff = [draftChanges.length, newChapters.length + delChapters.length,
+      newLessons.length + delLessons.length, renamedLessons.length + contentChangedLessons.length,
+      newResources.length].reduce((a, b) => a + b, 0);
+    const hasDiff = totalDiff > 0;
+
     const bannerUrl = (isPendUpd && detail.draftThumbnailUrl) ? detail.draftThumbnailUrl : (detail.thumbnailUrl || "");
 
+    // ── Section divider helper ────────────────────────────────────────────────
+    function SectionLabel({ children }) {
+      return (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "18px 0 10px" }}>
+          <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
+          <span style={{ fontSize: 10.5, fontWeight: 700, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.07em", whiteSpace: "nowrap" }}>{children}</span>
+          <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
+        </div>
+      );
+    }
+
+    // ── Diff card helper ──────────────────────────────────────────────────────
+    function DiffCard({ label, old: oldVal, next: newVal, accent = "#0369a1", accentBg = "#f0f9ff" }) {
+      return (
+        <div style={{ marginBottom: 8, borderRadius: 10, overflow: "hidden", border: `1px solid ${accentBg === "#f0f9ff" ? "#bae6fd" : "var(--border)"}` }}>
+          <div style={{ padding: "5px 12px", background: accentBg, fontSize: 10.5, fontWeight: 700, color: accent, textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr" }}>
+            <div style={{ padding: "9px 12px", background: "#fff5f5", borderRight: "1px solid #fecaca" }}>
+              <div style={{ fontSize: 10, color: "#94a3b8", fontWeight: 600, marginBottom: 3 }}>TRƯỚC</div>
+              <div style={{ fontSize: 13, color: "#dc2626", textDecoration: "line-through", wordBreak: "break-word" }}>{oldVal || <em style={{ color: "#cbd5e1" }}>trống</em>}</div>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", padding: "0 8px", color: "#94a3b8" }}>
+              <Ic n="chevron_right" size={16} />
+            </div>
+            <div style={{ padding: "9px 12px", background: "#f0fdf4" }}>
+              <div style={{ fontSize: 10, color: "#94a3b8", fontWeight: 600, marginBottom: 3 }}>SAU</div>
+              <div style={{ fontSize: 13, color: "#16a34a", fontWeight: 600, wordBreak: "break-word" }}>{newVal}</div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     return <>
-      {/* Banner */}
-      <div style={{ height: 190, background: "#0f172a", borderRadius: "18px 18px 0 0", position: "relative" }}>
-        <button className="icon-btn" style={{ position: "absolute", right: 14, top: 14, width: 36, height: 36, background: "rgba(15,23,42,.6)", color: "#fff", border: "none", zIndex: 2 }} onClick={onClose}>
-          <Ic n="x" size={18} />
-        </button>
-        <span style={{ position: "absolute", left: 16, bottom: 14, zIndex: 2 }}>
-          <span className="chip" style={{ background: "rgba(15,23,42,.72)", color: "#fff" }}>{detail.category?.name || "-"}</span>
-          {isPendUpd && detail.draftThumbnailUrl && (
-            <span className="chip" style={{ background: "#0369a1", color: "#fff", marginLeft: 6, fontSize: 10.5 }}>Thumbnail mới</span>
-          )}
-        </span>
+      {/* ── Banner ── */}
+      <div style={{ height: 200, background: "#0f172a", borderRadius: "18px 18px 0 0", position: "relative", overflow: "hidden" }}>
+        {/* Thumbnail / fallback */}
         {(() => {
           const url = bannerUrl;
           const ext = url.split(".").pop()?.toLowerCase().split("?")[0] || "";
-          const isImg   = ["jpg","jpeg","png","gif","webp","svg"].includes(ext);
-          const isVideo = ["mp4","webm","mov","avi"].includes(ext);
-          const isSlide = ["ppt","pptx"].includes(ext);
-
-          if (isImg) return (
-            <img src={url} alt="" onClick={() => setImgFull(url)}
-              style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", opacity: 0.8, cursor: "zoom-in" }} />
-          );
-          if (isVideo) return (
-            <video src={url} muted style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", opacity: 0.7 }} />
-          );
-          if (isSlide) return (
-            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 6 }}>
-              <div style={{ width: 52, height: 52, borderRadius: 12, background: "#fef5e6", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <Ic n="layers" size={26} style={{ color: "#f59e0b" }} />
-              </div>
-              <span style={{ color: "#94a3b8", fontSize: 12 }}>Trình chiếu</span>
-            </div>
-          );
-          return (
-            <div style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center" }}>
-              <button onClick={onPreview}
-                style={{ width: 64, height: 64, borderRadius: 999, border: "none", background: "rgba(255,255,255,.92)", color: "var(--primary)", display: "grid", placeItems: "center", cursor: "pointer", boxShadow: "0 8px 24px rgba(0,0,0,.3)" }}>
-                <Ic n="play" size={26} fill="currentColor" />
-              </button>
-            </div>
-          );
+          if (["jpg","jpeg","png","gif","webp","svg"].includes(ext))
+            return <img src={url} alt="" onClick={() => setImgFull(url)} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", opacity: 0.7, cursor: "zoom-in" }} />;
+          if (["mp4","webm","mov","avi"].includes(ext))
+            return <video src={url} muted style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", opacity: 0.55 }} />;
+          return null;
         })()}
+        {/* Gradient overlay */}
+        <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to top, rgba(10,15,30,.9) 40%, rgba(10,15,30,.3) 100%)" }} />
+        {/* Close */}
+        <button className="icon-btn" onClick={onClose}
+          style={{ position: "absolute", right: 14, top: 14, width: 34, height: 34, background: "rgba(255,255,255,.12)", color: "#fff", border: "none", zIndex: 3 }}>
+          <Ic n="x" size={17} />
+        </button>
+        {/* Title overlay */}
+        <div style={{ position: "absolute", left: 18, right: 52, bottom: 16, zIndex: 2 }}>
+          <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
+            {detail.category?.name && (
+              <span className="chip" style={{ background: "rgba(255,255,255,.15)", color: "#e2e8f0", fontSize: 11, backdropFilter: "blur(4px)" }}>{detail.category.name}</span>
+            )}
+            {(detail.draftLevel || detail.level) && (
+              <span className="chip" style={{ background: "rgba(255,255,255,.1)", color: "#cbd5e1", fontSize: 11 }}>{detail.draftLevel || detail.level}</span>
+            )}
+            {isPendUpd && <span className="chip" style={{ background: "#0369a1", color: "#fff", fontSize: 10.5 }}>Yêu cầu cập nhật</span>}
+          </div>
+          <div style={{ color: "#fff", fontWeight: 700, fontSize: 16, lineHeight: 1.3, textShadow: "0 1px 4px rgba(0,0,0,.5)" }} className="truncate">
+            {detail.draftTitle || detail.title}
+          </div>
+        </div>
+        {/* Preview button */}
         <button onClick={onPreview}
-          style={{ position: "absolute", right: 16, bottom: 14, background: "rgba(15,23,42,.72)", color: "#fff", border: "none", borderRadius: 999, padding: "4px 10px", fontSize: 12, display: "flex", alignItems: "center", gap: 5, cursor: "pointer", zIndex: 2 }}>
-          <Ic n="eye" size={13} />Xem trước
+          style={{ position: "absolute", right: 16, bottom: 16, background: "rgba(255,255,255,.14)", color: "#fff", border: "1px solid rgba(255,255,255,.25)", borderRadius: 999, padding: "5px 12px", fontSize: 12, display: "flex", alignItems: "center", gap: 5, cursor: "pointer", zIndex: 3, backdropFilter: "blur(4px)" }}>
+          <Ic n="play" size={12} />Xem trước
         </button>
       </div>
 
-      {/* Body */}
+      {/* ── Body ── */}
       <div className="modal-body" style={{ overflowY: "auto", flex: 1 }}>
-        <h2 className="t-h2" style={{ margin: "0 0 8px" }}>
-          {isPendUpd && detail.draftTitle
-            ? <><span style={{ textDecoration: "line-through", color: "#94a3b8", fontSize: "0.85em" }}>{detail.title}</span>{" "}<span style={{ color: "#16a34a" }}>{detail.draftTitle}</span></>
-            : detail.title}
-        </h2>
-        <div className="row gap-10" style={{ marginBottom: 14 }}>
-          <Avatar name={detail.instructorName || "?"} size={34} />
-          <div>
-            <div style={{ fontWeight: 600, fontSize: 14 }}>{detail.instructorName}</div>
-            <div className="t-xs muted">Gửi ngày {fmtDate(detail.submittedAt || detail.createdAt)}</div>
+        {/* Instructor row */}
+        <div className="row gap-10" style={{ marginBottom: 16, paddingBottom: 14, borderBottom: "1px solid var(--border)" }}>
+          <Avatar name={detail.instructorName || "?"} size={38} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 600, fontSize: 14 }}>{detail.instructorName || "—"}</div>
+            <div className="t-xs muted">Nộp lúc {fmtDate(detail.submittedAt || detail.createdAt)}</div>
           </div>
+          {detail.changeSummary && (
+            <div style={{ maxWidth: 200, padding: "6px 10px", borderRadius: 8, background: "#f0f9ff", border: "1px solid #bae6fd", fontSize: 12, color: "#0369a1", lineHeight: 1.4 }} title={detail.changeSummary}>
+              <Ic n="message_square" size={12} style={{ marginRight: 4 }} />
+              <span className="truncate" style={{ display: "inline" }}>{detail.changeSummary}</span>
+            </div>
+          )}
         </div>
 
-        {/* Tabs chỉ hiện khi PENDING_UPDATE */}
+        {/* Tabs — chỉ khi PENDING_UPDATE */}
         {isPendUpd && (
           <div className="tabs" style={{ marginBottom: 16, width: "fit-content" }}>
             <button className={view === "overview" ? "on" : ""} onClick={() => setView("overview")}>Tổng quan</button>
             <button className={view === "changes" ? "on" : ""} onClick={() => setView("changes")}>
-              Thay đổi{hasDiff ? ` (${[draftChanges.length, newChapters.length + delChapters.length, newLessons.length + delLessons.length, renamedLessons.length + contentChangedLessons.length].reduce((a,b)=>a+b,0)})` : ""}
+              Thay đổi{hasDiff ? <span style={{ marginLeft: 5, background: "#ef4444", color: "#fff", borderRadius: 999, fontSize: 10, padding: "0 5px", fontWeight: 700 }}>{totalDiff}</span> : ""}
             </button>
           </div>
         )}
 
-        {/* ── VIEW: TỔNG QUAN ── */}
+        {/* ════ VIEW: TỔNG QUAN ════ */}
         {(view === "overview" || !isPendUpd) && <>
-          {/* Stats */}
-          <div className="grid grid-2" style={{ gap: 12, marginBottom: 18 }}>
+          {/* Stats row */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 18 }}>
             {[
-              { l: "Số bài giảng", v: isPendUpd ? `${liveLessons.length}${newLessons.length ? ` (+${newLessons.length})` : ""}${delLessons.length ? ` (−${delLessons.length})` : ""}` : allLessons.length, ic: "book" },
-              { l: "Số chương",    v: isPendUpd ? `${liveChapters.length}${newChapters.length ? ` (+${newChapters.length})` : ""}${delChapters.length ? ` (−${delChapters.length})` : ""}` : (detail.chapters?.length || 0), ic: "layers" },
-              { l: "Danh mục",     v: detail.category?.name || "-", ic: "folder" },
-              { l: "Tài liệu",     v: allResources.length + " tệp", ic: "paperclip" },
+              { l: "Chương",     v: isPendUpd ? `${liveChapters.length}${newChapters.length ? ` +${newChapters.length}` : ""}` : (detail.chapters?.length || 0), ic: "layers",    c: "#7c3aed", bg: "#f5f3ff" },
+              { l: "Bài giảng", v: isPendUpd ? `${liveLessons.length}${newLessons.length ? ` +${newLessons.length}` : ""}` : allLessons.length,                   ic: "book",      c: "#2563eb", bg: "#eaf1ff" },
+              { l: "Tài liệu",  v: `${allResources.length}${newResources.length ? ` +${newResources.length}` : ""} tệp`,                                           ic: "paperclip", c: "#d97706", bg: "#fef5e6" },
+              { l: "Danh mục",  v: detail.category?.name || "—",                                                                                                    ic: "folder",    c: "#059669", bg: "#e7f8f0" },
             ].map((s, i) => (
-              <div key={i} className="row gap-10" style={{ padding: 12, background: "var(--surface-2)", borderRadius: 11 }}>
-                <div className="stat-ic" style={{ width: 38, height: 38, borderRadius: 10, background: "#fff", color: "var(--accent)" }}>
-                  <Ic n={s.ic} size={18} />
+              <div key={i} style={{ padding: "10px 12px", borderRadius: 11, background: "var(--surface-2)", textAlign: "center" }}>
+                <div style={{ width: 34, height: 34, borderRadius: 9, background: s.bg, color: s.c, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 6px" }}>
+                  <Ic n={s.ic} size={16} />
                 </div>
-                <div>
-                  <div className="t-xs muted">{s.l}</div>
-                  <div style={{ fontWeight: 700, fontSize: 14 }}>{s.v}</div>
-                </div>
+                <div style={{ fontWeight: 700, fontSize: 13.5, color: "var(--text)" }}>{s.v}</div>
+                <div style={{ fontSize: 10.5, color: "var(--text-3)", marginTop: 1 }}>{s.l}</div>
               </div>
             ))}
           </div>
 
+          {/* Description */}
+          {(detail.description || detail.draftDescription) && (
+            <div style={{ marginBottom: 16, padding: "10px 14px", borderRadius: 10, background: "var(--surface-2)", fontSize: 13, color: "var(--text-2)", lineHeight: 1.65 }}>
+              {isPendUpd && detail.draftDescription
+                ? <><span style={{ textDecoration: "line-through", color: "#94a3b8" }}>{detail.description}</span><br /><span style={{ color: "#16a34a", fontWeight: 500 }}>{detail.draftDescription}</span></>
+                : (detail.description || detail.draftDescription)}
+            </div>
+          )}
+
           {/* Chapters & Lessons */}
+          <SectionLabel>Nội dung khóa học</SectionLabel>
           {(detail.chapters || []).map((ch, ci) => {
             const chIsNew = !!ch.isDraft;
             const chIsDel = !!ch.pendingDelete;
             return (
               <div key={ch.id || ci} style={{
-                marginBottom: 18,
-                ...(chIsNew && { padding: "10px 12px", borderRadius: 10, border: "2px solid #86efac", background: "#f0fdf4" }),
-                ...(chIsDel && { padding: "10px 12px", borderRadius: 10, border: "2px dashed #fca5a5", background: "#fff5f5", opacity: 0.7 }),
+                marginBottom: 12, borderRadius: 11, overflow: "hidden",
+                border: chIsNew ? "2px solid #86efac" : chIsDel ? "2px dashed #fca5a5" : "1px solid var(--border)",
+                opacity: chIsDel ? 0.65 : 1,
               }}>
-                <div className="between" style={{ marginBottom: 9 }}>
-                  <div className="row gap-7" style={{ alignItems: "center" }}>
-                    {chIsNew && <span className="chip" style={{ background: "#dcfce7", color: "#16a34a", fontSize: 10, padding: "1px 7px" }}>MỚI</span>}
-                    {chIsDel && <span className="chip" style={{ background: "#fee2e2", color: "#dc2626", fontSize: 10, padding: "1px 7px" }}>CHỜ XÓA</span>}
-                    <div className="t-label" style={{ margin: 0, textDecoration: chIsDel ? "line-through" : "none" }}>
-                      Chương {ci + 1}: {ch.title}
-                    </div>
-                  </div>
-                  <span className="t-xs dim">{ch.lessons?.length || 0} bài</span>
+                {/* Chapter header */}
+                <div style={{ padding: "9px 14px", background: chIsNew ? "#f0fdf4" : chIsDel ? "#fff5f5" : "var(--surface-2)", display: "flex", alignItems: "center", gap: 8 }}>
+                  <Ic n="layers" size={14} style={{ color: "var(--text-3)", flex: "none" }} />
+                  <span style={{ fontWeight: 700, fontSize: 13, flex: 1, textDecoration: chIsDel ? "line-through" : "none" }}>
+                    {ci + 1}. {ch.title}
+                  </span>
+                  {chIsNew && <span className="chip" style={{ background: "#dcfce7", color: "#16a34a", fontSize: 10 }}>Mới</span>}
+                  {chIsDel && <span className="chip" style={{ background: "#fee2e2", color: "#dc2626", fontSize: 10 }}>Sẽ xóa</span>}
+                  <span className="t-xs muted">{ch.lessons?.length || 0} bài</span>
                 </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {/* Lessons */}
+                <div style={{ display: "flex", flexDirection: "column", gap: 1, background: "var(--border)" }}>
                   {(ch.lessons || []).map((l, li) => {
                     const isVideo  = l.lessonType === "VIDEO";
                     const lIsNew   = !!l.isDraft;
                     const lIsDel   = !!l.pendingDelete;
                     const lRenamed = !l.isDraft && !!l.draftTitle;
                     const lChanged = !l.isDraft && !l.draftTitle && !!l.draftContentText;
+                    const bg = lIsNew ? "#f0fdf4" : lIsDel ? "#fff5f5" : lRenamed || lChanged ? "#eff6ff" : "var(--surface)";
                     return (
-                      <div key={l.id || li} className="row gap-11" style={{
-                        padding: 10, borderRadius: 11,
-                        border: lIsNew ? "1px solid #86efac" : lIsDel ? "1px dashed #fca5a5" : lRenamed || lChanged ? "1px solid #93c5fd" : "1px solid var(--border)",
-                        background: lIsNew ? "#f0fdf4" : lIsDel ? "#fff5f5" : lRenamed || lChanged ? "#eff6ff" : undefined,
-                        opacity: lIsDel ? 0.6 : 1,
-                      }}>
-                        <div style={{ width: 56, height: 38, borderRadius: 8, flex: "none", background: "#0f172a", display: "grid", placeItems: "center" }}>
-                          <Ic n={isVideo ? "play" : "file_text"} size={15} fill={isVideo ? "#fff" : undefined} style={{ color: "#fff" }} />
+                      <div key={l.id || li} style={{ padding: "8px 14px", background: bg, display: "flex", alignItems: "center", gap: 10, opacity: lIsDel ? 0.6 : 1 }}>
+                        <div style={{ width: 30, height: 22, borderRadius: 5, background: isVideo ? "#1e293b" : "var(--surface-2)", display: "grid", placeItems: "center", flex: "none" }}>
+                          <Ic n={isVideo ? "play" : "file_text"} size={11} style={{ color: isVideo ? "#fff" : "var(--text-3)" }} />
                         </div>
-                        <div className="grow" style={{ minWidth: 0 }}>
-                          <div style={{ fontWeight: 600, fontSize: 13.5 }} className="truncate">
-                            {lIsDel    ? <span style={{ textDecoration: "line-through" }}>{l.title}</span>
-                            : lRenamed ? <><span style={{ textDecoration: "line-through", color: "#94a3b8" }}>{l.title}</span>{" → "}<span style={{ color: "#16a34a" }}>{l.draftTitle}</span></>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 500 }} className="truncate">
+                            {lIsDel    ? <span style={{ textDecoration: "line-through", color: "#dc2626" }}>{l.title}</span>
+                            : lRenamed ? <><span style={{ textDecoration: "line-through", color: "#94a3b8", fontSize: 12 }}>{l.title}</span>{" "}<Ic n="chevron_right" size={11} style={{ color: "#94a3b8" }} />{" "}<span style={{ color: "#16a34a" }}>{l.draftTitle}</span></>
                             : l.title}
                           </div>
-                          <div className="t-xs muted row gap-5" style={{ marginTop: 2 }}>
-                            {lIsNew   && <span style={{ color: "#16a34a", fontWeight: 600 }}>MỚI • </span>}
-                            {lIsDel   && <span style={{ color: "#dc2626", fontWeight: 600 }}>CHỜ XÓA • </span>}
-                            {lChanged && <span style={{ color: "#2563eb", fontWeight: 600 }}>ĐỔI NỘI DUNG • </span>}
-                            <Ic n={isVideo ? "video" : "file_text"} size={12} />
+                          <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 1, display: "flex", gap: 4, alignItems: "center" }}>
                             {isVideo ? "Video" : "Văn bản"}
-                            {l.resources?.length > 0 && <> • <Ic n="paperclip" size={12} />{l.resources.length} tài liệu</>}
+                            {l.resources?.length > 0 && <><span>·</span><Ic n="paperclip" size={10} />{l.resources.length}</>}
+                            {lIsNew    && <><span>·</span><span style={{ color: "#16a34a", fontWeight: 700 }}>MỚI</span></>}
+                            {lChanged  && <><span>·</span><span style={{ color: "#2563eb", fontWeight: 700 }}>ĐỔI ND</span></>}
                           </div>
                         </div>
-                        <button className="btn btn-soft btn-sm" style={{ flex: "none" }} onClick={onPreview}>
-                          <Ic n="eye" size={14} />Xem
-                        </button>
+                        {lIsDel && <span className="chip" style={{ background: "#fee2e2", color: "#dc2626", fontSize: 10 }}>Sẽ xóa</span>}
                       </div>
                     );
                   })}
@@ -229,183 +263,183 @@
 
           {/* Resources */}
           {allResources.length > 0 && <>
-            <div className="between" style={{ marginBottom: 9 }}>
-              <div className="t-label" style={{ margin: 0 }}>Tài liệu đính kèm</div>
-              <span className="t-xs dim">{allResources.length} tệp</span>
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 18 }}>
-              {allResources.map((r, i) => (
-                <div key={r.id || i} className="row gap-11" style={{ padding: 10, border: "1px solid var(--border)", borderRadius: 11 }}>
-                  <div className="stat-ic" style={{ width: 40, height: 40, borderRadius: 10, flex: "none", background: typeBg[r.resourceType] || "var(--surface-2)", color: typeColor[r.resourceType] || "#64748b" }}>
-                    <Ic n="file" size={19} />
+            <SectionLabel>Tài liệu đính kèm</SectionLabel>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 7, marginBottom: 8 }}>
+              {allResources.map((r, i) => {
+                const isNew = newResources.some(nr => nr.id === r.id);
+                return (
+                  <div key={r.id || i} style={{ padding: "8px 10px", border: isNew ? "2px solid #93c5fd" : "1px solid var(--border)", borderRadius: 10, background: isNew ? "#eff6ff" : "var(--surface-2)", display: "flex", alignItems: "center", gap: 9 }}>
+                    <div style={{ width: 32, height: 32, borderRadius: 8, background: typeBg[r.resourceType] || "var(--surface-2)", color: typeColor[r.resourceType] || "#64748b", display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
+                      <Ic n={typeIc[r.resourceType] || "file"} size={15} />
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 600 }} className="truncate">{r.displayName || r.originalFilename}</div>
+                      <div style={{ fontSize: 10.5, color: "var(--text-3)" }}>{r.resourceType}{r.fileSizeBytes ? ` · ${(r.fileSizeBytes / 1024 / 1024).toFixed(1)}MB` : ""}</div>
+                    </div>
+                    {isNew && <span className="chip" style={{ background: "#2563eb", color: "#fff", fontSize: 9.5 }}>Mới</span>}
                   </div>
-                  <div className="grow" style={{ minWidth: 0 }}>
-                    <div style={{ fontWeight: 600, fontSize: 13.5 }} className="truncate">{r.displayName || r.originalFilename}</div>
-                    <div className="t-xs muted">{r.resourceType}</div>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
-          </>}
-
-          {/* Description */}
-          {detail.description && <>
-            <div className="t-label" style={{ marginBottom: 7 }}>Mô tả khóa học</div>
-            <p className="muted t-sm" style={{ margin: 0, lineHeight: 1.6 }}>
-              {isPendUpd && detail.draftDescription
-                ? <><span style={{ textDecoration: "line-through", color: "#94a3b8" }}>{detail.description}</span><br /><span style={{ color: "#16a34a", fontWeight: 500 }}>{detail.draftDescription}</span></>
-                : detail.description}
-            </p>
           </>}
         </>}
 
-        {/* ── VIEW: THAY ĐỔI ── */}
+        {/* ════ VIEW: THAY ĐỔI ════ */}
         {view === "changes" && isPendUpd && (
           <div>
             {detail.changeSummary && (
-              <div style={{ marginBottom: 14, padding: "10px 14px", borderRadius: 10, background: "#f0f9ff", border: "1px solid #bae6fd" }}>
-                <div className="t-xs muted" style={{ marginBottom: 3 }}>Ghi chú từ giảng viên</div>
-                <div style={{ fontSize: 13, color: "#0369a1" }}>{detail.changeSummary}</div>
+              <div style={{ marginBottom: 14, padding: "10px 14px", borderRadius: 10, background: "#f0f9ff", border: "1px solid #bae6fd", display: "flex", gap: 10, alignItems: "flex-start" }}>
+                <Ic n="message_square" size={15} style={{ color: "#0284c7", flex: "none", marginTop: 1 }} />
+                <div>
+                  <div style={{ fontSize: 10.5, fontWeight: 700, color: "#0369a1", marginBottom: 3 }}>GHI CHÚ GIẢNG VIÊN</div>
+                  <div style={{ fontSize: 13, color: "#0369a1", lineHeight: 1.5 }}>{detail.changeSummary}</div>
+                </div>
               </div>
             )}
 
             {!hasDiff && (
-              <div style={{ padding: "24px 0", textAlign: "center", color: "var(--text-3)" }}>
-                <Ic n="check_circle" size={32} style={{ color: "#10b981", marginBottom: 8 }} />
-                <div className="t-sm">Không có thay đổi về nội dung</div>
-                <div className="t-xs muted">Có thể có thay đổi về tài nguyên bên trong bài giảng.</div>
+              <div style={{ padding: "32px 0", textAlign: "center" }}>
+                <div style={{ width: 52, height: 52, borderRadius: "50%", background: "#f0fdf4", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 12px" }}>
+                  <Ic n="check" size={24} style={{ color: "#16a34a" }} />
+                </div>
+                <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>Không có thay đổi nội dung</div>
+                <div className="t-xs muted">Có thể có thay đổi tài nguyên bên trong bài giảng.</div>
               </div>
             )}
 
-            {/* Metadata */}
-            {draftChanges.filter(d => !d.isImg).map((d, i) => (
-              <div key={i} style={{ marginBottom: 10, borderRadius: 10, overflow: "hidden", border: "1px solid #e2e8f0" }}>
-                <div style={{ padding: "6px 12px", background: "var(--surface-2)", fontSize: 11, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em" }}>{d.label}</div>
-                <div style={{ padding: "10px 12px", background: "#fff5f5", borderBottom: "1px solid #e2e8f0" }}>
-                  <div className="t-xs muted" style={{ marginBottom: 3 }}>Cũ</div>
-                  <div style={{ color: "#dc2626", fontSize: 13, textDecoration: "line-through" }}>{d.old || <em style={{ color: "#94a3b8" }}>trống</em>}</div>
-                </div>
-                <div style={{ padding: "10px 12px", background: "#f0fdf4" }}>
-                  <div className="t-xs muted" style={{ marginBottom: 3 }}>Mới</div>
-                  <div style={{ color: "#16a34a", fontSize: 13, fontWeight: 600 }}>{d.next}</div>
-                </div>
-              </div>
-            ))}
+            {/* Metadata changes */}
+            {draftChanges.filter(d => !d.isImg).length > 0 && <>
+              <SectionLabel>Thông tin khóa học</SectionLabel>
+              {draftChanges.filter(d => !d.isImg).map((d, i) => (
+                <DiffCard key={i} label={d.label} old={d.old} next={d.next} />
+              ))}
+            </>}
 
             {/* Thumbnail */}
-            {thumbnailDiff && (
-              <div style={{ marginBottom: 10, borderRadius: 10, overflow: "hidden", border: "1px solid #e2e8f0" }}>
-                <div style={{ padding: "6px 12px", background: "var(--surface-2)", fontSize: 11, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em" }}>Thumbnail</div>
-                <div style={{ padding: 12, display: "flex", gap: 12, alignItems: "center", background: "#fff" }}>
-                  <div style={{ flex: 1, textAlign: "center" }}>
-                    <div className="t-xs muted" style={{ marginBottom: 6 }}>Cũ</div>
-                    {thumbnailDiff.old
-                      ? <img src={thumbnailDiff.old} alt="" style={{ width: "100%", maxWidth: 160, height: 90, objectFit: "cover", borderRadius: 8, border: "1px solid var(--border)" }} />
-                      : <div style={{ width: 160, height: 90, borderRadius: 8, background: "#f1f5f9", display: "grid", placeItems: "center", margin: "0 auto" }}><Ic n="image" size={24} style={{ color: "#94a3b8" }} /></div>}
-                  </div>
-                  <Ic n="chevron_right" size={20} style={{ color: "#94a3b8", flex: "none" }} />
-                  <div style={{ flex: 1, textAlign: "center" }}>
-                    <div className="t-xs muted" style={{ marginBottom: 6 }}>Mới</div>
-                    <img src={thumbnailDiff.next} alt="" style={{ width: "100%", maxWidth: 160, height: 90, objectFit: "cover", borderRadius: 8, border: "2px solid #86efac" }} />
-                  </div>
+            {thumbnailDiff && <>
+              <SectionLabel>Hình thumbnail</SectionLabel>
+              <div style={{ display: "flex", gap: 14, alignItems: "center", padding: 14, background: "var(--surface-2)", borderRadius: 12, marginBottom: 12 }}>
+                <div style={{ flex: 1, textAlign: "center" }}>
+                  <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--text-3)", marginBottom: 6 }}>TRƯỚC</div>
+                  {thumbnailDiff.old
+                    ? <img src={thumbnailDiff.old} alt="" onClick={() => setImgFull(thumbnailDiff.old)} style={{ width: "100%", maxWidth: 170, height: 96, objectFit: "cover", borderRadius: 9, border: "1px solid var(--border)", cursor: "zoom-in" }} />
+                    : <div style={{ width: 170, height: 96, borderRadius: 9, background: "#f1f5f9", display: "grid", placeItems: "center", margin: "0 auto" }}><Ic n="image" size={28} style={{ color: "#94a3b8" }} /></div>}
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, color: "#94a3b8" }}>
+                  <Ic n="chevron_right" size={22} />
+                </div>
+                <div style={{ flex: 1, textAlign: "center" }}>
+                  <div style={{ fontSize: 10.5, fontWeight: 700, color: "#16a34a", marginBottom: 6 }}>SAU</div>
+                  <img src={thumbnailDiff.next} alt="" onClick={() => setImgFull(thumbnailDiff.next)} style={{ width: "100%", maxWidth: 170, height: 96, objectFit: "cover", borderRadius: 9, border: "2px solid #86efac", cursor: "zoom-in" }} />
                 </div>
               </div>
-            )}
+            </>}
 
-            {/* Chapters added/removed */}
-            {(newChapters.length > 0 || delChapters.length > 0) && (
-              <div style={{ marginBottom: 10, borderRadius: 10, border: "1px solid #e2e8f0", overflow: "hidden" }}>
-                <div style={{ padding: "6px 12px", background: "var(--surface-2)", fontSize: 11, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em" }}>Chương</div>
-                <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
-                  {newChapters.map(ch => (
-                    <div key={ch.id} className="row gap-8" style={{ padding: "6px 10px", borderRadius: 7, background: "#f0fdf4", border: "1px solid #bbf7d0" }}>
-                      <span style={{ color: "#16a34a", fontWeight: 700, fontSize: 13 }}>+</span>
-                      <span style={{ fontSize: 13, color: "#166534" }}>{ch.title}</span>
-                    </div>
-                  ))}
-                  {delChapters.map(ch => (
-                    <div key={ch.id} className="row gap-8" style={{ padding: "6px 10px", borderRadius: 7, background: "#fff5f5", border: "1px solid #fecaca" }}>
-                      <span style={{ color: "#dc2626", fontWeight: 700, fontSize: 13 }}>−</span>
-                      <span style={{ fontSize: 13, color: "#991b1b", textDecoration: "line-through" }}>{ch.title}</span>
-                    </div>
-                  ))}
-                </div>
+            {/* Structure changes */}
+            {(newChapters.length || delChapters.length || newLessons.length || delLessons.length) > 0 && <>
+              <SectionLabel>Cấu trúc khóa học</SectionLabel>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
+                {newChapters.map(ch => (
+                  <div key={ch.id} className="row gap-9" style={{ padding: "7px 12px", borderRadius: 9, background: "#f0fdf4", border: "1px solid #bbf7d0" }}>
+                    <span style={{ color: "#16a34a", fontWeight: 800, fontSize: 14, lineHeight: 1 }}>+</span>
+                    <Ic n="layers" size={13} style={{ color: "#16a34a" }} />
+                    <span style={{ fontSize: 13, color: "#166534" }}>Chương: {ch.title}</span>
+                  </div>
+                ))}
+                {delChapters.map(ch => (
+                  <div key={ch.id} className="row gap-9" style={{ padding: "7px 12px", borderRadius: 9, background: "#fff5f5", border: "1px solid #fecaca" }}>
+                    <span style={{ color: "#dc2626", fontWeight: 800, fontSize: 14, lineHeight: 1 }}>−</span>
+                    <Ic n="layers" size={13} style={{ color: "#dc2626" }} />
+                    <span style={{ fontSize: 13, color: "#991b1b", textDecoration: "line-through" }}>Chương: {ch.title}</span>
+                  </div>
+                ))}
+                {newLessons.map(l => (
+                  <div key={l.id} className="row gap-9" style={{ padding: "7px 12px", borderRadius: 9, background: "#f0fdf4", border: "1px solid #bbf7d0" }}>
+                    <span style={{ color: "#16a34a", fontWeight: 800, fontSize: 14, lineHeight: 1 }}>+</span>
+                    <Ic n="book" size={13} style={{ color: "#16a34a" }} />
+                    <span style={{ fontSize: 13, color: "#166534" }}>Bài: {l.title}</span>
+                  </div>
+                ))}
+                {delLessons.map(l => (
+                  <div key={l.id} className="row gap-9" style={{ padding: "7px 12px", borderRadius: 9, background: "#fff5f5", border: "1px solid #fecaca" }}>
+                    <span style={{ color: "#dc2626", fontWeight: 800, fontSize: 14, lineHeight: 1 }}>−</span>
+                    <Ic n="book" size={13} style={{ color: "#dc2626" }} />
+                    <span style={{ fontSize: 13, color: "#991b1b", textDecoration: "line-through" }}>Bài: {l.title}</span>
+                  </div>
+                ))}
               </div>
-            )}
-
-            {/* Lessons added/removed */}
-            {(newLessons.length > 0 || delLessons.length > 0) && (
-              <div style={{ marginBottom: 10, borderRadius: 10, border: "1px solid #e2e8f0", overflow: "hidden" }}>
-                <div style={{ padding: "6px 12px", background: "var(--surface-2)", fontSize: 11, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em" }}>Bài giảng thêm / xóa</div>
-                <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
-                  {newLessons.map(l => (
-                    <div key={l.id} className="row gap-8" style={{ padding: "6px 10px", borderRadius: 7, background: "#f0fdf4", border: "1px solid #bbf7d0" }}>
-                      <span style={{ color: "#16a34a", fontWeight: 700, fontSize: 13 }}>+</span>
-                      <span style={{ fontSize: 13, color: "#166534" }}>{l.title}</span>
-                    </div>
-                  ))}
-                  {delLessons.map(l => (
-                    <div key={l.id} className="row gap-8" style={{ padding: "6px 10px", borderRadius: 7, background: "#fff5f5", border: "1px solid #fecaca" }}>
-                      <span style={{ color: "#dc2626", fontWeight: 700, fontSize: 13 }}>−</span>
-                      <span style={{ fontSize: 13, color: "#991b1b", textDecoration: "line-through" }}>{l.title}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+            </>}
 
             {/* Renamed lessons */}
-            {renamedLessons.map(l => (
-              <div key={l.id} style={{ marginBottom: 10, borderRadius: 10, overflow: "hidden", border: "1px solid #bae6fd" }}>
-                <div style={{ padding: "6px 12px", background: "#e0f2fe", fontSize: 11, fontWeight: 600, color: "#0369a1", textTransform: "uppercase", letterSpacing: "0.05em" }}>Đổi tên bài: {l.title}</div>
-                <div style={{ padding: "8px 12px", background: "#fff5f5", borderBottom: "1px solid #e2e8f0" }}>
-                  <div className="t-xs muted" style={{ marginBottom: 2 }}>Tên cũ</div>
-                  <div style={{ color: "#dc2626", fontSize: 13, textDecoration: "line-through" }}>{l.title}</div>
+            {renamedLessons.length > 0 && <>
+              <SectionLabel>Đổi tên bài giảng</SectionLabel>
+              {renamedLessons.map(l => (
+                <div key={l.id} style={{ marginBottom: 8 }}>
+                  <DiffCard label={`Bài: ${l.title}`} old={l.title} next={l.draftTitle} accent="#0369a1" accentBg="#e0f2fe" />
+                  {l.draftContentText && (
+                    <div style={{ marginTop: -4, padding: "9px 12px", borderRadius: "0 0 10px 10px", background: "#f0fdf4", border: "1px solid #bbf7d0", borderTop: "none" }}>
+                      <div style={{ fontSize: 10.5, fontWeight: 700, color: "#16a34a", marginBottom: 4 }}>NỘI DUNG MỚI</div>
+                      <div style={{ fontSize: 12, color: "#166534", maxHeight: 100, overflowY: "auto", whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{l.draftContentText}</div>
+                    </div>
+                  )}
                 </div>
-                <div style={{ padding: "8px 12px", background: "#f0fdf4" }}>
-                  <div className="t-xs muted" style={{ marginBottom: 2 }}>Tên mới</div>
-                  <div style={{ color: "#16a34a", fontSize: 13, fontWeight: 600 }}>{l.draftTitle}</div>
-                </div>
-                {l.draftContentText && (
-                  <div style={{ padding: "8px 12px", background: "#f0fdf4", borderTop: "1px solid #bbf7d0" }}>
-                    <div className="t-xs muted" style={{ marginBottom: 4 }}>Nội dung mới</div>
-                    <div style={{ fontSize: 12, color: "#166534", maxHeight: 120, overflowY: "auto", whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{l.draftContentText}</div>
-                  </div>
-                )}
-              </div>
-            ))}
+              ))}
+            </>}
 
             {/* Content changed lessons */}
-            {contentChangedLessons.map(l => (
-              <div key={l.id} style={{ marginBottom: 10, borderRadius: 10, overflow: "hidden", border: "1px solid #fde68a" }}>
-                <div style={{ padding: "6px 12px", background: "#fef9c3", fontSize: 11, fontWeight: 600, color: "#854d0e", textTransform: "uppercase", letterSpacing: "0.05em" }}>Đổi nội dung bài: {l.title}</div>
-                <div style={{ padding: "10px 12px", background: "#fff5f5", borderBottom: "1px solid #e2e8f0" }}>
-                  <div className="t-xs muted" style={{ marginBottom: 4 }}>Nội dung cũ</div>
-                  <div style={{ fontSize: 12, color: "#dc2626", maxHeight: 120, overflowY: "auto", whiteSpace: "pre-wrap", lineHeight: 1.6 }}>
-                    {l.contentText || <em style={{ color: "#94a3b8" }}>trống</em>}
+            {contentChangedLessons.length > 0 && <>
+              <SectionLabel>Thay đổi nội dung bài</SectionLabel>
+              {contentChangedLessons.map(l => (
+                <div key={l.id} style={{ marginBottom: 8, borderRadius: 10, overflow: "hidden", border: "1px solid #fde68a" }}>
+                  <div style={{ padding: "5px 12px", background: "#fef9c3", fontSize: 10.5, fontWeight: 700, color: "#854d0e", textTransform: "uppercase", letterSpacing: "0.06em" }}>{l.title}</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr" }}>
+                    <div style={{ padding: "9px 12px", background: "#fff5f5", borderRight: "1px solid #fde68a" }}>
+                      <div style={{ fontSize: 10, color: "#94a3b8", fontWeight: 600, marginBottom: 3 }}>TRƯỚC</div>
+                      <div style={{ fontSize: 12, color: "#dc2626", maxHeight: 100, overflowY: "auto", whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{l.contentText || <em style={{ color: "#cbd5e1" }}>trống</em>}</div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", padding: "0 8px", color: "#94a3b8" }}>
+                      <Ic n="chevron_right" size={16} />
+                    </div>
+                    <div style={{ padding: "9px 12px", background: "#f0fdf4" }}>
+                      <div style={{ fontSize: 10, color: "#94a3b8", fontWeight: 600, marginBottom: 3 }}>SAU</div>
+                      <div style={{ fontSize: 12, color: "#166534", maxHeight: 100, overflowY: "auto", whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{l.draftContentText}</div>
+                    </div>
                   </div>
                 </div>
-                <div style={{ padding: "10px 12px", background: "#f0fdf4" }}>
-                  <div className="t-xs muted" style={{ marginBottom: 4 }}>Nội dung mới</div>
-                  <div style={{ fontSize: 12, color: "#166534", maxHeight: 120, overflowY: "auto", whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{l.draftContentText}</div>
-                </div>
+              ))}
+            </>}
+
+            {/* New resources (Option A) */}
+            {newResources.length > 0 && <>
+              <SectionLabel>Tài liệu mới thêm</SectionLabel>
+              <div style={{ display: "flex", flexDirection: "column", gap: 7, marginBottom: 8 }}>
+                {newResources.map(r => (
+                  <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderRadius: 10, border: "2px solid #93c5fd", background: "#eff6ff" }}>
+                    <div style={{ width: 34, height: 34, borderRadius: 9, background: typeBg[r.resourceType] || "var(--surface-2)", color: typeColor[r.resourceType] || "#475569", display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
+                      <Ic n={typeIc[r.resourceType] || "file"} size={16} />
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, fontSize: 13 }} className="truncate">{r.displayName || r.originalFilename}</div>
+                      <div style={{ fontSize: 11, color: "var(--text-3)" }}>{r.resourceType}{r.fileSizeBytes ? ` · ${(r.fileSizeBytes / 1024 / 1024).toFixed(1)} MB` : ""}</div>
+                    </div>
+                    <span className="chip" style={{ background: "#2563eb", color: "#fff", fontSize: 10 }}>Mới</span>
+                  </div>
+                ))}
               </div>
-            ))}
+            </>}
           </div>
         )}
       </div>
 
-      {/* Footer */}
-      {isPending && !isPendUpd && (
-        <div className="modal-foot">
-          <button className="btn btn-danger" onClick={onReject}><Ic n="x" size={16} />Từ chối</button>
-          <button className="btn btn-success" onClick={onApprove}><Ic n="check" size={16} />Phê duyệt & Xuất bản</button>
-        </div>
-      )}
-      {isPendUpd && (
-        <div className="modal-foot">
-          <button className="btn btn-danger" onClick={onReject}><Ic n="x" size={16} />Từ chối cập nhật</button>
-          <button className="btn btn-success" onClick={onApprove}><Ic n="check" size={16} />Áp dụng cập nhật</button>
+      {/* ── Footer ── */}
+      {isPending && (
+        <div className="modal-foot" style={{ gap: 10 }}>
+          <button className="btn btn-danger" style={{ flex: 1 }} onClick={onReject}>
+            <Ic n="x" size={16} />{isPendUpd ? "Từ chối cập nhật" : "Từ chối"}
+          </button>
+          <button className="btn btn-success" style={{ flex: 2 }} onClick={onApprove}>
+            <Ic n="check" size={16} />{isPendUpd ? "Áp dụng cập nhật" : "Phê duyệt & Xuất bản"}
+          </button>
         </div>
       )}
 
