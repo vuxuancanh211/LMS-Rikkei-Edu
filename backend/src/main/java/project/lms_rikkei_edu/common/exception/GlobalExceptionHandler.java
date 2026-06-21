@@ -27,37 +27,56 @@ import java.util.Map;
 @Slf4j
 public class GlobalExceptionHandler {
 
-    // ── Auth / Business exceptions ────────────────────────────────────────────
+    // ── Auth / Business ───────────────────────────────────────────────────────
 
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ErrorResponse> handleBusinessException(
-            BusinessException exception, HttpServletRequest request) {
+            BusinessException exception,
+            HttpServletRequest request) {
         return buildResponse(exception.getStatus(), exception.getMessage(), request.getRequestURI(), null);
+    }
+
+    @ExceptionHandler(AuthenticationException.class)
+    public ResponseEntity<ErrorResponse> handleAuthenticationException(
+            AuthenticationException exception,
+            HttpServletRequest request) {
+        return buildResponse(HttpStatus.UNAUTHORIZED, exception.getMessage(), request.getRequestURI(), null);
+    }
+
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<ErrorResponse> handleAccessDeniedException(
+            AccessDeniedException exception,
+            HttpServletRequest request) {
+        return buildResponse(HttpStatus.FORBIDDEN, "Access denied", request.getRequestURI(), null);
     }
 
     // ── Course exceptions ─────────────────────────────────────────────────────
 
     @ExceptionHandler(CourseNotFoundException.class)
     public ResponseEntity<ErrorResponse> handleCourseNotFound(
-            CourseNotFoundException ex, HttpServletRequest request) {
+            CourseNotFoundException ex,
+            HttpServletRequest request) {
         return buildResponse(HttpStatus.NOT_FOUND, ex.getMessage(), request.getRequestURI(), null);
     }
 
-    @ExceptionHandler({ChapterNotFoundException.class, LessonNotFoundException.class})
+    @ExceptionHandler({ ChapterNotFoundException.class, LessonNotFoundException.class })
     public ResponseEntity<ErrorResponse> handleNotFound(
-            RuntimeException ex, HttpServletRequest request) {
+            RuntimeException ex,
+            HttpServletRequest request) {
         return buildResponse(HttpStatus.NOT_FOUND, ex.getMessage(), request.getRequestURI(), null);
     }
 
     @ExceptionHandler(CourseNotOwnedException.class)
     public ResponseEntity<ErrorResponse> handleNotOwned(
-            CourseNotOwnedException ex, HttpServletRequest request) {
+            CourseNotOwnedException ex,
+            HttpServletRequest request) {
         return buildResponse(HttpStatus.FORBIDDEN, ex.getMessage(), request.getRequestURI(), null);
     }
 
     @ExceptionHandler(CourseStateException.class)
     public ResponseEntity<ErrorResponse> handleCourseState(
-            CourseStateException ex, HttpServletRequest request) {
+            CourseStateException ex,
+            HttpServletRequest request) {
         return buildResponse(HttpStatus.CONFLICT, ex.getMessage(), request.getRequestURI(), null);
     }
 
@@ -65,101 +84,102 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(UserContextException.class)
     public ResponseEntity<ErrorResponse> handleUserContext(
-            UserContextException ex, HttpServletRequest request) {
+            UserContextException ex,
+            HttpServletRequest request) {
         return buildResponse(HttpStatus.NOT_FOUND, ex.getMessage(), request.getRequestURI(), null);
     }
 
     @ExceptionHandler(AiSourceNotFoundException.class)
     public ResponseEntity<ErrorResponse> handleAiSourceNotFound(
-            AiSourceNotFoundException ex, HttpServletRequest request) {
+            AiSourceNotFoundException ex,
+            HttpServletRequest request) {
         return buildResponse(HttpStatus.NOT_FOUND, ex.getMessage(), request.getRequestURI(), null);
     }
 
     @ExceptionHandler(ConversationNotFoundException.class)
     public ResponseEntity<ErrorResponse> handleConversationNotFound(
-            ConversationNotFoundException ex, HttpServletRequest request) {
+            ConversationNotFoundException ex,
+            HttpServletRequest request) {
         return buildResponse(HttpStatus.NOT_FOUND, ex.getMessage(), request.getRequestURI(), null);
     }
 
     @ExceptionHandler(IngestionException.class)
     public ResponseEntity<ErrorResponse> handleIngestion(
-            IngestionException ex, HttpServletRequest request) {
+            IngestionException ex,
+            HttpServletRequest request) {
         return buildResponse(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage(), request.getRequestURI(), null);
     }
 
-    // ── Validation exceptions ─────────────────────────────────────────────────
+    // ── Validation ────────────────────────────────────────────────────────────
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ErrorResponse> handleValidationException(
-            MethodArgumentNotValidException exception, HttpServletRequest request) {
+            MethodArgumentNotValidException exception,
+            HttpServletRequest request) {
         Map<String, String> validationErrors = new LinkedHashMap<>();
-        exception.getBindingResult().getFieldErrors().forEach(error ->
-                validationErrors.put(error.getField(), error.getDefaultMessage())
-        );
+        exception.getBindingResult().getFieldErrors()
+                .forEach(error -> validationErrors.put(error.getField(), error.getDefaultMessage()));
         return buildResponse(HttpStatus.BAD_REQUEST, "Validation failed", request.getRequestURI(), validationErrors);
     }
 
     @ExceptionHandler(ConstraintViolationException.class)
     public ResponseEntity<ErrorResponse> handleConstraintViolationException(
-            ConstraintViolationException exception, HttpServletRequest request) {
+            ConstraintViolationException exception,
+            HttpServletRequest request) {
         Map<String, String> validationErrors = new LinkedHashMap<>();
-        exception.getConstraintViolations().forEach(violation ->
-                validationErrors.put(violation.getPropertyPath().toString(), violation.getMessage())
-        );
+        exception.getConstraintViolations().forEach(
+                violation -> validationErrors.put(violation.getPropertyPath().toString(), violation.getMessage()));
         return buildResponse(HttpStatus.BAD_REQUEST, "Validation failed", request.getRequestURI(), validationErrors);
     }
 
-    // ── Spring Security exceptions ────────────────────────────────────────────
-
-    @ExceptionHandler(AuthenticationException.class)
-    public ResponseEntity<ErrorResponse> handleAuthenticationException(
-            AuthenticationException exception, HttpServletRequest request) {
-        return buildResponse(HttpStatus.UNAUTHORIZED, exception.getMessage(), request.getRequestURI(), null);
-    }
-
-    @ExceptionHandler(AccessDeniedException.class)
-    public ResponseEntity<ErrorResponse> handleAccessDeniedException(
-            AccessDeniedException exception, HttpServletRequest request) {
-        return buildResponse(HttpStatus.FORBIDDEN, "Access denied", request.getRequestURI(), null);
-    }
-
-    // ── HTTP / request exceptions ─────────────────────────────────────────────
+    // ── HTTP / request ────────────────────────────────────────────────────────
 
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ErrorResponse> handleHttpMessageNotReadableException(
-            HttpMessageNotReadableException exception, HttpServletRequest request) {
-        return buildResponse(HttpStatus.BAD_REQUEST, "Request body is invalid or malformed", request.getRequestURI(), null);
+            HttpMessageNotReadableException exception,
+            HttpServletRequest request) {
+        return buildResponse(HttpStatus.BAD_REQUEST, "Request body is invalid or malformed", request.getRequestURI(),
+                null);
     }
 
     @ExceptionHandler(MissingServletRequestParameterException.class)
     public ResponseEntity<ErrorResponse> handleMissingServletRequestParameterException(
-            MissingServletRequestParameterException exception, HttpServletRequest request) {
-        return buildResponse(HttpStatus.BAD_REQUEST,
+            MissingServletRequestParameterException exception,
+            HttpServletRequest request) {
+        return buildResponse(
+                HttpStatus.BAD_REQUEST,
                 "Required request parameter is missing: " + exception.getParameterName(),
-                request.getRequestURI(), null);
+                request.getRequestURI(),
+                null);
     }
 
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
     public ResponseEntity<ErrorResponse> handleHttpRequestMethodNotSupportedException(
-            HttpRequestMethodNotSupportedException exception, HttpServletRequest request) {
-        return buildResponse(HttpStatus.METHOD_NOT_ALLOWED, "Request method is not supported", request.getRequestURI(), null);
+            HttpRequestMethodNotSupportedException exception,
+            HttpServletRequest request) {
+        return buildResponse(HttpStatus.METHOD_NOT_ALLOWED, "Request method is not supported", request.getRequestURI(),
+                null);
     }
 
     @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
     public ResponseEntity<ErrorResponse> handleHttpMediaTypeNotSupportedException(
-            HttpMediaTypeNotSupportedException exception, HttpServletRequest request) {
-        return buildResponse(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "Media type is not supported", request.getRequestURI(), null);
+            HttpMediaTypeNotSupportedException exception,
+            HttpServletRequest request) {
+        return buildResponse(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "Media type is not supported", request.getRequestURI(),
+                null);
     }
 
     @ExceptionHandler(NoHandlerFoundException.class)
     public ResponseEntity<ErrorResponse> handleNoHandlerFoundException(
-            NoHandlerFoundException exception, HttpServletRequest request) {
+            NoHandlerFoundException exception,
+            HttpServletRequest request) {
         return buildResponse(HttpStatus.NOT_FOUND, "Endpoint not found", request.getRequestURI(), null);
     }
 
     @ExceptionHandler(NoResourceFoundException.class)
     public ResponseEntity<ErrorResponse> handleNoResourceFoundException(
-            NoResourceFoundException exception, HttpServletRequest request) {
+            NoResourceFoundException exception,
+            HttpServletRequest request) {
         return buildResponse(HttpStatus.NOT_FOUND, "Resource not found", request.getRequestURI(), null);
     }
 
@@ -167,27 +187,33 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ErrorResponse> handleIllegalArgument(
-            IllegalArgumentException ex, HttpServletRequest request) {
+            IllegalArgumentException ex,
+            HttpServletRequest request) {
         return buildResponse(HttpStatus.BAD_REQUEST, ex.getMessage(), request.getRequestURI(), null);
     }
 
     @ExceptionHandler(IllegalStateException.class)
     public ResponseEntity<ErrorResponse> handleIllegalState(
-            IllegalStateException ex, HttpServletRequest request) {
+            IllegalStateException ex,
+            HttpServletRequest request) {
         return buildResponse(HttpStatus.CONFLICT, ex.getMessage(), request.getRequestURI(), null);
     }
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleUnhandledException(
-            Exception exception, HttpServletRequest request) {
+            Exception exception,
+            HttpServletRequest request) {
         log.error("Unhandled exception", exception);
         return buildResponse(HttpStatus.INTERNAL_SERVER_ERROR, "Internal server error", request.getRequestURI(), null);
     }
 
     // ── helper ────────────────────────────────────────────────────────────────
 
-    private ResponseEntity<ErrorResponse> buildResponse(HttpStatus status, String message, String path,
-                                                        Map<String, String> validationErrors) {
+    private ResponseEntity<ErrorResponse> buildResponse(
+            HttpStatus status,
+            String message,
+            String path,
+            Map<String, String> validationErrors) {
         ErrorResponse body = ErrorResponse.builder()
                 .timestamp(OffsetDateTime.now())
                 .status(status.value())
