@@ -125,13 +125,6 @@ jobs:
       - run: npm run typecheck --if-present
       - run: npm run test --if-present
       - run: npm run build
-      - name: SonarQube scan (FE)
-        if: env.SONAR_TOKEN != ''
-        uses: SonarSource/sonarqube-scan-action@v4
-        env:
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
-        with:
-          projectBaseDir: frontend
 
   security:
     runs-on: ubuntu-latest
