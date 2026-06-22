@@ -31,10 +31,10 @@ jobs:
           filters: |
             backend:
               - 'backend/**'
-              - '.github/workflows/ci.yml'
+              - '.github/workflows/ci.yaml'
             frontend:
               - 'frontend/**'
-              - '.github/workflows/ci.yml'
+              - '.github/workflows/ci.yaml'
 
   # ---------------------------------------------------------------------------
   # Backend: build + unit + integration (JUnit 5) + JaCoCo + SonarQube
