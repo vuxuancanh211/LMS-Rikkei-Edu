@@ -373,33 +373,20 @@ INSERT INTO forum_posts (id, course_id, author_id, title, content, is_pinned, re
                                                                                                                         '20000000-0000-0000-0000-000000000001',
                                                                                                                         '00000000-0000-0000-0000-000000000004',
                                                                                                                         'Hỏi về @Transactional trong Spring',
-                                                                                                                        '@Transactional có tự động rollback khi gặp RuntimeException không? Mình test thấy đôi khi không rollback.', false, 3,
-                                                                                                                         now() - interval '3 days', now() - interval '3 days');
+                                                                                                                        '@Transactional có tự động rollback khi gặp RuntimeException không? Mình test thấy đôi khi không rollback.', false, 1,
+                                                                                                                        now() - interval '3 days', now() - interval '3 days');
 
-INSERT INTO forum_replies (id, post_id, course_id, author_id, parent_reply_id, content, created_at, updated_at) VALUES
-                                                                                                    (gen_random_uuid(), '80000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001',
-                                                                                                     '00000000-0000-0000-0000-000000000005',
-                                                                                                     NULL,
-                                                                                                     'Cảm ơn thầy đã thông báo ạ!', now() - interval '4 days', now() - interval '4 days'),
-                                                                                                    (gen_random_uuid(), '80000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001',
-                                                                                                     '00000000-0000-0000-0000-000000000006',
-                                                                                                     NULL,
-                                                                                                     'Em đã ghi nhận ạ.', now() - interval '4 days', now() - interval '4 days'),
-                                                                                                    ('81000000-0000-0000-0000-000000000001', '80000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000001',
-                                                                                                     '00000000-0000-0000-0000-000000000002',
-                                                                                                     NULL,
-                                                                                                     '@Transactional mặc định chỉ rollback với unchecked exception (RuntimeException). Với checked exception bạn cần thêm rollbackFor = Exception.class.',
-                                                                                                     now() - interval '2 days', now() - interval '2 days'),
-                                                                                                    ('81000000-0000-0000-0000-000000000002', '80000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000001',
-                                                                                                     '00000000-0000-0000-0000-000000000004',
-                                                                                                     '81000000-0000-0000-0000-000000000001',
-                                                                                                     'Em cảm ơn thầy, vậy checked exception thì phải cấu hình rollbackFor đúng không ạ?',
-                                                                                                     now() - interval '1 day', now() - interval '1 day'),
-                                                                                                    ('81000000-0000-0000-0000-000000000003', '80000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000001',
-                                                                                                     '00000000-0000-0000-0000-000000000002',
-                                                                                                     '81000000-0000-0000-0000-000000000002',
-                                                                                                     'Đúng rồi em. Đây là tầng trả lời cuối cùng để tránh thảo luận bị lồng quá sâu.',
-                                                                                                     now() - interval '20 hours', now() - interval '20 hours');
+INSERT INTO forum_replies (id, post_id, course_id, author_id, content, created_at, updated_at) VALUES
+                                                                                                   (gen_random_uuid(), '80000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001',
+                                                                                                    '00000000-0000-0000-0000-000000000005',
+                                                                                                    'Cảm ơn thầy đã thông báo ạ!', now() - interval '4 days', now() - interval '4 days'),
+                                                                                                   (gen_random_uuid(), '80000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001',
+                                                                                                    '00000000-0000-0000-0000-000000000006',
+                                                                                                    'Em đã ghi nhận ạ.', now() - interval '4 days', now() - interval '4 days'),
+                                                                                                   (gen_random_uuid(), '80000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000001',
+                                                                                                    '00000000-0000-0000-0000-000000000002',
+                                                                                                    '@Transactional mặc định chỉ rollback với unchecked exception (RuntimeException). Với checked exception bạn cần thêm rollbackFor = Exception.class.',
+                                                                                                    now() - interval '2 days', now() - interval '2 days');
 
 -- ============================================================
 -- 14. CHAT ROOMS & MESSAGES
@@ -475,7 +462,7 @@ INSERT INTO certificates (id, student_id, course_id, credential_id, pdf_s3_key, 
 -- ============================================================
 -- 17. NOTIFICATIONS
 -- ============================================================
-INSERT INTO notifications (id, recipient_id, idempotency_key, notification_type, title, body, reference_type, reference_id, actor_id, actor_name, priority, is_read, email_sent, push_sent, created_at) VALUES
+INSERT INTO notifications (id, recipient_id, idempotency_key, type, title, body, reference_type, reference_id, actor_id, actor_name, priority, is_read, email_sent, push_sent, created_at) VALUES
                                                                                                                                                                                                (gen_random_uuid(), '00000000-0000-0000-0000-000000000004',
                                                                                                                                                                                                 'cert-issued-20000000-0000-0000-0000-000000000001-00000000-0000-0000-0000-000000000004',
                                                                                                                                                                                                 'CERTIFICATE_ISSUED', '🎉 Chúc mừng bạn đã hoàn thành khoá học!',
