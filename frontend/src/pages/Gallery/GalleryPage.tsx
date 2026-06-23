@@ -109,7 +109,9 @@ function registerGalleryPage() {
         setNotificationList(data.content || []);
         const count = await getUnreadCount();
         setUnreadCount(count);
-      } catch {} finally {
+      } catch {
+        // Notification failures should not block the shell layout.
+      } finally {
         if (showLoading) setNotifLoading(false);
       }
     };
@@ -133,7 +135,9 @@ function registerGalleryPage() {
         await markAsRead(id);
         setNotificationList(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
         setUnreadCount(prev => Math.max(0, prev - 1));
-      } catch {}
+      } catch {
+        // Keep the optimistic UI unchanged if the request fails.
+      }
     };
 
     const handleMarkAllAsRead = async () => {
@@ -141,7 +145,9 @@ function registerGalleryPage() {
         await markAllAsRead();
         setNotificationList(prev => prev.map(n => ({ ...n, read: true })));
         setUnreadCount(0);
-      } catch {}
+      } catch {
+        // Keep the optimistic UI unchanged if the request fails.
+      }
     };
 
     useEffect(() => {

@@ -122,7 +122,7 @@ public class ForumServiceImpl implements ForumService {
         post.setTopic(request.getTopic());
         post.setTitle(request.getTitle().trim());
         post.setContent(request.getContent().trim());
-        post.setPinned(Boolean.TRUE.equals(request.getPinned()) && currentUser.getRole() != UserRole.STUDENT);
+        post.setPinned(Boolean.TRUE.equals(request.getPinned()));
         post.setReplyCount(0);
         post.setUpvoteCount(0);
         post.setDeleted(false);
