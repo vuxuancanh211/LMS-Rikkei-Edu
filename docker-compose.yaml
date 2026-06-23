@@ -3,14 +3,12 @@ services:
     image: pgvector/pgvector:pg17
     container_name: postgres-pgvector
     restart: always
-    ports:
-      - "5432:5432"
     env_file:
       - backend/.env
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\"" ]
+      test: ["CMD-SHELL", 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
       interval: 10s
       timeout: 5s
       retries: 5
@@ -22,15 +20,18 @@ services:
     image: redis:7-alpine
     container_name: redis
     restart: always
-    ports:
-      - "6379:6379"
     env_file:
       - backend/.env
     volumes:
       - redis_data:/data
-    command: ["sh", "-c", "redis-server --appendonly yes --requirepass \"$$REDIS_PASSWORD\""]
+    command:
+      [
+        "sh",
+        "-c",
+        'redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD"',
+      ]
     healthcheck:
-      test: [ "CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping" ]
+      test: ["CMD-SHELL", 'redis-cli -a "$$REDIS_PASSWORD" ping']
       interval: 10s
       timeout: 5s
       retries: 5
@@ -38,38 +39,31 @@ services:
     networks:
       - app-network
 
-#  app:
-#    build:
-#      context: ./backend
-#      dockerfile: Dockerfile
-#    container_name: lms-rikkei-edu
-#    restart: always
-#    ports:
-#      - "8080:8080"
-##    env_file:
-##      - backend/.env
-#    environment:
-#      # Database
-#      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/${POSTGRES_DB}
-#      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
-#      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
-#      # Redis
-#      SPRING_DATA_REDIS_HOST: redis
-#      SPRING_DATA_REDIS_PORT: 6379
-#      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD}
-#    depends_on:
-#      db:
-#        condition: service_healthy
-#      redis:
-#        condition: service_healthy
-#    healthcheck:
-#      test: [ "CMD", "wget", "-qO-", "http://localhost:8080/actuator/health" ]
-#      interval: 30s
-#      timeout: 5s
-#      retries: 3
-#      start_period: 60s
-#    networks:
-#      - app-network
+  app:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: lms-rikkei-edu
+    restart: always
+    ports:
+      - "8080:8080"
+    env_file:
+      - backend/.env
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    networks:
+      - app-network
 
   nginx:
     image: nginx:alpine
@@ -79,13 +73,11 @@ services:
       - "80:80"
     volumes:
       - ./backend/src/main/java/project/lms_rikkei_edu/infrastructure/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-#    depends_on:
-#      app:
-#        condition: service_healthy
+    depends_on:
+      app:
+        condition: service_healthy
     networks:
       - app-network
-
-
 
 volumes:
   postgres_data:
