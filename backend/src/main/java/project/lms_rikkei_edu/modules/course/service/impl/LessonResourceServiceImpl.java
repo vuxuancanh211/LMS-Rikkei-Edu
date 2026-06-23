@@ -96,6 +96,11 @@ public class LessonResourceServiceImpl implements LessonResourceService {
         int nextOrder = lessonResourceRepository
                 .findAllByLessonIdAndDeletedAtIsNullOrderByOrderIndexAsc(lessonId).size() + 1;
 
+        // Kiểm tra trạng thái khóa học trước khi tạo resource
+        boolean isLiveCourse = courseRepository.findById(courseId)
+                .map(c -> c.getStatus() == CourseStatus.PUBLISHED || c.getStatus() == CourseStatus.PENDING_UPDATE)
+                .orElse(false);
+
         LessonResource resource = LessonResource.builder()
                 .lesson(lesson)
                 .courseId(courseId)
@@ -112,11 +117,12 @@ public class LessonResourceServiceImpl implements LessonResourceService {
                 .orderIndex(nextOrder)
                 .status("ACTIVE")
                 .uploadedAt(Instant.now())
+                .isNewInUpdate(isLiveCourse)
                 .build();
 
         LessonResource saved = lessonResourceRepository.save(resource);
 
-        // If course is PUBLISHED, mark as PENDING_UPDATE and queue for embedding after admin approval
+        // If course is PUBLISHED, mark as PENDING_UPDATE
         courseRepository.findById(courseId).ifPresent(course -> {
             if (course.getStatus() == CourseStatus.PUBLISHED) {
                 course.setStatus(CourseStatus.PENDING_UPDATE);
@@ -152,7 +158,7 @@ public class LessonResourceServiceImpl implements LessonResourceService {
     public List<LessonResourceResponse> listResources(UUID instructorId, UUID courseId, UUID lessonId) {
         loadOwnedLesson(instructorId, courseId, lessonId);
         return lessonResourceRepository
-                .findAllByLessonIdAndDeletedAtIsNullOrderByOrderIndexAsc(lessonId)
+                .findAllByLessonIdAndDeletedAtIsNullAndPendingDeleteFalseOrderByOrderIndexAsc(lessonId)
                 .stream()
                 .map(lessonResourceMapper::toResponse)
                 .toList();
@@ -167,7 +173,32 @@ public class LessonResourceServiceImpl implements LessonResourceService {
                 .filter(r -> r.getDeletedAt() == null)
                 .orElseThrow(() -> new IllegalArgumentException("Resource không tồn tại: " + resourceId));
 
-        // Xóa mềm trong DB
+        // Kiểm tra khóa học đang live — nếu đang live thì chỉ đánh dấu pending_delete, không xóa thật
+        boolean isLiveCourse = courseRepository.findById(resource.getCourseId())
+                .map(c -> c.getStatus() == CourseStatus.PUBLISHED || c.getStatus() == CourseStatus.PENDING_UPDATE)
+                .orElse(false);
+
+        // Nếu resource này vừa được thêm trong lần update hiện tại → xóa thật luôn (không cần pending)
+        boolean justAddedInUpdate = Boolean.TRUE.equals(resource.getIsNewInUpdate());
+
+        if (isLiveCourse && !justAddedInUpdate) {
+            // Đánh dấu chờ xóa — admin sẽ xóa thật khi duyệt
+            resource.setPendingDelete(true);
+            resource.setStatus("PENDING_DELETE");
+            lessonResourceRepository.save(resource);
+
+            // Chuyển course sang PENDING_UPDATE nếu cần
+            courseRepository.findById(resource.getCourseId()).ifPresent(course -> {
+                if (course.getStatus() == CourseStatus.PUBLISHED) {
+                    course.setStatus(CourseStatus.PENDING_UPDATE);
+                    course.setPendingUpdateAt(Instant.now());
+                    courseRepository.save(course);
+                }
+            });
+            return;
+        }
+
+        // Xóa ngay (course DRAFT hoặc resource vừa upload trong lần update này)
         resource.setDeletedAt(Instant.now());
         resource.setStatus("DELETED");
         lessonResourceRepository.save(resource);
@@ -175,8 +206,11 @@ public class LessonResourceServiceImpl implements LessonResourceService {
         // Xóa embedding của resource này
         embeddingService.deleteEmbeddingsByResource(resourceId);
 
-        // Xóa thật trên S3
-        s3Service.deleteObject(resource.getS3Key());
+        // Xóa thật trên S3 (bỏ qua external URL)
+        String s3Key = resource.getS3Key();
+        if (s3Key != null && !s3Key.startsWith("ext://")) {
+            s3Service.deleteObject(s3Key);
+        }
     }
 
     @Override

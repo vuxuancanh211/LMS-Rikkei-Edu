@@ -2,6 +2,7 @@ package project.lms_rikkei_edu.modules.course.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.SQLRestriction;
 import project.lms_rikkei_edu.modules.course.enums.ResourceType;
 
 import java.time.Instant;
@@ -9,6 +10,7 @@ import java.util.UUID;
 
 @Entity
 @Table(name = "lesson_resources")
+@SQLRestriction("deleted_at IS NULL")
 @Getter
 @Setter
 @NoArgsConstructor
@@ -65,4 +67,14 @@ public class LessonResource {
 
     @Column(name = "uploaded_at")
     private Instant uploadedAt;
+
+    /** true khi resource được thêm trong lần cập nhật đang chờ duyệt */
+    @Column(name = "is_new_in_update")
+    @Builder.Default
+    private Boolean isNewInUpdate = false;
+
+    /** true khi instructor muốn xóa resource của khóa PUBLISHED — chờ admin duyệt */
+    @Column(name = "pending_delete")
+    @Builder.Default
+    private Boolean pendingDelete = false;
 }

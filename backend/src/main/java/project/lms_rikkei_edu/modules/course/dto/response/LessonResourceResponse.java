@@ -21,4 +21,6 @@ public class LessonResourceResponse {
     /** Có giá trị khi resource là external URL (s3Key bắt đầu bằng "ext://") */
     private String externalUrl;
     private Instant uploadedAt;
+    private Boolean isNewInUpdate;
+    private Boolean pendingDelete;
 }

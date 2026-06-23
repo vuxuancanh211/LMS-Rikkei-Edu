@@ -166,7 +166,24 @@ public class AdminCourseServiceImpl implements AdminCourseService {
         }
         course.getChapters().removeAll(chaptersToRemove);
 
-        // 3. Xóa draft metadata
+        // 3. Xử lý resources: xóa thật pendingDelete, reset flag isNewInUpdate
+        List<LessonResource> toDelete = lessonResourceRepo.findAllByCourseIdAndPendingDeleteTrue(courseId);
+        for (LessonResource r : toDelete) {
+            r.setDeletedAt(Instant.now());
+            r.setStatus("DELETED");
+            r.setPendingDelete(false);
+            lessonResourceRepo.save(r);
+            String s3Key = r.getS3Key();
+            if (s3Key != null && !s3Key.startsWith("ext://")) {
+                try { s3Service.deleteObject(s3Key); } catch (Exception ex) {
+                    log.warn("S3 delete failed for key {}: {}", s3Key, ex.getMessage());
+                }
+            }
+        }
+        lessonResourceRepo.findAllByCourseIdAndIsNewInUpdateTrue(courseId)
+                .forEach(r -> { r.setIsNewInUpdate(false); lessonResourceRepo.save(r); });
+
+        // 4. Xóa draft metadata
         course.setDraftTitle(null);
         course.setDraftDescription(null);
         course.setDraftLevel(null);
@@ -174,7 +191,7 @@ public class AdminCourseServiceImpl implements AdminCourseService {
         course.setChangeSummary(null);
         course.setDraftRejectionReason(null);
 
-        // 4. Cập nhật status
+        // 5. Cập nhật status
         course.setStatus(CourseStatus.PUBLISHED);
         course.setPendingUpdateAt(null);
         courseRepo.save(course);
@@ -194,6 +211,13 @@ public class AdminCourseServiceImpl implements AdminCourseService {
         if (course.getStatus() != CourseStatus.PENDING_UPDATE) {
             throw new CourseStateException("Only PENDING_UPDATE courses can have updates rejected. Current status: " + course.getStatus());
         }
+
+        // Khôi phục resources bị đánh dấu pending_delete (giữ draft để instructor xem lại)
+        lessonResourceRepo.findAllByCourseIdAndPendingDeleteTrue(courseId)
+                .forEach(r -> { r.setPendingDelete(false); r.setStatus("ACTIVE"); lessonResourceRepo.save(r); });
+        // Reset flag isNewInUpdate — resources mới thêm vẫn giữ nguyên nhưng không còn "mới"
+        lessonResourceRepo.findAllByCourseIdAndIsNewInUpdateTrue(courseId)
+                .forEach(r -> { r.setIsNewInUpdate(false); lessonResourceRepo.save(r); });
 
         // Giữ lại toàn bộ draft — instructor có thể xem thay đổi bị từ chối và sửa lại
         course.setDraftRejectionReason(reason);

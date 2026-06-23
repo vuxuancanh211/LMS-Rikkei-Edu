@@ -147,7 +147,9 @@ CREATE TABLE "lesson_resources" (
                                     "order_index" int,
                                     "status" varchar(20) DEFAULT 'ACTIVE',
                                     "deleted_at" timestamptz,
-                                    "uploaded_at" timestamptz
+                                    "uploaded_at" timestamptz,
+                                    "is_new_in_update" boolean NOT NULL DEFAULT false,
+                                    "pending_delete" boolean NOT NULL DEFAULT false
 );
 
 CREATE TABLE "video_upload_jobs" (

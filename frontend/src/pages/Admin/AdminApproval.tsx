@@ -61,14 +61,13 @@
     const contentChangedLessons = isPendUpd ? allLessons.filter(l => !l.isDraft && !l.draftTitle && l.draftContentText)      : [];
     const thumbnailDiff         = draftChanges.find(d => d.isImg) || null;
 
-    const pendingUpdateAt = detail.pendingUpdateAt ? new Date(detail.pendingUpdateAt).getTime() : null;
-    const newResources = (isPendUpd && pendingUpdateAt)
-      ? allResources.filter(r => r.uploadedAt && new Date(r.uploadedAt).getTime() > pendingUpdateAt)
-      : [];
+    // Option B: dùng flag từ backend thay vì so sánh timestamp
+    const newResources = isPendUpd ? allResources.filter(r => r.isNewInUpdate)   : [];
+    const delResources = isPendUpd ? allResources.filter(r => r.pendingDelete)    : [];
 
     const totalDiff = [draftChanges.length, newChapters.length + delChapters.length,
       newLessons.length + delLessons.length, renamedLessons.length + contentChangedLessons.length,
-      newResources.length].reduce((a, b) => a + b, 0);
+      newResources.length + delResources.length].reduce((a, b) => a + b, 0);
     const hasDiff = totalDiff > 0;
 
     const bannerUrl = (isPendUpd && detail.draftThumbnailUrl) ? detail.draftThumbnailUrl : (detail.thumbnailUrl || "");
@@ -169,7 +168,8 @@
         {isPendUpd && (
           <div className="tabs" style={{ marginBottom: 16, width: "fit-content" }}>
             <button className={view === "overview" ? "on" : ""} onClick={() => setView("overview")}>Tổng quan</button>
-            <button className={view === "changes" ? "on" : ""} onClick={() => setView("changes")}>
+            <button className={view === "diff"     ? "on" : ""} onClick={() => setView("diff")}>So sánh</button>
+            <button className={view === "changes"  ? "on" : ""} onClick={() => setView("changes")}>
               Thay đổi{hasDiff ? <span style={{ marginLeft: 5, background: "#ef4444", color: "#fff", borderRadius: 999, fontSize: 10, padding: "0 5px", fontWeight: 700 }}>{totalDiff}</span> : ""}
             </button>
           </div>
@@ -182,7 +182,7 @@
             {[
               { l: "Chương",     v: isPendUpd ? `${liveChapters.length}${newChapters.length ? ` +${newChapters.length}` : ""}` : (detail.chapters?.length || 0), ic: "layers",    c: "#7c3aed", bg: "#f5f3ff" },
               { l: "Bài giảng", v: isPendUpd ? `${liveLessons.length}${newLessons.length ? ` +${newLessons.length}` : ""}` : allLessons.length,                   ic: "book",      c: "#2563eb", bg: "#eaf1ff" },
-              { l: "Tài liệu",  v: `${allResources.length}${newResources.length ? ` +${newResources.length}` : ""} tệp`,                                           ic: "paperclip", c: "#d97706", bg: "#fef5e6" },
+              { l: "Tài liệu",  v: `${allResources.filter(r => !r.pendingDelete).length}${newResources.length ? ` (+${newResources.length})` : ""}${delResources.length ? ` (-${delResources.length})` : ""} tệp`, ic: "paperclip", c: "#d97706", bg: "#fef5e6" },
               { l: "Danh mục",  v: detail.category?.name || "—",                                                                                                    ic: "folder",    c: "#059669", bg: "#e7f8f0" },
             ].map((s, i) => (
               <div key={i} style={{ padding: "10px 12px", borderRadius: 11, background: "var(--surface-2)", textAlign: "center" }}>
@@ -266,23 +266,222 @@
             <SectionLabel>Tài liệu đính kèm</SectionLabel>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 7, marginBottom: 8 }}>
               {allResources.map((r, i) => {
-                const isNew = newResources.some(nr => nr.id === r.id);
+                const isNew = !!r.isNewInUpdate;
+                const isDel = !!r.pendingDelete;
+                const border = isNew ? "2px solid #93c5fd" : isDel ? "2px dashed #fca5a5" : "1px solid var(--border)";
+                const bg     = isNew ? "#eff6ff" : isDel ? "#fff5f5" : "var(--surface-2)";
                 return (
-                  <div key={r.id || i} style={{ padding: "8px 10px", border: isNew ? "2px solid #93c5fd" : "1px solid var(--border)", borderRadius: 10, background: isNew ? "#eff6ff" : "var(--surface-2)", display: "flex", alignItems: "center", gap: 9 }}>
+                  <div key={r.id || i} style={{ padding: "8px 10px", border, borderRadius: 10, background: bg, display: "flex", alignItems: "center", gap: 9, opacity: isDel ? 0.7 : 1 }}>
                     <div style={{ width: 32, height: 32, borderRadius: 8, background: typeBg[r.resourceType] || "var(--surface-2)", color: typeColor[r.resourceType] || "#64748b", display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
                       <Ic n={typeIc[r.resourceType] || "file"} size={15} />
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 12.5, fontWeight: 600 }} className="truncate">{r.displayName || r.originalFilename}</div>
+                      <div style={{ fontSize: 12.5, fontWeight: 600, textDecoration: isDel ? "line-through" : "none", color: isDel ? "#dc2626" : "inherit" }} className="truncate">{r.displayName || r.originalFilename}</div>
                       <div style={{ fontSize: 10.5, color: "var(--text-3)" }}>{r.resourceType}{r.fileSizeBytes ? ` · ${(r.fileSizeBytes / 1024 / 1024).toFixed(1)}MB` : ""}</div>
                     </div>
                     {isNew && <span className="chip" style={{ background: "#2563eb", color: "#fff", fontSize: 9.5 }}>Mới</span>}
+                    {isDel && <span className="chip" style={{ background: "#fee2e2", color: "#dc2626", fontSize: 9.5 }}>Sẽ xóa</span>}
                   </div>
                 );
               })}
             </div>
           </>}
         </>}
+
+        {/* ════ VIEW: SO SÁNH ════ */}
+        {view === "diff" && isPendUpd && (() => {
+          // Bên trái: hiện tại (live) — không có draft thuần, nhưng có pending-delete
+          const liveTree = (detail.chapters || []).filter(ch => !ch.isDraft);
+          // Bên phải: sau khi duyệt — bỏ pendingDelete, giữ draft mới
+          const draftTree = (detail.chapters || []).filter(ch => !ch.pendingDelete);
+
+          // Màu sắc nhất quán
+          const C = {
+            add:   { border: "#86efac", bg: "#f0fdf4", text: "#166534", chip: "#dcfce7", chipFg: "#16a34a" },
+            del:   { border: "#fca5a5", bg: "#fff5f5", text: "#991b1b", chip: "#fee2e2", chipFg: "#dc2626" },
+            mod:   { border: "#93c5fd", bg: "#eff6ff", text: "#1e40af", chip: "#dbeafe", chipFg: "#2563eb" },
+            plain: { border: "var(--border)", bg: "var(--surface-2)", text: "var(--text)" },
+          };
+
+          function LessonRow({ l, side }) {
+            const isNew  = !!l.isDraft;
+            const isDel  = !!l.pendingDelete;
+            const isMod  = !isNew && !isDel && (!!l.draftTitle || !!l.draftContentText);
+            const color  = isNew ? C.add : isDel ? C.del : isMod ? C.mod : C.plain;
+            const isVid  = l.lessonType === "VIDEO" || l.type === "VIDEO";
+            const title  = side === "right" && l.draftTitle ? l.draftTitle : l.title;
+            return (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 12px",
+                background: color.bg, borderLeft: `3px solid ${color.border}`, marginBottom: 2, borderRadius: "0 6px 6px 0" }}>
+                <div style={{ width: 24, height: 18, borderRadius: 4, background: isVid ? "#1e293b" : "var(--surface-2)",
+                  display: "grid", placeItems: "center", flex: "none" }}>
+                  <Ic n={isVid ? "play" : "file_text"} size={10} style={{ color: isVid ? "#fff" : "var(--text-3)" }} />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 500, color: color.text }} className="truncate">
+                    {isDel ? <s>{title}</s> : title}
+                  </div>
+                  {isMod && side === "right" && l.draftTitle && (
+                    <div style={{ fontSize: 10.5, color: "#94a3b8", textDecoration: "line-through" }} className="truncate">{l.title}</div>
+                  )}
+                </div>
+                {isNew && <span style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 6px", borderRadius: 999, background: C.add.chip, color: C.add.chipFg }}>MỚI</span>}
+                {isDel && side === "left" && <span style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 6px", borderRadius: 999, background: C.del.chip, color: C.del.chipFg }}>XÓA</span>}
+                {isMod && <span style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 6px", borderRadius: 999, background: C.mod.chip, color: C.mod.chipFg }}>SỬA</span>}
+                {(l.resources?.length > 0) && (
+                  <span style={{ fontSize: 10, color: "var(--text-3)", display: "flex", alignItems: "center", gap: 2 }}>
+                    <Ic n="paperclip" size={9} />{l.resources.length}
+                  </span>
+                )}
+              </div>
+            );
+          }
+
+          function ChapterCol({ ch, side }) {
+            const isNew  = !!ch.isDraft;
+            const isDel  = !!ch.pendingDelete;
+            const color  = isNew ? C.add : isDel ? C.del : C.plain;
+            const lessons = (ch.lessons || []).filter(l => side === "left" ? true : !l.pendingDelete);
+            return (
+              <div style={{ marginBottom: 10, borderRadius: 10, overflow: "hidden",
+                border: `2px solid ${color.border}`, opacity: isDel ? 0.7 : 1 }}>
+                <div style={{ padding: "8px 12px", background: color.bg,
+                  display: "flex", alignItems: "center", gap: 7 }}>
+                  <Ic n="layers" size={13} style={{ color: isNew ? C.add.chipFg : isDel ? C.del.chipFg : "var(--text-3)", flex: "none" }} />
+                  <span style={{ fontWeight: 700, fontSize: 12.5, flex: 1, color: color.text }}>
+                    {isDel ? <s>{ch.title}</s> : ch.title}
+                  </span>
+                  {isNew && <span style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 7px", borderRadius: 999, background: C.add.chip, color: C.add.chipFg }}>MỚI</span>}
+                  {isDel && <span style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 7px", borderRadius: 999, background: C.del.chip, color: C.del.chipFg }}>XÓA</span>}
+                  <span style={{ fontSize: 10.5, color: "var(--text-3)" }}>{lessons.length} bài</span>
+                </div>
+                <div style={{ padding: "6px 8px", display: "flex", flexDirection: "column", gap: 0 }}>
+                  {lessons.length === 0
+                    ? <div style={{ fontSize: 11.5, color: "var(--text-3)", padding: "6px 4px", fontStyle: "italic" }}>Không có bài giảng</div>
+                    : lessons.map((l, i) => <LessonRow key={l.id || i} l={l} side={side} />)
+                  }
+                </div>
+              </div>
+            );
+          }
+
+          const ColHeader = ({ label, count, color }) => (
+            <div style={{ padding: "8px 14px", borderRadius: 10, background: color.bg,
+              border: `1px solid ${color.border}`, marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <span style={{ fontWeight: 700, fontSize: 12, color: color.text }}>{label}</span>
+              <span style={{ fontSize: 11.5, color: "var(--text-3)" }}>{count} chương</span>
+            </div>
+          );
+
+          return (
+            <div>
+              {/* Legend */}
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14, padding: "8px 12px", borderRadius: 9, background: "var(--surface-2)" }}>
+                {[
+                  { color: "#16a34a", bg: "#dcfce7", label: "Thêm mới" },
+                  { color: "#dc2626", bg: "#fee2e2", label: "Xóa" },
+                  { color: "#2563eb", bg: "#dbeafe", label: "Thay đổi" },
+                ].map(({ color, bg, label }) => (
+                  <div key={label} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                    <div style={{ width: 10, height: 10, borderRadius: 3, background: bg, border: `1.5px solid ${color}` }} />
+                    <span style={{ fontSize: 11.5, color: "var(--text-2)" }}>{label}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Two columns */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+                {/* LEFT — Hiện tại */}
+                <div>
+                  <ColHeader label="Hiện tại (Live)" count={liveTree.length} color={{ bg: "#f8fafc", border: "#cbd5e1", text: "#334155" }} />
+                  {liveTree.length === 0
+                    ? <div style={{ textAlign: "center", padding: "20px 0", color: "var(--text-3)", fontSize: 13 }}>Chưa có nội dung</div>
+                    : liveTree.map((ch, i) => <ChapterCol key={ch.id || i} ch={ch} side="left" />)
+                  }
+                </div>
+                {/* RIGHT — Sau khi duyệt */}
+                <div>
+                  <ColHeader label="Sau khi duyệt (Draft)" count={draftTree.length} color={{ bg: "#f0f9ff", border: "#7dd3fc", text: "#0369a1" }} />
+                  {draftTree.length === 0
+                    ? <div style={{ textAlign: "center", padding: "20px 0", color: "var(--text-3)", fontSize: 13 }}>Không có nội dung</div>
+                    : draftTree.map((ch, i) => <ChapterCol key={ch.id || i} ch={ch} side="right" />)
+                  }
+                </div>
+              </div>
+
+              {/* Resource diff */}
+              {(newResources.length > 0 || delResources.length > 0) && (
+                <div style={{ marginTop: 16 }}>
+                  <SectionLabel>Tài liệu thay đổi</SectionLabel>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                    {/* Live resources (excluding new ones) */}
+                    <div>
+                      <div style={{ fontSize: 10.5, fontWeight: 700, color: "#475569", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.06em" }}>Hiện tại</div>
+                      {allResources.filter(r => !r.isNewInUpdate).map(r => (
+                        <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: 8, marginBottom: 5,
+                          border: r.pendingDelete ? "2px dashed #fca5a5" : "1px solid var(--border)",
+                          background: r.pendingDelete ? "#fff5f5" : "var(--surface-2)", opacity: r.pendingDelete ? 0.75 : 1 }}>
+                          <Ic n={typeIc[r.resourceType] || "file"} size={13} style={{ color: typeColor[r.resourceType] || "#64748b", flex: "none" }} />
+                          <span style={{ fontSize: 12, flex: 1, textDecoration: r.pendingDelete ? "line-through" : "none", color: r.pendingDelete ? "#dc2626" : "inherit" }} className="truncate">
+                            {r.displayName || r.originalFilename}
+                          </span>
+                          {r.pendingDelete && <span style={{ fontSize: 9, fontWeight: 700, color: "#dc2626", background: "#fee2e2", borderRadius: 4, padding: "1px 5px" }}>XÓA</span>}
+                        </div>
+                      ))}
+                      {allResources.filter(r => !r.isNewInUpdate).length === 0 && (
+                        <div style={{ fontSize: 12, color: "var(--text-3)", fontStyle: "italic", padding: "6px 4px" }}>Không có tài liệu</div>
+                      )}
+                    </div>
+                    {/* After approval (excluding pending delete) */}
+                    <div>
+                      <div style={{ fontSize: 10.5, fontWeight: 700, color: "#0369a1", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.06em" }}>Sau khi duyệt</div>
+                      {allResources.filter(r => !r.pendingDelete).map(r => (
+                        <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: 8, marginBottom: 5,
+                          border: r.isNewInUpdate ? "2px solid #93c5fd" : "1px solid var(--border)",
+                          background: r.isNewInUpdate ? "#eff6ff" : "var(--surface-2)" }}>
+                          <Ic n={typeIc[r.resourceType] || "file"} size={13} style={{ color: typeColor[r.resourceType] || "#64748b", flex: "none" }} />
+                          <span style={{ fontSize: 12, flex: 1, color: r.isNewInUpdate ? "#1e40af" : "inherit" }} className="truncate">
+                            {r.displayName || r.originalFilename}
+                          </span>
+                          {r.isNewInUpdate && <span style={{ fontSize: 9, fontWeight: 700, color: "#2563eb", background: "#dbeafe", borderRadius: 4, padding: "1px 5px" }}>MỚI</span>}
+                        </div>
+                      ))}
+                      {allResources.filter(r => !r.pendingDelete).length === 0 && (
+                        <div style={{ fontSize: 12, color: "var(--text-3)", fontStyle: "italic", padding: "6px 4px" }}>Không có tài liệu</div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Metadata diff summary */}
+              {draftChanges.length > 0 && (
+                <div style={{ marginTop: 16 }}>
+                  <SectionLabel>Thay đổi thông tin</SectionLabel>
+                  {draftChanges.filter(d => !d.isImg).map((d, i) => (
+                    <DiffCard key={i} label={d.label} old={d.old} next={d.next} />
+                  ))}
+                  {thumbnailDiff && (
+                    <div style={{ display: "flex", gap: 12, alignItems: "center", padding: 12, background: "var(--surface-2)", borderRadius: 10 }}>
+                      <div style={{ flex: 1, textAlign: "center" }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-3)", marginBottom: 5 }}>ẢNH BÌA HIỆN TẠI</div>
+                        {thumbnailDiff.old
+                          ? <img src={thumbnailDiff.old} onClick={() => setImgFull(thumbnailDiff.old)} style={{ width: "100%", maxWidth: 160, height: 90, objectFit: "cover", borderRadius: 8, cursor: "zoom-in", border: "1px solid var(--border)" }} />
+                          : <div style={{ width: 160, height: 90, borderRadius: 8, background: "#f1f5f9", display: "grid", placeItems: "center", margin: "0 auto" }}><Ic n="image" size={24} style={{ color: "#94a3b8" }} /></div>
+                        }
+                      </div>
+                      <Ic n="chevron_right" size={20} style={{ color: "#94a3b8" }} />
+                      <div style={{ flex: 1, textAlign: "center" }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: "#16a34a", marginBottom: 5 }}>ẢNH BÌA MỚI</div>
+                        <img src={thumbnailDiff.next} onClick={() => setImgFull(thumbnailDiff.next)} style={{ width: "100%", maxWidth: 160, height: 90, objectFit: "cover", borderRadius: 8, cursor: "zoom-in", border: "2px solid #86efac" }} />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* ════ VIEW: THAY ĐỔI ════ */}
         {view === "changes" && isPendUpd && (
@@ -409,7 +608,7 @@
               ))}
             </>}
 
-            {/* New resources (Option A) */}
+            {/* New resources (Option B) */}
             {newResources.length > 0 && <>
               <SectionLabel>Tài liệu mới thêm</SectionLabel>
               <div style={{ display: "flex", flexDirection: "column", gap: 7, marginBottom: 8 }}>
@@ -423,6 +622,25 @@
                       <div style={{ fontSize: 11, color: "var(--text-3)" }}>{r.resourceType}{r.fileSizeBytes ? ` · ${(r.fileSizeBytes / 1024 / 1024).toFixed(1)} MB` : ""}</div>
                     </div>
                     <span className="chip" style={{ background: "#2563eb", color: "#fff", fontSize: 10 }}>Mới</span>
+                  </div>
+                ))}
+              </div>
+            </>}
+
+            {/* Deleted resources (Option B) */}
+            {delResources.length > 0 && <>
+              <SectionLabel>Tài liệu sẽ xóa</SectionLabel>
+              <div style={{ display: "flex", flexDirection: "column", gap: 7, marginBottom: 8 }}>
+                {delResources.map(r => (
+                  <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderRadius: 10, border: "2px dashed #fca5a5", background: "#fff5f5", opacity: 0.85 }}>
+                    <div style={{ width: 34, height: 34, borderRadius: 9, background: typeBg[r.resourceType] || "var(--surface-2)", color: typeColor[r.resourceType] || "#475569", display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
+                      <Ic n={typeIc[r.resourceType] || "file"} size={16} />
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, fontSize: 13, textDecoration: "line-through", color: "#dc2626" }} className="truncate">{r.displayName || r.originalFilename}</div>
+                      <div style={{ fontSize: 11, color: "var(--text-3)" }}>{r.resourceType}{r.fileSizeBytes ? ` · ${(r.fileSizeBytes / 1024 / 1024).toFixed(1)} MB` : ""}</div>
+                    </div>
+                    <span className="chip" style={{ background: "#fee2e2", color: "#dc2626", fontSize: 10 }}>Sẽ xóa</span>
                   </div>
                 ))}
               </div>

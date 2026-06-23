@@ -9,4 +9,11 @@ import java.util.UUID;
 public interface LessonResourceRepository extends JpaRepository<LessonResource, UUID> {
 
     List<LessonResource> findAllByLessonIdAndDeletedAtIsNullOrderByOrderIndexAsc(UUID lessonId);
+
+    /** Dùng cho instructor list — ẩn những resource đang chờ xóa */
+    List<LessonResource> findAllByLessonIdAndDeletedAtIsNullAndPendingDeleteFalseOrderByOrderIndexAsc(UUID lessonId);
+
+    List<LessonResource> findAllByCourseIdAndPendingDeleteTrue(UUID courseId);
+
+    List<LessonResource> findAllByCourseIdAndIsNewInUpdateTrue(UUID courseId);
 }

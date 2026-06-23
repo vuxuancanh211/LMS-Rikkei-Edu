@@ -367,21 +367,108 @@
     const [name, setName]               = useState(s.title);
     const [replaceOpen, setReplaceOpen] = useState(false);
     const [newFile, setNewFile]         = useState(null);
+    const [newFileUrl, setNewFileUrl]   = useState(null);
     const [newUrl, setNewUrl]           = useState(s.externalUrl || "");
     const [urlMode, setUrlMode]         = useState(false);
     const [saving, setSaving]           = useState(false);
     const [progress, setProgress]       = useState(0);
     const [err, setErr]                 = useState(null);
+    const [viewUrl, setViewUrl]         = useState(s.externalUrl || null);
+    const [viewLoading, setViewLoading] = useState(false);
     const fileRef = useRef();
 
     const canEmbed = s.externalUrl && s.externalUrl.match(/\.(mp4|webm|ogg)(\?.*)?$/i);
 
+    // Fetch presigned URL cho file S3 (khi không có externalUrl)
+    useEffect(() => {
+      if (s.externalUrl || !s.resourceId) return;
+      setViewLoading(true);
+      api.get(`/instructor/courses/${courseId}/lessons/${s.lessonId}/resources/${s.resourceId}/download-url`)
+        .then(r => setViewUrl(r.data?.url || null))
+        .catch(() => {})
+        .finally(() => setViewLoading(false));
+    }, [s.resourceId]);
+
+    // Object URL cho file mới chọn
+    useEffect(() => {
+      if (!newFile) { setNewFileUrl(null); return; }
+      const url = URL.createObjectURL(newFile);
+      setNewFileUrl(url);
+      return () => URL.revokeObjectURL(url);
+    }, [newFile]);
+
+    function detectResourceType(file) {
+      const ext = file.name.split(".").pop()?.toLowerCase() || "";
+      if (file.type.startsWith("video/") || ext === "mp4" || ext === "mov" || ext === "webm") return "VIDEO";
+      if (file.type === "application/pdf" || ext === "pdf") return "PDF";
+      if (ext === "ppt" || ext === "pptx") return "SLIDE";
+      if (ext === "doc" || ext === "docx") return "DOC";
+      if (file.type.startsWith("image/") || ["png","jpg","jpeg","gif","webp"].includes(ext)) return "IMAGE";
+      return "OTHER";
+    }
+
     function onReplacePick(f) {
       if (!f) return;
-      const limit = isVideo ? 2 * 1024 * 1024 * 1024 : 200 * 1024 * 1024;
-      const label = isVideo ? "2GB" : "200MB";
+      const detectedType = detectResourceType(f);
+      const isVid = detectedType === "VIDEO";
+      const limit = isVid ? 2 * 1024 * 1024 * 1024 : 200 * 1024 * 1024;
+      const label = isVid ? "2GB" : "200MB";
       if (f.size > limit) { setErr(`File vượt quá ${label}`); return; }
       setNewFile(f); setErr(null);
+    }
+
+    function fmtBytes(b) {
+      if (!b) return "";
+      if (b < 1024 * 1024) return (b / 1024).toFixed(1) + " KB";
+      return (b / (1024 * 1024)).toFixed(1) + " MB";
+    }
+
+    function DocViewer({ url, type, height = 300 }) {
+      const isDoc = type === "SLIDE" || type === "DOC";
+      const isPdf = type === "PDF";
+      if (!url) return null;
+      if (isPdf) return (
+        <iframe src={url} style={{ width: "100%", height, border: "none", display: "block" }} title="preview" />
+      );
+      if (isDoc) return (
+        <iframe src={`https://docs.google.com/viewer?url=${encodeURIComponent(url)}&embedded=true`}
+          style={{ width: "100%", height, border: "none", display: "block" }} title="preview" />
+      );
+      return null;
+    }
+
+    function NewFilePreview() {
+      if (!newFile || !newFileUrl) return null;
+      const detectedType = detectResourceType(newFile);
+      const newRm = RES_TYPE[detectedType] || RES_TYPE.OTHER;
+      const isImg = detectedType === "IMAGE";
+      const isVid = detectedType === "VIDEO";
+      const isDoc = ["PDF","SLIDE","DOC"].includes(detectedType);
+      return (
+        <div style={{ borderRadius: 10, overflow: "hidden", border: "2px solid var(--accent)", background: "var(--surface-2)" }}>
+          <div className="row gap-8" style={{ padding: "8px 12px", background: "var(--chip-info-bg)", justifyContent: "space-between" }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: "var(--chip-info-fg)" }}>
+              Xem trước file mới · {detectedType}
+            </span>
+            <button className="btn btn-ghost btn-sm" style={{ padding: "2px 8px", fontSize: 11 }}
+              onClick={() => { setNewFile(null); fileRef.current?.click(); }}>Đổi file</button>
+          </div>
+          {isImg && <img src={newFileUrl} style={{ width: "100%", maxHeight: 240, objectFit: "contain", display: "block" }} />}
+          {isVid && <video src={newFileUrl} controls style={{ width: "100%", maxHeight: 240, display: "block", background: "#000" }} />}
+          {isDoc && <DocViewer url={newFileUrl} type={detectedType} height={280} />}
+          {!isImg && !isVid && !isDoc && (
+            <div className="row gap-12" style={{ padding: "14px 16px" }}>
+              <div className="stat-ic" style={{ width: 40, height: 40, borderRadius: 9, background: newRm.bg, color: newRm.fg, flex: "none" }}>
+                <Ic n={newRm.ic} size={18} />
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontWeight: 600, fontSize: 13 }} className="truncate">{newFile.name}</div>
+                <div className="muted t-xs" style={{ marginTop: 2 }}>{fmtBytes(newFile.size)}</div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
     }
 
     async function handleSave() {
@@ -392,12 +479,14 @@
           if (!newFile && !newUrl.trim()) { setErr("Vui lòng chọn file hoặc nhập URL"); return; }
           if (newUrl.trim()) {
             try { new URL(newUrl.trim()); } catch { setErr("URL không hợp lệ"); return; }
-            await api.delete(`/instructor/courses/${courseId}/lessons/${s.lessonId}/resources/${s.resourceId}`);
+            // Tạo tài liệu mới trước, xóa cũ sau để tránh mất dữ liệu nếu có lỗi
             await api.post(`/instructor/courses/${courseId}/lessons/${s.lessonId}/resources/confirm-upload`,
               { externalUrl: newUrl.trim(), resourceType: s.resourceType, displayName: name.trim() });
+            await api.delete(`/instructor/courses/${courseId}/lessons/${s.lessonId}/resources/${s.resourceId}`);
           } else {
+            const detectedType = detectResourceType(newFile);
             const { data: p } = await api.post(`/instructor/courses/${courseId}/lessons/${s.lessonId}/resources/presign-upload`,
-              { originalFilename: newFile.name, mimeType: newFile.type || "application/octet-stream", fileSizeBytes: newFile.size, resourceType: s.resourceType, displayName: name.trim() });
+              { originalFilename: newFile.name, mimeType: newFile.type || "application/octet-stream", fileSizeBytes: newFile.size, resourceType: detectedType, displayName: name.trim() });
             await new Promise((res, rej) => {
               const xhr = new XMLHttpRequest();
               xhr.open("PUT", p.presignedUrl);
@@ -407,9 +496,10 @@
               xhr.onerror = () => rej(new Error("Mất kết nối"));
               xhr.send(newFile);
             });
-            await api.delete(`/instructor/courses/${courseId}/lessons/${s.lessonId}/resources/${s.resourceId}`);
+            // Confirm upload mới thành công trước, sau đó mới xóa cũ
             await api.post(`/instructor/courses/${courseId}/lessons/${s.lessonId}/resources/confirm-upload`,
-              { s3Key: p.s3Key, originalFilename: newFile.name, resourceType: s.resourceType, displayName: name.trim() });
+              { s3Key: p.s3Key, originalFilename: newFile.name, resourceType: detectedType, displayName: name.trim() });
+            await api.delete(`/instructor/courses/${courseId}/lessons/${s.lessonId}/resources/${s.resourceId}`);
           }
           onReplaced?.();
         } else {
@@ -424,17 +514,23 @@
         <ModalHead title="Chỉnh sửa tài liệu" icon="edit" iconBg={rm.bg} iconColor={rm.fg} onClose={onClose} />
         <div className="modal-body" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
 
-          {/* Preview */}
+          {/* Preview file hiện tại */}
           <div style={{ borderRadius: 10, overflow: "hidden", background: "var(--surface-2)", border: "1px solid var(--border)" }}>
             {isYT && ytId ? (
               <div style={{ position: "relative", paddingBottom: "56.25%", height: 0 }}>
                 <iframe src={`https://www.youtube.com/embed/${ytId}`}
                   style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none" }} allowFullScreen />
               </div>
-            ) : isVideo && canEmbed ? (
-              <video src={s.externalUrl} controls style={{ width: "100%", maxHeight: 260, display: "block", background: "#000" }} />
-            ) : isImage && s.externalUrl ? (
-              <img src={s.externalUrl} style={{ width: "100%", maxHeight: 260, objectFit: "contain", display: "block" }} />
+            ) : isVideo && (viewUrl || canEmbed) ? (
+              <video src={viewUrl || s.externalUrl} controls style={{ width: "100%", maxHeight: 260, display: "block", background: "#000" }} />
+            ) : isImage && viewUrl ? (
+              <img src={viewUrl} style={{ width: "100%", maxHeight: 260, objectFit: "contain", display: "block" }} />
+            ) : (s.resourceType === "PDF" || s.resourceType === "SLIDE" || s.resourceType === "DOC") ? (
+              viewLoading
+                ? <div style={{ padding: "28px 0", textAlign: "center", color: "var(--text-3)", fontSize: 13 }}>Đang tải xem trước...</div>
+                : viewUrl
+                  ? <DocViewer url={viewUrl} type={s.resourceType} height={340} />
+                  : <div style={{ padding: "20px 0", textAlign: "center", color: "var(--text-3)", fontSize: 13 }}>Không thể tải xem trước</div>
             ) : (
               <div className="row gap-12" style={{ padding: "16px 20px" }}>
                 <div className="stat-ic" style={{ width: 44, height: 44, borderRadius: 10, background: rm.bg, color: rm.fg, flex: "none" }}>
@@ -444,8 +540,8 @@
                   <div style={{ fontWeight: 600, fontSize: 14 }} className="truncate">{s.title}</div>
                   <div className="muted t-xs" style={{ marginTop: 2 }}>{(s.resourceType || "").toUpperCase()}</div>
                 </div>
-                {s.externalUrl && (
-                  <a href={s.externalUrl} target="_blank" rel="noreferrer" className="btn btn-ghost btn-sm">
+                {viewUrl && (
+                  <a href={viewUrl} target="_blank" rel="noreferrer" className="btn btn-ghost btn-sm">
                     <Ic n="external_link" size={14} />Mở file
                   </a>
                 )}
@@ -485,10 +581,13 @@
                   <input ref={fileRef} type="file" style={{ display: "none" }}
                     accept={isVideo ? "video/mp4,video/quicktime,video/webm" : ".pdf,.pptx,.ppt,.docx,.doc,.xlsx,.xls,.png,.jpg,.jpeg"}
                     onChange={e => onReplacePick(e.target.files?.[0])} />
-                  <Dropzone icon={isVideo ? "video" : "upload"}
-                    title={isVideo ? "Chọn file video mới" : "Chọn file tài liệu mới"}
-                    hint={isVideo ? "MP4, MOV, WebM · tối đa 2GB" : "PDF, PPTX, DOCX · tối đa 200MB"}
-                    h={20} file={newFile} onClick={() => fileRef.current?.click()} onDrop={onReplacePick} />
+                  {newFile
+                    ? <NewFilePreview />
+                    : <Dropzone icon={isVideo ? "video" : "upload"}
+                        title={isVideo ? "Chọn file video mới" : "Chọn file tài liệu mới"}
+                        hint={isVideo ? "MP4, MOV, WebM · tối đa 2GB" : "PDF, PPTX, DOCX · tối đa 200MB"}
+                        h={20} file={null} onClick={() => fileRef.current?.click()} onDrop={onReplacePick} />
+                  }
                 </>
               )}
               {saving && newFile && (
