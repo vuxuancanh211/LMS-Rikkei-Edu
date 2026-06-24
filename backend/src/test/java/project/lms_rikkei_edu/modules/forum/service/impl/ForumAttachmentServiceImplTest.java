@@ -364,7 +364,192 @@ class ForumAttachmentServiceImplTest {
         verify(forumAttachmentRepository).delete(orphan);
     }
 
+    // --- validateSignature switch branches ---
+
+    @Test
+    void uploadPNG() throws Exception {
+        byte[] pngHeader = new byte[]{(byte) 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A};
+        MultipartFile file = mockImageFile("img.png", "image/png", pngHeader, 2048);
+        when(forumAttachmentRepository.save(any(ForumAttachmentEntity.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        ForumAttachmentResponse response = service.upload(file);
+        assertThat(response.getAttachmentType()).isEqualTo("IMAGE");
+    }
+
+    @Test
+    void uploadGIF() throws Exception {
+        byte[] gifHeader = "GIF89a".getBytes(StandardCharsets.US_ASCII);
+        MultipartFile file = mockImageFile("img.gif", "image/gif", gifHeader, 1024);
+        when(forumAttachmentRepository.save(any(ForumAttachmentEntity.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        ForumAttachmentResponse response = service.upload(file);
+        assertThat(response.getAttachmentType()).isEqualTo("IMAGE");
+    }
+
+    @Test
+    void uploadGIF87a() throws Exception {
+        byte[] gifHeader = "GIF87a".getBytes(StandardCharsets.US_ASCII);
+        MultipartFile file = mockImageFile("img87.gif", "image/gif", gifHeader, 512);
+        when(forumAttachmentRepository.save(any(ForumAttachmentEntity.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        ForumAttachmentResponse response = service.upload(file);
+        assertThat(response.getAttachmentType()).isEqualTo("IMAGE");
+    }
+
+    @Test
+    void uploadWebP() throws Exception {
+        byte[] webpHeader = buildWebPHeader();
+        MultipartFile file = mockImageFile("img.webp", "image/webp", webpHeader, 3072);
+        when(forumAttachmentRepository.save(any(ForumAttachmentEntity.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        ForumAttachmentResponse response = service.upload(file);
+        assertThat(response.getAttachmentType()).isEqualTo("IMAGE");
+    }
+
+    @Test
+    void uploadOLE2() throws Exception {
+        byte[] oleHeader = new byte[]{(byte) 0xD0, (byte) 0xCF, (byte) 0x11, (byte) 0xE0,
+                (byte) 0xA1, (byte) 0xB1, (byte) 0x1A, (byte) 0xE1};
+        MultipartFile file = mockImageFile("doc.doc", "application/msword", oleHeader, 16384);
+        when(forumAttachmentRepository.save(any(ForumAttachmentEntity.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        ForumAttachmentResponse response = service.upload(file);
+        assertThat(response.getAttachmentType()).isEqualTo("FILE");
+    }
+
+    @Test
+    void uploadZIP() throws Exception {
+        byte[] zipHeader = new byte[]{0x50, 0x4B, 0x03, 0x04};
+        MultipartFile file = mockImageFile("archive.zip", "application/zip", zipHeader, 8192);
+        when(forumAttachmentRepository.save(any(ForumAttachmentEntity.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        ForumAttachmentResponse response = service.upload(file);
+        assertThat(response.getAttachmentType()).isEqualTo("FILE");
+    }
+
+    @Test
+    void uploadDocx() throws Exception {
+        byte[] pkHeader = new byte[]{0x50, 0x4B, 0x03, 0x04};
+        MultipartFile file = mockImageFile("doc.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", pkHeader, 12288);
+        when(forumAttachmentRepository.save(any(ForumAttachmentEntity.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        ForumAttachmentResponse response = service.upload(file);
+        assertThat(response.getAttachmentType()).isEqualTo("FILE");
+    }
+
+    @Test
+    void uploadTextPlain() throws Exception {
+        MultipartFile file = mockImageFile("notes.txt", "text/plain", new byte[]{0x48, 0x65, 0x6C}, 64);
+        when(forumAttachmentRepository.save(any(ForumAttachmentEntity.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        ForumAttachmentResponse response = service.upload(file);
+        assertThat(response.getAttachmentType()).isEqualTo("FILE");
+    }
+
+    @Test
+    void uploadRejectsUnknownSignatureType() throws Exception {
+        MultipartFile file = mockImageFile("data.pdf", "application/pdf", new byte[]{0x00, 0x00, 0x00}, 128);
+
+        assertThatThrownBy(() -> service.upload(file))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("File signature does not match file type");
+    }
+
+    @Test
+    void uploadWithNullContentType() throws Exception {
+        MultipartFile file = mock(MultipartFile.class);
+        lenient().when(file.isEmpty()).thenReturn(false);
+        lenient().when(file.getContentType()).thenReturn(null);
+        lenient().when(file.getOriginalFilename()).thenReturn("noext");
+        lenient().when(file.getSize()).thenReturn(64L);
+        lenient().when(file.getInputStream()).thenReturn(new ByteArrayInputStream(new byte[]{0x48}));
+
+        assertThatThrownBy(() -> service.upload(file))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("File type is not allowed");
+    }
+
+    // --- null/empty guards ---
+
+    @Test
+    void attachEmptyListIsNoOp() {
+        service.attachToPost(List.of(), UUID.randomUUID(), USER_ID);
+        verify(forumAttachmentRepository, never()).findByIdInAndUploaderId(anyList(), any());
+    }
+
+    @Test
+    void attachNullIdsIsNoOp() {
+        service.attachToPost(null, UUID.randomUUID(), USER_ID);
+        verify(forumAttachmentRepository, never()).findByIdInAndUploaderId(anyList(), any());
+    }
+
+    @Test
+    void findByPostIdsNullReturnsEmpty() {
+        Map<UUID, List<ForumAttachmentResponse>> result = service.findByPostIds(null);
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    void findByReplyIdsNullReturnsEmpty() {
+        Map<UUID, List<ForumAttachmentResponse>> result = service.findByReplyIds(null);
+        assertThat(result).isEmpty();
+    }
+
+    // --- total quota ---
+
+    @Test
+    void attachRejectsTotalQuotaExceeded() {
+        UUID id1 = UUID.randomUUID();
+        UUID id2 = UUID.randomUUID();
+        List<UUID> ids = List.of(id1, id2);
+        ForumAttachmentEntity a1 = attachmentEntity(id1, "big1.pdf", "application/pdf");
+        a1.setSizeBytes(30L * 1024 * 1024);
+        ForumAttachmentEntity a2 = attachmentEntity(id2, "big2.pdf", "application/pdf");
+        a2.setSizeBytes(30L * 1024 * 1024);
+
+        when(forumAttachmentRepository.findByIdInAndUploaderId(ids, USER_ID)).thenReturn(List.of(a1, a2));
+
+        assertThatThrownBy(() -> service.attachToPost(ids, UUID.randomUUID(), USER_ID))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("Total attachment size exceeds limit");
+    }
+
+    // --- malformed token ---
+
+    @Test
+    void getContentRejectsMalformedTokenFormat() {
+        String token = Base64.getUrlEncoder().withoutPadding()
+                .encodeToString("not-enough-colons".getBytes(StandardCharsets.UTF_8));
+
+        assertThatThrownBy(() -> service.getContent(UUID.randomUUID(), token))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("Invalid attachment token");
+    }
+
+    // --- cleanup recent (no orphans) ---
+
+    @Test
+    void cleanupOrphanAttachmentsSkipsRecent() {
+        when(forumAttachmentRepository.findByPostIdIsNullAndReplyIdIsNullAndCreatedAtBefore(any()))
+                .thenReturn(List.of());
+
+        int deleted = service.cleanupOrphanAttachments();
+
+        assertThat(deleted).isZero();
+        verify(forumAttachmentRepository, never()).delete(any());
+    }
+
     // helpers
+
+    private byte[] buildWebPHeader() {
+        byte[] header = new byte[12];
+        byte[] riff = "RIFF".getBytes(StandardCharsets.US_ASCII);
+        byte[] webp = "WEBP".getBytes(StandardCharsets.US_ASCII);
+        System.arraycopy(riff, 0, header, 0, 4);
+        // bytes 4-7: file size (arbitrary)
+        System.arraycopy(webp, 0, header, 8, 4);
+        return header;
+    }
 
     private MultipartFile mockImageFile(String name, String contentType, byte[] headerBytes, long size) throws Exception {
         MultipartFile file = mock(MultipartFile.class);
