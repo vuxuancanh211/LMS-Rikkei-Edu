@@ -35,6 +35,7 @@ import project.lms_rikkei_edu.modules.user.repository.UserRepository;
 
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -44,6 +45,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -61,6 +63,8 @@ class ForumServiceImplTest {
     @Mock
     private ForumReportRepository forumReportRepository;
     @Mock
+    private ForumAttachmentService forumAttachmentService;
+    @Mock
     private NotificationService notificationService;
     @Mock
     private UserRepository userRepository;
@@ -77,10 +81,13 @@ class ForumServiceImplTest {
                 forumCourseRepository,
                 forumReactionRepository,
                 forumReportRepository,
+                forumAttachmentService,
                 notificationService,
                 userRepository,
                 currentUserProvider
         );
+        lenient().when(forumAttachmentService.findByPostIds(anyList())).thenReturn(Map.of());
+        lenient().when(forumAttachmentService.findByReplyIds(anyList())).thenReturn(Map.of());
     }
 
     @Test
@@ -555,6 +562,123 @@ class ForumServiceImplTest {
         verify(forumReportRepository).save(captor.capture());
         assertThat(captor.getValue().getTargetType()).isEqualTo("POST");
         assertThat(captor.getValue().getReporterId()).isEqualTo(userId);
+    }
+
+    @Test
+    void createPostWithAttachmentIdsCallsAttachToPost() {
+        UUID studentId = UUID.randomUUID();
+        UUID courseId = UUID.randomUUID();
+        UUID attachmentId = UUID.randomUUID();
+        ForumCourseEntity course = course(courseId, UUID.randomUUID());
+        UserEntity user = user(studentId, UserRole.STUDENT);
+
+        when(currentUserProvider.getCurrentUser()).thenReturn(Optional.of(principal(studentId, UserRole.STUDENT)));
+        when(forumCourseRepository.findById(courseId)).thenReturn(Optional.of(course));
+        when(forumCourseRepository.isStudentEnrolled(courseId, studentId)).thenReturn(true);
+        when(userRepository.getReferenceById(studentId)).thenReturn(user);
+        when(forumPostRepository.save(any(ForumPostEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        CreateForumPostRequest request = createPostRequest(courseId, false);
+        request.setAttachmentIds(List.of(attachmentId));
+
+        forumService.createPost(request);
+
+        ArgumentCaptor<ForumPostEntity> captor = ArgumentCaptor.forClass(ForumPostEntity.class);
+        verify(forumPostRepository).save(captor.capture());
+        verify(forumAttachmentService).attachToPost(List.of(attachmentId), captor.getValue().getId(), studentId);
+    }
+
+    @Test
+    void createReplyWithAttachmentIdsCallsAttachToReply() {
+        UUID replierId = UUID.randomUUID();
+        UUID postId = UUID.randomUUID();
+        UUID attachmentId = UUID.randomUUID();
+        ForumPostEntity post = post(postId, course(UUID.randomUUID(), UUID.randomUUID()), user(UUID.randomUUID(), UserRole.STUDENT));
+        UserEntity replier = user(replierId, UserRole.STUDENT);
+
+        when(currentUserProvider.getCurrentUser()).thenReturn(Optional.of(principal(replierId, UserRole.STUDENT)));
+        when(forumPostRepository.findActiveById(postId)).thenReturn(Optional.of(post));
+        when(userRepository.getReferenceById(replierId)).thenReturn(replier);
+        when(forumReplyRepository.save(any(ForumReplyEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        CreateForumReplyRequest request = new CreateForumReplyRequest();
+        request.setContent("Reply with attachment");
+        request.setAttachmentIds(List.of(attachmentId));
+
+        forumService.createReply(postId, request);
+
+        ArgumentCaptor<ForumReplyEntity> captor = ArgumentCaptor.forClass(ForumReplyEntity.class);
+        verify(forumReplyRepository).save(captor.capture());
+        verify(forumAttachmentService).attachToReply(List.of(attachmentId), captor.getValue().getId(), replierId);
+    }
+
+    @Test
+    void updatePostWithAttachmentIdsCallsAttachToPost() {
+        UUID authorId = UUID.randomUUID();
+        UUID postId = UUID.randomUUID();
+        UUID attachmentId = UUID.randomUUID();
+        ForumPostEntity post = post(postId, course(UUID.randomUUID(), UUID.randomUUID()), user(authorId, UserRole.STUDENT));
+
+        when(currentUserProvider.getCurrentUser()).thenReturn(Optional.of(principal(authorId, UserRole.STUDENT)));
+        when(forumPostRepository.findActiveById(postId)).thenReturn(Optional.of(post));
+
+        UpdateForumPostRequest request = new UpdateForumPostRequest();
+        request.setTopic("announcement");
+        request.setTitle("Updated");
+        request.setContent("Updated content");
+        request.setAttachmentIds(List.of(attachmentId));
+
+        forumService.updatePost(postId, request);
+
+        verify(forumAttachmentService).attachToPost(List.of(attachmentId), postId, authorId);
+    }
+
+    @Test
+    void createPostSanitizesDangerousHtml() {
+        UUID studentId = UUID.randomUUID();
+        UUID courseId = UUID.randomUUID();
+        ForumCourseEntity course = course(courseId, UUID.randomUUID());
+        UserEntity user = user(studentId, UserRole.STUDENT);
+
+        when(currentUserProvider.getCurrentUser()).thenReturn(Optional.of(principal(studentId, UserRole.STUDENT)));
+        when(forumCourseRepository.findById(courseId)).thenReturn(Optional.of(course));
+        when(forumCourseRepository.isStudentEnrolled(courseId, studentId)).thenReturn(true);
+        when(userRepository.getReferenceById(studentId)).thenReturn(user);
+        when(forumPostRepository.save(any(ForumPostEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        String dangerousContent = "<p>Hello</p><script>alert('xss')</script><img src=\"javascript:alert(1)\">";
+        CreateForumPostRequest request = createPostRequest(courseId, false);
+        request.setContent(dangerousContent);
+
+        forumService.createPost(request);
+
+        ArgumentCaptor<ForumPostEntity> captor = ArgumentCaptor.forClass(ForumPostEntity.class);
+        verify(forumPostRepository).save(captor.capture());
+        String savedContent = captor.getValue().getContent();
+        assertThat(savedContent).doesNotContain("script");
+        assertThat(savedContent).doesNotContain("javascript:");
+        assertThat(savedContent).contains("<p>Hello</p>");
+    }
+
+    @Test
+    void updatePostSanitizesDangerousHtml() {
+        UUID authorId = UUID.randomUUID();
+        UUID postId = UUID.randomUUID();
+        ForumPostEntity post = post(postId, course(UUID.randomUUID(), UUID.randomUUID()), user(authorId, UserRole.STUDENT));
+
+        when(currentUserProvider.getCurrentUser()).thenReturn(Optional.of(principal(authorId, UserRole.STUDENT)));
+        when(forumPostRepository.findActiveById(postId)).thenReturn(Optional.of(post));
+
+        String dangerousContent = "<b>Safe</b><iframe src=\"http://evil.com\"></iframe>";
+        UpdateForumPostRequest request = new UpdateForumPostRequest();
+        request.setTopic("qa");
+        request.setTitle("Title");
+        request.setContent(dangerousContent);
+
+        forumService.updatePost(postId, request);
+
+        assertThat(post.getContent()).doesNotContain("iframe");
+        assertThat(post.getContent()).contains("<b>Safe</b>");
     }
 
     @Test

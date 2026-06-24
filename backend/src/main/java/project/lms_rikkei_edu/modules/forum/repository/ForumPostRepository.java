@@ -27,7 +27,7 @@ public interface ForumPostRepository extends JpaRepository<ForumPostEntity, UUID
         where p.deleted = false
           and (:courseId is null or c.id = :courseId)
           and (:topic is null or p.topic = :topic)
-        order by p.pinned desc, p.createdAt desc
+        order by p.pinned desc, p.upvoteCount desc, p.createdAt desc
         """,
         countQuery = """
         select count(p) from ForumPostEntity p
@@ -45,7 +45,7 @@ Page<ForumPostEntity> findAllActive(@Param("courseId") UUID courseId, @Param("to
           and (:courseId is null or c.id = :courseId)
           and (:topic is null or p.topic = :topic)
           and (lower(p.title) like lower(concat('%', :keyword, '%')) or lower(coalesce(p.content, '')) like lower(concat('%', :keyword, '%')))
-        order by p.pinned desc, p.createdAt desc
+        order by p.pinned desc, p.upvoteCount desc, p.createdAt desc
         """,
         countQuery = """
         select count(p) from ForumPostEntity p

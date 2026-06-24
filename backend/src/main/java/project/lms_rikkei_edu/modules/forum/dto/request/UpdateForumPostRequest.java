@@ -5,10 +5,14 @@ import jakarta.validation.constraints.Size;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.util.List;
+import java.util.UUID;
+
 @Getter
 @Setter
 public class UpdateForumPostRequest {
 
+    @NotBlank(message = "Topic is required")
     @Size(max = 30, message = "Topic must not exceed 30 characters")
     private String topic;
 
@@ -20,4 +24,6 @@ public class UpdateForumPostRequest {
     private String content;
 
     private Boolean pinned;
+
+    private List<UUID> attachmentIds;
 }

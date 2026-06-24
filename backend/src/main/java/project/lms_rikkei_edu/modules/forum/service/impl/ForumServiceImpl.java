@@ -1,6 +1,8 @@
 package project.lms_rikkei_edu.modules.forum.service.impl;
 
 import lombok.RequiredArgsConstructor;
+import org.jsoup.Jsoup;
+import org.jsoup.safety.Safelist;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
@@ -12,6 +14,7 @@ import project.lms_rikkei_edu.common.security.UserPrincipal;
 import project.lms_rikkei_edu.modules.forum.dto.request.CreateForumPostRequest;
 import project.lms_rikkei_edu.modules.forum.dto.request.CreateForumReplyRequest;
 import project.lms_rikkei_edu.modules.forum.dto.request.UpdateForumPostRequest;
+import project.lms_rikkei_edu.modules.forum.dto.response.ForumAttachmentResponse;
 import project.lms_rikkei_edu.modules.forum.dto.response.ForumAuthorResponse;
 import project.lms_rikkei_edu.modules.forum.dto.response.ForumCourseResponse;
 import project.lms_rikkei_edu.modules.forum.dto.response.ForumPostDetailResponse;
@@ -28,6 +31,7 @@ import project.lms_rikkei_edu.modules.forum.repository.ForumReportRepository;
 import project.lms_rikkei_edu.modules.forum.repository.ForumReplyRepository;
 import project.lms_rikkei_edu.modules.forum.dto.request.CreateForumReportRequest;
 import project.lms_rikkei_edu.modules.forum.entity.ForumReportEntity;
+import project.lms_rikkei_edu.modules.forum.service.ForumAttachmentService;
 import project.lms_rikkei_edu.modules.forum.service.ForumService;
 import project.lms_rikkei_edu.modules.notification.service.NotificationService;
 import project.lms_rikkei_edu.modules.user.entity.UserEntity;
@@ -50,12 +54,21 @@ import java.util.UUID;
 public class ForumServiceImpl implements ForumService {
 
     private static final int MAX_REPLY_DEPTH = 3;
+    private static final Safelist FORUM_CONTENT_SAFELIST = Safelist.relaxed()
+            .addTags("pre", "code", "figure", "figcaption")
+            .addAttributes("*", "class")
+            .addAttributes("img", "src", "alt", "width", "height")
+            .addAttributes("a", "href", "target", "rel")
+            .addProtocols("img", "src", "http", "https")
+            .addProtocols("a", "href", "http", "https", "mailto")
+            .preserveRelativeLinks(true);
 
     private final ForumPostRepository forumPostRepository;
     private final ForumReplyRepository forumReplyRepository;
     private final ForumCourseRepository forumCourseRepository;
     private final ForumReactionRepository forumReactionRepository;
     private final ForumReportRepository forumReportRepository;
+    private final ForumAttachmentService forumAttachmentService;
     private final NotificationService notificationService;
     private final UserRepository userRepository;
     private final CurrentUserProvider currentUserProvider;
@@ -82,7 +95,10 @@ public class ForumServiceImpl implements ForumService {
         }
 
         Set<UUID> upvotedPostIds = resolveUpvotedPostIds(postPage.getContent());
-        return postPage.map(post -> toPostResponse(post, upvotedPostIds));
+        Map<UUID, List<ForumAttachmentResponse>> attachmentsByPostId = forumAttachmentService.findByPostIds(
+                postPage.getContent().stream().map(ForumPostEntity::getId).toList()
+        );
+        return postPage.map(post -> toPostResponse(post, upvotedPostIds, attachmentsByPostId.getOrDefault(post.getId(), List.of())));
     }
 
     @Override
@@ -93,11 +109,15 @@ public class ForumServiceImpl implements ForumService {
 
         Set<UUID> upvotedPostIds = resolveUpvotedPostIds(List.of(post));
         Set<UUID> upvotedReplyIds = resolveUpvotedReplyIds(replyEntities);
+        Map<UUID, List<ForumAttachmentResponse>> attachmentsByPostId = forumAttachmentService.findByPostIds(List.of(postId));
+        Map<UUID, List<ForumAttachmentResponse>> attachmentsByReplyId = forumAttachmentService.findByReplyIds(
+                replyEntities.stream().map(ForumReplyEntity::getId).toList()
+        );
 
-        List<ForumReplyResponse> replies = buildReplyTree(replyEntities, upvotedReplyIds);
+        List<ForumReplyResponse> replies = buildReplyTree(replyEntities, upvotedReplyIds, attachmentsByReplyId);
 
         return ForumPostDetailResponse.builder()
-                .post(toPostResponse(post, upvotedPostIds))
+                .post(toPostResponse(post, upvotedPostIds, attachmentsByPostId.getOrDefault(postId, List.of())))
                 .replies(replies)
                 .build();
     }
@@ -119,9 +139,9 @@ public class ForumServiceImpl implements ForumService {
         post.setId(UUID.randomUUID());
         post.setCourse(course);
         post.setAuthor(userRepository.getReferenceById(currentUser.getId()));
-        post.setTopic(request.getTopic());
+        post.setTopic(request.getTopic().trim());
         post.setTitle(request.getTitle().trim());
-        post.setContent(request.getContent().trim());
+        post.setContent(sanitizeForumContent(request.getContent()));
         post.setPinned(Boolean.TRUE.equals(request.getPinned()));
         post.setReplyCount(0);
         post.setUpvoteCount(0);
@@ -129,7 +149,9 @@ public class ForumServiceImpl implements ForumService {
         post.setCreatedAt(now);
         post.setUpdatedAt(now);
 
-        return toPostResponse(forumPostRepository.save(post), Collections.emptySet());
+        ForumPostEntity savedPost = forumPostRepository.save(post);
+        forumAttachmentService.attachToPost(request.getAttachmentIds(), savedPost.getId(), currentUser.getId());
+        return toPostResponse(savedPost, Collections.emptySet(), forumAttachmentService.findByPostIds(List.of(savedPost.getId())).getOrDefault(savedPost.getId(), List.of()));
     }
 
     @Override
@@ -140,7 +162,7 @@ public class ForumServiceImpl implements ForumService {
         ensureCanPinInCourse(currentUser, post.getCourse().getId());
         post.setPinned(!Boolean.TRUE.equals(post.getPinned()));
         post.setUpdatedAt(OffsetDateTime.now());
-        return toPostResponse(post, findUpvotedPostIds(postId, currentUser.getId()));
+        return toPostResponse(post, findUpvotedPostIds(postId, currentUser.getId()), forumAttachmentService.findByPostIds(List.of(postId)).getOrDefault(postId, List.of()));
     }
 
     @Override
@@ -157,7 +179,7 @@ public class ForumServiceImpl implements ForumService {
         reply.setCourse(post.getCourse());
         reply.setAuthor(userRepository.getReferenceById(currentUser.getId()));
         reply.setParentReply(parentReply);
-        reply.setContent(request.getContent().trim());
+        reply.setContent(sanitizeForumContent(request.getContent()));
         reply.setUpvoteCount(0);
         reply.setDeleted(false);
         reply.setCreatedAt(now);
@@ -166,19 +188,20 @@ public class ForumServiceImpl implements ForumService {
         post.setReplyCount(Math.max(0, nullToZero(post.getReplyCount())) + 1);
         post.setUpdatedAt(now);
 
-        ForumReplyResponse savedReply = toReplyResponse(forumReplyRepository.save(reply), getReplyDepth(reply), Collections.emptySet());
+        ForumReplyEntity savedReplyEntity = forumReplyRepository.save(reply);
+        forumAttachmentService.attachToReply(request.getAttachmentIds(), savedReplyEntity.getId(), currentUser.getId());
+        ForumReplyResponse savedReply = toReplyResponse(savedReplyEntity, getReplyDepth(savedReplyEntity), Collections.emptySet(), forumAttachmentService.findByReplyIds(List.of(savedReplyEntity.getId())).getOrDefault(savedReplyEntity.getId(), List.of()));
 
         UUID currentUserId = currentUser.getId();
         String actorName = reply.getAuthor().getFullName() != null ? reply.getAuthor().getFullName() : "Người dùng";
+        String notificationBody = summarizeForumContent(request.getContent());
 
         if (!post.getAuthor().getId().equals(currentUserId)) {
             notificationService.createNotification(
                     post.getAuthor().getId(),
                     "FORUM_REPLY",
                     actorName + " đã trả lời bài viết \"" + post.getTitle() + "\"",
-                    request.getContent().trim().length() > 100
-                            ? request.getContent().trim().substring(0, 100) + "..."
-                            : request.getContent().trim(),
+                    notificationBody,
                     "FORUM_POST",
                     postId,
                     currentUserId,
@@ -192,9 +215,7 @@ public class ForumServiceImpl implements ForumService {
                     parentReply.getAuthor().getId(),
                     "FORUM_REPLY",
                     actorName + " đã trả lời bình luận của bạn trong \"" + post.getTitle() + "\"",
-                    request.getContent().trim().length() > 100
-                            ? request.getContent().trim().substring(0, 100) + "..."
-                            : request.getContent().trim(),
+                    notificationBody,
                     "FORUM_POST",
                     postId,
                     currentUserId,
@@ -219,15 +240,16 @@ public class ForumServiceImpl implements ForumService {
             ensureCanPinInCourse(currentUser, post.getCourse().getId());
         }
 
-        post.setTopic(request.getTopic());
+        post.setTopic(request.getTopic().trim());
         post.setTitle(request.getTitle().trim());
-        post.setContent(request.getContent().trim());
+        post.setContent(sanitizeForumContent(request.getContent()));
         if (currentUser.getRole() == UserRole.ADMIN || currentUser.getRole() == UserRole.INSTRUCTOR) {
             post.setPinned(Boolean.TRUE.equals(request.getPinned()));
         }
         post.setUpdatedAt(OffsetDateTime.now());
 
-        return toPostResponse(post, findUpvotedPostIds(postId, currentUser.getId()));
+        forumAttachmentService.attachToPost(request.getAttachmentIds(), post.getId(), currentUser.getId());
+        return toPostResponse(post, findUpvotedPostIds(postId, currentUser.getId()), forumAttachmentService.findByPostIds(List.of(postId)).getOrDefault(postId, List.of()));
     }
 
     @Override
@@ -241,10 +263,11 @@ public class ForumServiceImpl implements ForumService {
             throw new BusinessException("You are not allowed to update this reply", HttpStatus.FORBIDDEN);
         }
 
-        reply.setContent(request.getContent().trim());
+        reply.setContent(sanitizeForumContent(request.getContent()));
         reply.setUpdatedAt(OffsetDateTime.now());
 
-        return toReplyResponse(reply, getReplyDepth(reply), findUpvotedReplyIds(replyId, currentUser.getId()));
+        forumAttachmentService.attachToReply(request.getAttachmentIds(), reply.getId(), currentUser.getId());
+        return toReplyResponse(reply, getReplyDepth(reply), findUpvotedReplyIds(replyId, currentUser.getId()), forumAttachmentService.findByReplyIds(List.of(replyId)).getOrDefault(replyId, List.of()));
     }
 
     @Override
@@ -306,7 +329,7 @@ public class ForumServiceImpl implements ForumService {
         }
         post.setUpdatedAt(OffsetDateTime.now());
 
-        return toPostResponse(post, findUpvotedPostIds(postId, currentUser.getId()));
+        return toPostResponse(post, findUpvotedPostIds(postId, currentUser.getId()), forumAttachmentService.findByPostIds(List.of(postId)).getOrDefault(postId, List.of()));
     }
 
     @Override
@@ -331,7 +354,7 @@ public class ForumServiceImpl implements ForumService {
         }
         reply.setUpdatedAt(OffsetDateTime.now());
 
-        return toReplyResponse(reply, getReplyDepth(reply), findUpvotedReplyIds(replyId, currentUser.getId()));
+        return toReplyResponse(reply, getReplyDepth(reply), findUpvotedReplyIds(replyId, currentUser.getId()), forumAttachmentService.findByReplyIds(List.of(replyId)).getOrDefault(replyId, List.of()));
     }
 
     @Override
@@ -455,7 +478,7 @@ public class ForumServiceImpl implements ForumService {
                 ? Set.of(replyId) : Collections.emptySet();
     }
 
-    private ForumPostResponse toPostResponse(ForumPostEntity post, Set<UUID> upvotedPostIds) {
+    private ForumPostResponse toPostResponse(ForumPostEntity post, Set<UUID> upvotedPostIds, List<ForumAttachmentResponse> attachments) {
         return ForumPostResponse.builder()
                 .id(post.getId())
                 .courseId(post.getCourse().getId())
@@ -464,6 +487,7 @@ public class ForumServiceImpl implements ForumService {
                 .topic(post.getTopic())
                 .title(post.getTitle())
                 .content(post.getContent())
+                .attachments(attachments)
                 .pinned(Boolean.TRUE.equals(post.getPinned()))
                 .replyCount(nullToZero(post.getReplyCount()))
                 .upvoteCount(nullToZero(post.getUpvoteCount()))
@@ -482,11 +506,7 @@ public class ForumServiceImpl implements ForumService {
                 .build();
     }
 
-    private ForumReplyResponse toReplyResponse(ForumReplyEntity reply) {
-        return toReplyResponse(reply, getReplyDepth(reply), Collections.emptySet());
-    }
-
-    private ForumReplyResponse toReplyResponse(ForumReplyEntity reply, int depth, Set<UUID> upvotedReplyIds) {
+    private ForumReplyResponse toReplyResponse(ForumReplyEntity reply, int depth, Set<UUID> upvotedReplyIds, List<ForumAttachmentResponse> attachments) {
         return ForumReplyResponse.builder()
                 .id(reply.getId())
                 .postId(reply.getPost().getId())
@@ -494,6 +514,7 @@ public class ForumServiceImpl implements ForumService {
                 .parentReplyId(reply.getParentReply() == null ? null : reply.getParentReply().getId())
                 .author(toAuthorResponse(reply.getAuthor()))
                 .content(reply.getContent())
+                .attachments(attachments)
                 .depth(depth)
                 .upvoteCount(nullToZero(reply.getUpvoteCount()))
                 .upvoted(upvotedReplyIds.contains(reply.getId()))
@@ -560,12 +581,12 @@ public class ForumServiceImpl implements ForumService {
         return depth;
     }
 
-    private List<ForumReplyResponse> buildReplyTree(List<ForumReplyEntity> replies, Set<UUID> upvotedReplyIds) {
+    private List<ForumReplyResponse> buildReplyTree(List<ForumReplyEntity> replies, Set<UUID> upvotedReplyIds, Map<UUID, List<ForumAttachmentResponse>> attachmentsByReplyId) {
         Map<UUID, Integer> depths = computeDepths(replies);
         Map<UUID, MutableForumReplyResponse> responseById = new LinkedHashMap<>();
 
         for (ForumReplyEntity reply : replies) {
-            responseById.put(reply.getId(), new MutableForumReplyResponse(toReplyResponse(reply, depths.get(reply.getId()), upvotedReplyIds)));
+            responseById.put(reply.getId(), new MutableForumReplyResponse(toReplyResponse(reply, depths.get(reply.getId()), upvotedReplyIds, attachmentsByReplyId.getOrDefault(reply.getId(), List.of()))));
         }
 
         List<MutableForumReplyResponse> roots = new ArrayList<>();
@@ -599,6 +620,7 @@ public class ForumServiceImpl implements ForumService {
                     .parentReplyId(response.getParentReplyId())
                     .author(response.getAuthor())
                     .content(response.getContent())
+                    .attachments(response.getAttachments())
                     .depth(response.getDepth())
                     .upvoteCount(response.getUpvoteCount())
                     .upvoted(response.isUpvoted())
@@ -623,6 +645,22 @@ public class ForumServiceImpl implements ForumService {
             return null;
         }
         return keyword.trim();
+    }
+
+    private String sanitizeForumContent(String content) {
+        if (content == null) {
+            return null;
+        }
+        return Jsoup.clean(content.trim(), FORUM_CONTENT_SAFELIST);
+    }
+
+    private String summarizeForumContent(String content) {
+        String plainText = sanitizeForumContent(content)
+                .replaceAll("<[^>]*>", " ")
+                .replaceAll("&nbsp;", " ")
+                .replaceAll("\\s+", " ")
+                .trim();
+        return plainText.length() > 100 ? plainText.substring(0, 100) + "..." : plainText;
     }
 
     private int nullToZero(Integer value) {

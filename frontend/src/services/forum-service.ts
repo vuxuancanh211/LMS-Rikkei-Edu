@@ -1,10 +1,45 @@
 import { httpClient } from '../lib';
 
+export function toAbsoluteApiUrl(url?: string | null) {
+  if (!url) return '';
+  if (/^https?:\/\//i.test(url)) return url;
+
+  const baseURL = httpClient.defaults.baseURL || '';
+  if (!baseURL) return url;
+
+  try {
+    const base = new URL(baseURL, window.location.origin);
+    if (url.startsWith('/api/')) return `${base.origin}${url}`;
+    return new URL(url, baseURL.endsWith('/') ? baseURL : `${baseURL}/`).toString();
+  } catch {
+    return url;
+  }
+}
+
+export function toStableApiPath(url?: string | null) {
+  if (!url) return '';
+  try {
+    const parsed = new URL(url, window.location.origin);
+    return parsed.pathname.startsWith('/api/') ? parsed.pathname : url;
+  } catch {
+    return url;
+  }
+}
+
 export type ForumAuthor = {
   id: string;
   fullName: string;
   role: 'ADMIN' | 'INSTRUCTOR' | 'STUDENT';
   avatarUrl?: string | null;
+};
+
+export type ForumAttachment = {
+  id: string;
+  fileName: string;
+  url: string;
+  contentType: string;
+  sizeBytes: number;
+  attachmentType: 'IMAGE' | 'FILE';
 };
 
 export type ForumPost = {
@@ -17,6 +52,7 @@ export type ForumPost = {
   upvoteCount: number;
   upvoted: boolean;
   content: string;
+  attachments: ForumAttachment[];
   pinned: boolean;
   replyCount: number;
   createdAt: string;
@@ -37,6 +73,7 @@ export type ForumReply = {
   parentReplyId?: string | null;
   author: ForumAuthor;
   content: string;
+  attachments: ForumAttachment[];
   depth: number;
   upvoteCount: number;
   upvoted: boolean;
@@ -68,22 +105,25 @@ export type GetForumPostsParams = {
 
 export type CreateForumPostPayload = {
   courseId: string;
-  topic?: string | null;
+  topic: string;
   title: string;
   content: string;
   pinned?: boolean;
+  attachmentIds?: string[];
 };
 
 export type UpdateForumPostPayload = {
-  topic?: string | null;
+  topic: string;
   title: string;
   content: string;
   pinned?: boolean;
+  attachmentIds?: string[];
 };
 
 export type CreateForumReplyPayload = {
   content: string;
   parentReplyId?: string | null;
+  attachmentIds?: string[];
 };
 
 export async function getForumPosts(params: GetForumPostsParams = {}) {
@@ -142,6 +182,15 @@ export async function toggleUpvotePost(postId: string) {
 export async function toggleUpvoteReply(replyId: string) {
   const response = await httpClient.post<ForumReply>(`/forum/replies/${replyId}/upvote`);
   return response.data;
+}
+
+export async function uploadForumAttachment(file: File) {
+  const formData = new FormData();
+  formData.append('file', file);
+  const response = await httpClient.post<ForumAttachment>('/forum/attachments', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return { ...response.data, url: toAbsoluteApiUrl(response.data.url) };
 }
 
 export type ReportPayload = {

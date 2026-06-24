@@ -16,6 +16,7 @@ public class ForumReplyResponse {
     private UUID parentReplyId;
     private ForumAuthorResponse author;
     private String content;
+    private List<ForumAttachmentResponse> attachments;
     private int depth;
     private int upvoteCount;
     private boolean upvoted;
