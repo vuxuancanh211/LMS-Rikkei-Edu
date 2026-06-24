@@ -1,5 +1,5 @@
-// @ts-nocheck
-import React, { useEffect, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useState } from 'react';
+import DOMPurify from 'dompurify';
 import {
   createForumPost,
   createForumReply,
@@ -11,15 +11,21 @@ import {
   togglePinPost,
   toggleUpvotePost,
   toggleUpvoteReply,
+  uploadForumAttachment,
   reportPost,
   reportReply,
   updateForumPost,
   updateForumReply,
+  toAbsoluteApiUrl,
+  toStableApiPath,
+  type ForumAttachment,
   type ForumCourse,
   type ForumPost,
   type ForumPostDetail,
 } from '../../services';
 import { useAuthStore } from '../../store';
+
+const ForumRichEditor = lazy(() => import('./ForumRichEditor'));
 
 function formatTime(value?: string) {
   if (!value) return '';
@@ -41,6 +47,23 @@ const TOPIC_MAP = {
 };
 
 const topicOptions = [{ v: '', label: 'Chọn chủ đề' }, ...Object.entries(TOPIC_MAP).map(([v, t]) => ({ v, label: t.label }))];
+const TOP_LEVEL_REPLY_BATCH_SIZE = 10;
+const CHILD_REPLY_BATCH_SIZE = 5;
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const MAX_FILE_BYTES = 20 * 1024 * 1024;
+const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+const ALLOWED_FILE_TYPES = [
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'text/plain',
+  'application/zip',
+  'application/x-zip-compressed',
+];
 
 function topicInfo(value?: string | null) {
   if (!value) return null;
@@ -75,6 +98,169 @@ function removeReplyFromTree(replies, replyId) {
     .map((reply) => ({ ...reply, replies: removeReplyFromTree(reply.replies || [], replyId) }));
 }
 
+function upvotedButtonStyle(upvoted) {
+  return upvoted ? { color: '#2563eb', background: '#eaf1ff', borderColor: '#bfdbfe' } : {};
+}
+
+function formatFileSize(bytes?: number) {
+  if (!bytes) return '0 KB';
+  if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function validateUploadFile(file: File) {
+  const isImage = ALLOWED_IMAGE_TYPES.includes(file.type);
+  const isFile = ALLOWED_FILE_TYPES.includes(file.type);
+  if (!isImage && !isFile) return 'Định dạng file không được hỗ trợ';
+  if (isImage && file.size > MAX_IMAGE_BYTES) return 'Ảnh tối đa 5MB';
+  if (isFile && file.size > MAX_FILE_BYTES) return 'File tối đa 20MB';
+  return '';
+}
+
+function sanitizeForumHtml(html?: string, attachments: ForumAttachment[] = []) {
+  if (!html) return '';
+  return DOMPurify.sanitize(resolveForumContentUrls(html, attachments), {
+    ADD_TAGS: ['pre', 'code', 'figure', 'figcaption'],
+    ADD_ATTR: ['target', 'rel', 'class'],
+  });
+}
+
+function resolveForumContentUrls(content: string, attachments: ForumAttachment[] = []) {
+  return content.replace(/(src|href)=(['"])(\/api\/forum\/attachments\/([^/'"]+)\/content)\2/g, (_, attr, quote, url, attachmentId) => {
+    const attachment = attachments.find((item) => item.id === attachmentId);
+    return `${attr}=${quote}${toAbsoluteApiUrl(attachment?.url || url)}${quote}`;
+  });
+}
+
+function normalizeForumContentForSave(content: string) {
+  return content.replace(/(src|href)=(['"])([^'"]+)\2/g, (_, attr, quote, url) => `${attr}=${quote}${toStableApiPath(url)}${quote}`);
+}
+
+function isEditorContentBlank(content?: string) {
+  if (!content) return true;
+  const text = content
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return text.length === 0 && !/<img\s/i.test(content);
+}
+
+function attachmentIdsForSubmit(content: string, attachments: ForumAttachment[] = []) {
+  return attachments
+    .filter((attachment) => {
+      if (attachment.attachmentType === 'FILE') return true;
+      return content.includes(attachment.id) || content.includes(toStableApiPath(attachment.url)) || content.includes(toAbsoluteApiUrl(attachment.url));
+    })
+    .map((attachment) => attachment.id);
+}
+
+function ForumContent({ content, attachments = [] }: { content?: string; attachments?: ForumAttachment[] }) {
+  if (!content || !/<[a-z][\s\S]*>/i.test(content)) {
+    return <div className="forum-content" style={{ whiteSpace: 'pre-line' }}>{content || ''}</div>;
+  }
+
+  return <div className="forum-content" dangerouslySetInnerHTML={{ __html: sanitizeForumHtml(content, attachments) }} />;
+}
+
+function AttachmentList({ attachments = [] }: { attachments?: ForumAttachment[] }) {
+  const Ic = window.Icon;
+  const fileAttachments = attachments.filter((attachment) => attachment.attachmentType === 'FILE');
+  if (!fileAttachments.length) return null;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 12 }}>
+      {fileAttachments.map((attachment) => (
+        <a key={attachment.id} href={toAbsoluteApiUrl(attachment.url)} target="_blank" rel="noreferrer" className="row gap-10" style={{ width: 'fit-content', maxWidth: '100%', padding: '10px 12px', border: '1px solid var(--border)', borderRadius: 10, background: 'var(--surface-2)', color: 'var(--text)', textDecoration: 'none' }}>
+          <Ic n="file" size={18} />
+          <span className="truncate" style={{ maxWidth: 340, fontWeight: 600 }}>{attachment.fileName}</span>
+          <span className="t-xs dim">{formatFileSize(attachment.sizeBytes)}</span>
+        </a>
+      ))}
+    </div>
+  );
+}
+
+function ForumEditor({ value, onChange, attachments, onAttachmentsChange, placeholder, minHeight = 100, disabled = false }) {
+  const Ic = window.Icon;
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
+
+  const handleFiles = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []);
+    event.target.value = '';
+    if (files.length === 0) return;
+    setUploadError('');
+
+    if (files.some((file) => ALLOWED_IMAGE_TYPES.includes(file.type))) {
+      setUploadError('Ảnh hãy upload trực tiếp trong editor bằng nút image hoặc kéo thả vào vùng soạn thảo. Nút này chỉ dùng để đính kèm file.');
+      return;
+    }
+
+    for (const file of files) {
+      const validationError = validateUploadFile(file);
+      if (validationError) {
+        setUploadError(`${file.name}: ${validationError}`);
+        return;
+      }
+    }
+
+    setUploading(true);
+    try {
+      const uploaded = [];
+      for (const file of files) {
+        uploaded.push(await uploadForumAttachment(file));
+      }
+      onAttachmentsChange([...(attachments || []), ...uploaded]);
+    } catch (err) {
+      setUploadError(err?.response?.data?.message || 'Không tải được file');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const removeAttachment = (id: string) => {
+    onAttachmentsChange((attachments || []).filter((attachment) => attachment.id !== id));
+  };
+
+  return (
+    <div>
+      <div style={{ minHeight }}>
+        <Suspense fallback={<div className="input" style={{ minHeight, padding: 12 }}>Đang tải editor...</div>}>
+          <ForumRichEditor
+          disabled={disabled || uploading}
+          value={resolveForumContentUrls(value || '')}
+          onChange={(nextValue) => onChange(normalizeForumContentForSave(nextValue))}
+          onUploadedAttachment={(attachment) => onAttachmentsChange((current = []) => [...current, { ...attachment, url: toStableApiPath(attachment.url) }])}
+          placeholder={placeholder}
+        />
+        </Suspense>
+      </div>
+      <div className="between" style={{ marginTop: 8 }}>
+        <div className="row gap-8 wrap">
+          <label className="btn btn-ghost btn-sm" style={{ cursor: uploading || disabled ? 'not-allowed' : 'pointer' }}>
+            <Ic n="upload" size={15} />{uploading ? 'Đang tải...' : 'Đính kèm file'}
+            <input type="file" multiple accept={ALLOWED_FILE_TYPES.join(',')} style={{ display: 'none' }} disabled={uploading || disabled} onChange={handleFiles} />
+          </label>
+          <span className="t-xs dim">Ảnh upload trong editor tối đa 5MB. File đính kèm: PDF/Office/TXT/ZIP tối đa 20MB.</span>
+        </div>
+      </div>
+      {(attachments || []).length > 0 && (
+        <div className="row gap-8 wrap" style={{ marginTop: 10 }}>
+          {attachments.map((attachment) => (
+            <span key={attachment.id} className="chip chip-neutral" style={{ maxWidth: 260 }}>
+              <Ic n="file" size={13} />
+              <span className="truncate" style={{ maxWidth: 170 }}>{attachment.fileName}</span>
+              <button type="button" onClick={() => removeAttachment(attachment.id)} style={{ border: 0, background: 'transparent', cursor: 'pointer', color: 'var(--text-3)' }}>×</button>
+            </span>
+          ))}
+        </div>
+      )}
+      {uploadError && <div className="t-xs" style={{ marginTop: 8, color: 'var(--danger)' }}>{uploadError}</div>}
+    </div>
+  );
+}
+
 function ForumDetail({ detail, setDetail, loading, error, onBack }) {
   const Ic = window.Icon;
   const Av = window.Avatar;
@@ -84,27 +270,37 @@ function ForumDetail({ detail, setDetail, loading, error, onBack }) {
   const currentUser = useAuthStore((state) => state.user);
   const role = useAuthStore((state) => state.role);
   const [replyContent, setReplyContent] = useState('');
+  const [replyAttachments, setReplyAttachments] = useState<ForumAttachment[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [editPostOpen, setEditPostOpen] = useState(false);
   const [editTitle, setEditTitle] = useState('');
   const [editContent, setEditContent] = useState('');
+  const [editAttachments, setEditAttachments] = useState<ForumAttachment[]>([]);
   const [editPinned, setEditPinned] = useState(false);
   const [editTopic, setEditTopic] = useState('');
   const [editingReplyId, setEditingReplyId] = useState<string | null>(null);
   const [editingReplyContent, setEditingReplyContent] = useState('');
   const [replyTarget, setReplyTarget] = useState(null);
   const [nestedReplyContent, setNestedReplyContent] = useState('');
+  const [nestedReplyAttachments, setNestedReplyAttachments] = useState<ForumAttachment[]>([]);
   const [deleteTarget, setDeleteTarget] = useState<{ type: 'post' | 'reply'; id: string } | null>(null);
   const [reportTarget, setReportTarget] = useState<{ type: 'post' | 'reply'; id: string } | null>(null);
   const [reportReason, setReportReason] = useState('');
   const [reportDescription, setReportDescription] = useState('');
+  const [visibleTopLevelReplyCount, setVisibleTopLevelReplyCount] = useState(TOP_LEVEL_REPLY_BATCH_SIZE);
+  const [expandedReplyIds, setExpandedReplyIds] = useState(() => new Set());
+  const [visibleChildReplyCounts, setVisibleChildReplyCounts] = useState({});
 
   useEffect(() => {
     if (!detail?.post) return;
     setEditTitle(detail.post.title);
     setEditContent(detail.post.content);
+    setEditAttachments([]);
     setEditPinned(detail.post.pinned);
     setEditTopic(detail.post.topic || '');
+    setVisibleTopLevelReplyCount(TOP_LEVEL_REPLY_BATCH_SIZE);
+    setExpandedReplyIds(new Set());
+    setVisibleChildReplyCounts({});
   }, [detail?.post?.id]);
 
   if (loading) {
@@ -120,11 +316,12 @@ function ForumDetail({ detail, setDetail, loading, error, onBack }) {
   const canEditPost = canDeletePost;
 
   const handleSubmitReply = async () => {
-    if (!replyContent.trim()) return;
+    if (isEditorContentBlank(replyContent)) return;
     setSubmitting(true);
     try {
-      const createdReply = await createForumReply(post.id, { content: replyContent.trim() });
+      const createdReply = await createForumReply(post.id, { content: normalizeForumContentForSave(replyContent).trim(), attachmentIds: attachmentIdsForSubmit(replyContent, replyAttachments) });
       setReplyContent('');
+      setReplyAttachments([]);
       setDetail((current) => current ? ({
         ...current,
         post: { ...current.post, replyCount: current.post.replyCount + 1 },
@@ -194,11 +391,12 @@ function ForumDetail({ detail, setDetail, loading, error, onBack }) {
   };
 
   const handleUpdatePost = async () => {
-    if (!editTitle.trim() || !editContent.trim()) return;
+    if (!editTopic || !editTitle.trim() || isEditorContentBlank(editContent)) return;
     setSubmitting(true);
     try {
-      const updatedPost = await updateForumPost(post.id, { topic: editTopic || null, title: editTitle.trim(), content: editContent.trim(), pinned: editPinned });
+      const updatedPost = await updateForumPost(post.id, { topic: editTopic, title: editTitle.trim(), content: normalizeForumContentForSave(editContent).trim(), pinned: editPinned, attachmentIds: attachmentIdsForSubmit(editContent, editAttachments) });
       setEditPostOpen(false);
+      setEditAttachments([]);
       setDetail((current) => current ? ({ ...current, post: updatedPost }) : current);
     } finally {
       setSubmitting(false);
@@ -229,16 +427,20 @@ function ForumDetail({ detail, setDetail, loading, error, onBack }) {
   const startNestedReply = (reply) => {
     setReplyTarget(reply);
     setNestedReplyContent('');
+    setNestedReplyAttachments([]);
     setEditingReplyId(null);
   };
 
   const handleSubmitNestedReply = async () => {
-    if (!replyTarget || !nestedReplyContent.trim()) return;
+    if (!replyTarget || isEditorContentBlank(nestedReplyContent)) return;
     setSubmitting(true);
     try {
-      const createdReply = await createForumReply(post.id, { content: nestedReplyContent.trim(), parentReplyId: replyTarget.id });
+      const createdReply = await createForumReply(post.id, { content: normalizeForumContentForSave(nestedReplyContent).trim(), parentReplyId: replyTarget.id, attachmentIds: attachmentIdsForSubmit(nestedReplyContent, nestedReplyAttachments) });
       setReplyTarget(null);
       setNestedReplyContent('');
+      setNestedReplyAttachments([]);
+      setExpandedReplyIds((current) => new Set([...current, replyTarget.id]));
+      setVisibleChildReplyCounts((current) => ({ ...current, [replyTarget.id]: Math.max(current[replyTarget.id] || CHILD_REPLY_BATCH_SIZE, CHILD_REPLY_BATCH_SIZE) }));
       setDetail((current) => current ? ({
         ...current,
         post: { ...current.post, replyCount: current.post.replyCount + 1 },
@@ -283,6 +485,10 @@ function ForumDetail({ detail, setDetail, loading, error, onBack }) {
     const canEditReply = currentUser?.id === reply.author.id;
     const canReply = (reply.depth || 1) < 3;
     const childReplies = reply.replies || [];
+    const expanded = expandedReplyIds.has(reply.id);
+    const visibleChildReplyCount = visibleChildReplyCounts[reply.id] || CHILD_REPLY_BATCH_SIZE;
+    const visibleChildReplies = expanded ? childReplies.slice(0, visibleChildReplyCount) : [];
+    const remainingChildReplies = Math.max(0, childReplies.length - visibleChildReplies.length);
 
     return (
       <div key={reply.id} className={reply.depth === 1 ? 'card card-pad' : ''} style={reply.depth === 1 ? null : { paddingLeft: 18, borderLeft: '2px solid var(--border)', marginTop: 12 }}>
@@ -292,7 +498,7 @@ function ForumDetail({ detail, setDetail, loading, error, onBack }) {
             <div className="between gap-8" style={{ marginBottom: 6 }}>
               <div className="row gap-8 wrap"><b style={{ fontSize: reply.depth === 1 ? 14 : 13.5 }}>{reply.author.fullName}</b>{reply.author.role === 'INSTRUCTOR' && <span className="chip chip-info" style={{ fontSize: 10.5, padding: '1px 8px' }}>Giảng viên</span>}<span className="t-xs dim">• {formatTime(reply.createdAt)}</span></div>
               <div className="row gap-6">
-                <button className="btn-ghost" onClick={() => handleToggleReplyUpvote(reply.id)} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '4px 8px', border: 'none', borderRadius: 6, fontSize: 12, cursor: 'pointer', color: reply.upvoted ? 'var(--primary)' : 'var(--text-3)', background: 'transparent' }}><Ic n="thumbs_up" size={12} />{reply.upvoteCount}</button>
+                <button className="btn-ghost" onClick={() => handleToggleReplyUpvote(reply.id)} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '4px 8px', border: '1px solid transparent', borderRadius: 6, fontSize: 12, cursor: 'pointer', color: reply.upvoted ? '#2563eb' : 'var(--text-3)', background: 'transparent', ...upvotedButtonStyle(reply.upvoted) }}><Ic n="thumbs_up" size={12} />{reply.upvoteCount}</button>
                 {canReply && <button className="icon-btn" style={{ width: 34, height: 34 }} onClick={() => startNestedReply(reply)} title="Trả lời"><Ic n="message" size={16} /></button>}
                 <button className="icon-btn" style={{ width: 34, height: 34 }} onClick={() => { setReportTarget({ type: 'reply', id: reply.id }); setReportReason(''); setReportDescription(''); }} title="Báo cáo"><Ic n="flag" size={16} /></button>
                 {canEditReply && <><button className="icon-btn" style={{ width: 34, height: 34 }} onClick={() => startEditReply(reply)} title="Sửa"><Ic n="edit" size={16} /></button><button className="icon-btn" style={{ width: 34, height: 34, color: 'var(--error)' }} onClick={() => setDeleteTarget({ type: 'reply', id: reply.id })} title="Xóa"><Ic n="trash" size={16} /></button></>}
@@ -304,24 +510,29 @@ function ForumDetail({ detail, setDetail, loading, error, onBack }) {
                 <textarea className="input" style={{ height: 86, padding: 12, resize: 'none' }} value={editingReplyContent} onChange={(event) => setEditingReplyContent(event.target.value)} autoFocus />
                 <div className="row gap-8" style={{ justifyContent: 'flex-end', marginTop: 8 }}><button className="btn btn-ghost btn-sm" onClick={() => setEditingReplyId(null)}>Hủy</button><button className="btn btn-primary btn-sm" disabled={submitting || !editingReplyContent.trim()} onClick={handleUpdateReply}>Lưu</button></div>
               </div>
-            ) : <div style={{ fontSize: 14.5, lineHeight: 1.65, whiteSpace: 'pre-line' }}>{reply.content}</div>}
+            ) : <><ForumContent content={reply.content} /><AttachmentList attachments={reply.attachments || []} /></>}
 
             {replyTarget?.id === reply.id && (
               <div className="row gap-10" style={{ marginTop: 12, alignItems: 'flex-start' }}>
                 <Av name={currentUser?.fullName || 'User'} size={30} />
                 <div className="grow">
-                  <textarea className="input" style={{ height: 86, padding: 12, resize: 'none' }} placeholder={`Trả lời ${reply.author.fullName}...`} value={nestedReplyContent} onChange={(event) => setNestedReplyContent(event.target.value)} autoFocus />
-                  <div className="row gap-8" style={{ justifyContent: 'flex-end', marginTop: 8 }}><button className="btn btn-ghost btn-sm" onClick={() => setReplyTarget(null)}>Hủy</button><button className="btn btn-primary btn-sm" disabled={submitting || !nestedReplyContent.trim()} onClick={handleSubmitNestedReply}>Gửi</button></div>
+                  <ForumEditor value={nestedReplyContent} onChange={setNestedReplyContent} attachments={nestedReplyAttachments} onAttachmentsChange={setNestedReplyAttachments} placeholder={`Trả lời ${reply.author.fullName}...`} minHeight={86} disabled={submitting} />
+                  <div className="row gap-8" style={{ justifyContent: 'flex-end', marginTop: 8 }}><button className="btn btn-ghost btn-sm" onClick={() => setReplyTarget(null)}>Hủy</button><button className="btn btn-primary btn-sm" disabled={submitting || isEditorContentBlank(nestedReplyContent)} onClick={handleSubmitNestedReply}>Gửi</button></div>
                 </div>
               </div>
             )}
 
-            {childReplies.length > 0 && <div style={{ marginTop: 12 }}>{childReplies.map(renderReply)}</div>}
+            {childReplies.length > 0 && !expanded && <button className="btn btn-ghost btn-sm" style={{ marginTop: 12 }} onClick={() => setExpandedReplyIds((current) => new Set([...current, reply.id]))}><Ic n="message" size={14} />Xem {childReplies.length} câu trả lời</button>}
+            {expanded && visibleChildReplies.length > 0 && <div style={{ marginTop: 12 }}>{visibleChildReplies.map(renderReply)}</div>}
+            {expanded && remainingChildReplies > 0 && <button className="btn btn-ghost btn-sm" style={{ marginTop: 10 }} onClick={() => setVisibleChildReplyCounts((current) => ({ ...current, [reply.id]: visibleChildReplyCount + CHILD_REPLY_BATCH_SIZE }))}>Tải thêm câu trả lời ({remainingChildReplies})</button>}
           </div>
         </div>
       </div>
     );
   };
+
+  const visibleReplies = (detail.replies || []).slice(0, visibleTopLevelReplyCount);
+  const remainingTopLevelReplies = Math.max(0, (detail.replies || []).length - visibleReplies.length);
 
   return (
     <div className="page fade-in">
@@ -344,9 +555,10 @@ function ForumDetail({ detail, setDetail, loading, error, onBack }) {
           <Av name={post.author.fullName} size={44} />
           <div className="grow"><div style={{ fontWeight: 700, fontSize: 14.5 }}>{post.author.fullName}</div><div className="t-xs muted">{roleLabel(post.author.role)} • {formatTime(post.createdAt)}</div></div>
         </div>
-        <div style={{ fontSize: 15, lineHeight: 1.7, color: 'var(--text)', whiteSpace: 'pre-line' }}>{post.content}</div>
+        <ForumContent content={post.content} />
+        <AttachmentList attachments={post.attachments || []} />
         <div className="row gap-10" style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
-          <button className="btn btn-ghost btn-sm" onClick={handleToggleUpvote} style={{ color: post.upvoted ? 'var(--primary)' : undefined }}><Ic n="thumbs_up" size={15} />{post.upvoteCount}</button>
+          <button className="btn btn-ghost btn-sm" onClick={handleToggleUpvote} style={upvotedButtonStyle(post.upvoted)}><Ic n="thumbs_up" size={15} />{post.upvoteCount}</button>
           <button className="btn btn-ghost btn-sm"><Ic n="message" size={15} />{post.replyCount} trả lời</button>
           <button className="btn btn-ghost btn-sm" onClick={() => { setReportTarget({ type: 'post', id: post.id }); setReportReason(''); setReportDescription(''); }}><Ic n="flag" size={15} />Báo cáo</button>
         </div>
@@ -356,9 +568,9 @@ function ForumDetail({ detail, setDetail, loading, error, onBack }) {
         <div className="row gap-12" style={{ alignItems: 'flex-start' }}>
           <Av name={currentUser?.fullName || 'User'} size={40} />
           <div className="grow">
-            <textarea className="input" style={{ height: 84, padding: 12, resize: 'none' }} placeholder="Viết câu trả lời của bạn..." value={replyContent} onChange={(event) => setReplyContent(event.target.value)} />
+            <ForumEditor value={replyContent} onChange={setReplyContent} attachments={replyAttachments} onAttachmentsChange={setReplyAttachments} placeholder="Viết câu trả lời của bạn..." minHeight={84} disabled={submitting} />
             <div className="between" style={{ marginTop: 10 }}>
-              <button className="btn btn-primary btn-sm" disabled={submitting || !replyContent.trim()} onClick={handleSubmitReply}><Ic n="send" size={15} />Gửi trả lời</button>
+              <button className="btn btn-primary btn-sm" disabled={submitting || isEditorContentBlank(replyContent)} onClick={handleSubmitReply}><Ic n="send" size={15} />Gửi trả lời</button>
             </div>
           </div>
         </div>
@@ -369,7 +581,8 @@ function ForumDetail({ detail, setDetail, loading, error, onBack }) {
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         {detail.replies.length === 0 && <div className="card card-pad" style={{ textAlign: 'center', color: 'var(--text-2)' }}><Ic n="message" size={28} style={{ marginBottom: 8, color: 'var(--text-3)' }} /><div style={{ fontWeight: 700, color: 'var(--text)' }}>Chưa có câu trả lời</div><div className="t-sm muted" style={{ marginTop: 4 }}>Hãy là người đầu tiên phản hồi chủ đề này.</div></div>}
-        {detail.replies.map(renderReply)}
+        {visibleReplies.map(renderReply)}
+        {remainingTopLevelReplies > 0 && <button className="btn btn-ghost" onClick={() => setVisibleTopLevelReplyCount((current) => current + TOP_LEVEL_REPLY_BATCH_SIZE)}>Tải thêm bình luận ({remainingTopLevelReplies})</button>}
       </div>
 
       <Md open={editPostOpen} onClose={() => setEditPostOpen(false)} max={620} maxHeight="calc(100vh - 48px)">
@@ -377,10 +590,10 @@ function ForumDetail({ detail, setDetail, loading, error, onBack }) {
         <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div><label className="t-label" style={{ display: 'block', marginBottom: 7 }}>Chủ đề</label><Sl value={editTopic} onChange={setEditTopic} options={topicOptions} /></div>
           <div><label className="t-label" style={{ display: 'block', marginBottom: 7 }}>Tiêu đề</label><input className="input" value={editTitle} onChange={(event) => setEditTitle(event.target.value)} /></div>
-          <div><label className="t-label" style={{ display: 'block', marginBottom: 7 }}>Nội dung</label><textarea className="input" style={{ height: 118, padding: 12, resize: 'none' }} value={editContent} onChange={(event) => setEditContent(event.target.value)} /></div>
+          <div><label className="t-label" style={{ display: 'block', marginBottom: 7 }}>Nội dung</label><ForumEditor value={editContent} onChange={setEditContent} attachments={editAttachments} onAttachmentsChange={setEditAttachments} placeholder="Cập nhật nội dung bài viết..." minHeight={118} disabled={submitting} /></div>
           {(role === 'instructor' || role === 'admin') && <label className="row gap-8 t-sm"><input type="checkbox" checked={editPinned} onChange={(event) => setEditPinned(event.target.checked)} />Ghim bài viết</label>}
         </div>
-        <div className="modal-foot"><button className="btn btn-ghost" onClick={() => setEditPostOpen(false)}>Hủy</button><button className="btn btn-primary" disabled={submitting || !editTitle.trim() || !editContent.trim()} onClick={handleUpdatePost}>Lưu thay đổi</button></div>
+        <div className="modal-foot"><button className="btn btn-ghost" onClick={() => setEditPostOpen(false)}>Hủy</button><button className="btn btn-primary" disabled={submitting || !editTopic || !editTitle.trim() || isEditorContentBlank(editContent)} onClick={handleUpdatePost}>Lưu thay đổi</button></div>
       </Md>
 
       <Md open={!!deleteTarget} onClose={() => setDeleteTarget(null)} max={460}>
@@ -441,6 +654,7 @@ function ForumPage({ demo }) {
   const [createTopic, setCreateTopic] = useState('');
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
+  const [createAttachments, setCreateAttachments] = useState<ForumAttachment[]>([]);
   const [pinned, setPinned] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
@@ -449,13 +663,7 @@ function ForumPage({ demo }) {
   const createCourseOptions = createCourses.map((course) => ({ v: course.id, label: course.title }));
   const selectedCreateCourse = createCourses.find((course) => course.id === createCourseId);
   const newestIds = new Set([...posts].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 3).map(p => p.id));
-  const sortedPosts = [...posts].sort((a, b) => {
-    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
-    const aNew = newestIds.has(a.id);
-    const bNew = newestIds.has(b.id);
-    if (aNew !== bNew) return aNew ? -1 : 1;
-    return (b.upvoteCount || 0) - (a.upvoteCount || 0);
-  });
+  const sortedPosts = posts;
 
   const loadPosts = async () => {
     setLoading(true);
@@ -533,19 +741,20 @@ function ForumPage({ demo }) {
   };
 
   const handleCreatePost = async () => {
-    if (!createCourseId || !title.trim() || !content.trim()) return;
+    if (!createCourseId || !createTopic || !title.trim() || isEditorContentBlank(content)) return;
     setSubmitting(true);
     try {
-      const created = await createForumPost({ courseId: createCourseId, topic: createTopic || null, title: title.trim(), content: content.trim(), pinned });
+      const created = await createForumPost({ courseId: createCourseId, topic: createTopic, title: title.trim(), content: normalizeForumContentForSave(content).trim(), pinned, attachmentIds: attachmentIdsForSubmit(content, createAttachments) });
       setCreateOpen(false);
       setCreateTopic('');
       setTitle('');
       setContent('');
+      setCreateAttachments([]);
       setPinned(false);
       await loadPosts();
       openDetail(created.id);
     } catch (err) {
-      alert(err?.response?.data?.message || 'Không tạo được bài viết');
+      setError(err?.response?.data?.message || 'Không tạo được bài viết');
     } finally {
       setSubmitting(false);
     }
@@ -584,7 +793,7 @@ function ForumPage({ demo }) {
               </div>
               <div className="row gap-20" style={{ flex: 'none' }}>
                 <div style={{ textAlign: 'center' }}><div style={{ fontWeight: 800, fontSize: 17 }}>{post.replyCount}</div><div className="t-xs dim">trả lời</div></div>
-                <div style={{ textAlign: 'center' }}><div style={{ fontWeight: 800, fontSize: 17, color: post.upvoted ? 'var(--primary)' : undefined }}>{post.upvoteCount}</div><div className="t-xs dim">thích</div></div>
+                <div style={{ textAlign: 'center' }}><div style={{ fontWeight: 800, fontSize: 17, color: post.upvoted ? '#2563eb' : undefined }}>{post.upvoteCount}</div><div className="t-xs dim">thích</div></div>
               </div>
             </div>
           ))}
@@ -601,10 +810,10 @@ function ForumPage({ demo }) {
           <div><label className="t-label" style={{ display: 'block', marginBottom: 7 }}>Khóa học</label><Sl value={createCourseId} onChange={setCreateCourseId} options={createCourseOptions} /></div>
           <div><label className="t-label" style={{ display: 'block', marginBottom: 7 }}>Chủ đề</label><Sl value={createTopic} onChange={setCreateTopic} options={topicOptions} /></div>
           <div><label className="t-label" style={{ display: 'block', marginBottom: 7 }}>Tiêu đề</label><input className="input" placeholder="VD: Hỏi về @Transactional trong Spring" value={title} onChange={(event) => setTitle(event.target.value)} /></div>
-          <div><label className="t-label" style={{ display: 'block', marginBottom: 7 }}>Nội dung</label><textarea className="input" style={{ height: 118, padding: 12, resize: 'none' }} placeholder="Mô tả chi tiết nội dung bạn muốn trao đổi..." value={content} onChange={(event) => setContent(event.target.value)} /></div>
+          <div><label className="t-label" style={{ display: 'block', marginBottom: 7 }}>Nội dung</label><ForumEditor value={content} onChange={setContent} attachments={createAttachments} onAttachmentsChange={setCreateAttachments} placeholder="Mô tả chi tiết nội dung bạn muốn trao đổi..." minHeight={118} disabled={submitting} /></div>
           {selectedCreateCourse?.canPinPost && <label className="row gap-8 t-sm"><input type="checkbox" checked={pinned} onChange={(event) => setPinned(event.target.checked)} />Ghim bài viết</label>}
         </div>
-        <div className="modal-foot"><button className="btn btn-ghost" onClick={() => setCreateOpen(false)}>Hủy</button><button className="btn btn-primary" disabled={submitting || !createCourseId || !title.trim() || !content.trim()} onClick={handleCreatePost}><Ic n="send" size={16} />Đăng bài</button></div>
+        <div className="modal-foot"><button className="btn btn-ghost" onClick={() => setCreateOpen(false)}>Hủy</button><button className="btn btn-primary" disabled={submitting || !createCourseId || !createTopic || !title.trim() || isEditorContentBlank(content)} onClick={handleCreatePost}><Ic n="send" size={16} />Đăng bài</button></div>
       </Md>
     </div>
   );

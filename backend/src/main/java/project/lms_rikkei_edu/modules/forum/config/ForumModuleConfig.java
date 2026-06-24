@@ -8,6 +8,7 @@ import project.lms_rikkei_edu.modules.forum.repository.ForumPostRepository;
 import project.lms_rikkei_edu.modules.forum.repository.ForumReactionRepository;
 import project.lms_rikkei_edu.modules.forum.repository.ForumReportRepository;
 import project.lms_rikkei_edu.modules.forum.repository.ForumReplyRepository;
+import project.lms_rikkei_edu.modules.forum.service.ForumAttachmentService;
 import project.lms_rikkei_edu.modules.forum.service.ForumService;
 import project.lms_rikkei_edu.modules.forum.service.impl.ForumServiceImpl;
 import project.lms_rikkei_edu.modules.notification.service.NotificationService;
@@ -23,6 +24,7 @@ public class ForumModuleConfig {
             ForumCourseRepository forumCourseRepository,
             ForumReactionRepository forumReactionRepository,
             ForumReportRepository forumReportRepository,
+            ForumAttachmentService forumAttachmentService,
             NotificationService notificationService,
             UserRepository userRepository,
             CurrentUserProvider currentUserProvider
@@ -33,6 +35,7 @@ public class ForumModuleConfig {
                 forumCourseRepository,
                 forumReactionRepository,
                 forumReportRepository,
+                forumAttachmentService,
                 notificationService,
                 userRepository,
                 currentUserProvider

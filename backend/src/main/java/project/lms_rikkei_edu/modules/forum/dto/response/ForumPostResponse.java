@@ -4,6 +4,7 @@ import lombok.Builder;
 import lombok.Getter;
 
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.UUID;
 
 @Getter
@@ -16,6 +17,7 @@ public class ForumPostResponse {
     private String topic;
     private String title;
     private String content;
+    private List<ForumAttachmentResponse> attachments;
     private boolean pinned;
     private int replyCount;
     private int upvoteCount;

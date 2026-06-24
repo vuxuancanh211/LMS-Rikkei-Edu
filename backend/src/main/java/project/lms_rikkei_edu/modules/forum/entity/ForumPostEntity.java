@@ -31,7 +31,7 @@ public class ForumPostEntity {
     @JoinColumn(name = "author_id", nullable = false)
     private UserEntity author;
 
-    @Column(length = 30)
+    @Column(length = 30, nullable = false)
     private String topic;
 
     @Column(length = 200, nullable = false)

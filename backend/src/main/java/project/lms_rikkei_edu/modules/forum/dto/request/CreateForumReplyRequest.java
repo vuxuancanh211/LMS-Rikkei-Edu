@@ -4,6 +4,7 @@ import jakarta.validation.constraints.NotBlank;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.util.List;
 import java.util.UUID;
 
 @Getter
@@ -14,4 +15,6 @@ public class CreateForumReplyRequest {
     private String content;
 
     private UUID parentReplyId;
+
+    private List<UUID> attachmentIds;
 }
