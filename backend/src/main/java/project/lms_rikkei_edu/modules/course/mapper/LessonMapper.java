@@ -2,12 +2,27 @@ package project.lms_rikkei_edu.modules.course.mapper;
 
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
+import org.springframework.beans.factory.annotation.Autowired;
+import project.lms_rikkei_edu.modules.course.dto.response.LessonResourceResponse;
 import project.lms_rikkei_edu.modules.course.dto.response.LessonResponse;
 import project.lms_rikkei_edu.modules.course.entity.Lesson;
 
-@Mapper(componentModel = "spring", uses = {LessonResourceMapper.class})
-public interface LessonMapper {
+import java.util.List;
 
-    @Mapping(target = "resources", source = "resources")
-    LessonResponse toResponse(Lesson lesson);
+@Mapper(componentModel = "spring")
+public abstract class LessonMapper {
+
+    @Autowired
+    protected LessonResourceMapper lessonResourceMapper;
+
+    @Mapping(target = "resources", expression = "java(mapResources(lesson))")
+    public abstract LessonResponse toResponse(Lesson lesson);
+
+    protected List<LessonResourceResponse> mapResources(Lesson lesson) {
+        if (lesson.getResources() == null) return List.of();
+        return lesson.getResources().stream()
+                .filter(r -> r.getDeletedAt() == null)
+                .map(lessonResourceMapper::toResponse)
+                .toList();
+    }
 }

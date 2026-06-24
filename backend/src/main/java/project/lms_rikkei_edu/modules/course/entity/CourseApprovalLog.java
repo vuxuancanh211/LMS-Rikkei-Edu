@@ -33,4 +33,8 @@ public class CourseApprovalLog {
 
     @Column(name = "created_at")
     private Instant createdAt;
+
+    /** JSON snapshot của course tại thời điểm SUBMITTED */
+    @Column(name = "snapshot", columnDefinition = "text")
+    private String snapshot;
 }

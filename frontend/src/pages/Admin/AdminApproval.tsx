@@ -32,8 +32,10 @@
 
   /* ---------------- Detail modal content ---------------- */
   function DetailModal({ detail, onClose, onApprove, onReject, onPreview }) {
-    const [imgFull, setImgFull] = useState(null);
-    const [view, setView]       = useState("overview");
+    const [imgFull, setImgFull]   = useState(null);
+    const [view, setView]         = useState("overview");
+    const [diffData, setDiffData] = useState(null);
+    const [diffLoading, setDiffLoading] = useState(false);
     const isPendUpd = isUpdate(detail);
     const isPending = mapStatus(detail.status) === "pending";
 
@@ -168,7 +170,16 @@
         {isPendUpd && (
           <div className="tabs" style={{ marginBottom: 16, width: "fit-content" }}>
             <button className={view === "overview" ? "on" : ""} onClick={() => setView("overview")}>Tổng quan</button>
-            <button className={view === "diff"     ? "on" : ""} onClick={() => setView("diff")}>So sánh</button>
+            <button className={view === "diff"     ? "on" : ""} onClick={() => {
+              setView("diff");
+              if (!diffData && !diffLoading) {
+                setDiffLoading(true);
+                http.get(`/admin/courses/${detail.id}/versions/diff`)
+                  .then(r => setDiffData(r.data))
+                  .catch(() => setDiffData(null))
+                  .finally(() => setDiffLoading(false));
+              }
+            }}>So sánh (snapshot)</button>
             <button className={view === "changes"  ? "on" : ""} onClick={() => setView("changes")}>
               Thay đổi{hasDiff ? <span style={{ marginLeft: 5, background: "#ef4444", color: "#fff", borderRadius: 999, fontSize: 10, padding: "0 5px", fontWeight: 700 }}>{totalDiff}</span> : ""}
             </button>
@@ -290,193 +301,187 @@
 
         {/* ════ VIEW: SO SÁNH ════ */}
         {view === "diff" && isPendUpd && (() => {
-          // Bên trái: hiện tại (live) — không có draft thuần, nhưng có pending-delete
-          const liveTree = (detail.chapters || []).filter(ch => !ch.isDraft);
-          // Bên phải: sau khi duyệt — bỏ pendingDelete, giữ draft mới
-          const draftTree = (detail.chapters || []).filter(ch => !ch.pendingDelete);
-
-          // Màu sắc nhất quán
           const C = {
             add:   { border: "#86efac", bg: "#f0fdf4", text: "#166534", chip: "#dcfce7", chipFg: "#16a34a" },
             del:   { border: "#fca5a5", bg: "#fff5f5", text: "#991b1b", chip: "#fee2e2", chipFg: "#dc2626" },
             mod:   { border: "#93c5fd", bg: "#eff6ff", text: "#1e40af", chip: "#dbeafe", chipFg: "#2563eb" },
             plain: { border: "var(--border)", bg: "var(--surface-2)", text: "var(--text)" },
           };
+          const actionColor = (a) => a === "ADDED" ? C.add : a === "REMOVED" ? C.del : a === "MODIFIED" ? C.mod : C.plain;
 
-          function LessonRow({ l, side }) {
-            const isNew  = !!l.isDraft;
-            const isDel  = !!l.pendingDelete;
-            const isMod  = !isNew && !isDel && (!!l.draftTitle || !!l.draftContentText);
-            const color  = isNew ? C.add : isDel ? C.del : isMod ? C.mod : C.plain;
-            const isVid  = l.lessonType === "VIDEO" || l.type === "VIDEO";
-            const title  = side === "right" && l.draftTitle ? l.draftTitle : l.title;
-            return (
-              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 12px",
-                background: color.bg, borderLeft: `3px solid ${color.border}`, marginBottom: 2, borderRadius: "0 6px 6px 0" }}>
-                <div style={{ width: 24, height: 18, borderRadius: 4, background: isVid ? "#1e293b" : "var(--surface-2)",
-                  display: "grid", placeItems: "center", flex: "none" }}>
-                  <Ic n={isVid ? "play" : "file_text"} size={10} style={{ color: isVid ? "#fff" : "var(--text-3)" }} />
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 500, color: color.text }} className="truncate">
-                    {isDel ? <s>{title}</s> : title}
-                  </div>
-                  {isMod && side === "right" && l.draftTitle && (
-                    <div style={{ fontSize: 10.5, color: "#94a3b8", textDecoration: "line-through" }} className="truncate">{l.title}</div>
-                  )}
-                </div>
-                {isNew && <span style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 6px", borderRadius: 999, background: C.add.chip, color: C.add.chipFg }}>MỚI</span>}
-                {isDel && side === "left" && <span style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 6px", borderRadius: 999, background: C.del.chip, color: C.del.chipFg }}>XÓA</span>}
-                {isMod && <span style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 6px", borderRadius: 999, background: C.mod.chip, color: C.mod.chipFg }}>SỬA</span>}
-                {(l.resources?.length > 0) && (
-                  <span style={{ fontSize: 10, color: "var(--text-3)", display: "flex", alignItems: "center", gap: 2 }}>
-                    <Ic n="paperclip" size={9} />{l.resources.length}
-                  </span>
-                )}
-              </div>
-            );
-          }
-
-          function ChapterCol({ ch, side }) {
-            const isNew  = !!ch.isDraft;
-            const isDel  = !!ch.pendingDelete;
-            const color  = isNew ? C.add : isDel ? C.del : C.plain;
-            const lessons = (ch.lessons || []).filter(l => side === "left" ? true : !l.pendingDelete);
-            return (
-              <div style={{ marginBottom: 10, borderRadius: 10, overflow: "hidden",
-                border: `2px solid ${color.border}`, opacity: isDel ? 0.7 : 1 }}>
-                <div style={{ padding: "8px 12px", background: color.bg,
-                  display: "flex", alignItems: "center", gap: 7 }}>
-                  <Ic n="layers" size={13} style={{ color: isNew ? C.add.chipFg : isDel ? C.del.chipFg : "var(--text-3)", flex: "none" }} />
-                  <span style={{ fontWeight: 700, fontSize: 12.5, flex: 1, color: color.text }}>
-                    {isDel ? <s>{ch.title}</s> : ch.title}
-                  </span>
-                  {isNew && <span style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 7px", borderRadius: 999, background: C.add.chip, color: C.add.chipFg }}>MỚI</span>}
-                  {isDel && <span style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 7px", borderRadius: 999, background: C.del.chip, color: C.del.chipFg }}>XÓA</span>}
-                  <span style={{ fontSize: 10.5, color: "var(--text-3)" }}>{lessons.length} bài</span>
-                </div>
-                <div style={{ padding: "6px 8px", display: "flex", flexDirection: "column", gap: 0 }}>
-                  {lessons.length === 0
-                    ? <div style={{ fontSize: 11.5, color: "var(--text-3)", padding: "6px 4px", fontStyle: "italic" }}>Không có bài giảng</div>
-                    : lessons.map((l, i) => <LessonRow key={l.id || i} l={l} side={side} />)
-                  }
-                </div>
-              </div>
-            );
-          }
-
-          const ColHeader = ({ label, count, color }) => (
-            <div style={{ padding: "8px 14px", borderRadius: 10, background: color.bg,
-              border: `1px solid ${color.border}`, marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <span style={{ fontWeight: 700, fontSize: 12, color: color.text }}>{label}</span>
-              <span style={{ fontSize: 11.5, color: "var(--text-3)" }}>{count} chương</span>
+          if (diffLoading) return (
+            <div style={{ textAlign: "center", padding: "40px 0", color: "var(--text-3)" }}>
+              <div style={{ fontSize: 13 }}>Đang tải so sánh snapshot...</div>
             </div>
           );
 
+          if (!diffData) return (
+            <div style={{ textAlign: "center", padding: "40px 0", color: "var(--text-3)" }}>
+              <Ic n="warn" size={24} style={{ marginBottom: 8 }} />
+              <div style={{ fontSize: 13 }}>Không thể tải dữ liệu so sánh. Chưa có version được duyệt trước đó?</div>
+            </div>
+          );
+
+          const meta = diffData.metadata || {};
+          const metaFields = [
+            { label: "Tên khóa học", f: meta.title },
+            { label: "Mô tả",        f: meta.description },
+            { label: "Cấp độ",       f: meta.level },
+            { label: "Thumbnail",    f: meta.thumbnailUrl, isImg: true },
+          ].filter(x => x.f?.changed);
+
+          const chapters = diffData.chapters || [];
+          const resources = diffData.resources || [];
+          const addedRes = resources.filter(r => r.action === "ADDED");
+          const removedRes = resources.filter(r => r.action === "REMOVED");
+
           return (
             <div>
-              {/* Legend */}
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14, padding: "8px 12px", borderRadius: 9, background: "var(--surface-2)" }}>
-                {[
-                  { color: "#16a34a", bg: "#dcfce7", label: "Thêm mới" },
-                  { color: "#dc2626", bg: "#fee2e2", label: "Xóa" },
-                  { color: "#2563eb", bg: "#dbeafe", label: "Thay đổi" },
-                ].map(({ color, bg, label }) => (
-                  <div key={label} style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                    <div style={{ width: 10, height: 10, borderRadius: 3, background: bg, border: `1.5px solid ${color}` }} />
-                    <span style={{ fontSize: 11.5, color: "var(--text-2)" }}>{label}</span>
+              {/* Version badge */}
+              <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 14, padding: "8px 12px", borderRadius: 9, background: "var(--surface-2)", fontSize: 11.5, color: "var(--text-2)" }}>
+                <Ic n="clock" size={13} />
+                So sánh
+                <span style={{ fontWeight: 700, color: "#64748b" }}>
+                  v{diffData.approvedVersionNumber ?? "?"} (đang live)
+                </span>
+                <Ic n="chevron_right" size={13} />
+                <span style={{ fontWeight: 700, color: "#0369a1" }}>
+                  v{diffData.pendingVersionNumber ?? "?"} (đang chờ duyệt)
+                </span>
+                <div style={{ flex: 1 }} />
+                {/* Legend */}
+                {[{ color: "#16a34a", bg: "#dcfce7", label: "Thêm" }, { color: "#dc2626", bg: "#fee2e2", label: "Xóa" }, { color: "#2563eb", bg: "#dbeafe", label: "Sửa" }].map(({ color, bg, label }) => (
+                  <div key={label} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                    <div style={{ width: 9, height: 9, borderRadius: 2, background: bg, border: `1.5px solid ${color}` }} />
+                    <span style={{ fontSize: 10.5 }}>{label}</span>
                   </div>
                 ))}
               </div>
 
-              {/* Two columns */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-                {/* LEFT — Hiện tại */}
-                <div>
-                  <ColHeader label="Hiện tại (Live)" count={liveTree.length} color={{ bg: "#f8fafc", border: "#cbd5e1", text: "#334155" }} />
-                  {liveTree.length === 0
-                    ? <div style={{ textAlign: "center", padding: "20px 0", color: "var(--text-3)", fontSize: 13 }}>Chưa có nội dung</div>
-                    : liveTree.map((ch, i) => <ChapterCol key={ch.id || i} ch={ch} side="left" />)
-                  }
-                </div>
-                {/* RIGHT — Sau khi duyệt */}
-                <div>
-                  <ColHeader label="Sau khi duyệt (Draft)" count={draftTree.length} color={{ bg: "#f0f9ff", border: "#7dd3fc", text: "#0369a1" }} />
-                  {draftTree.length === 0
-                    ? <div style={{ textAlign: "center", padding: "20px 0", color: "var(--text-3)", fontSize: 13 }}>Không có nội dung</div>
-                    : draftTree.map((ch, i) => <ChapterCol key={ch.id || i} ch={ch} side="right" />)
-                  }
-                </div>
-              </div>
-
-              {/* Resource diff */}
-              {(newResources.length > 0 || delResources.length > 0) && (
-                <div style={{ marginTop: 16 }}>
-                  <SectionLabel>Tài liệu thay đổi</SectionLabel>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                    {/* Live resources (excluding new ones) */}
-                    <div>
-                      <div style={{ fontSize: 10.5, fontWeight: 700, color: "#475569", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.06em" }}>Hiện tại</div>
-                      {allResources.filter(r => !r.isNewInUpdate).map(r => (
-                        <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: 8, marginBottom: 5,
-                          border: r.pendingDelete ? "2px dashed #fca5a5" : "1px solid var(--border)",
-                          background: r.pendingDelete ? "#fff5f5" : "var(--surface-2)", opacity: r.pendingDelete ? 0.75 : 1 }}>
-                          <Ic n={typeIc[r.resourceType] || "file"} size={13} style={{ color: typeColor[r.resourceType] || "#64748b", flex: "none" }} />
-                          <span style={{ fontSize: 12, flex: 1, textDecoration: r.pendingDelete ? "line-through" : "none", color: r.pendingDelete ? "#dc2626" : "inherit" }} className="truncate">
-                            {r.displayName || r.originalFilename}
-                          </span>
-                          {r.pendingDelete && <span style={{ fontSize: 9, fontWeight: 700, color: "#dc2626", background: "#fee2e2", borderRadius: 4, padding: "1px 5px" }}>XÓA</span>}
-                        </div>
-                      ))}
-                      {allResources.filter(r => !r.isNewInUpdate).length === 0 && (
-                        <div style={{ fontSize: 12, color: "var(--text-3)", fontStyle: "italic", padding: "6px 4px" }}>Không có tài liệu</div>
-                      )}
-                    </div>
-                    {/* After approval (excluding pending delete) */}
-                    <div>
-                      <div style={{ fontSize: 10.5, fontWeight: 700, color: "#0369a1", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.06em" }}>Sau khi duyệt</div>
-                      {allResources.filter(r => !r.pendingDelete).map(r => (
-                        <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: 8, marginBottom: 5,
-                          border: r.isNewInUpdate ? "2px solid #93c5fd" : "1px solid var(--border)",
-                          background: r.isNewInUpdate ? "#eff6ff" : "var(--surface-2)" }}>
-                          <Ic n={typeIc[r.resourceType] || "file"} size={13} style={{ color: typeColor[r.resourceType] || "#64748b", flex: "none" }} />
-                          <span style={{ fontSize: 12, flex: 1, color: r.isNewInUpdate ? "#1e40af" : "inherit" }} className="truncate">
-                            {r.displayName || r.originalFilename}
-                          </span>
-                          {r.isNewInUpdate && <span style={{ fontSize: 9, fontWeight: 700, color: "#2563eb", background: "#dbeafe", borderRadius: 4, padding: "1px 5px" }}>MỚI</span>}
-                        </div>
-                      ))}
-                      {allResources.filter(r => !r.pendingDelete).length === 0 && (
-                        <div style={{ fontSize: 12, color: "var(--text-3)", fontStyle: "italic", padding: "6px 4px" }}>Không có tài liệu</div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Metadata diff summary */}
-              {draftChanges.length > 0 && (
-                <div style={{ marginTop: 16 }}>
-                  <SectionLabel>Thay đổi thông tin</SectionLabel>
-                  {draftChanges.filter(d => !d.isImg).map((d, i) => (
-                    <DiffCard key={i} label={d.label} old={d.old} next={d.next} />
+              {/* Metadata changes */}
+              {metaFields.length > 0 && (
+                <div style={{ marginBottom: 16 }}>
+                  <SectionLabel>Thông tin cơ bản</SectionLabel>
+                  {metaFields.filter(x => !x.isImg).map((x, i) => (
+                    <DiffCard key={i} label={x.label} old={x.f.oldValue} next={x.f.newValue} />
                   ))}
-                  {thumbnailDiff && (
-                    <div style={{ display: "flex", gap: 12, alignItems: "center", padding: 12, background: "var(--surface-2)", borderRadius: 10 }}>
+                  {metaFields.filter(x => x.isImg).map((x, i) => (
+                    <div key={i} style={{ display: "flex", gap: 12, alignItems: "center", padding: 12, background: "var(--surface-2)", borderRadius: 10, marginBottom: 8 }}>
                       <div style={{ flex: 1, textAlign: "center" }}>
                         <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-3)", marginBottom: 5 }}>ẢNH BÌA HIỆN TẠI</div>
-                        {thumbnailDiff.old
-                          ? <img src={thumbnailDiff.old} onClick={() => setImgFull(thumbnailDiff.old)} style={{ width: "100%", maxWidth: 160, height: 90, objectFit: "cover", borderRadius: 8, cursor: "zoom-in", border: "1px solid var(--border)" }} />
+                        {x.f.oldValue
+                          ? <img src={x.f.oldValue} onClick={() => setImgFull(x.f.oldValue)} style={{ width: "100%", maxWidth: 160, height: 90, objectFit: "cover", borderRadius: 8, cursor: "zoom-in", border: "1px solid var(--border)" }} />
                           : <div style={{ width: 160, height: 90, borderRadius: 8, background: "#f1f5f9", display: "grid", placeItems: "center", margin: "0 auto" }}><Ic n="image" size={24} style={{ color: "#94a3b8" }} /></div>
                         }
                       </div>
                       <Ic n="chevron_right" size={20} style={{ color: "#94a3b8" }} />
                       <div style={{ flex: 1, textAlign: "center" }}>
                         <div style={{ fontSize: 10, fontWeight: 700, color: "#16a34a", marginBottom: 5 }}>ẢNH BÌA MỚI</div>
-                        <img src={thumbnailDiff.next} onClick={() => setImgFull(thumbnailDiff.next)} style={{ width: "100%", maxWidth: 160, height: 90, objectFit: "cover", borderRadius: 8, cursor: "zoom-in", border: "2px solid #86efac" }} />
+                        <img src={x.f.newValue} onClick={() => setImgFull(x.f.newValue)} style={{ width: "100%", maxWidth: 160, height: 90, objectFit: "cover", borderRadius: 8, cursor: "zoom-in", border: "2px solid #86efac" }} />
                       </div>
                     </div>
-                  )}
+                  ))}
+                </div>
+              )}
+
+              {/* Chapter / Lesson diff */}
+              {chapters.length > 0 && (
+                <div style={{ marginBottom: 16 }}>
+                  <SectionLabel>Nội dung khóa học</SectionLabel>
+                  {chapters.map((ch, ci) => {
+                    const cc = actionColor(ch.action);
+                    const changed = ch.action !== "UNCHANGED";
+                    return (
+                      <div key={ci} style={{ marginBottom: 10, borderRadius: 10, overflow: "hidden", border: `2px solid ${cc.border}`, opacity: ch.action === "REMOVED" ? 0.75 : 1 }}>
+                        <div style={{ padding: "8px 12px", background: cc.bg, display: "flex", alignItems: "center", gap: 7 }}>
+                          <Ic n="layers" size={13} style={{ color: changed ? cc.chipFg : "var(--text-3)", flex: "none" }} />
+                          <span style={{ fontWeight: 700, fontSize: 12.5, flex: 1, color: cc.text }}>
+                            {ch.action === "REMOVED" ? <s>{ch.title}</s> : ch.title}
+                          </span>
+                          {ch.action === "ADDED"    && <span style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 7px", borderRadius: 999, background: C.add.chip, color: C.add.chipFg }}>MỚI</span>}
+                          {ch.action === "REMOVED"  && <span style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 7px", borderRadius: 999, background: C.del.chip, color: C.del.chipFg }}>XÓA</span>}
+                          {ch.action === "MODIFIED" && <span style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 7px", borderRadius: 999, background: C.mod.chip, color: C.mod.chipFg }}>SỬA</span>}
+                          <span style={{ fontSize: 10.5, color: "var(--text-3)" }}>{(ch.lessons || []).length} bài</span>
+                        </div>
+                        <div style={{ padding: "6px 8px" }}>
+                          {(ch.lessons || []).length === 0
+                            ? <div style={{ fontSize: 11.5, color: "var(--text-3)", padding: "6px 4px", fontStyle: "italic" }}>Không có bài giảng</div>
+                            : (ch.lessons || []).map((l, li) => {
+                              const lc = actionColor(l.action);
+                              const isVid = l.lessonType === "VIDEO";
+                              return (
+                                <div key={li} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 12px", background: lc.bg, borderLeft: `3px solid ${lc.border}`, marginBottom: 2, borderRadius: "0 6px 6px 0" }}>
+                                  <div style={{ width: 24, height: 18, borderRadius: 4, background: isVid ? "#1e293b" : "var(--surface-2)", display: "grid", placeItems: "center", flex: "none" }}>
+                                    <Ic n={isVid ? "play" : "file_text"} size={10} style={{ color: isVid ? "#fff" : "var(--text-3)" }} />
+                                  </div>
+                                  <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ fontSize: 12.5, fontWeight: 500, color: lc.text }} className="truncate">
+                                      {l.action === "REMOVED" ? <s>{l.title}</s> : (l.newTitle || l.title)}
+                                    </div>
+                                    {l.action === "MODIFIED" && l.newTitle && (
+                                      <div style={{ fontSize: 10.5, color: "#94a3b8", textDecoration: "line-through" }} className="truncate">{l.title}</div>
+                                    )}
+                                  </div>
+                                  {l.action === "ADDED"    && <span style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 6px", borderRadius: 999, background: C.add.chip, color: C.add.chipFg }}>MỚI</span>}
+                                  {l.action === "REMOVED"  && <span style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 6px", borderRadius: 999, background: C.del.chip, color: C.del.chipFg }}>XÓA</span>}
+                                  {l.action === "MODIFIED" && <span style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 6px", borderRadius: 999, background: C.mod.chip, color: C.mod.chipFg }}>SỬA</span>}
+                                </div>
+                              );
+                            })
+                          }
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Resource diff */}
+              {(addedRes.length > 0 || removedRes.length > 0) && (
+                <div style={{ marginBottom: 16 }}>
+                  <SectionLabel>Tài liệu ({addedRes.length > 0 ? `+${addedRes.length}` : ""}{removedRes.length > 0 ? ` -${removedRes.length}` : ""})</SectionLabel>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                    <div>
+                      <div style={{ fontSize: 10.5, fontWeight: 700, color: "#dc2626", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.06em" }}>Xóa ({removedRes.length})</div>
+                      {removedRes.length === 0
+                        ? <div style={{ fontSize: 12, color: "var(--text-3)", fontStyle: "italic" }}>Không có</div>
+                        : removedRes.map((r, i) => (
+                          <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "7px 10px", borderRadius: 8, marginBottom: 5, border: "2px dashed #fca5a5", background: "#fff5f5" }}>
+                            <Ic n={typeIc[r.resourceType] || "file"} size={13} style={{ color: typeColor[r.resourceType] || "#64748b", flex: "none", marginTop: 1 }} />
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 12, fontWeight: 500, color: "#991b1b", textDecoration: "line-through" }} className="truncate">{r.displayName}</div>
+                              <div style={{ fontSize: 10.5, color: "#94a3b8", marginTop: 1 }}>{r.chapterTitle} › {r.lessonTitle}</div>
+                              <div style={{ fontSize: 10.5, color: "#94a3b8" }}>{r.resourceType}{r.fileSizeBytes ? ` · ${(r.fileSizeBytes / 1024 / 1024).toFixed(1)}MB` : ""}</div>
+                            </div>
+                          </div>
+                        ))
+                      }
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10.5, fontWeight: 700, color: "#16a34a", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.06em" }}>Thêm mới ({addedRes.length})</div>
+                      {addedRes.length === 0
+                        ? <div style={{ fontSize: 12, color: "var(--text-3)", fontStyle: "italic" }}>Không có</div>
+                        : addedRes.map((r, i) => (
+                          <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "7px 10px", borderRadius: 8, marginBottom: 5, border: "2px solid #86efac", background: "#f0fdf4" }}>
+                            <Ic n={typeIc[r.resourceType] || "file"} size={13} style={{ color: typeColor[r.resourceType] || "#64748b", flex: "none", marginTop: 1 }} />
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 12, fontWeight: 500, color: "#166534" }} className="truncate">{r.displayName}</div>
+                              <div style={{ fontSize: 10.5, color: "#94a3b8", marginTop: 1 }}>{r.chapterTitle} › {r.lessonTitle}</div>
+                              <div style={{ fontSize: 10.5, color: "#94a3b8" }}>{r.resourceType}{r.fileSizeBytes ? ` · ${(r.fileSizeBytes / 1024 / 1024).toFixed(1)}MB` : ""}</div>
+                            </div>
+                          </div>
+                        ))
+                      }
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* No changes at all */}
+              {metaFields.length === 0 && chapters.filter(c => c.action !== "UNCHANGED").length === 0 && resources.length === 0 && (
+                <div style={{ textAlign: "center", padding: "24px 0", color: "var(--text-3)", fontSize: 13 }}>
+                  <Ic n="check_circle" size={22} style={{ marginBottom: 6, color: "#16a34a" }} />
+                  <div>Không phát hiện thay đổi nào so với version trước</div>
                 </div>
               )}
             </div>

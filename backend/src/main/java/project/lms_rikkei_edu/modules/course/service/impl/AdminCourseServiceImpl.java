@@ -1,5 +1,6 @@
 package project.lms_rikkei_edu.modules.course.service.impl;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -8,9 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import project.lms_rikkei_edu.infrastructure.s3.S3Service;
 import project.lms_rikkei_edu.modules.ai.service.ingestion.CourseEmbeddingService;
-import project.lms_rikkei_edu.modules.course.dto.response.CourseDetailResponse;
-import project.lms_rikkei_edu.modules.course.dto.response.CourseResponse;
-import project.lms_rikkei_edu.modules.course.dto.response.ResourceDownloadUrlResponse;
+import project.lms_rikkei_edu.modules.course.dto.response.*;
 import project.lms_rikkei_edu.modules.course.entity.*;
 import project.lms_rikkei_edu.modules.course.enums.CourseStatus;
 import project.lms_rikkei_edu.modules.course.exception.CourseNotFoundException;
@@ -20,9 +19,8 @@ import project.lms_rikkei_edu.modules.course.repository.*;
 import project.lms_rikkei_edu.modules.course.service.AdminCourseService;
 
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -35,7 +33,9 @@ public class AdminCourseServiceImpl implements AdminCourseService {
     private final CourseEmbeddingService embeddingService;
     private final CourseApprovalLogRepository approvalLogRepo;
     private final LessonResourceRepository lessonResourceRepo;
+    private final CourseVersionRepository courseVersionRepo;
     private final S3Service s3Service;
+    private final ObjectMapper objectMapper;
 
     @Override
     @Transactional(readOnly = true)
@@ -91,6 +91,13 @@ public class AdminCourseServiceImpl implements AdminCourseService {
         course.setRejectionReason(null);
         courseRepo.save(course);
 
+        courseVersionRepo.findFirstByCourseIdAndStatus(courseId, "PENDING").ifPresent(v -> {
+            v.setStatus("APPROVED");
+            v.setReviewedBy(adminId);
+            v.setReviewedAt(Instant.now());
+            courseVersionRepo.save(v);
+        });
+
         saveLog(adminId, courseId, "APPROVED_FIRST", null);
 
         embeddingService.embedCourseAsync(courseId);
@@ -110,6 +117,14 @@ public class AdminCourseServiceImpl implements AdminCourseService {
         course.setStatus(CourseStatus.REJECTED);
         course.setRejectionReason(reason);
         courseRepo.save(course);
+
+        courseVersionRepo.findFirstByCourseIdAndStatus(courseId, "PENDING").ifPresent(v -> {
+            v.setStatus("REJECTED");
+            v.setRejectionReason(reason);
+            v.setReviewedBy(adminId);
+            v.setReviewedAt(Instant.now());
+            courseVersionRepo.save(v);
+        });
 
         saveLog(adminId, courseId, "REJECTED", reason);
         log.info("Course rejected: courseId={}, adminId={}", courseId, adminId);
@@ -196,6 +211,14 @@ public class AdminCourseServiceImpl implements AdminCourseService {
         course.setPendingUpdateAt(null);
         courseRepo.save(course);
 
+        // 6. Cập nhật CourseVersion PENDING → APPROVED
+        courseVersionRepo.findFirstByCourseIdAndStatus(courseId, "PENDING").ifPresent(v -> {
+            v.setStatus("APPROVED");
+            v.setReviewedBy(adminId);
+            v.setReviewedAt(Instant.now());
+            courseVersionRepo.save(v);
+        });
+
         saveLog(adminId, courseId, "APPROVED_UPDATE", null);
 
         embeddingService.embedCourseAsync(courseId);
@@ -226,10 +249,218 @@ public class AdminCourseServiceImpl implements AdminCourseService {
         course.setPendingUpdateAt(null);
         courseRepo.save(course);
 
+        // Cập nhật CourseVersion PENDING → REJECTED
+        courseVersionRepo.findFirstByCourseIdAndStatus(courseId, "PENDING").ifPresent(v -> {
+            v.setStatus("REJECTED");
+            v.setRejectionReason(reason);
+            v.setReviewedBy(adminId);
+            v.setReviewedAt(Instant.now());
+            courseVersionRepo.save(v);
+        });
+
         saveLog(adminId, courseId, "REJECTED_UPDATE", reason);
         log.info("Course update rejected (drafts kept): courseId={}, adminId={}, reason={}", courseId, adminId, reason);
 
         return courseMapper.toDetailResponse(course);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public CourseDiffResponse getVersionDiff(UUID courseId) {
+        // Tìm version PENDING mới nhất
+        CourseVersion pending = courseVersionRepo
+                .findFirstByCourseIdAndStatus(courseId, "PENDING")
+                .orElseThrow(() -> new CourseStateException("Không có version PENDING để so sánh"));
+
+        // Tìm version APPROVED gần nhất (trước đó)
+        CourseVersion approved = courseVersionRepo
+                .findFirstByCourseIdAndStatusOrderByVersionNumberDesc(courseId, "APPROVED")
+                .orElse(null);
+
+        CourseSnapshotDto newSnap = parseSnapshot(pending.getSnapshot());
+        CourseSnapshotDto oldSnap = approved != null ? parseSnapshot(approved.getSnapshot()) : null;
+
+        return CourseDiffResponse.builder()
+                .pendingVersionId(pending.getId())
+                .pendingVersionNumber(pending.getVersionNumber())
+                .approvedVersionId(approved != null ? approved.getId() : null)
+                .approvedVersionNumber(approved != null ? approved.getVersionNumber() : null)
+                .metadata(diffMetadata(oldSnap, newSnap))
+                .chapters(diffChapters(oldSnap, newSnap))
+                .resources(diffResources(oldSnap, newSnap))
+                .build();
+    }
+
+    private CourseSnapshotDto parseSnapshot(String json) {
+        if (json == null) return null;
+        try {
+            return objectMapper.readValue(json, CourseSnapshotDto.class);
+        } catch (Exception e) {
+            log.warn("Failed to parse snapshot JSON: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private CourseDiffResponse.MetaDiff diffMetadata(CourseSnapshotDto old, CourseSnapshotDto neu) {
+        String oldTitle       = old != null ? old.getTitle()       : null;
+        String oldDesc        = old != null ? old.getDescription() : null;
+        String oldLevel       = old != null ? old.getLevel()       : null;
+        String oldThumb       = old != null ? old.getThumbnailUrl(): null;
+        String newTitle       = neu != null ? neu.getTitle()       : null;
+        String newDesc        = neu != null ? neu.getDescription() : null;
+        String newLevel       = neu != null ? neu.getLevel()       : null;
+        String newThumb       = neu != null ? neu.getThumbnailUrl(): null;
+
+        return CourseDiffResponse.MetaDiff.builder()
+                .title(field(oldTitle, newTitle))
+                .description(field(oldDesc, newDesc))
+                .level(field(oldLevel, newLevel))
+                .thumbnailUrl(field(oldThumb, newThumb))
+                .build();
+    }
+
+    private CourseDiffResponse.FieldDiff field(String oldVal, String newVal) {
+        boolean changed = !Objects.equals(oldVal, newVal);
+        return CourseDiffResponse.FieldDiff.builder()
+                .oldValue(oldVal).newValue(newVal).changed(changed).build();
+    }
+
+    private List<CourseDiffResponse.ChapterDiff> diffChapters(CourseSnapshotDto old, CourseSnapshotDto neu) {
+        List<CourseSnapshotDto.ChapterSnap> oldChs = old != null && old.getChapters() != null ? old.getChapters() : List.of();
+        List<CourseSnapshotDto.ChapterSnap> newChs = neu != null && neu.getChapters() != null ? neu.getChapters() : List.of();
+
+        Map<Integer, CourseSnapshotDto.ChapterSnap> oldMap = oldChs.stream()
+                .collect(Collectors.toMap(CourseSnapshotDto.ChapterSnap::getOrderIndex, c -> c));
+        Map<Integer, CourseSnapshotDto.ChapterSnap> newMap = newChs.stream()
+                .collect(Collectors.toMap(CourseSnapshotDto.ChapterSnap::getOrderIndex, c -> c));
+
+        List<CourseDiffResponse.ChapterDiff> result = new ArrayList<>();
+        Set<Integer> allOrders = new TreeSet<>();
+        allOrders.addAll(oldMap.keySet());
+        allOrders.addAll(newMap.keySet());
+
+        for (Integer order : allOrders) {
+            CourseSnapshotDto.ChapterSnap o = oldMap.get(order);
+            CourseSnapshotDto.ChapterSnap n = newMap.get(order);
+
+            if (o == null) {
+                result.add(CourseDiffResponse.ChapterDiff.builder()
+                        .action("ADDED").title(n.getTitle()).orderIndex(order)
+                        .lessons(diffLessons(null, n)).build());
+            } else if (n == null) {
+                result.add(CourseDiffResponse.ChapterDiff.builder()
+                        .action("REMOVED").title(o.getTitle()).orderIndex(order)
+                        .lessons(diffLessons(o, null)).build());
+            } else {
+                List<CourseDiffResponse.LessonDiff> lessonDiffs = diffLessons(o, n);
+                boolean anyLessonChanged = lessonDiffs.stream()
+                        .anyMatch(l -> !"UNCHANGED".equals(l.getAction()));
+                boolean titleChanged = !Objects.equals(o.getTitle(), n.getTitle());
+                String action = (anyLessonChanged || titleChanged) ? "MODIFIED" : "UNCHANGED";
+                result.add(CourseDiffResponse.ChapterDiff.builder()
+                        .action(action).title(n.getTitle()).orderIndex(order)
+                        .lessons(lessonDiffs).build());
+            }
+        }
+        return result;
+    }
+
+    private List<CourseDiffResponse.LessonDiff> diffLessons(
+            CourseSnapshotDto.ChapterSnap oldCh, CourseSnapshotDto.ChapterSnap newCh) {
+        List<CourseSnapshotDto.LessonSnap> oldLs = oldCh != null && oldCh.getLessons() != null ? oldCh.getLessons() : List.of();
+        List<CourseSnapshotDto.LessonSnap> newLs = newCh != null && newCh.getLessons() != null ? newCh.getLessons() : List.of();
+
+        Map<Integer, CourseSnapshotDto.LessonSnap> oldMap = oldLs.stream()
+                .collect(Collectors.toMap(CourseSnapshotDto.LessonSnap::getOrderIndex, l -> l));
+        Map<Integer, CourseSnapshotDto.LessonSnap> newMap = newLs.stream()
+                .collect(Collectors.toMap(CourseSnapshotDto.LessonSnap::getOrderIndex, l -> l));
+
+        List<CourseDiffResponse.LessonDiff> result = new ArrayList<>();
+        Set<Integer> allOrders = new TreeSet<>();
+        allOrders.addAll(oldMap.keySet());
+        allOrders.addAll(newMap.keySet());
+
+        for (Integer order : allOrders) {
+            CourseSnapshotDto.LessonSnap o = oldMap.get(order);
+            CourseSnapshotDto.LessonSnap n = newMap.get(order);
+
+            if (o == null) {
+                result.add(CourseDiffResponse.LessonDiff.builder()
+                        .action("ADDED").title(n.getTitle()).orderIndex(order)
+                        .lessonType(n.getLessonType()).build());
+            } else if (n == null) {
+                result.add(CourseDiffResponse.LessonDiff.builder()
+                        .action("REMOVED").title(o.getTitle()).orderIndex(order)
+                        .lessonType(o.getLessonType()).build());
+            } else {
+                boolean changed = !Objects.equals(o.getTitle(), n.getTitle())
+                        || !Objects.equals(o.getContentText(), n.getContentText());
+                result.add(CourseDiffResponse.LessonDiff.builder()
+                        .action(changed ? "MODIFIED" : "UNCHANGED")
+                        .title(o.getTitle()).newTitle(changed && !Objects.equals(o.getTitle(), n.getTitle()) ? n.getTitle() : null)
+                        .orderIndex(order).lessonType(n.getLessonType()).build());
+            }
+        }
+        return result;
+    }
+
+    private List<CourseDiffResponse.ResourceDiff> diffResources(CourseSnapshotDto old, CourseSnapshotDto neu) {
+        List<CourseDiffResponse.ResourceDiff> result = new ArrayList<>();
+
+        Map<String, ResEntry> oldResMap = new LinkedHashMap<>();
+        Map<String, ResEntry> newResMap = new LinkedHashMap<>();
+
+        flatMapResources(old, oldResMap);
+        flatMapResources(neu, newResMap);
+
+        // Tìm resources bị xóa (có trong old, không có trong new)
+        for (Map.Entry<String, ResEntry> e : oldResMap.entrySet()) {
+            if (!newResMap.containsKey(e.getKey())) {
+                ResEntry re = e.getValue();
+                result.add(CourseDiffResponse.ResourceDiff.builder()
+                        .action("REMOVED")
+                        .displayName(re.snap().getDisplayName())
+                        .resourceType(re.snap().getResourceType())
+                        .mimeType(re.snap().getMimeType())
+                        .fileSizeBytes(re.snap().getFileSizeBytes())
+                        .lessonTitle(re.lessonTitle())
+                        .chapterTitle(re.chapterTitle())
+                        .build());
+            }
+        }
+
+        // Tìm resources được thêm (có trong new, không có trong old)
+        for (Map.Entry<String, ResEntry> e : newResMap.entrySet()) {
+            if (!oldResMap.containsKey(e.getKey())) {
+                ResEntry re = e.getValue();
+                result.add(CourseDiffResponse.ResourceDiff.builder()
+                        .action("ADDED")
+                        .displayName(re.snap().getDisplayName())
+                        .resourceType(re.snap().getResourceType())
+                        .mimeType(re.snap().getMimeType())
+                        .fileSizeBytes(re.snap().getFileSizeBytes())
+                        .lessonTitle(re.lessonTitle())
+                        .chapterTitle(re.chapterTitle())
+                        .build());
+            }
+        }
+        return result;
+    }
+
+    private record ResEntry(String chapterTitle, String lessonTitle, CourseSnapshotDto.ResourceSnap snap) {}
+
+    private void flatMapResources(CourseSnapshotDto snap, Map<String, ResEntry> out) {
+        if (snap == null || snap.getChapters() == null) return;
+        for (CourseSnapshotDto.ChapterSnap ch : snap.getChapters()) {
+            if (ch.getLessons() == null) continue;
+            for (CourseSnapshotDto.LessonSnap l : ch.getLessons()) {
+                if (l.getResources() == null) continue;
+                for (CourseSnapshotDto.ResourceSnap r : l.getResources()) {
+                    String key = ch.getTitle() + "|" + l.getTitle() + "|" + r.getDisplayName();
+                    out.put(key, new ResEntry(ch.getTitle(), l.getTitle(), r));
+                }
+            }
+        }
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────

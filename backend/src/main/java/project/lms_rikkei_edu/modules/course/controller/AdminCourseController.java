@@ -11,9 +11,7 @@ import org.springframework.web.bind.annotation.*;
 import project.lms_rikkei_edu.common.exception.BusinessException;
 import project.lms_rikkei_edu.common.security.CurrentUserProvider;
 import project.lms_rikkei_edu.modules.course.dto.request.CourseRejectRequest;
-import project.lms_rikkei_edu.modules.course.dto.response.CourseDetailResponse;
-import project.lms_rikkei_edu.modules.course.dto.response.CourseResponse;
-import project.lms_rikkei_edu.modules.course.dto.response.ResourceDownloadUrlResponse;
+import project.lms_rikkei_edu.modules.course.dto.response.*;
 import project.lms_rikkei_edu.modules.course.service.AdminCourseService;
 
 import java.util.UUID;
@@ -74,5 +72,10 @@ public class AdminCourseController {
             @PathVariable UUID courseId,
             @Valid @RequestBody CourseRejectRequest request) {
         return ResponseEntity.ok(adminCourseService.rejectUpdate(currentUserId(), courseId, request.getReason()));
+    }
+
+    @GetMapping("/{courseId}/versions/diff")
+    public ResponseEntity<CourseDiffResponse> getVersionDiff(@PathVariable UUID courseId) {
+        return ResponseEntity.ok(adminCourseService.getVersionDiff(courseId));
     }
 }

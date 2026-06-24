@@ -95,7 +95,8 @@ CREATE TABLE "course_approval_logs" (
                                         "admin_id" uuid NOT NULL,
                                         "action" varchar(20),
                                         "reason" text,
-                                        "created_at" timestamptz
+                                        "created_at" timestamptz,
+                                        "snapshot" text
 );
 
 CREATE TABLE "course_enrollments" (
@@ -1021,3 +1022,27 @@ ALTER TABLE "lessons"
 CREATE INDEX IF NOT EXISTS idx_chapters_is_draft        ON chapters(course_id) WHERE is_draft = true;
 CREATE INDEX IF NOT EXISTS idx_lessons_is_draft         ON lessons(course_id) WHERE is_draft = true;
 CREATE INDEX IF NOT EXISTS idx_lessons_pending_delete   ON lessons(course_id) WHERE pending_delete = true;
+
+ALTER TABLE "lesson_resources"
+    ADD COLUMN IF NOT EXISTS "is_new_in_update" boolean NOT NULL DEFAULT false,
+    ADD COLUMN IF NOT EXISTS "pending_delete"   boolean NOT NULL DEFAULT false;
+
+ALTER TABLE "course_approval_logs"
+    ADD COLUMN IF NOT EXISTS "snapshot" text;
+
+CREATE TABLE IF NOT EXISTS "course_versions" (
+    "id"               uuid PRIMARY KEY DEFAULT (gen_random_uuid()),
+    "course_id"        uuid NOT NULL,
+    "version_number"   int  NOT NULL,
+    "status"           varchar(20) NOT NULL DEFAULT 'PENDING',
+    "snapshot"         text,
+    "change_summary"   text,
+    "rejection_reason" text,
+    "submitted_by"     uuid,
+    "reviewed_by"      uuid,
+    "submitted_at"     timestamptz,
+    "reviewed_at"      timestamptz,
+    CONSTRAINT uq_course_version UNIQUE ("course_id", "version_number")
+);
+
+ALTER TABLE "course_versions" ADD FOREIGN KEY ("course_id") REFERENCES "courses" ("id") DEFERRABLE INITIALLY IMMEDIATE;

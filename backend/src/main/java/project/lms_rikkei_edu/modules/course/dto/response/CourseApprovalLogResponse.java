@@ -15,4 +15,6 @@ public class CourseApprovalLogResponse {
     private Instant createdAt;
     /** ADMIN hoặc INSTRUCTOR */
     private String actorType;
+    /** JSON snapshot — chỉ có khi action = SUBMITTED_* */
+    private String snapshot;
 }

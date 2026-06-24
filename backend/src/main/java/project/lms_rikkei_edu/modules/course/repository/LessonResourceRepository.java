@@ -16,4 +16,8 @@ public interface LessonResourceRepository extends JpaRepository<LessonResource, 
     List<LessonResource> findAllByCourseIdAndPendingDeleteTrue(UUID courseId);
 
     List<LessonResource> findAllByCourseIdAndIsNewInUpdateTrue(UUID courseId);
+
+    boolean existsByCourseIdAndPendingDeleteTrue(UUID courseId);
+
+    boolean existsByCourseIdAndIsNewInUpdateTrue(UUID courseId);
 }

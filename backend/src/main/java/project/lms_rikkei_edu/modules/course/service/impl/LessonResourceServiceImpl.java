@@ -17,6 +17,7 @@ import project.lms_rikkei_edu.modules.course.entity.LessonResource;
 import project.lms_rikkei_edu.modules.course.enums.CourseStatus;
 import project.lms_rikkei_edu.modules.course.enums.ResourceType;
 import project.lms_rikkei_edu.modules.course.exception.CourseNotOwnedException;
+import project.lms_rikkei_edu.modules.course.exception.CourseStateException;
 import project.lms_rikkei_edu.modules.course.exception.LessonNotFoundException;
 import project.lms_rikkei_edu.modules.course.mapper.LessonResourceMapper;
 import project.lms_rikkei_edu.modules.course.repository.CourseRepository;
@@ -121,16 +122,6 @@ public class LessonResourceServiceImpl implements LessonResourceService {
                 .build();
 
         LessonResource saved = lessonResourceRepository.save(resource);
-
-        // If course is PUBLISHED, mark as PENDING_UPDATE
-        courseRepository.findById(courseId).ifPresent(course -> {
-            if (course.getStatus() == CourseStatus.PUBLISHED) {
-                course.setStatus(CourseStatus.PENDING_UPDATE);
-                course.setPendingUpdateAt(Instant.now());
-                courseRepository.save(course);
-            }
-        });
-
         return lessonResourceMapper.toResponse(saved);
     }
 
@@ -158,8 +149,9 @@ public class LessonResourceServiceImpl implements LessonResourceService {
     public List<LessonResourceResponse> listResources(UUID instructorId, UUID courseId, UUID lessonId) {
         loadOwnedLesson(instructorId, courseId, lessonId);
         return lessonResourceRepository
-                .findAllByLessonIdAndDeletedAtIsNullAndPendingDeleteFalseOrderByOrderIndexAsc(lessonId)
+                .findAllByLessonIdAndDeletedAtIsNullOrderByOrderIndexAsc(lessonId)
                 .stream()
+                .filter(r -> !Boolean.TRUE.equals(r.getPendingDelete()))
                 .map(lessonResourceMapper::toResponse)
                 .toList();
     }
@@ -186,15 +178,6 @@ public class LessonResourceServiceImpl implements LessonResourceService {
             resource.setPendingDelete(true);
             resource.setStatus("PENDING_DELETE");
             lessonResourceRepository.save(resource);
-
-            // Chuyển course sang PENDING_UPDATE nếu cần
-            courseRepository.findById(resource.getCourseId()).ifPresent(course -> {
-                if (course.getStatus() == CourseStatus.PUBLISHED) {
-                    course.setStatus(CourseStatus.PENDING_UPDATE);
-                    course.setPendingUpdateAt(Instant.now());
-                    courseRepository.save(course);
-                }
-            });
             return;
         }
 
@@ -238,6 +221,12 @@ public class LessonResourceServiceImpl implements LessonResourceService {
         courseRepository.findById(courseId).ifPresent(course -> {
             if (!course.getInstructorId().equals(instructorId)) {
                 throw new CourseNotOwnedException();
+            }
+            if (course.getStatus() == CourseStatus.PENDING_UPDATE) {
+                throw new CourseStateException("Không thể chỉnh sửa tài liệu khi khóa học đang chờ duyệt cập nhật");
+            }
+            if (course.getStatus() == CourseStatus.PENDING) {
+                throw new CourseStateException("Không thể chỉnh sửa tài liệu khi khóa học đang chờ duyệt lần đầu");
             }
         });
 

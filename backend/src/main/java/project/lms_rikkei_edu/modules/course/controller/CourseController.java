@@ -212,10 +212,22 @@ public class CourseController {
                 .stream().filter(c -> Boolean.TRUE.equals(c.getIsActive())).toList());
     }
 
-    // ── Version history (Mức 1) ───────────────────────────────────────────────
+    // ── Version history ───────────────────────────────────────────────────────
 
     @GetMapping("/{courseId}/history")
     public ResponseEntity<List<CourseApprovalLogResponse>> getCourseHistory(@PathVariable UUID courseId) {
         return ResponseEntity.ok(courseService.getCourseHistory(currentUserId(), courseId));
+    }
+
+    @GetMapping("/{courseId}/versions")
+    public ResponseEntity<List<CourseVersionResponse>> getCourseVersions(@PathVariable UUID courseId) {
+        return ResponseEntity.ok(courseService.getCourseVersions(currentUserId(), courseId));
+    }
+
+    @PostMapping("/{courseId}/versions/{versionId}/rollback")
+    public ResponseEntity<CourseDetailResponse> rollbackToVersion(
+            @PathVariable UUID courseId,
+            @PathVariable UUID versionId) {
+        return ResponseEntity.ok(courseService.rollbackToVersion(currentUserId(), courseId, versionId));
     }
 }

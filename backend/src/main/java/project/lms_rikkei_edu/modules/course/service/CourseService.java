@@ -38,4 +38,8 @@ public interface CourseService {
     void deleteLesson(UUID instructorId, UUID courseId, UUID chapterId, UUID lessonId);
 
     List<CourseApprovalLogResponse> getCourseHistory(UUID instructorId, UUID courseId);
+
+    List<CourseVersionResponse> getCourseVersions(UUID instructorId, UUID courseId);
+
+    CourseDetailResponse rollbackToVersion(UUID instructorId, UUID courseId, UUID versionId);
 }

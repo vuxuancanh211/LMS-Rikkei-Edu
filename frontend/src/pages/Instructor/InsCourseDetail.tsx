@@ -56,19 +56,21 @@
       items: (ch.lessons || []).map(l => ({
         lessonId:         l.id,
         title:            l.title,
-        lessonType:       l.lessonType,
+        lessonType:       l.lessonType || l.type,
         dur:              fmtDur(l.durationSeconds),
         isDraft:          l.isDraft          || false,
         pendingDelete:    l.pendingDelete    || false,
         draftTitle:       l.draftTitle       || null,
         draftContentText: l.draftContentText || null,
         resources:        (l.resources || []).map(r => ({
-          resourceId:   r.id,
-          title:        r.displayName || r.originalFilename,
-          resourceType: r.resourceType,
-          kind:         r.resourceType?.toLowerCase(),
-          externalUrl:  r.externalUrl || null,
-          mimeType:     r.mimeType || null,
+          resourceId:    r.id,
+          title:         r.displayName || r.originalFilename,
+          resourceType:  r.resourceType,
+          kind:          r.resourceType?.toLowerCase(),
+          externalUrl:   r.externalUrl || null,
+          mimeType:      r.mimeType || null,
+          isNewInUpdate: r.isNewInUpdate || false,
+          pendingDelete: r.pendingDelete || false,
         })),
       })),
     }));
@@ -642,6 +644,9 @@
     const [showPreview,       setShowPreview]       = useState(false);
     const [history,           setHistory]           = useState([]);
     const [historyLoading,    setHistoryLoading]    = useState(false);
+    const [snapshotView,      setSnapshotView]      = useState(null); // { versionNo, snapshot }
+    const [versions,          setVersions]          = useState([]);   // CourseVersionResponse[]
+    const [rollingBack,       setRollingBack]       = useState(null); // versionId đang rollback
 
     function loadCourse(silent = false) {
       if (!courseId) { setLoading(false); return; }
@@ -689,6 +694,21 @@
       }
       catch (e) { setSubmitMsg(e?.response?.data?.message || "Thao tác thất bại"); }
       finally { setSubmitting(false); }
+    }
+
+    async function handleRollback(versionId, versionNumber) {
+      if (!confirm(`Rollback về phiên bản v${versionNumber}?\n\nThao tác này sẽ tạo bản nháp từ nội dung cũ. Bạn cần xem lại và bấm "Gửi cập nhật" để admin duyệt.`)) return;
+      setRollingBack(versionId);
+      try {
+        await api.post(`/instructor/courses/${courseId}/versions/${versionId}/rollback`);
+        setSubmitMsg(`Đã tạo bản nháp từ v${versionNumber}. Xem lại nội dung rồi bấm "Gửi cập nhật".`);
+        loadCourse(true);
+        setTab("content");
+      } catch (e) {
+        setSubmitMsg(e?.response?.data?.message || "Rollback thất bại");
+      } finally {
+        setRollingBack(null);
+      }
     }
 
     async function handleSaveInfo() {
@@ -748,7 +768,8 @@
       </div>
     );
 
-    const canEdit = ["DRAFT", "REJECTED", "PUBLISHED", "PENDING_UPDATE"].includes(course?.status);
+    // PENDING_UPDATE = đang chờ admin duyệt → khóa mọi chỉnh sửa
+    const canEdit = ["DRAFT", "REJECTED", "PUBLISHED"].includes(course?.status);
     const isLive  = course?.status === "PUBLISHED" || course?.status === "PENDING_UPDATE";
     const sc      = STATUS_COLOR[course?.status] || {};
 
@@ -759,6 +780,10 @@
       VIDEO:   allResources.filter(r => r.resourceType === "VIDEO").length,
       doc:     allResources.filter(r => r.resourceType !== "VIDEO").length,
     };
+
+    // True nếu có thay đổi chưa gửi duyệt (draft chapters/lessons hoặc resource flags)
+    const hasPendingResourceChanges = allResources.some(r => r.isNewInUpdate || r.pendingDelete);
+    const hasPendingChanges = course?.hasPendingDraft || hasPendingResourceChanges;
 
     return (
       <div className="page fade-in">
@@ -772,7 +797,13 @@
             {(course?.status === "DRAFT" || course?.status === "REJECTED") && (
               <button className="btn btn-success btn-sm" disabled={submitting} onClick={handleSubmit}><Ic n="send" size={15} />{submitting ? "Đang gửi..." : "Gửi duyệt"}</button>
             )}
-            {course?.status === "PENDING_UPDATE" && course?.hasPendingDraft && (
+            {course?.status === "PUBLISHED" && hasPendingChanges && (
+              <button className="btn btn-success btn-sm" disabled={submitting} onClick={handleSubmit}><Ic n="send" size={15} />{submitting ? "Đang gửi..." : "Gửi cập nhật"}</button>
+            )}
+            {course?.status === "PUBLISHED" && hasPendingChanges && (
+              <button className="btn btn-ghost btn-sm" disabled={submitting} onClick={handleWithdraw}>Hủy thay đổi</button>
+            )}
+            {course?.status === "PENDING_UPDATE" && (
               <button className="btn btn-success btn-sm" disabled={submitting} onClick={handleSubmit}><Ic n="send" size={15} />{submitting ? "Đang gửi..." : "Gửi cập nhật"}</button>
             )}
             {(course?.status === "PENDING" || course?.status === "PENDING_UPDATE") && (
@@ -805,19 +836,30 @@
           </div>
         )}
 
-        {/* Banner: có thay đổi đang chờ duyệt */}
+        {/* Banner: đang chờ admin duyệt cập nhật — khóa toàn bộ chỉnh sửa */}
         {course?.status === "PENDING_UPDATE" && (
-          <div style={{ padding: "12px 16px", borderRadius: 10, marginBottom: 12, fontSize: 13.5, background: "#e0f2fe", color: "#0284c7", display: "flex", gap: 10, alignItems: "center" }}>
-            <Ic n="eye" size={16} style={{ flex: "none" }} />
-            <span>Có thay đổi đang chờ admin duyệt. Khóa học vẫn hiển thị cho học viên theo nội dung cũ. Bạn có thể tiếp tục chỉnh sửa hoặc <strong>Hủy cập nhật</strong> để hủy toàn bộ thay đổi.</span>
+          <div style={{ padding: "12px 16px", borderRadius: 10, marginBottom: 12, fontSize: 13.5, background: "#e0f2fe", color: "#0284c7", display: "flex", gap: 10, alignItems: "flex-start" }}>
+            <Ic n="clock" size={16} style={{ flex: "none", marginTop: 1 }} />
+            <span>
+              Cập nhật đang chờ admin duyệt — <strong>chỉnh sửa bị tạm khóa</strong> trong thời gian này.
+              Khóa học vẫn hiển thị cho học viên theo nội dung đang live.
+              Nếu muốn chỉnh sửa thêm, hãy <strong>Hủy cập nhật</strong> trước, sau đó sửa và gửi lại.
+            </span>
           </div>
         )}
 
-        {/* Banner: đang published — chỉnh sửa sẽ tạo bản draft */}
-        {course?.status === "PUBLISHED" && (
+        {/* Banner: đang published — không có thay đổi */}
+        {course?.status === "PUBLISHED" && !hasPendingChanges && (
           <div style={{ padding: "12px 16px", borderRadius: 10, marginBottom: 12, fontSize: 13.5, background: "#f0fdf4", color: "#15803d", display: "flex", gap: 10, alignItems: "center" }}>
             <Ic n="book" size={16} style={{ flex: "none" }} />
-            <span>Khóa học đang được xuất bản. Mọi thay đổi sẽ tạo bản nháp và gửi admin duyệt trước khi áp dụng.</span>
+            <span>Khóa học đang được xuất bản. Mọi thay đổi sẽ lưu thành bản nháp — bạn có thể xem lại rồi mới <strong>Gửi cập nhật</strong> để admin duyệt.</span>
+          </div>
+        )}
+        {/* Banner: có thay đổi chưa gửi */}
+        {course?.status === "PUBLISHED" && hasPendingChanges && (
+          <div style={{ padding: "12px 16px", borderRadius: 10, marginBottom: 12, fontSize: 13.5, background: "#fef9c3", color: "#854d0e", display: "flex", gap: 10, alignItems: "center" }}>
+            <Ic n="edit" size={16} style={{ flex: "none" }} />
+            <span>Bạn có thay đổi chưa gửi duyệt. Bấm <strong>Gửi cập nhật</strong> để gửi admin xem xét, hoặc <strong>Hủy thay đổi</strong> để xóa toàn bộ bản nháp.</span>
           </div>
         )}
 
@@ -843,10 +885,16 @@
             { v: "history", label: "Lịch sử duyệt" },
           ]} value={tab} onChange={v => {
             setTab(v);
-            if (v === "history" && courseId && history.length === 0) {
+            if (v === "history" && courseId && versions.length === 0) {
               setHistoryLoading(true);
-              api.get(`/instructor/courses/${courseId}/history`)
-                .then(r => setHistory(r.data || []))
+              Promise.all([
+                api.get(`/instructor/courses/${courseId}/history`),
+                api.get(`/instructor/courses/${courseId}/versions`),
+              ])
+                .then(([hRes, vRes]) => {
+                  setHistory(hRes.data || []);
+                  setVersions(vRes.data || []);
+                })
                 .catch(() => {})
                 .finally(() => setHistoryLoading(false));
             }
@@ -947,16 +995,27 @@
                             <div style={{ paddingLeft: 64, paddingBottom: 8 }}>
                               {lesson.resources.map(r => {
                                 const rm = RES_TYPE[r.resourceType] || RES_TYPE.OTHER;
+                                const rIsDel = !!r.pendingDelete;
+                                const rIsNew = !!r.isNewInUpdate;
                                 return (
-                                  <div key={r.resourceId} className="row gap-12" style={{ padding: "8px 12px", borderRadius: 9, border: "1px solid var(--border)", marginBottom: 4, background: "var(--surface-2)" }}>
+                                  <div key={r.resourceId} className="row gap-12" style={{
+                                    padding: "8px 12px", borderRadius: 9, marginBottom: 4,
+                                    border: rIsDel ? "1.5px dashed #fca5a5" : rIsNew ? "1.5px solid #86efac" : "1px solid var(--border)",
+                                    background: rIsDel ? "#fff5f5" : rIsNew ? "#f0fdf4" : "var(--surface-2)",
+                                    opacity: rIsDel ? 0.75 : 1,
+                                  }}>
                                     <div className="stat-ic" style={{ width: 30, height: 30, borderRadius: 7, background: rm.bg, color: rm.fg, flex: "none" }}>
                                       <Ic n={rm.ic} size={14} />
                                     </div>
                                     <div className="grow" style={{ minWidth: 0 }}>
-                                      <div style={{ fontSize: 13, fontWeight: 500 }} className="truncate">{r.title}</div>
-                                      {r.kind && <span className="chip t-xs" style={{ padding: "1px 7px", fontSize: 10.5, background: rm.bg, color: rm.fg }}>{r.kind.toUpperCase()}</span>}
+                                      <div style={{ fontSize: 13, fontWeight: 500, textDecoration: rIsDel ? "line-through" : "none", color: rIsDel ? "#dc2626" : "inherit" }} className="truncate">{r.title}</div>
+                                      <div className="row gap-6" style={{ marginTop: 2 }}>
+                                        {r.kind && <span className="chip t-xs" style={{ padding: "1px 7px", fontSize: 10.5, background: rm.bg, color: rm.fg }}>{r.kind.toUpperCase()}</span>}
+                                        {rIsNew && <span className="chip t-xs" style={{ padding: "1px 7px", fontSize: 10.5, background: "#dcfce7", color: "#16a34a", fontWeight: 700 }}>MỚI (chờ duyệt)</span>}
+                                        {rIsDel && <span className="chip t-xs" style={{ padding: "1px 7px", fontSize: 10.5, background: "#fee2e2", color: "#dc2626", fontWeight: 700 }}>Chờ xóa</span>}
+                                      </div>
                                     </div>
-                                    {canEdit && <>
+                                    {canEdit && !rIsDel && <>
                                       <button className="icon-btn" style={{ width: 28, height: 28 }} title="Đổi tên"
                                         onClick={() => setEditResourceState({ lessonId: lesson.lessonId, resourceId: r.resourceId, title: r.title, resourceType: r.resourceType, externalUrl: r.externalUrl, mimeType: r.mimeType })}>
                                         <Ic n="edit" size={13} />
@@ -1038,61 +1097,272 @@
         )}
 
         {/* ── History tab ── */}
-        {tab === "history" && (
-          <Section>
-            <h2 className="t-h2" style={{ marginBottom: 20 }}>Lịch sử duyệt</h2>
-            {historyLoading && <div className="muted" style={{ fontSize: 13.5 }}>Đang tải...</div>}
-            {!historyLoading && history.length === 0 && (
-              <Empty icon="clock" title="Chưa có lịch sử" sub="Lịch sử duyệt sẽ xuất hiện sau khi bạn nộp khóa học." />
-            )}
-            {!historyLoading && history.length > 0 && (
-              <div style={{ position: "relative", paddingLeft: 28 }}>
-                {/* Vertical line */}
-                <div style={{ position: "absolute", left: 9, top: 6, bottom: 6, width: 2, background: "var(--border)" }} />
-                {history.map((entry, i) => {
-                  const isInstructor = entry.actorType === "INSTRUCTOR";
-                  const color = entry.action.startsWith("APPROVED") ? "#16a34a"
-                    : entry.action.startsWith("REJECTED") ? "#dc2626"
-                    : "#0284c7";
-                  const bg = entry.action.startsWith("APPROVED") ? "#dcfce7"
-                    : entry.action.startsWith("REJECTED") ? "#fee2e2"
-                    : "#e0f2fe";
-                  const label = {
-                    SUBMITTED_FIRST:  "Nộp lần đầu",
-                    SUBMITTED_UPDATE: "Nộp cập nhật",
-                    APPROVED_FIRST:   "Duyệt xuất bản",
-                    APPROVED_UPDATE:  "Duyệt cập nhật",
-                    REJECTED:         "Từ chối xuất bản",
-                    REJECTED_UPDATE:  "Từ chối cập nhật",
-                    WITHDRAWN:        "Rút khỏi hàng chờ",
-                    DISCARDED:        "Hủy thay đổi",
-                  }[entry.action] || entry.action;
-                  return (
-                    <div key={entry.id || i} style={{ position: "relative", marginBottom: 20 }}>
-                      {/* Dot */}
-                      <div style={{ position: "absolute", left: -23, top: 4, width: 10, height: 10, borderRadius: "50%", background: color, border: "2px solid var(--surface)" }} />
-                      <div style={{ padding: "10px 14px", borderRadius: 10, background: "var(--surface-2)", border: "1px solid var(--border)" }}>
-                        <div className="row gap-10" style={{ marginBottom: entry.reason ? 6 : 0, flexWrap: "wrap" }}>
-                          <span style={{ fontWeight: 600, fontSize: 13.5, color }}>{label}</span>
-                          <span className="chip" style={{ background: bg, color, fontSize: 11.5 }}>
-                            {isInstructor ? "Giảng viên" : "Quản trị viên"}
-                          </span>
-                          <span className="muted" style={{ fontSize: 12, marginLeft: "auto" }}>
-                            {new Date(entry.createdAt).toLocaleString("vi-VN", { dateStyle: "short", timeStyle: "short" })}
-                          </span>
-                        </div>
-                        {entry.reason && (
-                          <div style={{ fontSize: 13, color: "var(--text-2)", borderTop: "1px solid var(--border)", marginTop: 6, paddingTop: 6 }}>
-                            <strong>Lý do:</strong> {entry.reason}
+        {tab === "history" && (() => {
+          function fmtDT(iso) {
+            if (!iso) return "—";
+            return new Date(iso).toLocaleString("vi-VN", { dateStyle: "short", timeStyle: "short" });
+          }
+
+          const statusCfgMap = {
+            PENDING:  { label: "Đang chờ duyệt", color: "#0284c7", bg: "#e0f2fe", border: "#7dd3fc" },
+            APPROVED: { label: "Đã duyệt",        color: "#16a34a", bg: "#dcfce7", border: "#86efac" },
+            REJECTED: { label: "Bị từ chối",      color: "#dc2626", bg: "#fee2e2", border: "#fca5a5" },
+          };
+
+          // Tìm version APPROVED mới nhất để biết đây là bản live
+          const latestApprovedNo = versions.filter(v => v.status === "APPROVED")[0]?.versionNumber;
+          // Course phải PUBLISHED mới được rollback
+          const canRollback = course?.status === "PUBLISHED";
+
+          return (
+            <Section>
+              <h2 className="t-h2" style={{ marginBottom: 4 }}>Lịch sử phiên bản</h2>
+              <p className="muted" style={{ fontSize: 12.5, marginBottom: 20 }}>
+                Mỗi lần nộp duyệt tạo ra một phiên bản. Bạn có thể xem lại nội dung hoặc rollback về bản cũ đã duyệt.
+              </p>
+
+              {historyLoading && <div className="muted" style={{ fontSize: 13.5 }}>Đang tải...</div>}
+              {!historyLoading && versions.length === 0 && (
+                <Empty icon="clock" title="Chưa có phiên bản nào" sub="Lịch sử sẽ xuất hiện sau khi bạn nộp khóa học lần đầu." />
+              )}
+
+              {!historyLoading && versions.length > 0 && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                  {versions.map((v) => {
+                    const cfg = statusCfgMap[v.status] || statusCfgMap.PENDING;
+                    const isLive = v.status === "APPROVED" && v.versionNumber === latestApprovedNo;
+                    const snap = (() => { try { return v.snapshot ? JSON.parse(v.snapshot) : null; } catch { return null; } })();
+
+                    return (
+                      <div key={v.id} style={{
+                        borderRadius: 12, overflow: "hidden",
+                        border: `1.5px solid ${cfg.border}`,
+                        background: "var(--surface)",
+                        boxShadow: v.status === "REJECTED" ? "0 2px 8px rgba(220,38,38,.08)" : "none",
+                      }}>
+                        {/* Header */}
+                        <div style={{ padding: "10px 16px", background: cfg.bg, display: "flex", alignItems: "center", gap: 10 }}>
+                          <div style={{
+                            width: 28, height: 28, borderRadius: 8,
+                            background: cfg.color, color: "#fff",
+                            display: "grid", placeItems: "center",
+                            fontSize: 12, fontWeight: 800, flex: "none",
+                          }}>v{v.versionNumber}</div>
+
+                          <div style={{ flex: 1 }}>
+                            <span style={{ fontWeight: 700, fontSize: 13.5, color: cfg.color }}>
+                              Phiên bản {v.versionNumber}
+                            </span>
+                            {isLive && (
+                              <span style={{ marginLeft: 8, padding: "2px 8px", borderRadius: 999,
+                                background: "#16a34a", color: "#fff", fontSize: 10.5, fontWeight: 700 }}>
+                                ĐANG LIVE
+                              </span>
+                            )}
+                            <span className="muted" style={{ fontSize: 12, marginLeft: 8 }}>
+                              · Nộp {fmtDT(v.submittedAt)}
+                            </span>
                           </div>
-                        )}
+
+                          <span style={{
+                            padding: "3px 10px", borderRadius: 999, fontSize: 11.5, fontWeight: 700,
+                            background: cfg.color, color: "#fff",
+                          }}>{cfg.label}</span>
+                        </div>
+
+                        {/* Body */}
+                        <div style={{ padding: "12px 16px", display: "flex", flexDirection: "column", gap: 10 }}>
+                          {/* Timestamps */}
+                          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                              <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#0284c7", flex: "none" }} />
+                              <span style={{ fontSize: 12.5, color: "var(--text-2)" }}>
+                                Nộp lúc <strong>{fmtDT(v.submittedAt)}</strong>
+                              </span>
+                            </div>
+                            {v.reviewedAt && (
+                              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                                <div style={{ width: 8, height: 8, borderRadius: "50%", background: cfg.color, flex: "none" }} />
+                                <span style={{ fontSize: 12.5, color: "var(--text-2)" }}>
+                                  {v.status === "APPROVED" ? "Duyệt" : "Từ chối"} lúc <strong>{fmtDT(v.reviewedAt)}</strong>
+                                </span>
+                              </div>
+                            )}
+                            {v.status === "PENDING" && (
+                              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                                <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#fbbf24", flex: "none",
+                                  boxShadow: "0 0 0 3px #fef3c7" }} />
+                                <span style={{ fontSize: 12.5, color: "#a16207", fontStyle: "italic" }}>Đang chờ admin xét duyệt...</span>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Change summary */}
+                          {v.changeSummary && (
+                            <div style={{ fontSize: 12.5, color: "var(--text-2)", fontStyle: "italic" }}>
+                              Mô tả: {v.changeSummary}
+                            </div>
+                          )}
+
+                          {/* Rejection reason */}
+                          {v.status === "REJECTED" && v.rejectionReason && (
+                            <div style={{
+                              padding: "10px 14px", borderRadius: 9,
+                              background: "#fff5f5", border: "1px solid #fecaca",
+                              display: "flex", gap: 10, alignItems: "flex-start",
+                            }}>
+                              <Ic n="alert_circle" size={15} style={{ color: "#dc2626", flex: "none", marginTop: 1 }} />
+                              <div>
+                                <div style={{ fontSize: 10.5, fontWeight: 700, color: "#dc2626", marginBottom: 3, textTransform: "uppercase" }}>
+                                  Lý do từ chối
+                                </div>
+                                <div style={{ fontSize: 13, color: "#991b1b", lineHeight: 1.5 }}>{v.rejectionReason}</div>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Action buttons */}
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            {/* View snapshot */}
+                            {snap && (
+                              <button
+                                className="btn btn-ghost btn-sm"
+                                style={{ fontSize: 12.5, gap: 6 }}
+                                onClick={() => setSnapshotView({ versionNo: v.versionNumber, snapshot: snap })}
+                              >
+                                <Ic n="eye" size={13} />Xem nội dung
+                              </button>
+                            )}
+
+                            {/* Rollback — chỉ hiện với APPROVED, không phải bản live hiện tại, và course đang PUBLISHED */}
+                            {v.status === "APPROVED" && !isLive && canRollback && (
+                              <button
+                                className="btn btn-ghost btn-sm"
+                                style={{ fontSize: 12.5, gap: 6, color: "#d97706", borderColor: "#fde68a" }}
+                                disabled={rollingBack === v.id}
+                                onClick={() => handleRollback(v.id, v.versionNumber)}
+                              >
+                                <Ic n="rotate_ccw" size={13} />
+                                {rollingBack === v.id ? "Đang rollback..." : `Rollback về v${v.versionNumber}`}
+                              </button>
+                            )}
+                          </div>
+                        </div>
                       </div>
+                    );
+                  })}
+                </div>
+              )}
+            </Section>
+          );
+        })()}
+
+        {/* ── Snapshot viewer modal ── */}
+        {snapshotView && (
+          <Modal open onClose={() => setSnapshotView(null)} max={680} maxHeight="calc(100vh - 48px)">
+            <ModalHead
+              title={`Phiên bản v${snapshotView.versionNo}`}
+              sub={snapshotView.snapshot ? `${snapshotView.snapshot.title}` : "Không có dữ liệu"}
+              icon="clock"
+              iconBg="#f0f9ff"
+              iconColor="#0284c7"
+              onClose={() => setSnapshotView(null)}
+            />
+            <div className="modal-body" style={{ overflowY: "auto" }}>
+              {!snapshotView.snapshot ? (
+                <Empty icon="alert_circle" title="Không có dữ liệu" sub="Phiên bản này không có snapshot được lưu." />
+              ) : (() => {
+                const s = snapshotView.snapshot;
+                const LEVEL_LABEL = { BEGINNER: "Cơ bản", INTERMEDIATE: "Trung cấp", ADVANCED: "Nâng cao" };
+                const RES_IC = { VIDEO: "video", PDF: "file", DOC: "file", SLIDE: "layers", IMAGE: "image", OTHER: "file" };
+                const RES_COLOR = { PDF: "#dc2626", DOC: "#2563eb", SLIDE: "#d97706", IMAGE: "#16a34a", VIDEO: "#7c3aed", OTHER: "#64748b" };
+
+                return (
+                  <div>
+                    {/* Course meta */}
+                    {s.thumbnailUrl && (
+                      <div style={{ height: 140, borderRadius: 10, overflow: "hidden", marginBottom: 14, position: "relative" }}>
+                        <img src={s.thumbnailUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                        <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to top, rgba(0,0,0,.6) 40%, transparent)" }} />
+                        <div style={{ position: "absolute", left: 14, bottom: 12, color: "#fff", fontWeight: 700, fontSize: 15 }}>{s.title}</div>
+                      </div>
+                    )}
+
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
+                      {[
+                        { label: "Cấp độ",   value: LEVEL_LABEL[s.level] || s.level },
+                        { label: "Danh mục", value: s.categoryName || "—" },
+                      ].map(({ label, value }) => (
+                        <div key={label} style={{ padding: "8px 12px", borderRadius: 9, background: "var(--surface-2)" }}>
+                          <div style={{ fontSize: 10.5, color: "var(--text-3)", fontWeight: 600, marginBottom: 2 }}>{label}</div>
+                          <div style={{ fontSize: 13, fontWeight: 600 }}>{value}</div>
+                        </div>
+                      ))}
                     </div>
-                  );
-                })}
-              </div>
-            )}
-          </Section>
+
+                    {s.description && (
+                      <div style={{ padding: "10px 14px", borderRadius: 9, background: "var(--surface-2)", fontSize: 13, color: "var(--text-2)", lineHeight: 1.65, marginBottom: 14 }}>
+                        {s.description}
+                      </div>
+                    )}
+
+                    {/* Chapters & Lessons */}
+                    <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>
+                      Nội dung — {(s.chapters || []).length} chương · {(s.chapters || []).reduce((acc, ch) => acc + (ch.lessons || []).length, 0)} bài
+                    </div>
+
+                    {(s.chapters || []).map((ch, ci) => (
+                      <div key={ci} style={{ marginBottom: 10, borderRadius: 10, overflow: "hidden", border: "1px solid var(--border)" }}>
+                        {/* Chapter header */}
+                        <div style={{ padding: "8px 14px", background: "var(--surface-2)", display: "flex", alignItems: "center", gap: 8 }}>
+                          <Ic n="layers" size={13} style={{ color: "var(--text-3)" }} />
+                          <span style={{ fontWeight: 700, fontSize: 13 }}>{ci + 1}. {ch.title}</span>
+                          <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--text-3)" }}>{(ch.lessons || []).length} bài</span>
+                        </div>
+                        {/* Lessons */}
+                        <div style={{ display: "flex", flexDirection: "column", gap: 1, background: "var(--border)" }}>
+                          {(ch.lessons || []).map((l, li) => {
+                            const isVid = l.lessonType === "VIDEO";
+                            return (
+                              <div key={li} style={{ background: "var(--surface)", padding: "8px 14px" }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                                  <div style={{ width: 28, height: 20, borderRadius: 4, background: isVid ? "#1e293b" : "var(--surface-2)", display: "grid", placeItems: "center", flex: "none" }}>
+                                    <Ic n={isVid ? "play" : "file_text"} size={10} style={{ color: isVid ? "#fff" : "var(--text-3)" }} />
+                                  </div>
+                                  <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ fontSize: 12.5, fontWeight: 500 }} className="truncate">{l.title}</div>
+                                    <div style={{ fontSize: 11, color: "var(--text-3)", display: "flex", gap: 6, marginTop: 1 }}>
+                                      {isVid ? "Video" : "Văn bản"}
+                                      {l.durationSeconds ? <><span>·</span>{Math.floor(l.durationSeconds / 60)}:{String(l.durationSeconds % 60).padStart(2, "0")}</> : null}
+                                      {(l.resources || []).length > 0 && <><span>·</span><Ic n="paperclip" size={9} />{l.resources.length} tài liệu</>}
+                                    </div>
+                                  </div>
+                                </div>
+                                {/* Resources */}
+                                {(l.resources || []).length > 0 && (
+                                  <div style={{ marginTop: 6, paddingLeft: 37, display: "flex", flexDirection: "column", gap: 4 }}>
+                                    {l.resources.map((r, ri) => (
+                                      <div key={ri} style={{ display: "flex", alignItems: "center", gap: 7, padding: "4px 8px", borderRadius: 6, background: "var(--surface-2)" }}>
+                                        <Ic n={RES_IC[r.resourceType] || "file"} size={11} style={{ color: RES_COLOR[r.resourceType] || "#64748b", flex: "none" }} />
+                                        <span style={{ fontSize: 11.5, flex: 1 }} className="truncate">{r.displayName}</span>
+                                        <span style={{ fontSize: 10.5, color: "var(--text-3)" }}>
+                                          {r.resourceType}{r.fileSizeBytes ? ` · ${(r.fileSizeBytes / 1024 / 1024).toFixed(1)}MB` : ""}
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+          </Modal>
         )}
 
         {/* Modals */}
