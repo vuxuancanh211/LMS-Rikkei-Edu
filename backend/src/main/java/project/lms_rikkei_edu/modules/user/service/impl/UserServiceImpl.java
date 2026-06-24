@@ -14,6 +14,7 @@ import project.lms_rikkei_edu.common.dto.response.PagedResponse;
 import project.lms_rikkei_edu.common.exception.BusinessException;
 import project.lms_rikkei_edu.common.security.CurrentUserProvider;
 import project.lms_rikkei_edu.common.security.JwtService;
+import project.lms_rikkei_edu.infrastructure.email.EmailAsyncService;
 import project.lms_rikkei_edu.infrastructure.email.EmailService;
 import project.lms_rikkei_edu.infrastructure.redis.RedisService;
 import project.lms_rikkei_edu.modules.audit.entity.AuditLogEntity;
@@ -33,8 +34,8 @@ import project.lms_rikkei_edu.modules.user.repository.UserRepository;
 import project.lms_rikkei_edu.modules.user.specification.UserSpecification;
 import project.lms_rikkei_edu.modules.user.service.UserService;
 
-import java.security.SecureRandom;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -42,18 +43,17 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class UserServiceImpl implements UserService {
 
-    private static final String PASSWORD_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@#$%&!";
-    private static final int PASSWORD_LENGTH = 12;
+    private static final String DEFAULT_TEMP_PASSWORD = "123456@";
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final UserMapper userMapper;
     private final RedisService redisService;
     private final EmailService emailService;
+    private final EmailAsyncService emailAsyncService;
     private final JwtService jwtService;
     private final CurrentUserProvider currentUserProvider;
     private final AuditLogRepository auditLogRepository;
-    private final SecureRandom secureRandom = new SecureRandom();
 
     @Value("${app.auth.password-reset-url}")
     private String passwordResetUrl;
@@ -85,23 +85,39 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    public boolean existsByEmail(String email) {
+        return userRepository.findByEmailIgnoreCaseAndDeletedAtIsNull(email).isPresent();
+    }
+
+    @Override
+    public boolean existsByPhoneNumber(String phoneNumber) {
+        return userRepository.findByPhoneNumberAndDeletedAtIsNull(phoneNumber).isPresent();
+    }
+
+    @Override
     @Transactional
     public UserResponse createUser(UUID adminId, AdminUserCreateRequest request) {
         String email = request.getEmail().trim().toLowerCase();
 
         if (userRepository.findByEmailIgnoreCaseAndDeletedAtIsNull(email).isPresent()) {
-            throw new BusinessException("Email already exists");
+            throw new BusinessException("Email này đã được sử dụng");
         }
 
         UserRole role;
         try {
             role = UserRole.valueOf(request.getRole().toUpperCase());
         } catch (IllegalArgumentException e) {
-            throw new BusinessException("Invalid role: " + request.getRole());
+            throw new BusinessException("Vai trò không hợp lệ: " + request.getRole());
         }
 
         String tempPassword = generateTemporaryPassword();
         String passwordHash = passwordEncoder.encode(tempPassword);
+
+        if (request.getPhoneNumber() != null && !request.getPhoneNumber().isBlank()) {
+            if (userRepository.findByPhoneNumberAndDeletedAtIsNull(request.getPhoneNumber()).isPresent()) {
+                throw new BusinessException("Số điện thoại này đã được sử dụng");
+            }
+        }
 
         UserEntity user = new UserEntity();
         user.setId(UUID.randomUUID());
@@ -117,7 +133,7 @@ public class UserServiceImpl implements UserService {
 
         userRepository.save(user);
 
-        emailService.sendTemporaryPasswordMail(user.getEmail(), tempPassword);
+        emailService.sendNewAccountMail(user.getEmail(), user.getFullName(), tempPassword);
 
         writeAuditLog(adminId, "CREATE_USER", "USER", user.getId(),
                 null, String.format("{\"email\":\"%s\",\"role\":\"%s\"}", email, role),
@@ -140,13 +156,19 @@ public class UserServiceImpl implements UserService {
             String newEmail = request.getEmail().trim().toLowerCase();
             if (!newEmail.equals(user.getEmail())) {
                 if (userRepository.findByEmailIgnoreCaseAndDeletedAtIsNull(newEmail).isPresent()) {
-                    throw new BusinessException("Email already exists");
+                    throw new BusinessException("Email này đã được sử dụng");
                 }
                 user.setEmail(newEmail);
             }
         }
         if (request.getPhoneNumber() != null) {
-            user.setPhoneNumber(request.getPhoneNumber());
+            String newPhone = request.getPhoneNumber().trim();
+            if (!newPhone.equals(user.getPhoneNumber())) {
+                if (userRepository.findByPhoneNumberAndDeletedAtIsNull(newPhone).isPresent()) {
+                    throw new BusinessException("Số điện thoại này đã được sử dụng");
+                }
+                user.setPhoneNumber(newPhone);
+            }
         }
         if (request.getAvatarUrl() != null) {
             user.setAvatarUrl(request.getAvatarUrl());
@@ -165,17 +187,17 @@ public class UserServiceImpl implements UserService {
             try {
                 newRole = UserRole.valueOf(request.getRole().toUpperCase());
             } catch (IllegalArgumentException e) {
-                throw new BusinessException("Invalid role: " + request.getRole());
+                throw new BusinessException("Vai trò không hợp lệ: " + request.getRole());
             }
 
             if (adminId.equals(userId) && newRole != user.getRole()) {
-                throw new BusinessException("Admin cannot change their own role");
+                throw new BusinessException("Quản trị viên không thể tự đổi vai trò của chính mình");
             }
 
             if (user.getRole() == UserRole.ADMIN && newRole != UserRole.ADMIN) {
                 long remainingAdmins = userRepository.countByRoleAndDeletedAtIsNull(UserRole.ADMIN);
                 if (remainingAdmins <= 1) {
-                    throw new BusinessException("Cannot demote the last active ADMIN");
+                    throw new BusinessException("Không thể hạ cấp quản trị viên cuối cùng");
                 }
             }
 
@@ -186,11 +208,11 @@ public class UserServiceImpl implements UserService {
             try {
                 newStatus = UserStatus.valueOf(request.getStatus().toUpperCase());
             } catch (IllegalArgumentException e) {
-                throw new BusinessException("Invalid status: " + request.getStatus());
+                throw new BusinessException("Trạng thái không hợp lệ: " + request.getStatus());
             }
 
             if (user.getStatus() == UserStatus.DELETED && newStatus != UserStatus.DELETED) {
-                throw new BusinessException("Cannot change status from DELETED to active status");
+                throw new BusinessException("Không thể thay đổi trạng thái của tài khoản đã xóa");
             }
 
             if (newStatus == UserStatus.DISABLED) {
@@ -219,48 +241,12 @@ public class UserServiceImpl implements UserService {
 
     @Override
     @Transactional
-    public MessageResponse deleteUser(UUID adminId, UUID userId) {
-        if (adminId.equals(userId)) {
-            throw new BusinessException("Admin cannot delete their own account");
-        }
-
-        UserEntity user = findActiveUser(userId);
-
-        if (user.getRole() == UserRole.ADMIN) {
-            long remainingAdmins = userRepository.countByRoleAndDeletedAtIsNull(UserRole.ADMIN);
-            if (remainingAdmins <= 1) {
-                throw new BusinessException("Cannot delete the last active ADMIN");
-            }
-        }
-
-        String beforeJson = captureUserState(user);
-
-        user.setStatus(UserStatus.DELETED);
-        user.setDeletedAt(OffsetDateTime.now());
-        user.setUpdatedAt(OffsetDateTime.now());
-        userRepository.save(user);
-
-        revokeUserSessions(userId);
-
-        invalidateUserCaches(userId);
-
-        writeAuditLog(adminId, "DELETE_USER", "USER", userId,
-                beforeJson, captureUserState(user),
-                "Admin soft-deleted user account");
-
-        return MessageResponse.builder()
-                .message("User account has been deleted successfully")
-                .build();
-    }
-
-    @Override
-    @Transactional
     public MessageResponse resetPassword(UUID adminId, UUID userId, ResetPasswordRequest request) {
         UserEntity user = userRepository.findByIdAndDeletedAtIsNull(userId)
-                .orElseThrow(() -> new BusinessException("User not found"));
+                .orElseThrow(() -> new BusinessException("Không tìm thấy người dùng"));
 
         if (user.getStatus() == UserStatus.DELETED) {
-            throw new BusinessException("Cannot reset password for a deleted user");
+            throw new BusinessException("Không thể đặt lại mật khẩu cho tài khoản đã xóa");
         }
 
         String tempPassword = generateTemporaryPassword();
@@ -275,32 +261,58 @@ public class UserServiceImpl implements UserService {
 
         invalidateUserCaches(userId);
 
-        emailService.sendTemporaryPasswordMail(user.getEmail(), tempPassword);
+        emailService.sendAdminPasswordResetMail(user.getEmail(), user.getFullName(), tempPassword);
 
         writeAuditLog(adminId, "RESET_PASSWORD", "USER", userId,
                 null, null,
                 request.getReason() != null ? request.getReason() : "Admin reset user password");
 
         return MessageResponse.builder()
-                .message("Temporary password has been sent to the user's email")
+                .message("Mật khẩu mới đã được gửi tới email của người dùng")
                 .build();
+    }
+
+    @Override
+    @Transactional
+    public List<UserResponse> batchCreateUsers(UUID adminId, List<AdminUserCreateRequest> requests) {
+        String tempPassword = generateTemporaryPassword();
+        String passwordHash = passwordEncoder.encode(tempPassword);
+
+        List<UserEntity> users = new ArrayList<>();
+        for (AdminUserCreateRequest request : requests) {
+            UserEntity user = new UserEntity();
+            user.setId(UUID.randomUUID());
+            user.setEmail(request.getEmail().trim().toLowerCase());
+            user.setFullName(request.getFullName().trim());
+            user.setPasswordHash(passwordHash);
+            user.setRole(UserRole.valueOf(request.getRole().toUpperCase()));
+            user.setStatus(UserStatus.ACTIVE);
+            user.setPhoneNumber(request.getPhoneNumber());
+            user.setCreatedBy(adminId);
+            user.setCreatedAt(OffsetDateTime.now());
+            user.setUpdatedAt(OffsetDateTime.now());
+            users.add(user);
+        }
+
+        userRepository.saveAll(users);
+
+        for (UserEntity user : users) {
+            emailAsyncService.sendNewAccountMailAsync(user.getEmail(), user.getFullName(), tempPassword);
+            writeAuditLog(adminId, "CREATE_USER", "USER", user.getId(),
+                    null, String.format("{\"email\":\"%s\",\"role\":\"%s\"}", user.getEmail(), user.getRole()),
+                    "Admin created user account via CSV import");
+        }
+
+        return users.stream().map(userMapper::toResponse).toList();
     }
 
     private UserEntity findActiveUser(UUID userId) {
         return userRepository.findByIdAndDeletedAtIsNull(userId)
-                .orElseThrow(() -> new BusinessException("User not found"));
+                .orElseThrow(() -> new BusinessException("Không tìm thấy người dùng"));
     }
 
     private String generateTemporaryPassword() {
-        StringBuilder sb = new StringBuilder(PASSWORD_LENGTH);
-        sb.append(PASSWORD_CHARS.charAt(secureRandom.nextInt(26))); // uppercase
-        sb.append(PASSWORD_CHARS.charAt(26 + secureRandom.nextInt(26))); // lowercase
-        sb.append(PASSWORD_CHARS.charAt(52 + secureRandom.nextInt(10))); // digit
-        sb.append(PASSWORD_CHARS.charAt(62 + secureRandom.nextInt(5))); // special
-        for (int i = 4; i < PASSWORD_LENGTH; i++) {
-            sb.append(PASSWORD_CHARS.charAt(secureRandom.nextInt(PASSWORD_CHARS.length())));
-        }
-        return sb.toString();
+        return DEFAULT_TEMP_PASSWORD;
     }
 
     private String mapSortField(String sortBy) {

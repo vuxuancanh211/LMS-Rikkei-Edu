@@ -6,6 +6,8 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.OffsetDateTime;
 import java.util.UUID;
@@ -35,9 +37,11 @@ public class AuditLogEntity {
     private UUID targetId;
 
     @Column(name = "payload_before", columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
     private String payloadBefore;
 
     @Column(name = "payload_after", columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
     private String payloadAfter;
 
     @Column(length = 500)

@@ -26,4 +26,7 @@ public interface UserRepository extends JpaRepository<UserEntity, UUID>, JpaSpec
     List<UserEntity> findByRoleAndNotDeleted(UserRole role);
 
     Optional<UserEntity> findByIdAndDeletedAtIsNull(UUID id);
+
+    Optional<UserEntity> findByPhoneNumberAndDeletedAtIsNull(String phoneNumber);
+
 }
