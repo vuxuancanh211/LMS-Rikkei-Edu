@@ -389,7 +389,8 @@ class ForumServiceImplTest {
         request.setParentReplyId(parentReplyId);
         request.setContent("Reply");
 
-        assertThatThrownBy(() -> forumService.createReply(post.getId(), request))
+        UUID replyPostId = post.getId();
+        assertThatThrownBy(() -> forumService.createReply(replyPostId, request))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("Parent reply does not belong to this post");
     }
@@ -425,7 +426,8 @@ class ForumServiceImplTest {
         when(currentUserProvider.getCurrentUser()).thenReturn(Optional.of(principal(userId, UserRole.STUDENT)));
         when(forumPostRepository.findActiveById(postId)).thenReturn(Optional.of(post));
 
-        assertThatThrownBy(() -> forumService.updatePost(postId, new UpdateForumPostRequest()))
+        UpdateForumPostRequest updateRequest = new UpdateForumPostRequest();
+        assertThatThrownBy(() -> forumService.updatePost(postId, updateRequest))
                 .isInstanceOf(BusinessException.class)
                 .extracting("status")
                 .isEqualTo(HttpStatus.FORBIDDEN);
@@ -655,9 +657,10 @@ class ForumServiceImplTest {
         ArgumentCaptor<ForumPostEntity> captor = ArgumentCaptor.forClass(ForumPostEntity.class);
         verify(forumPostRepository).save(captor.capture());
         String savedContent = captor.getValue().getContent();
-        assertThat(savedContent).doesNotContain("script");
-        assertThat(savedContent).doesNotContain("javascript:");
-        assertThat(savedContent).contains("<p>Hello</p>");
+        assertThat(savedContent)
+                .doesNotContain("script")
+                .doesNotContain("javascript:")
+                .contains("<p>Hello</p>");
     }
 
     @Test
