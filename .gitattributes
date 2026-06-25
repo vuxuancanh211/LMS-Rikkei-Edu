@@ -1,0 +1,30 @@
+# Normalize line endings to LF for all text files
+* text=auto eol=lf
+
+# Shell scripts — always LF
+*.sh text eol=lf
+/mvnw text eol=lf
+
+# Windows batch — CRLF
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Binary files — never touch
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.svg binary
+*.webp binary
+*.pdf binary
+*.zip binary
+*.tar binary
+*.gz binary
+*.jar binary
+*.war binary
+*.woff binary
+*.woff2 binary
+*.eot binary
+*.ttf binary
+*.otf binary
