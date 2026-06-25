@@ -20,7 +20,7 @@
       const u = new URL(url);
       if (u.hostname === "youtu.be") return u.pathname.slice(1).split("?")[0];
       if (u.hostname.includes("youtube.com")) return u.searchParams.get("v");
-    } catch (_e) { /* ignore */ }
+    } catch (e) { console.error("Invalid URL", e); }
     return null;
   }
   function fmtDur(s) {
