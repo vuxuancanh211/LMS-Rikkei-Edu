@@ -132,30 +132,6 @@ class ForumServiceImplTest {
     }
 
     @Test
-    void createPostPreservesForumAttachmentImageSource() {
-        UUID studentId = UUID.randomUUID();
-        UUID courseId = UUID.randomUUID();
-        UUID attachmentId = UUID.randomUUID();
-        ForumCourseEntity course = course(courseId, UUID.randomUUID());
-
-        when(currentUserProvider.getCurrentUser()).thenReturn(Optional.of(principal(studentId, UserRole.STUDENT)));
-        when(forumCourseRepository.findById(courseId)).thenReturn(Optional.of(course));
-        when(forumCourseRepository.isStudentEnrolled(courseId, studentId)).thenReturn(true);
-        when(userRepository.getReferenceById(studentId)).thenReturn(user(studentId, UserRole.STUDENT));
-        when(forumPostRepository.save(any(ForumPostEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-        CreateForumPostRequest request = createPostRequest(courseId, false);
-        request.setContent("<figure><img src=\"http://localhost:8080/api/forum/attachments/" + attachmentId + "/content?token=old\"></figure>");
-
-        forumService.createPost(request);
-
-        ArgumentCaptor<ForumPostEntity> captor = ArgumentCaptor.forClass(ForumPostEntity.class);
-        verify(forumPostRepository).save(captor.capture());
-        assertThat(captor.getValue().getContent()).contains("src=\"/api/forum/attachments/" + attachmentId + "/content\"");
-        assertThat(captor.getValue().getContent()).doesNotContain("token=old");
-    }
-
-    @Test
     void togglePinRejectsInstructorOutsideCourse() {
         UUID instructorId = UUID.randomUUID();
         UUID courseId = UUID.randomUUID();
@@ -682,6 +658,30 @@ class ForumServiceImplTest {
         assertThat(savedContent).doesNotContain("script");
         assertThat(savedContent).doesNotContain("javascript:");
         assertThat(savedContent).contains("<p>Hello</p>");
+    }
+
+    @Test
+    void createPostPreservesForumAttachmentImageSource() {
+        UUID studentId = UUID.randomUUID();
+        UUID courseId = UUID.randomUUID();
+        UUID attachmentId = UUID.randomUUID();
+        ForumCourseEntity course = course(courseId, UUID.randomUUID());
+
+        when(currentUserProvider.getCurrentUser()).thenReturn(Optional.of(principal(studentId, UserRole.STUDENT)));
+        when(forumCourseRepository.findById(courseId)).thenReturn(Optional.of(course));
+        when(forumCourseRepository.isStudentEnrolled(courseId, studentId)).thenReturn(true);
+        when(userRepository.getReferenceById(studentId)).thenReturn(user(studentId, UserRole.STUDENT));
+        when(forumPostRepository.save(any(ForumPostEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        CreateForumPostRequest request = createPostRequest(courseId, false);
+        request.setContent("<figure><img src=\"http://localhost:8080/api/forum/attachments/" + attachmentId + "/content?token=old\"></figure>");
+
+        forumService.createPost(request);
+
+        ArgumentCaptor<ForumPostEntity> captor = ArgumentCaptor.forClass(ForumPostEntity.class);
+        verify(forumPostRepository).save(captor.capture());
+        assertThat(captor.getValue().getContent()).contains("src=\"/api/forum/attachments/" + attachmentId + "/content\"");
+        assertThat(captor.getValue().getContent()).doesNotContain("token=old");
     }
 
     @Test

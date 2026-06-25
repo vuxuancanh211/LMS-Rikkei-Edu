@@ -12,7 +12,7 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 public class SseConfig implements WebMvcConfigurer {
     @Override
     public void configureAsyncSupport(AsyncSupportConfigurer configurer) {
-        configurer.setDefaultTimeout(0L);
+        configurer.setDefaultTimeout(180_000L);
         configurer.setTaskExecutor(sseTaskExecutor());
     }
 
