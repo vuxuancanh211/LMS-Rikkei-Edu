@@ -115,7 +115,7 @@ class CourseControllerExtTest {
 
             mockMvc.perform(put("/api/instructor/courses/{c}/chapters/{ch}", courseId, chapterId)
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content("{\"title\":\"X\"}"))
+                            .content("{\"title\":\"Valid Chapter Title\"}"))
                     .andExpect(status().isNotFound());
         }
     }
@@ -145,7 +145,7 @@ class CourseControllerExtTest {
                     .thenThrow(new ChapterNotFoundException(chapterId));
 
             CreateLessonRequest req = new CreateLessonRequest();
-            req.setTitle("L"); req.setType(LessonType.TEXT);
+            req.setTitle("Valid Lesson Title"); req.setType(LessonType.TEXT);
 
             mockMvc.perform(post("/api/instructor/courses/{c}/chapters/{ch}/lessons", courseId, chapterId)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -178,7 +178,7 @@ class CourseControllerExtTest {
             mockMvc.perform(put("/api/instructor/courses/{c}/chapters/{ch}/lessons/{l}",
                             courseId, chapterId, lessonId)
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content("{\"title\":\"X\"}"))
+                            .content("{\"title\":\"Valid Title Here\"}"))
                     .andExpect(status().isNotFound());
         }
     }
