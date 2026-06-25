@@ -709,7 +709,7 @@ public class CourseServiceImpl implements CourseService {
     private Lesson buildDraftLesson(Chapter chapter, UUID courseId, CourseSnapshotDto.LessonSnap snapL) {
         LessonType type = null;
         if (snapL.getLessonType() != null) {
-            try { type = LessonType.valueOf(snapL.getLessonType()); } catch (Exception ignored) {}
+            try { type = LessonType.valueOf(snapL.getLessonType()); } catch (IllegalArgumentException e) { log.warn("Unknown lesson type in snapshot: {}", snapL.getLessonType()); }
         }
         return Lesson.builder()
                 .chapter(chapter)
