@@ -415,10 +415,10 @@
     }
 
     async function handleRenameChapter(chapterId, newTitle) {
-      try { await api.put(`/instructor/courses/${courseId}/chapters/${chapterId}`, { title: newTitle }); loadCourse(true); } catch { }
+      try { await api.put(`/instructor/courses/${courseId}/chapters/${chapterId}`, { title: newTitle }); loadCourse(true); } catch (_e) { /* ignore */ }
     }
     async function handleRenameLesson(chapterId, lessonId, newTitle) {
-      try { await api.put(`/instructor/courses/${courseId}/chapters/${chapterId}/lessons/${lessonId}`, { title: newTitle }); loadCourse(true); } catch { }
+      try { await api.put(`/instructor/courses/${courseId}/chapters/${chapterId}/lessons/${lessonId}`, { title: newTitle }); loadCourse(true); } catch (_e) { /* ignore */ }
     }
     async function handleDeleteChapter(chapterId) {
       if (!confirm("Xóa chương này và toàn bộ bài giảng bên trong?")) return;
