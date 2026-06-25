@@ -26,7 +26,7 @@ import project.lms_rikkei_edu.modules.course.service.LessonResourceService;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedPutObjectRequest;
 
-import java.net.URI;
+import java.net.URL;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -324,9 +324,9 @@ class CourseControllerExtTest {
         @Test
         void returns200_withUploadUrl() throws Exception {
             PresignedPutObjectRequest putReq = mock(PresignedPutObjectRequest.class);
-            when(putReq.url()).thenReturn(URI.create("https://s3.example.com/upload"));
+            when(putReq.url()).thenReturn(new URL("https://s3.example.com/upload"));
             PresignedGetObjectRequest getReq = mock(PresignedGetObjectRequest.class);
-            when(getReq.url()).thenReturn(URI.create("https://s3.example.com/view"));
+            when(getReq.url()).thenReturn(new URL("https://s3.example.com/view"));
             when(s3Service.generatePresignedPutUrl(anyString(), anyString(), anyLong()))
                     .thenReturn(putReq);
             when(s3Service.generatePresignedGetUrl(anyString(), anyLong()))
@@ -346,7 +346,7 @@ class CourseControllerExtTest {
         void returns200_whenOwner() throws Exception {
             when(courseRepo.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(true);
             PresignedGetObjectRequest getReq = mock(PresignedGetObjectRequest.class);
-            when(getReq.url()).thenReturn(URI.create("https://s3.example.com/view"));
+            when(getReq.url()).thenReturn(new URL("https://s3.example.com/view"));
             when(s3Service.generatePresignedInlineUrl(anyString(), anyLong())).thenReturn(getReq);
 
             mockMvc.perform(get("/api/instructor/courses/{c}/resources/presign-view", courseId)
@@ -372,7 +372,7 @@ class CourseControllerExtTest {
         void returns200_whenOwner() throws Exception {
             when(courseRepo.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(true);
             PresignedGetObjectRequest getReq = mock(PresignedGetObjectRequest.class);
-            when(getReq.url()).thenReturn(URI.create("https://s3.example.com/dl"));
+            when(getReq.url()).thenReturn(new URL("https://s3.example.com/dl"));
             when(s3Service.generatePresignedGetUrl(anyString(), anyLong())).thenReturn(getReq);
 
             mockMvc.perform(get("/api/instructor/courses/{c}/resources/presign-download", courseId)

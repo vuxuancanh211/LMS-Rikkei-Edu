@@ -89,7 +89,7 @@ class CourseLessonAndVersionServiceImplTest {
 
     private Chapter chapter() {
         return Chapter.builder()
-                .id(CHAPTER_ID).courseId(COURSE_ID)
+                .id(CHAPTER_ID)
                 .title("Chapter 1").orderIndex(1)
                 .lessons(new ArrayList<>())
                 .build();
@@ -122,7 +122,7 @@ class CourseLessonAndVersionServiceImplTest {
             Course course = draftCourse();
             Chapter ch    = chapter();
 
-            when(courseRepository.findByIdAndInstructorId(COURSE_ID, INSTRUCTOR_ID))
+            when(courseRepository.findByIdWithCategory(COURSE_ID))
                     .thenReturn(Optional.of(course));
             when(chapterRepository.findByIdAndCourseId(CHAPTER_ID, COURSE_ID))
                     .thenReturn(Optional.of(ch));
@@ -148,7 +148,7 @@ class CourseLessonAndVersionServiceImplTest {
             Course course = publishedCourse();
             Chapter ch    = chapter();
 
-            when(courseRepository.findByIdAndInstructorId(COURSE_ID, INSTRUCTOR_ID))
+            when(courseRepository.findByIdWithCategory(COURSE_ID))
                     .thenReturn(Optional.of(course));
             when(chapterRepository.findByIdAndCourseId(CHAPTER_ID, COURSE_ID))
                     .thenReturn(Optional.of(ch));
@@ -170,7 +170,7 @@ class CourseLessonAndVersionServiceImplTest {
 
         @Test
         void throws_whenChapterNotInCourse() {
-            when(courseRepository.findByIdAndInstructorId(COURSE_ID, INSTRUCTOR_ID))
+            when(courseRepository.findByIdWithCategory(COURSE_ID))
                     .thenReturn(Optional.of(draftCourse()));
             when(chapterRepository.findByIdAndCourseId(CHAPTER_ID, COURSE_ID))
                     .thenReturn(Optional.empty());
@@ -190,7 +190,7 @@ class CourseLessonAndVersionServiceImplTest {
 
         @Test
         void updatesDirectly_whenDraftCourse() {
-            when(courseRepository.findByIdAndInstructorId(COURSE_ID, INSTRUCTOR_ID))
+            when(courseRepository.findByIdWithCategory(COURSE_ID))
                     .thenReturn(Optional.of(draftCourse()));
             when(chapterRepository.findByIdAndCourseId(CHAPTER_ID, COURSE_ID))
                     .thenReturn(Optional.of(chapter()));
@@ -212,7 +212,7 @@ class CourseLessonAndVersionServiceImplTest {
 
         @Test
         void updatesDraftFields_whenPublishedCourseAndLivLesson() {
-            when(courseRepository.findByIdAndInstructorId(COURSE_ID, INSTRUCTOR_ID))
+            when(courseRepository.findByIdWithCategory(COURSE_ID))
                     .thenReturn(Optional.of(publishedCourse()));
             when(chapterRepository.findByIdAndCourseId(CHAPTER_ID, COURSE_ID))
                     .thenReturn(Optional.of(chapter()));
@@ -236,7 +236,7 @@ class CourseLessonAndVersionServiceImplTest {
 
         @Test
         void throws_whenLessonNotFound() {
-            when(courseRepository.findByIdAndInstructorId(COURSE_ID, INSTRUCTOR_ID))
+            when(courseRepository.findByIdWithCategory(COURSE_ID))
                     .thenReturn(Optional.of(draftCourse()));
             when(chapterRepository.findByIdAndCourseId(CHAPTER_ID, COURSE_ID))
                     .thenReturn(Optional.of(chapter()));
@@ -256,7 +256,7 @@ class CourseLessonAndVersionServiceImplTest {
 
         @Test
         void hardDeletes_whenDraftCourse() {
-            when(courseRepository.findByIdAndInstructorId(COURSE_ID, INSTRUCTOR_ID))
+            when(courseRepository.findByIdWithCategory(COURSE_ID))
                     .thenReturn(Optional.of(draftCourse()));
             when(chapterRepository.findByIdAndCourseId(CHAPTER_ID, COURSE_ID))
                     .thenReturn(Optional.of(chapter()));
@@ -271,7 +271,7 @@ class CourseLessonAndVersionServiceImplTest {
 
         @Test
         void hardDeletes_whenDraftLesson_inPublishedCourse() {
-            when(courseRepository.findByIdAndInstructorId(COURSE_ID, INSTRUCTOR_ID))
+            when(courseRepository.findByIdWithCategory(COURSE_ID))
                     .thenReturn(Optional.of(publishedCourse()));
             when(chapterRepository.findByIdAndCourseId(CHAPTER_ID, COURSE_ID))
                     .thenReturn(Optional.of(chapter()));
@@ -286,7 +286,7 @@ class CourseLessonAndVersionServiceImplTest {
 
         @Test
         void marksPendingDelete_whenLiveLessonInPublishedCourse() {
-            when(courseRepository.findByIdAndInstructorId(COURSE_ID, INSTRUCTOR_ID))
+            when(courseRepository.findByIdWithCategory(COURSE_ID))
                     .thenReturn(Optional.of(publishedCourse()));
             when(chapterRepository.findByIdAndCourseId(CHAPTER_ID, COURSE_ID))
                     .thenReturn(Optional.of(chapter()));
@@ -310,7 +310,7 @@ class CourseLessonAndVersionServiceImplTest {
         @Test
         void savesDraftVersion_whenDraftCourse() throws Exception {
             Course course = draftCourse();
-            when(courseRepository.findByIdAndInstructorId(COURSE_ID, INSTRUCTOR_ID))
+            when(courseRepository.findByIdWithCategory(COURSE_ID))
                     .thenReturn(Optional.of(course));
             when(courseVersionRepository.countByCourseIdAndStatus(COURSE_ID, "DRAFT")).thenReturn(0L);
             when(objectMapper.writeValueAsString(any())).thenReturn("{}");
@@ -326,7 +326,7 @@ class CourseLessonAndVersionServiceImplTest {
 
         @Test
         void throws_whenDraftLimitReached() {
-            when(courseRepository.findByIdAndInstructorId(COURSE_ID, INSTRUCTOR_ID))
+            when(courseRepository.findByIdWithCategory(COURSE_ID))
                     .thenReturn(Optional.of(draftCourse()));
             when(courseVersionRepository.countByCourseIdAndStatus(COURSE_ID, "DRAFT")).thenReturn(3L);
 
@@ -340,7 +340,7 @@ class CourseLessonAndVersionServiceImplTest {
             Course pending = Course.builder()
                     .id(COURSE_ID).instructorId(INSTRUCTOR_ID)
                     .status(CourseStatus.PENDING).chapters(new ArrayList<>()).build();
-            when(courseRepository.findByIdAndInstructorId(COURSE_ID, INSTRUCTOR_ID))
+            when(courseRepository.findByIdWithCategory(COURSE_ID))
                     .thenReturn(Optional.of(pending));
 
             assertThatThrownBy(() -> courseService.saveDraft(INSTRUCTOR_ID, COURSE_ID, "label"))
@@ -355,7 +355,7 @@ class CourseLessonAndVersionServiceImplTest {
 
         @Test
         void deletesVersion_whenDraftStatus() {
-            when(courseRepository.findByIdAndInstructorId(COURSE_ID, INSTRUCTOR_ID))
+            when(courseRepository.findByIdWithCategory(COURSE_ID))
                     .thenReturn(Optional.of(draftCourse()));
             CourseVersion v = draftVersion();
             when(courseVersionRepository.findById(VERSION_ID)).thenReturn(Optional.of(v));
@@ -367,7 +367,7 @@ class CourseLessonAndVersionServiceImplTest {
 
         @Test
         void throws_whenVersionNotFound() {
-            when(courseRepository.findByIdAndInstructorId(COURSE_ID, INSTRUCTOR_ID))
+            when(courseRepository.findByIdWithCategory(COURSE_ID))
                     .thenReturn(Optional.of(draftCourse()));
             when(courseVersionRepository.findById(VERSION_ID)).thenReturn(Optional.empty());
 
@@ -377,7 +377,7 @@ class CourseLessonAndVersionServiceImplTest {
 
         @Test
         void throws_whenVersionBelongsToOtherCourse() {
-            when(courseRepository.findByIdAndInstructorId(COURSE_ID, INSTRUCTOR_ID))
+            when(courseRepository.findByIdWithCategory(COURSE_ID))
                     .thenReturn(Optional.of(draftCourse()));
             CourseVersion v = draftVersion();
             v.setCourseId(UUID.randomUUID()); // different course
@@ -389,7 +389,7 @@ class CourseLessonAndVersionServiceImplTest {
 
         @Test
         void throws_whenVersionIsNotDraftOrRejected() {
-            when(courseRepository.findByIdAndInstructorId(COURSE_ID, INSTRUCTOR_ID))
+            when(courseRepository.findByIdWithCategory(COURSE_ID))
                     .thenReturn(Optional.of(draftCourse()));
             CourseVersion v = draftVersion();
             v.setStatus("PENDING");
@@ -407,7 +407,7 @@ class CourseLessonAndVersionServiceImplTest {
 
         @Test
         void renamesVersion() {
-            when(courseRepository.findByIdAndInstructorId(COURSE_ID, INSTRUCTOR_ID))
+            when(courseRepository.findByIdWithCategory(COURSE_ID))
                     .thenReturn(Optional.of(draftCourse()));
             CourseVersion v = draftVersion();
             when(courseVersionRepository.findById(VERSION_ID)).thenReturn(Optional.of(v));
@@ -420,7 +420,7 @@ class CourseLessonAndVersionServiceImplTest {
 
         @Test
         void throws_whenVersionNotDraft() {
-            when(courseRepository.findByIdAndInstructorId(COURSE_ID, INSTRUCTOR_ID))
+            when(courseRepository.findByIdWithCategory(COURSE_ID))
                     .thenReturn(Optional.of(draftCourse()));
             CourseVersion v = draftVersion();
             v.setStatus("PENDING");
@@ -438,7 +438,7 @@ class CourseLessonAndVersionServiceImplTest {
 
         @Test
         void clonesDraftVersion() {
-            when(courseRepository.findByIdAndInstructorId(COURSE_ID, INSTRUCTOR_ID))
+            when(courseRepository.findByIdWithCategory(COURSE_ID))
                     .thenReturn(Optional.of(draftCourse()));
             CourseVersion source = draftVersion();
             when(courseVersionRepository.findById(VERSION_ID)).thenReturn(Optional.of(source));
@@ -456,7 +456,7 @@ class CourseLessonAndVersionServiceImplTest {
 
         @Test
         void throws_whenDraftLimitReached() {
-            when(courseRepository.findByIdAndInstructorId(COURSE_ID, INSTRUCTOR_ID))
+            when(courseRepository.findByIdWithCategory(COURSE_ID))
                     .thenReturn(Optional.of(draftCourse()));
             when(courseVersionRepository.findById(VERSION_ID)).thenReturn(Optional.of(draftVersion()));
             when(courseVersionRepository.countByCourseIdAndStatus(COURSE_ID, "DRAFT")).thenReturn(3L);
@@ -474,7 +474,7 @@ class CourseLessonAndVersionServiceImplTest {
 
         @Test
         void submitsDraftVersion() {
-            when(courseRepository.findByIdAndInstructorId(COURSE_ID, INSTRUCTOR_ID))
+            when(courseRepository.findByIdWithCategory(COURSE_ID))
                     .thenReturn(Optional.of(draftCourse()));
             CourseVersion v = draftVersion();
             when(courseVersionRepository.findById(VERSION_ID)).thenReturn(Optional.of(v));
@@ -490,7 +490,7 @@ class CourseLessonAndVersionServiceImplTest {
 
         @Test
         void throws_whenVersionNotDraft() {
-            when(courseRepository.findByIdAndInstructorId(COURSE_ID, INSTRUCTOR_ID))
+            when(courseRepository.findByIdWithCategory(COURSE_ID))
                     .thenReturn(Optional.of(draftCourse()));
             CourseVersion v = draftVersion();
             v.setStatus("PENDING");
@@ -508,7 +508,7 @@ class CourseLessonAndVersionServiceImplTest {
 
         @Test
         void returnsTrue_whenPendingVersionExists() {
-            when(courseRepository.findByIdAndInstructorId(COURSE_ID, INSTRUCTOR_ID))
+            when(courseRepository.findByIdWithCategory(COURSE_ID))
                     .thenReturn(Optional.of(draftCourse()));
             when(courseVersionRepository.countByCourseIdAndStatus(COURSE_ID, "PENDING")).thenReturn(1L);
 
@@ -517,7 +517,7 @@ class CourseLessonAndVersionServiceImplTest {
 
         @Test
         void returnsFalse_whenNoPendingVersion() {
-            when(courseRepository.findByIdAndInstructorId(COURSE_ID, INSTRUCTOR_ID))
+            when(courseRepository.findByIdWithCategory(COURSE_ID))
                     .thenReturn(Optional.of(draftCourse()));
             when(courseVersionRepository.countByCourseIdAndStatus(COURSE_ID, "PENDING")).thenReturn(0L);
 

@@ -78,9 +78,10 @@ class CourseServiceImplExtTest {
                 .status(CourseStatus.PUBLISHED).chapters(new ArrayList<>()).build();
     }
 
+    // Chapter entity has no courseId field — use id + title only
     private Chapter chapter(UUID id, boolean isDraft) {
         return Chapter.builder()
-                .id(id).courseId(COURSE_ID).title("Ch").orderIndex(1)
+                .id(id).title("Ch").orderIndex(1)
                 .isDraft(isDraft).lessons(new ArrayList<>()).build();
     }
 
@@ -105,8 +106,7 @@ class CourseServiceImplExtTest {
         void updatesTitle_onDraftCourse() {
             Course course = draftCourse();
             Chapter ch = chapter(CHAPTER_ID, false);
-            when(courseRepository.findByIdAndInstructorId(COURSE_ID, INSTRUCTOR_ID))
-                    .thenReturn(Optional.of(course));
+            when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.of(course));
             when(chapterRepository.findByIdAndCourseId(CHAPTER_ID, COURSE_ID))
                     .thenReturn(Optional.of(ch));
             when(chapterRepository.save(ch)).thenReturn(ch);
@@ -126,8 +126,7 @@ class CourseServiceImplExtTest {
         void updatesTitle_onPublishedCourse_directlyNoQueue() {
             Course course = publishedCourse();
             Chapter ch = chapter(CHAPTER_ID, false);
-            when(courseRepository.findByIdAndInstructorId(COURSE_ID, INSTRUCTOR_ID))
-                    .thenReturn(Optional.of(course));
+            when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.of(course));
             when(chapterRepository.findByIdAndCourseId(CHAPTER_ID, COURSE_ID))
                     .thenReturn(Optional.of(ch));
             when(chapterRepository.save(ch)).thenReturn(ch);
@@ -145,8 +144,7 @@ class CourseServiceImplExtTest {
         @Test
         void throws_whenChapterNotFound() {
             Course course = draftCourse();
-            when(courseRepository.findByIdAndInstructorId(COURSE_ID, INSTRUCTOR_ID))
-                    .thenReturn(Optional.of(course));
+            when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.of(course));
             when(chapterRepository.findByIdAndCourseId(CHAPTER_ID, COURSE_ID))
                     .thenReturn(Optional.empty());
 
@@ -156,9 +154,8 @@ class CourseServiceImplExtTest {
         }
 
         @Test
-        void throws_whenCourseNotOwned() {
-            when(courseRepository.findByIdAndInstructorId(COURSE_ID, INSTRUCTOR_ID))
-                    .thenReturn(Optional.empty());
+        void throws_whenCourseNotFound() {
+            when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> courseService.updateChapter(
                     INSTRUCTOR_ID, COURSE_ID, CHAPTER_ID, new UpdateChapterRequest()))
@@ -175,8 +172,7 @@ class CourseServiceImplExtTest {
         void hardDeletes_onDraftCourse() {
             Course course = draftCourse();
             Chapter ch = chapter(CHAPTER_ID, false);
-            when(courseRepository.findByIdAndInstructorId(COURSE_ID, INSTRUCTOR_ID))
-                    .thenReturn(Optional.of(course));
+            when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.of(course));
             when(chapterRepository.findByIdAndCourseId(CHAPTER_ID, COURSE_ID))
                     .thenReturn(Optional.of(ch));
 
@@ -188,9 +184,8 @@ class CourseServiceImplExtTest {
         @Test
         void pendingDeletes_liveChapterInPublishedCourse() {
             Course course = publishedCourse();
-            Chapter ch = chapter(CHAPTER_ID, false); // not a draft chapter → live
-            when(courseRepository.findByIdAndInstructorId(COURSE_ID, INSTRUCTOR_ID))
-                    .thenReturn(Optional.of(course));
+            Chapter ch = chapter(CHAPTER_ID, false); // not draft → live
+            when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.of(course));
             when(chapterRepository.findByIdAndCourseId(CHAPTER_ID, COURSE_ID))
                     .thenReturn(Optional.of(ch));
 
@@ -205,8 +200,7 @@ class CourseServiceImplExtTest {
         void hardDeletes_draftChapterInPublishedCourse() {
             Course course = publishedCourse();
             Chapter ch = chapter(CHAPTER_ID, true); // isDraft=true → not yet live
-            when(courseRepository.findByIdAndInstructorId(COURSE_ID, INSTRUCTOR_ID))
-                    .thenReturn(Optional.of(course));
+            when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.of(course));
             when(chapterRepository.findByIdAndCourseId(CHAPTER_ID, COURSE_ID))
                     .thenReturn(Optional.of(ch));
 
@@ -218,8 +212,7 @@ class CourseServiceImplExtTest {
         @Test
         void throws_whenChapterNotFound() {
             Course course = draftCourse();
-            when(courseRepository.findByIdAndInstructorId(COURSE_ID, INSTRUCTOR_ID))
-                    .thenReturn(Optional.of(course));
+            when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.of(course));
             when(chapterRepository.findByIdAndCourseId(CHAPTER_ID, COURSE_ID))
                     .thenReturn(Optional.empty());
 
@@ -236,8 +229,7 @@ class CourseServiceImplExtTest {
         @Test
         void returnsHistory_withActorTypes() {
             Course course = draftCourse();
-            when(courseRepository.findByIdAndInstructorId(COURSE_ID, INSTRUCTOR_ID))
-                    .thenReturn(Optional.of(course));
+            when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.of(course));
 
             CourseApprovalLog submitLog  = buildLog("SUBMITTED");
             CourseApprovalLog approveLog = buildLog("APPROVED_FIRST");
@@ -254,8 +246,7 @@ class CourseServiceImplExtTest {
         @Test
         void returnsEmptyList_whenNoHistory() {
             Course course = draftCourse();
-            when(courseRepository.findByIdAndInstructorId(COURSE_ID, INSTRUCTOR_ID))
-                    .thenReturn(Optional.of(course));
+            when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.of(course));
             when(approvalLogRepository.findByCourseIdOrderByCreatedAtAsc(COURSE_ID))
                     .thenReturn(List.of());
 
@@ -265,9 +256,8 @@ class CourseServiceImplExtTest {
         }
 
         @Test
-        void throwsCourseNotFoundException_whenNotOwned() {
-            when(courseRepository.findByIdAndInstructorId(COURSE_ID, INSTRUCTOR_ID))
-                    .thenReturn(Optional.empty());
+        void throwsCourseNotFoundException_whenNotFound() {
+            when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> courseService.getCourseHistory(INSTRUCTOR_ID, COURSE_ID))
                     .isInstanceOf(CourseNotFoundException.class);
@@ -276,8 +266,7 @@ class CourseServiceImplExtTest {
         @Test
         void categorizesBothInstructorAndAdminActions() {
             Course course = draftCourse();
-            when(courseRepository.findByIdAndInstructorId(COURSE_ID, INSTRUCTOR_ID))
-                    .thenReturn(Optional.of(course));
+            when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.of(course));
 
             List<CourseApprovalLog> logs = List.of(
                     buildLog("SUBMITTED"),
@@ -306,8 +295,7 @@ class CourseServiceImplExtTest {
         @Test
         void returnsVersionList() {
             Course course = draftCourse();
-            when(courseRepository.findByIdAndInstructorId(COURSE_ID, INSTRUCTOR_ID))
-                    .thenReturn(Optional.of(course));
+            when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.of(course));
 
             CourseVersion v1 = buildVersion("APPROVED");
             CourseVersion v2 = buildVersion("DRAFT");
@@ -324,8 +312,7 @@ class CourseServiceImplExtTest {
         @Test
         void returnsEmpty_whenNoVersions() {
             Course course = draftCourse();
-            when(courseRepository.findByIdAndInstructorId(COURSE_ID, INSTRUCTOR_ID))
-                    .thenReturn(Optional.of(course));
+            when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.of(course));
             when(courseVersionRepository.findByCourseIdOrderByVersionNumberDesc(COURSE_ID))
                     .thenReturn(List.of());
 
@@ -335,9 +322,8 @@ class CourseServiceImplExtTest {
         }
 
         @Test
-        void throwsCourseNotFoundException_whenNotOwned() {
-            when(courseRepository.findByIdAndInstructorId(COURSE_ID, INSTRUCTOR_ID))
-                    .thenReturn(Optional.empty());
+        void throwsCourseNotFoundException_whenNotFound() {
+            when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> courseService.getCourseVersions(INSTRUCTOR_ID, COURSE_ID))
                     .isInstanceOf(CourseNotFoundException.class);
