@@ -70,7 +70,7 @@
 
         {chapters.map((ch: any, ci: number) => (
           <div key={ch.id} style={{
-            border: "1px solid var(--border)", borderRadius: 12, marginBottom: 10, overflow: "hidden",
+            border: "1px solid var(--border)", borderRadius: 12, marginBottom: 10,
             opacity: ch.pendingDelete ? 0.55 : 1,
             outline: ch.isDraft ? "2px solid #22c55e" : ch.pendingDelete ? "2px solid #ef4444" : "none",
           }}>
@@ -108,7 +108,7 @@
                     <div key={lesson.lessonId} style={{
                       margin: "0 10px 8px",
                       border: lesson.pendingDelete ? "1px dashed #fca5a5" : lesson.isDraft ? "1px solid #86efac" : "1px solid var(--border-soft, #e5e7eb)",
-                      borderRadius: 10, overflow: "hidden",
+                      borderRadius: 10,
                       opacity: lesson.pendingDelete ? 0.6 : 1,
                       background: "var(--surface)",
                     }}>
@@ -195,9 +195,9 @@
                                 {/* Eye menu */}
                                 {!rIsDel && (
                                   <div style={{ position: "relative" }}>
-                                    <button className="icon-btn" style={{ width: 28, height: 28 }} title="Xem / Tải tài liệu"
+                                    <button className="icon-btn" data-size="sm" style={{ width: 28, height: 28 }} title="Xem / Tải tài liệu"
                                       onClick={e => { e.stopPropagation(); setResourceMenu(menuOpen ? null : { resourceId: r.resourceId, lessonId: lesson.lessonId, r }); }}>
-                                      <Ic n="eye" size={13} />
+                                      <Ic n="eye" size={14} />
                                     </button>
                                     {menuOpen && (
                                       <>
@@ -236,11 +236,11 @@
 
                                 {/* Edit / Delete */}
                                 {canEdit && !rIsDel && <>
-                                  <button className="icon-btn" style={{ width: 28, height: 28 }} title="Đổi tên"
+                                  <button className="icon-btn" data-size="sm" style={{ width: 28, height: 28 }} title="Đổi tên"
                                     onClick={() => setEditResourceState({ lessonId: lesson.lessonId, resourceId: r.resourceId, title: r.title, resourceType: r.resourceType, externalUrl: r.externalUrl, mimeType: r.mimeType })}>
                                     <Ic n="edit" size={13} />
                                   </button>
-                                  <button className="icon-btn" style={{ width: 28, height: 28, color: "var(--error)" }} title="Xóa tài liệu"
+                                  <button className="icon-btn" data-size="sm" style={{ width: 28, height: 28, color: "var(--error)" }} title="Xóa tài liệu"
                                     onClick={() => handleDeleteResource(lesson.lessonId, r.resourceId)}>
                                     <Ic n="x" size={13} />
                                   </button>
