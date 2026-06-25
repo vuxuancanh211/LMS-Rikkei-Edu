@@ -92,7 +92,7 @@ public class RagChatService {
         LlmResponse llmResp = llmService.complete(systemPrompt, llmHistory, req.message());
 
         // 7. Persist messages
-        AiMessage userMsg = saveMessage(conversation, MessageRole.USER, req.message(), null, null, null);
+        saveMessage(conversation, MessageRole.USER, req.message(), null, null, null);
         AiMessage assistantMsg = saveMessage(
                 conversation, MessageRole.ASSISTANT, llmResp.content(),
                 props.getChatModel(), (int) llmResp.responseTimeMs(), LLM_PROVIDER);

@@ -16,6 +16,8 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class UserContextService {
 
+    private static final String COL_TITLE = "title";
+
     private final JdbcTemplate jdbc;
 
     public UserContext load(UUID userId) {
@@ -53,7 +55,7 @@ public class UserContextService {
                 """,
                 (rs, i) -> new CourseInfo(
                         rs.getObject("id", UUID.class),
-                        rs.getString("title"),
+                        rs.getString(COL_TITLE),
                         rs.getString("progress_status"),
                         rs.getDouble("progress_pct")),
                 studentId);
@@ -71,7 +73,7 @@ public class UserContextService {
                 ORDER BY a.deadline ASC
                 """,
                 (rs, i) -> new DeadlineInfo(
-                        rs.getString("title"),
+                        rs.getString(COL_TITLE),
                         rs.getString("course_name"),
                         rs.getString("deadline"),
                         rs.getBoolean("is_late")),
@@ -159,7 +161,7 @@ public class UserContextService {
                 ORDER BY a.deadline ASC
                 """,
                 (rs, i) -> new UnsubmittedAssignmentInfo(
-                        rs.getString("title"),
+                        rs.getString(COL_TITLE),
                         rs.getString("course_name"),
                         rs.getString("deadline"),
                         rs.getBoolean("is_overdue")),
@@ -184,7 +186,7 @@ public class UserContextService {
                 """,
                 (rs, i) -> new CourseInfo(
                         rs.getObject("id", UUID.class),
-                        rs.getString("title"),
+                        rs.getString(COL_TITLE),
                         rs.getString("progress_status"),
                         rs.getDouble("enrollment_count")),
                 instructorId);
@@ -201,7 +203,7 @@ public class UserContextService {
                 ORDER BY a.deadline ASC
                 """,
                 (rs, i) -> new DeadlineInfo(
-                        rs.getString("title"),
+                        rs.getString(COL_TITLE),
                         rs.getString("course_name"),
                         rs.getString("deadline"),
                         rs.getBoolean("is_late")),

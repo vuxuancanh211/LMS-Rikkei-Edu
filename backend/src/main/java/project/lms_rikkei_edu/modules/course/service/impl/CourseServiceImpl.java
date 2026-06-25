@@ -40,6 +40,9 @@ import java.util.stream.Collectors;
 @Transactional
 public class CourseServiceImpl implements CourseService {
 
+    private static final String VERSION_STATUS_DRAFT   = "DRAFT";
+    private static final String ERR_VERSION_NOT_FOUND  = "Version không tồn tại";
+
     private final CourseRepository courseRepository;
     private final ChapterRepository chapterRepository;
     private final LessonRepository lessonRepository;
@@ -183,7 +186,7 @@ public class CourseServiceImpl implements CourseService {
             course.setStatus(CourseStatus.DRAFT);
             course.setSubmittedAt(null);
             courseVersionRepository.findFirstByCourseIdAndStatus(courseId, "PENDING").ifPresent(v -> {
-                v.setStatus("DRAFT");
+                v.setStatus(VERSION_STATUS_DRAFT);
                 courseVersionRepository.save(v);
             });
 
@@ -196,7 +199,7 @@ public class CourseServiceImpl implements CourseService {
             course.setSubmittedAt(null);
             // Revert CourseVersion PENDING → DRAFT để instructor có thể chỉnh sửa lại
             courseVersionRepository.findFirstByCourseIdAndStatus(courseId, "PENDING").ifPresent(v -> {
-                v.setStatus("DRAFT");
+                v.setStatus(VERSION_STATUS_DRAFT);
                 courseVersionRepository.save(v);
             });
 
@@ -565,7 +568,7 @@ public class CourseServiceImpl implements CourseService {
                 .filter(v -> v.getCourseId().equals(courseId))
                 .orElseThrow(() -> new IllegalArgumentException("Version không tồn tại hoặc không thuộc khóa học này"));
 
-        boolean isDraftRestore = "DRAFT".equals(version.getStatus());
+        boolean isDraftRestore = VERSION_STATUS_DRAFT.equals(version.getStatus());
 
         if (!isDraftRestore && course.getStatus() != CourseStatus.PUBLISHED) {
             throw new CourseStateException("Chỉ có thể rollback về APPROVED khi khóa học đang PUBLISHED");
@@ -753,7 +756,7 @@ public class CourseServiceImpl implements CourseService {
             throw new CourseStateException("Không thể lưu bản nháp khi đang chờ duyệt lần đầu");
         }
 
-        long draftCount = courseVersionRepository.countByCourseIdAndStatus(courseId, "DRAFT");
+        long draftCount = courseVersionRepository.countByCourseIdAndStatus(courseId, VERSION_STATUS_DRAFT);
         if (draftCount >= 3) {
             throw new CourseStateException("Đã đạt giới hạn 3 bản nháp. Vui lòng xóa bớt bản nháp cũ trước khi lưu mới.");
         }
@@ -770,7 +773,7 @@ public class CourseServiceImpl implements CourseService {
         CourseVersion draft = courseVersionRepository.save(CourseVersion.builder()
                 .courseId(courseId)
                 .versionNumber(null)        // DRAFT không có version number chính thức
-                .status("DRAFT")
+                .status(VERSION_STATUS_DRAFT)
                 .snapshot(snapshotJson)
                 .label(label != null && !label.isBlank() ? label.trim() : null)
                 .submittedBy(instructorId)
@@ -780,7 +783,7 @@ public class CourseServiceImpl implements CourseService {
         return CourseVersionResponse.builder()
                 .id(draft.getId())
                 .versionNumber(null)
-                .status("DRAFT")
+                .status(VERSION_STATUS_DRAFT)
                 .label(draft.getLabel())
                 .submittedAt(draft.getSubmittedAt())
                 .snapshot(draft.getSnapshot())
@@ -792,11 +795,11 @@ public class CourseServiceImpl implements CourseService {
     public void deleteDraftVersion(UUID instructorId, UUID courseId, UUID versionId) {
         loadOwnedCourse(instructorId, courseId);
         CourseVersion version = courseVersionRepository.findById(versionId)
-                .orElseThrow(() -> new IllegalArgumentException("Version không tồn tại"));
+                .orElseThrow(() -> new IllegalArgumentException(ERR_VERSION_NOT_FOUND));
         if (!version.getCourseId().equals(courseId)) {
             throw new CourseStateException("Version không thuộc khóa học này");
         }
-        if (!"DRAFT".equals(version.getStatus()) && !"REJECTED".equals(version.getStatus())) {
+        if (!VERSION_STATUS_DRAFT.equals(version.getStatus()) && !"REJECTED".equals(version.getStatus())) {
             throw new CourseStateException("Chỉ có thể xóa bản nháp DRAFT hoặc REJECTED");
         }
         // Cleanup S3: xóa các file trong snapshot không còn được tham chiếu bởi lesson_resources
@@ -810,8 +813,8 @@ public class CourseServiceImpl implements CourseService {
         loadOwnedCourse(instructorId, courseId);
         CourseVersion version = courseVersionRepository.findById(versionId)
                 .filter(v -> v.getCourseId().equals(courseId))
-                .orElseThrow(() -> new IllegalArgumentException("Version không tồn tại"));
-        if (!"DRAFT".equals(version.getStatus())) {
+                .orElseThrow(() -> new IllegalArgumentException(ERR_VERSION_NOT_FOUND));
+        if (!VERSION_STATUS_DRAFT.equals(version.getStatus())) {
             throw new CourseStateException("Chỉ có thể đổi tên bản nháp DRAFT");
         }
         version.setLabel(label != null ? label.trim() : null);
@@ -821,7 +824,7 @@ public class CourseServiceImpl implements CourseService {
     private void revertPendingVersionsToDraft(UUID courseId) {
         courseVersionRepository.findByCourseIdAndStatusOrderBySubmittedAtDesc(courseId, "PENDING")
                 .forEach(v -> {
-                    v.setStatus("DRAFT");
+                    v.setStatus(VERSION_STATUS_DRAFT);
                     courseVersionRepository.save(v);
                 });
     }
@@ -857,24 +860,24 @@ public class CourseServiceImpl implements CourseService {
         loadOwnedCourse(instructorId, courseId);
 
         CourseVersion source = courseVersionRepository.findById(sourceVersionId)
-                .orElseThrow(() -> new IllegalArgumentException("Version không tồn tại"));
+                .orElseThrow(() -> new IllegalArgumentException(ERR_VERSION_NOT_FOUND));
         if (!source.getCourseId().equals(courseId)) {
             throw new CourseStateException("Version không thuộc khóa học này");
         }
 
-        long draftCount = courseVersionRepository.countByCourseIdAndStatus(courseId, "DRAFT");
+        long draftCount = courseVersionRepository.countByCourseIdAndStatus(courseId, VERSION_STATUS_DRAFT);
         if (draftCount >= 3) {
             throw new CourseStateException("Đã đạt giới hạn 3 bản nháp. Vui lòng xóa bớt bản nháp cũ trước khi lưu mới.");
         }
 
         String draftLabel = (label != null && !label.isBlank()) ? label.trim()
-                : (source.getStatus().equals("DRAFT") ? source.getLabel()
+                : (source.getStatus().equals(VERSION_STATUS_DRAFT) ? source.getLabel()
                 : "Clone từ v" + source.getVersionNumber());
 
         CourseVersion draft = courseVersionRepository.save(CourseVersion.builder()
                 .courseId(courseId)
                 .versionNumber(null)
-                .status("DRAFT")
+                .status(VERSION_STATUS_DRAFT)
                 .snapshot(source.getSnapshot())
                 .label(draftLabel)
                 .submittedBy(instructorId)
@@ -883,7 +886,7 @@ public class CourseServiceImpl implements CourseService {
 
         return CourseVersionResponse.builder()
                 .id(draft.getId())
-                .status("DRAFT")
+                .status(VERSION_STATUS_DRAFT)
                 .label(draft.getLabel())
                 .submittedAt(draft.getSubmittedAt())
                 .snapshot(draft.getSnapshot())
@@ -899,7 +902,7 @@ public class CourseServiceImpl implements CourseService {
                 .filter(v -> v.getCourseId().equals(courseId))
                 .orElseThrow(() -> new IllegalArgumentException("Version không tồn tại hoặc không thuộc khóa học này"));
 
-        if (!"DRAFT".equals(target.getStatus())) {
+        if (!VERSION_STATUS_DRAFT.equals(target.getStatus())) {
             throw new CourseStateException("Chỉ có thể nộp duyệt bản nháp DRAFT");
         }
 

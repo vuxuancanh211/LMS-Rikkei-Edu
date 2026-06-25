@@ -52,7 +52,7 @@ public class LessonResourceServiceImpl implements LessonResourceService {
     @Override
     public ResourceUploadPresignResponse requestUploadUrl(UUID instructorId, UUID courseId, UUID lessonId,
                                                           ResourceUploadPresignRequest request) {
-        Lesson lesson = loadOwnedLesson(instructorId, courseId, lessonId);
+        loadOwnedLesson(instructorId, courseId, lessonId);
 
         boolean isVideo = request.getResourceType() == ResourceType.VIDEO;
         long maxBytes = isVideo ? MAX_VIDEO_SIZE_BYTES : MAX_DOC_SIZE_BYTES;

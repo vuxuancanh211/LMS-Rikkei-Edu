@@ -28,6 +28,12 @@ import java.util.stream.Collectors;
 @Transactional
 public class AdminCourseServiceImpl implements AdminCourseService {
 
+    private static final String VERSION_PENDING   = "PENDING";
+    private static final String VERSION_APPROVED  = "APPROVED";
+    private static final String VERSION_REJECTED  = "REJECTED";
+    private static final String DIFF_UNCHANGED    = "UNCHANGED";
+    private static final String DIFF_MODIFIED     = "MODIFIED";
+
     private final CourseRepository courseRepo;
     private final CourseMapper courseMapper;
     private final CourseEmbeddingService embeddingService;
@@ -91,8 +97,8 @@ public class AdminCourseServiceImpl implements AdminCourseService {
         course.setRejectionReason(null);
         courseRepo.save(course);
 
-        courseVersionRepo.findFirstByCourseIdAndStatus(courseId, "PENDING").ifPresent(v -> {
-            v.setStatus("APPROVED");
+        courseVersionRepo.findFirstByCourseIdAndStatus(courseId, VERSION_PENDING).ifPresent(v -> {
+            v.setStatus(VERSION_APPROVED);
             v.setReviewedBy(adminId);
             v.setReviewedAt(Instant.now());
             courseVersionRepo.save(v);
@@ -118,15 +124,15 @@ public class AdminCourseServiceImpl implements AdminCourseService {
         course.setRejectionReason(reason);
         courseRepo.save(course);
 
-        courseVersionRepo.findFirstByCourseIdAndStatus(courseId, "PENDING").ifPresent(v -> {
-            v.setStatus("REJECTED");
+        courseVersionRepo.findFirstByCourseIdAndStatus(courseId, VERSION_PENDING).ifPresent(v -> {
+            v.setStatus(VERSION_REJECTED);
             v.setRejectionReason(reason);
             v.setReviewedBy(adminId);
             v.setReviewedAt(Instant.now());
             courseVersionRepo.save(v);
         });
 
-        saveLog(adminId, courseId, "REJECTED", reason);
+        saveLog(adminId, courseId, VERSION_REJECTED, reason);
         log.info("Course rejected: courseId={}, adminId={}", courseId, adminId);
 
         return courseMapper.toDetailResponse(course);
@@ -212,8 +218,8 @@ public class AdminCourseServiceImpl implements AdminCourseService {
         courseRepo.save(course);
 
         // 6. Cập nhật CourseVersion PENDING → APPROVED
-        courseVersionRepo.findFirstByCourseIdAndStatus(courseId, "PENDING").ifPresent(v -> {
-            v.setStatus("APPROVED");
+        courseVersionRepo.findFirstByCourseIdAndStatus(courseId, VERSION_PENDING).ifPresent(v -> {
+            v.setStatus(VERSION_APPROVED);
             v.setReviewedBy(adminId);
             v.setReviewedAt(Instant.now());
             courseVersionRepo.save(v);
@@ -250,8 +256,8 @@ public class AdminCourseServiceImpl implements AdminCourseService {
         courseRepo.save(course);
 
         // Cập nhật CourseVersion PENDING → REJECTED
-        courseVersionRepo.findFirstByCourseIdAndStatus(courseId, "PENDING").ifPresent(v -> {
-            v.setStatus("REJECTED");
+        courseVersionRepo.findFirstByCourseIdAndStatus(courseId, VERSION_PENDING).ifPresent(v -> {
+            v.setStatus(VERSION_REJECTED);
             v.setRejectionReason(reason);
             v.setReviewedBy(adminId);
             v.setReviewedAt(Instant.now());
@@ -269,12 +275,12 @@ public class AdminCourseServiceImpl implements AdminCourseService {
     public CourseDiffResponse getVersionDiff(UUID courseId) {
         // Tìm version PENDING mới nhất
         CourseVersion pending = courseVersionRepo
-                .findFirstByCourseIdAndStatus(courseId, "PENDING")
+                .findFirstByCourseIdAndStatus(courseId, VERSION_PENDING)
                 .orElseThrow(() -> new CourseStateException("Không có version PENDING để so sánh"));
 
         // Tìm version APPROVED gần nhất (trước đó)
         CourseVersion approved = courseVersionRepo
-                .findFirstByCourseIdAndStatusOrderByVersionNumberDesc(courseId, "APPROVED")
+                .findFirstByCourseIdAndStatusOrderByVersionNumberDesc(courseId, VERSION_APPROVED)
                 .orElse(null);
 
         CourseSnapshotDto newSnap = parseSnapshot(pending.getSnapshot());
@@ -354,9 +360,9 @@ public class AdminCourseServiceImpl implements AdminCourseService {
             } else {
                 List<CourseDiffResponse.LessonDiff> lessonDiffs = diffLessons(o, n);
                 boolean anyLessonChanged = lessonDiffs.stream()
-                        .anyMatch(l -> !"UNCHANGED".equals(l.getAction()));
+                        .anyMatch(l -> !DIFF_UNCHANGED.equals(l.getAction()));
                 boolean titleChanged = !Objects.equals(o.getTitle(), n.getTitle());
-                String action = (anyLessonChanged || titleChanged) ? "MODIFIED" : "UNCHANGED";
+                String action = (anyLessonChanged || titleChanged) ? DIFF_MODIFIED : DIFF_UNCHANGED;
                 result.add(CourseDiffResponse.ChapterDiff.builder()
                         .action(action).title(n.getTitle()).orderIndex(order)
                         .lessons(lessonDiffs).build());
@@ -396,7 +402,7 @@ public class AdminCourseServiceImpl implements AdminCourseService {
                 boolean changed = !Objects.equals(o.getTitle(), n.getTitle())
                         || !Objects.equals(o.getContentText(), n.getContentText());
                 result.add(CourseDiffResponse.LessonDiff.builder()
-                        .action(changed ? "MODIFIED" : "UNCHANGED")
+                        .action(changed ? DIFF_MODIFIED : DIFF_UNCHANGED)
                         .title(o.getTitle()).newTitle(changed && !Objects.equals(o.getTitle(), n.getTitle()) ? n.getTitle() : null)
                         .orderIndex(order).lessonType(n.getLessonType()).build());
             }

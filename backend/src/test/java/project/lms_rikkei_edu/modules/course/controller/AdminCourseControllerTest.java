@@ -36,7 +36,6 @@ class AdminCourseControllerTest {
     private AdminCourseService adminCourseService;
     private CurrentUserProvider currentUserProvider;
     private MockMvc mockMvc;
-    private ObjectMapper objectMapper;
 
     private final UUID adminId  = UUID.randomUUID();
     private final UUID courseId = UUID.randomUUID();
@@ -54,7 +53,7 @@ class AdminCourseControllerTest {
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
 
-        objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
+
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────
