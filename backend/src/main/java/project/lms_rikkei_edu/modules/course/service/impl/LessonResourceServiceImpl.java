@@ -62,7 +62,9 @@ public class LessonResourceServiceImpl implements LessonResourceService {
         }
 
         String extension = extractExtension(request.getOriginalFilename());
-        String s3Key = buildS3Key(courseId, lessonId, extension);
+        String courseSlug = courseRepository.findById(courseId)
+                .map(Course::getSlug).orElse(courseId.toString());
+        String s3Key = buildS3Key(courseId, courseSlug, lessonId, extension);
 
         PresignedPutObjectRequest presigned = s3Service.generatePresignedPutUrl(
                 s3Key, request.getMimeType(), presignedUrlExpiry);
@@ -125,11 +127,18 @@ public class LessonResourceServiceImpl implements LessonResourceService {
         return lessonResourceMapper.toResponse(saved);
     }
 
-    @Override
-    @Transactional(readOnly = true)
+    /** Chỉ check ownership, không block theo trạng thái course — dùng cho read-only operations. */
+    private void verifyOwnership(UUID instructorId, UUID courseId) {
+        courseRepository.findById(courseId).ifPresent(course -> {
+            if (!course.getInstructorId().equals(instructorId)) {
+                throw new CourseNotOwnedException();
+            }
+        });
+    }
+
     public ResourceDownloadUrlResponse getDownloadUrl(UUID instructorId, UUID courseId, UUID lessonId,
                                                       UUID resourceId) {
-        loadOwnedLesson(instructorId, courseId, lessonId);
+        verifyOwnership(instructorId, courseId);
 
         LessonResource resource = lessonResourceRepository.findById(resourceId)
                 .filter(r -> lessonId.equals(r.getLesson().getId()))
@@ -137,6 +146,24 @@ public class LessonResourceServiceImpl implements LessonResourceService {
                 .orElseThrow(() -> new IllegalArgumentException("Resource không tồn tại: " + resourceId));
 
         PresignedGetObjectRequest presigned = s3Service.generatePresignedGetUrl(resource.getS3Key(), presignedUrlExpiry);
+
+        return ResourceDownloadUrlResponse.builder()
+                .url(presigned.url().toString())
+                .expiresAt(Instant.now().plusSeconds(presignedUrlExpiry))
+                .build();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ResourceDownloadUrlResponse getViewUrl(UUID instructorId, UUID courseId, UUID lessonId, UUID resourceId) {
+        verifyOwnership(instructorId, courseId);
+
+        LessonResource resource = lessonResourceRepository.findById(resourceId)
+                .filter(r -> lessonId.equals(r.getLesson().getId()))
+                .filter(r -> r.getDeletedAt() == null)
+                .orElseThrow(() -> new IllegalArgumentException("Resource không tồn tại: " + resourceId));
+
+        PresignedGetObjectRequest presigned = s3Service.generatePresignedInlineUrl(resource.getS3Key(), presignedUrlExpiry);
 
         return ResourceDownloadUrlResponse.builder()
                 .url(presigned.url().toString())
@@ -233,9 +260,9 @@ public class LessonResourceServiceImpl implements LessonResourceService {
         return lesson;
     }
 
-    private String buildS3Key(UUID courseId, UUID lessonId, String extension) {
-        return String.format("courses/%s/lessons/%s/resources/%s%s",
-                courseId, lessonId, UUID.randomUUID(), extension);
+    private String buildS3Key(UUID courseId, String courseSlug, UUID lessonId, String extension) {
+        return String.format("courses/%s-%s/lessons/%s/resources/%s%s",
+                courseId, courseSlug, lessonId, UUID.randomUUID(), extension);
     }
 
     private String extractExtension(String filename) {

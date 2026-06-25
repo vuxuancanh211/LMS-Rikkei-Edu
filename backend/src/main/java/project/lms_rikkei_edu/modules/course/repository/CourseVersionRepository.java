@@ -18,4 +18,10 @@ public interface CourseVersionRepository extends JpaRepository<CourseVersion, UU
     Optional<CourseVersion> findFirstByCourseIdAndStatusOrderByVersionNumberDesc(UUID courseId, String status);
 
     Optional<CourseVersion> findFirstByCourseIdAndStatus(UUID courseId, String status);
+
+    List<CourseVersion> findByCourseIdAndStatusOrderBySubmittedAtDesc(UUID courseId, String status);
+
+    long countByCourseIdAndStatus(UUID courseId, String status);
+
+    void deleteByCourseIdAndStatus(UUID courseId, String status);
 }

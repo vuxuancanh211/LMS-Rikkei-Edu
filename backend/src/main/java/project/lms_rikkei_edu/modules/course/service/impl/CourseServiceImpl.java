@@ -1,6 +1,7 @@
 package project.lms_rikkei_edu.modules.course.service.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -25,6 +26,7 @@ import project.lms_rikkei_edu.modules.course.entity.CourseApprovalLog;
 import project.lms_rikkei_edu.modules.course.entity.CourseVersion;
 import project.lms_rikkei_edu.modules.course.repository.*;
 import project.lms_rikkei_edu.modules.course.service.CourseService;
+import project.lms_rikkei_edu.infrastructure.s3.S3Service;
 
 import java.text.Normalizer;
 import java.time.Instant;
@@ -49,6 +51,8 @@ public class CourseServiceImpl implements CourseService {
     private final ObjectMapper objectMapper;
     private final ChapterMapper chapterMapper;
     private final LessonMapper lessonMapper;
+    private final EntityManager entityManager;
+    private final S3Service s3Service;
 
     @Override
     public CourseResponse createCourse(UUID instructorId, CreateCourseRequest request) {
@@ -145,6 +149,7 @@ public class CourseServiceImpl implements CourseService {
             saveLogWithSnapshot(instructorId, courseId, "SUBMITTED_FIRST", course);
 
         } else if (course.getStatus() == CourseStatus.PENDING_UPDATE) {
+            revertPendingVersionsToDraft(courseId);
             course.setChangeSummary(changeSummary);
             course.setSubmittedAt(Instant.now());
             course.setDraftRejectionReason(null);
@@ -158,6 +163,7 @@ public class CourseServiceImpl implements CourseService {
             if (!hasDraftChanges && !hasResourceChanges) {
                 throw new CourseStateException("Không có thay đổi nào để gửi duyệt");
             }
+            revertPendingVersionsToDraft(courseId);
             course.setChangeSummary(changeSummary);
             course.setSubmittedAt(Instant.now());
             course.setDraftRejectionReason(null);
@@ -411,11 +417,44 @@ public class CourseServiceImpl implements CourseService {
                         l.setDraftContentText(null);
                     }
                 }
+                // Thu thập S3 keys để cleanup sau
+                List<String> keysToDelete = draftLessons.stream()
+                    .filter(l -> l.getResources() != null)
+                    .flatMap(l -> l.getResources().stream())
+                    .map(LessonResource::getS3Key)
+                    .filter(k -> k != null && !k.startsWith("ext://"))
+                    .distinct().toList();
+                // Clear resources collection — đánh dấu orphan, sau đó flush ngay để xóa resource trước lesson
+                draftLessons.forEach(l -> l.getResources().clear());
+                entityManager.flush(); // đảm bảo DELETE lesson_resources chạy trước DELETE lessons
+                // Xóa S3 sau khi DB đã xóa
+                keysToDelete.forEach(key -> {
+                    try { s3Service.deleteObject(key); }
+                    catch (Exception e) { log.warn("Không thể xóa S3 key {}: {}", key, e.getMessage()); }
+                });
                 // Xóa draft lessons qua orphanRemoval
                 ch.getLessons().removeAll(draftLessons);
             }
         }
-        // Xóa draft chapters qua orphanRemoval
+        // Thu thập S3 keys của lessons thuộc draft chapters
+        List<String> chapterKeysToDelete = draftChapters.stream()
+            .filter(ch -> ch.getLessons() != null)
+            .flatMap(ch -> ch.getLessons().stream())
+            .filter(l -> l.getResources() != null)
+            .flatMap(l -> l.getResources().stream())
+            .map(LessonResource::getS3Key)
+            .filter(k -> k != null && !k.startsWith("ext://"))
+            .distinct().toList();
+        // Clear resources của lessons thuộc draft chapters, flush trước khi xóa chapters
+        draftChapters.forEach(ch ->
+            ch.getLessons().forEach(l -> l.getResources().clear())
+        );
+        entityManager.flush(); // đảm bảo DELETE lesson_resources chạy trước DELETE lessons/chapters
+        chapterKeysToDelete.forEach(key -> {
+            try { s3Service.deleteObject(key); }
+            catch (Exception e) { log.warn("Không thể xóa S3 key {}: {}", key, e.getMessage()); }
+        });
+        // Xóa draft chapters qua orphanRemoval (cascade → lessons)
         course.getChapters().removeAll(draftChapters);
     }
 
@@ -483,6 +522,7 @@ public class CourseServiceImpl implements CourseService {
                                 .resourceType(r.getResourceType() != null ? r.getResourceType().name() : null)
                                 .mimeType(r.getMimeType())
                                 .fileSizeBytes(r.getFileSizeBytes())
+                                .s3Key(r.getS3Key() != null && !r.getS3Key().startsWith("ext://") ? r.getS3Key() : null)
                                 .build())
                         .toList();
 
@@ -517,16 +557,20 @@ public class CourseServiceImpl implements CourseService {
     public CourseDetailResponse rollbackToVersion(UUID instructorId, UUID courseId, UUID versionId) {
         Course course = loadOwnedCourse(instructorId, courseId);
 
-        if (course.getStatus() != CourseStatus.PUBLISHED) {
-            throw new CourseStateException("Chỉ có thể rollback khi khóa học đang PUBLISHED (không có bản cập nhật đang chờ duyệt)");
-        }
-
         CourseVersion version = courseVersionRepository.findById(versionId)
                 .filter(v -> v.getCourseId().equals(courseId))
                 .orElseThrow(() -> new IllegalArgumentException("Version không tồn tại hoặc không thuộc khóa học này"));
 
-        if (!"APPROVED".equals(version.getStatus())) {
-            throw new CourseStateException("Chỉ có thể rollback về version đã được duyệt (APPROVED)");
+        boolean isDraftRestore = "DRAFT".equals(version.getStatus());
+
+        if (!isDraftRestore && course.getStatus() != CourseStatus.PUBLISHED) {
+            throw new CourseStateException("Chỉ có thể rollback về APPROVED khi khóa học đang PUBLISHED");
+        }
+        if (!isDraftRestore && !"APPROVED".equals(version.getStatus())) {
+            throw new CourseStateException("Chỉ có thể khôi phục version APPROVED hoặc bản nháp DRAFT đã lưu");
+        }
+        if (course.getStatus() == CourseStatus.PENDING || course.getStatus() == CourseStatus.PENDING_UPDATE) {
+            throw new CourseStateException("Không thể khôi phục khi khóa học đang chờ duyệt");
         }
 
         CourseSnapshotDto snapshot;
@@ -685,11 +729,201 @@ public class CourseServiceImpl implements CourseService {
                         .status(v.getStatus())
                         .changeSummary(v.getChangeSummary())
                         .rejectionReason(v.getRejectionReason())
+                        .label(v.getLabel())
                         .submittedAt(v.getSubmittedAt())
                         .reviewedAt(v.getReviewedAt())
                         .snapshot(v.getSnapshot())
                         .build())
                 .toList();
+    }
+
+    @Override
+    @Transactional
+    public CourseVersionResponse saveDraft(UUID instructorId, UUID courseId, String label) {
+        Course course = loadOwnedCourse(instructorId, courseId);
+
+        if (course.getStatus() == CourseStatus.PENDING_UPDATE) {
+            throw new CourseStateException("Không thể lưu bản nháp khi đang chờ admin duyệt");
+        }
+        if (course.getStatus() == CourseStatus.PENDING) {
+            throw new CourseStateException("Không thể lưu bản nháp khi đang chờ duyệt lần đầu");
+        }
+
+        long draftCount = courseVersionRepository.countByCourseIdAndStatus(courseId, "DRAFT");
+        if (draftCount >= 3) {
+            throw new CourseStateException("Đã đạt giới hạn 3 bản nháp. Vui lòng xóa bớt bản nháp cũ trước khi lưu mới.");
+        }
+
+        String snapshotJson = null;
+        try {
+            // Load resources để có trong snapshot
+            course.getChapters().forEach(ch -> ch.getLessons().forEach(l -> l.getResources().size()));
+            snapshotJson = objectMapper.writeValueAsString(buildSnapshot(course));
+        } catch (Exception e) {
+            log.warn("Failed to serialize snapshot for draft courseId={}: {}", courseId, e.getMessage());
+        }
+
+        CourseVersion draft = courseVersionRepository.save(CourseVersion.builder()
+                .courseId(courseId)
+                .versionNumber(null)        // DRAFT không có version number chính thức
+                .status("DRAFT")
+                .snapshot(snapshotJson)
+                .label(label != null && !label.isBlank() ? label.trim() : null)
+                .submittedBy(instructorId)
+                .submittedAt(Instant.now())
+                .build());
+
+        return CourseVersionResponse.builder()
+                .id(draft.getId())
+                .versionNumber(null)
+                .status("DRAFT")
+                .label(draft.getLabel())
+                .submittedAt(draft.getSubmittedAt())
+                .snapshot(draft.getSnapshot())
+                .build();
+    }
+
+    @Override
+    @Transactional
+    public void deleteDraftVersion(UUID instructorId, UUID courseId, UUID versionId) {
+        loadOwnedCourse(instructorId, courseId);
+        CourseVersion version = courseVersionRepository.findById(versionId)
+                .orElseThrow(() -> new IllegalArgumentException("Version không tồn tại"));
+        if (!version.getCourseId().equals(courseId)) {
+            throw new CourseStateException("Version không thuộc khóa học này");
+        }
+        if (!"DRAFT".equals(version.getStatus()) && !"REJECTED".equals(version.getStatus())) {
+            throw new CourseStateException("Chỉ có thể xóa bản nháp DRAFT hoặc REJECTED");
+        }
+        // Cleanup S3: xóa các file trong snapshot không còn được tham chiếu bởi lesson_resources
+        cleanupSnapshotS3Keys(version.getSnapshot());
+        courseVersionRepository.delete(version);
+    }
+
+    @Override
+    @Transactional
+    public void renameDraftVersion(UUID instructorId, UUID courseId, UUID versionId, String label) {
+        loadOwnedCourse(instructorId, courseId);
+        CourseVersion version = courseVersionRepository.findById(versionId)
+                .filter(v -> v.getCourseId().equals(courseId))
+                .orElseThrow(() -> new IllegalArgumentException("Version không tồn tại"));
+        if (!"DRAFT".equals(version.getStatus())) {
+            throw new CourseStateException("Chỉ có thể đổi tên bản nháp DRAFT");
+        }
+        version.setLabel(label != null ? label.trim() : null);
+        courseVersionRepository.save(version);
+    }
+
+    private void revertPendingVersionsToDraft(UUID courseId) {
+        courseVersionRepository.findByCourseIdAndStatusOrderBySubmittedAtDesc(courseId, "PENDING")
+                .forEach(v -> {
+                    v.setStatus("DRAFT");
+                    courseVersionRepository.save(v);
+                });
+    }
+
+    private void cleanupSnapshotS3Keys(String snapshotJson) {
+        if (snapshotJson == null) return;
+        try {
+            CourseSnapshotDto snap = objectMapper.readValue(snapshotJson, CourseSnapshotDto.class);
+            if (snap.getChapters() == null) return;
+            snap.getChapters().stream()
+                .filter(ch -> ch.getLessons() != null)
+                .flatMap(ch -> ch.getLessons().stream())
+                .filter(l -> l.getResources() != null)
+                .flatMap(l -> l.getResources().stream())
+                .map(CourseSnapshotDto.ResourceSnap::getS3Key)
+                .filter(key -> key != null && !key.isBlank())
+                .distinct()
+                .forEach(key -> {
+                    // Chỉ xóa S3 nếu không còn lesson_resource nào dùng key này
+                    if (!lessonResourceRepository.existsByS3KeyAndDeletedAtIsNull(key)) {
+                        try { s3Service.deleteObject(key); }
+                        catch (Exception e) { log.warn("Không thể xóa S3 key {}: {}", key, e.getMessage()); }
+                    }
+                });
+        } catch (Exception e) {
+            log.warn("Không thể parse snapshot để cleanup S3: {}", e.getMessage());
+        }
+    }
+
+    @Override
+    @Transactional
+    public CourseVersionResponse cloneVersionAsDraft(UUID instructorId, UUID courseId, UUID sourceVersionId, String label) {
+        loadOwnedCourse(instructorId, courseId);
+
+        CourseVersion source = courseVersionRepository.findById(sourceVersionId)
+                .orElseThrow(() -> new IllegalArgumentException("Version không tồn tại"));
+        if (!source.getCourseId().equals(courseId)) {
+            throw new CourseStateException("Version không thuộc khóa học này");
+        }
+
+        long draftCount = courseVersionRepository.countByCourseIdAndStatus(courseId, "DRAFT");
+        if (draftCount >= 3) {
+            throw new CourseStateException("Đã đạt giới hạn 3 bản nháp. Vui lòng xóa bớt bản nháp cũ trước khi lưu mới.");
+        }
+
+        String draftLabel = (label != null && !label.isBlank()) ? label.trim()
+                : (source.getStatus().equals("DRAFT") ? source.getLabel()
+                : "Clone từ v" + source.getVersionNumber());
+
+        CourseVersion draft = courseVersionRepository.save(CourseVersion.builder()
+                .courseId(courseId)
+                .versionNumber(null)
+                .status("DRAFT")
+                .snapshot(source.getSnapshot())
+                .label(draftLabel)
+                .submittedBy(instructorId)
+                .submittedAt(Instant.now())
+                .build());
+
+        return CourseVersionResponse.builder()
+                .id(draft.getId())
+                .status("DRAFT")
+                .label(draft.getLabel())
+                .submittedAt(draft.getSubmittedAt())
+                .snapshot(draft.getSnapshot())
+                .build();
+    }
+
+    @Override
+    @Transactional
+    public CourseVersionResponse submitVersion(UUID instructorId, UUID courseId, UUID versionId) {
+        loadOwnedCourse(instructorId, courseId);
+
+        CourseVersion target = courseVersionRepository.findById(versionId)
+                .filter(v -> v.getCourseId().equals(courseId))
+                .orElseThrow(() -> new IllegalArgumentException("Version không tồn tại hoặc không thuộc khóa học này"));
+
+        if (!"DRAFT".equals(target.getStatus())) {
+            throw new CourseStateException("Chỉ có thể nộp duyệt bản nháp DRAFT");
+        }
+
+        // Revert version PENDING hiện tại (nếu có) về DRAFT
+        revertPendingVersionsToDraft(courseId);
+
+        // Gán version number mới và đổi status
+        int nextNum = courseVersionRepository.findMaxVersionNumberByCourseId(courseId) + 1;
+        target.setStatus("PENDING");
+        target.setVersionNumber(nextNum);
+        target.setSubmittedAt(Instant.now());
+        courseVersionRepository.save(target);
+
+        return CourseVersionResponse.builder()
+                .id(target.getId())
+                .versionNumber(target.getVersionNumber())
+                .status("PENDING")
+                .label(target.getLabel())
+                .submittedAt(target.getSubmittedAt())
+                .snapshot(target.getSnapshot())
+                .build();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public boolean hasPendingVersion(UUID instructorId, UUID courseId) {
+        loadOwnedCourse(instructorId, courseId);
+        return courseVersionRepository.countByCourseIdAndStatus(courseId, "PENDING") > 0;
     }
 
     /** Tạo CourseVersion record khi instructor submit. Trả về version đã lưu. */

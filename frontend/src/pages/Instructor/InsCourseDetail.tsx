@@ -647,6 +647,18 @@
     const [snapshotView,      setSnapshotView]      = useState(null); // { versionNo, snapshot }
     const [versions,          setVersions]          = useState([]);   // CourseVersionResponse[]
     const [rollingBack,       setRollingBack]       = useState(null); // versionId đang rollback
+    const [savingDraft,       setSavingDraft]       = useState(false);
+    const [deletingDraft,     setDeletingDraft]     = useState(null); // versionId đang xóa
+    const [showSaveDraft,     setShowSaveDraft]     = useState(false);
+    const [draftLabel,        setDraftLabel]        = useState("");
+    const [viewingVersion,    setViewingVersion]    = useState(null); // null = live | CourseVersionResponse
+    const [showVersionPicker, setShowVersionPicker] = useState(false);
+    const [cloningDraft,      setCloningDraft]      = useState(false);
+    const [submittingVersion, setSubmittingVersion] = useState(false);
+    const [renamingVersion,   setRenamingVersion]   = useState(null); // versionId đang đổi tên
+    const [renameInput,       setRenameInput]       = useState("");
+    const [loadDraftTarget,   setLoadDraftTarget]   = useState(null); // version đang chờ load khi cần chọn draft để xóa
+    const [showReplaceDraft,  setShowReplaceDraft]  = useState(false);
 
     function loadCourse(silent = false) {
       if (!courseId) { setLoading(false); return; }
@@ -668,10 +680,15 @@
         .catch(e => setErr(e?.response?.data?.message || "Không thể tải khóa học"))
         .finally(() => { if (!silent) setLoading(false); });
     }
-    useEffect(() => { loadCourse(); }, [courseId]);
+    useEffect(() => { loadCourse(); setViewingVersion(null); }, [courseId]);
     useEffect(() => {
       api.get("/instructor/courses/categories").then(r => setCategories(r.data || [])).catch(() => {});
     }, []);
+    useEffect(() => {
+      if (courseId) {
+        api.get(`/instructor/courses/${courseId}/versions`).then(r => setVersions(r.data || [])).catch(() => {});
+      }
+    }, [courseId]);
 
     async function handleSubmit() {
       setSubmitting(true); setSubmitMsg(null);
@@ -697,18 +714,146 @@
     }
 
     async function handleRollback(versionId, versionNumber) {
-      if (!confirm(`Rollback về phiên bản v${versionNumber}?\n\nThao tác này sẽ tạo bản nháp từ nội dung cũ. Bạn cần xem lại và bấm "Gửi cập nhật" để admin duyệt.`)) return;
+      if (!confirm(`Rollback về v${versionNumber}?\n\nThao tác này sẽ tạo bản nháp từ nội dung cũ. Bạn cần xem lại và bấm "Gửi cập nhật" để admin duyệt.`)) return;
       setRollingBack(versionId);
       try {
         await api.post(`/instructor/courses/${courseId}/versions/${versionId}/rollback`);
-        setSubmitMsg(`Đã tạo bản nháp từ v${versionNumber}. Xem lại nội dung rồi bấm "Gửi cập nhật".`);
+        setSubmitMsg(`Đã khôi phục v${versionNumber}. Xem lại nội dung rồi bấm "Gửi cập nhật".`);
+        setViewingVersion(null);
         loadCourse(true);
         setTab("content");
       } catch (e) {
-        setSubmitMsg(e?.response?.data?.message || "Rollback thất bại");
+        setSubmitMsg(e?.response?.data?.message || "Khôi phục thất bại");
       } finally {
         setRollingBack(null);
       }
+    }
+
+    async function handleSubmitVersion(versionId, versionLabel) {
+      setSubmittingVersion(true);
+      try {
+        // Kiểm tra có pending không
+        const { data: hasPending } = await api.get(`/instructor/courses/${courseId}/versions/has-pending`);
+        if (hasPending) {
+          if (!confirm(`Đang có một phiên bản khác chờ admin duyệt.\n\nBạn có muốn thay bằng "${versionLabel}" không?\nPhiên bản cũ sẽ bị hủy và chuyển về bản nháp.`)) return;
+        }
+        const res = await api.post(`/instructor/courses/${courseId}/versions/${versionId}/submit`);
+        // Reload versions + course để đồng bộ dropdown và trạng thái
+        const [vRes] = await Promise.all([
+          api.get(`/instructor/courses/${courseId}/versions`),
+          api.get(`/instructor/courses/${courseId}`).then(r => { setCourse(r.data); setChapters(mapCourse(r.data)); }),
+        ]);
+        setVersions(vRes.data || []);
+        setViewingVersion(v => v?.id === versionId ? { ...v, status: "PENDING", versionNumber: res.data.versionNumber } : v);
+        setSubmitMsg(`Đã nộp "${versionLabel}" để admin duyệt.`);
+      } catch (e) {
+        alert(e?.response?.data?.message || "Nộp duyệt thất bại");
+      } finally {
+        setSubmittingVersion(false);
+      }
+    }
+
+    // Tải bản nháp để chỉnh sửa: auto-save bản đang sửa nếu có thay đổi, rồi rollback
+    async function handleLoadForEdit(targetVersion) {
+      const draftVersions = versions.filter(v => v.status === "DRAFT");
+      const doRollback = async () => {
+        setRollingBack(targetVersion.id);
+        try {
+          await api.post(`/instructor/courses/${courseId}/versions/${targetVersion.id}/rollback`);
+          setViewingVersion(null);
+          loadCourse(true);
+          setTab("content");
+        } catch (e) {
+          alert(e?.response?.data?.message || "Không thể tải bản nháp");
+          throw e;
+        } finally {
+          setRollingBack(null);
+        }
+      };
+
+      // Luôn auto-save bản đang sửa trước khi tải (dù có thay đổi hay không)
+      if (draftVersions.length < 3) {
+        // Còn chỗ → auto-save rồi rollback
+        setSavingDraft(true);
+        try {
+          const autoLabel = `Auto-save trước khi tải "${targetVersion.label || `v${targetVersion.versionNumber}` || "bản nháp"}"`;
+          const res = await api.post(`/instructor/courses/${courseId}/versions/save-draft?label=${encodeURIComponent(autoLabel)}`);
+          setVersions(prev => [res.data, ...prev]);
+        } catch (e) {
+          alert(e?.response?.data?.message || "Không thể lưu bản đang chỉnh sửa");
+          setSavingDraft(false);
+          return;
+        } finally {
+          setSavingDraft(false);
+        }
+        await doRollback();
+      } else {
+        // Đã đủ 3 draft → cần chọn 1 bản nháp để xóa
+        setLoadDraftTarget(targetVersion);
+        setShowReplaceDraft(true);
+      }
+    }
+
+    async function handleCloneAsDraft(versionId, defaultLabel) {
+      const label = prompt("Tên bản nháp:", defaultLabel || "");
+      if (label === null) return; // cancelled
+      setCloningDraft(true);
+      try {
+        const params = label.trim() ? `?label=${encodeURIComponent(label.trim())}` : "";
+        const res = await api.post(`/instructor/courses/${courseId}/versions/${versionId}/clone-as-draft${params}`);
+        setVersions(prev => [res.data, ...prev]);
+        setSubmitMsg(`Đã tạo bản nháp "${res.data.label || label || "mới"}" từ phiên bản này.`);
+      } catch (e) {
+        alert(e?.response?.data?.message || "Tạo bản nháp thất bại");
+      } finally {
+        setCloningDraft(false);
+      }
+    }
+
+    async function handleSaveDraft(label) {
+      setSavingDraft(true);
+      try {
+        const params = label?.trim() ? `?label=${encodeURIComponent(label.trim())}` : "";
+        await api.post(`/instructor/courses/${courseId}/versions/save-draft${params}`);
+        setShowSaveDraft(false);
+        setDraftLabel("");
+        setSubmitMsg("Đã lưu bản nháp thành công!");
+        // Reload versions list
+        api.get(`/instructor/courses/${courseId}/versions`).then(r => setVersions(r.data || []));
+      } catch (e) {
+        alert(e?.response?.data?.message || "Lưu bản nháp thất bại");
+      } finally {
+        setSavingDraft(false);
+      }
+    }
+
+    async function deleteVersion(versionId) {
+      setDeletingDraft(versionId);
+      try {
+        await api.delete(`/instructor/courses/${courseId}/versions/${versionId}/draft`);
+        setVersions(prev => prev.filter(v => v.id !== versionId));
+      } catch (e) {
+        alert(e?.response?.data?.message || "Xóa thất bại");
+      } finally {
+        setDeletingDraft(null);
+      }
+    }
+    async function handleRenameVersion(versionId, newLabel) {
+      const trimmed = newLabel.trim();
+      try {
+        await api.patch(`/instructor/courses/${courseId}/versions/${versionId}/label`, { label: trimmed || null });
+        setVersions(prev => prev.map(v => v.id === versionId ? { ...v, label: trimmed || null } : v));
+        setViewingVersion(v => v?.id === versionId ? { ...v, label: trimmed || null } : v);
+      } catch (e) {
+        alert(e?.response?.data?.message || "Đổi tên thất bại");
+      } finally {
+        setRenamingVersion(null);
+      }
+    }
+
+    async function handleDeleteDraft(versionId) {
+      if (!confirm("Xóa phiên bản này? Hành động không thể hoàn tác.")) return;
+      await deleteVersion(versionId);
     }
 
     async function handleSaveInfo() {
@@ -789,24 +934,160 @@
       <div className="page fade-in">
         {/* Header */}
         <div className="page-head between" style={{ marginBottom: 20 }}>
-          <button className="btn btn-ghost btn-sm" onClick={() => nav("courses")} style={{ gap: 6 }}>
-            <Ic n="arrow_left" size={18} /><span style={{ fontWeight: 600 }}>Quay lại danh sách khóa học</span>
-          </button>
+          <div className="row gap-10" style={{ alignItems: "center" }}>
+            <button className="btn btn-ghost btn-sm" onClick={() => nav("courses")} style={{ gap: 6 }}>
+              <Ic n="arrow_left" size={18} /><span style={{ fontWeight: 600 }}>Quay lại danh sách khóa học</span>
+            </button>
+
+            {/* Version picker dropdown */}
+            {versions.length > 0 && (() => {
+              const latestApproved = versions.find(v => v.status === "APPROVED");
+              const draftVersions  = versions.filter(v => v.status === "DRAFT");
+              const otherVersions  = versions.filter(v => v.status !== "DRAFT" && v.status !== "APPROVED");
+
+              // Label & màu cho nút trigger
+              const vLabel = viewingVersion === null
+                ? "Bản đang chỉnh sửa"
+                : viewingVersion.status === "DRAFT"
+                  ? (viewingVersion.label || "Bản nháp")
+                  : `v${viewingVersion.versionNumber} · ${viewingVersion.status === "APPROVED" ? "Đã duyệt" : viewingVersion.status === "REJECTED" ? "Từ chối" : "Chờ duyệt"}`;
+
+              const vColor = viewingVersion === null
+                ? "#64748b"
+                : viewingVersion.status === "APPROVED" ? "#16a34a"
+                : viewingVersion.status === "DRAFT"    ? "#64748b"
+                : viewingVersion.status === "REJECTED" ? "#dc2626" : "#0284c7";
+
+              function PickerItem({ dot, title, sub, active, onClick: oc, badge }) {
+                return (
+                  <button style={{
+                    width: "100%", textAlign: "left", padding: "9px 14px",
+                    background: active ? "var(--surface-2)" : "transparent",
+                    border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 10,
+                  }} onClick={oc}>
+                    <div style={{ width: 8, height: 8, borderRadius: "50%", background: dot, flex: "none" }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: dot }} className="truncate">{title}</div>
+                      <div style={{ fontSize: 11, color: "var(--text-3)" }}>{sub}</div>
+                    </div>
+                    {badge && <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 999, background: "#dcfce7", color: "#16a34a", fontWeight: 700, flex: "none" }}>{badge}</span>}
+                    {active && <Ic n="check" size={13} style={{ color: dot, flex: "none" }} />}
+                  </button>
+                );
+              }
+
+              return (
+                <div style={{ position: "relative" }}>
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    style={{ gap: 6, borderColor: vColor + "60", color: vColor, fontWeight: 600 }}
+                    onClick={() => setShowVersionPicker(v => !v)}
+                  >
+                    <Ic n="clock" size={14} />
+                    {vLabel}
+                    <Ic n="chevron_down" size={13} style={{ opacity: 0.6 }} />
+                  </button>
+
+                  {showVersionPicker && (
+                    <>
+                      <div style={{ position: "fixed", inset: 0, zIndex: 99 }} onClick={() => setShowVersionPicker(false)} />
+                      <div style={{
+                        position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 100,
+                        background: "var(--surface)", border: "1px solid var(--border)",
+                        borderRadius: 12, boxShadow: "0 8px 24px rgba(0,0,0,.12)",
+                        minWidth: 270, maxHeight: 340, overflowY: "auto", padding: "6px 0",
+                      }}>
+
+                        {/* Phiên bản đang publish (APPROVED snapshot mới nhất) */}
+                        {latestApproved && (
+                          <PickerItem
+                            dot="#16a34a"
+                            title={`v${latestApproved.versionNumber} · Đang publish`}
+                            sub={`Phiên bản live · ${new Date(latestApproved.submittedAt).toLocaleDateString("vi-VN")}`}
+                            active={viewingVersion?.id === latestApproved.id}
+                            badge="LIVE"
+                            onClick={() => { setViewingVersion(latestApproved); setShowVersionPicker(false); setTab("content"); }}
+                          />
+                        )}
+
+                        {/* Bản đang chỉnh sửa (live draft state) */}
+                        <PickerItem
+                          dot={hasPendingChanges ? "#f59e0b" : "#64748b"}
+                          title="Bản đang chỉnh sửa"
+                          sub={hasPendingChanges ? "Có thay đổi chưa lưu thành bản nháp" : "Chưa có thay đổi mới"}
+                          active={viewingVersion === null}
+                          onClick={() => { setViewingVersion(null); setShowVersionPicker(false); setTab("content"); }}
+                        />
+
+                        {/* DRAFT snapshots */}
+                        {draftVersions.length > 0 && (
+                          <>
+                            <div style={{ height: 1, background: "var(--border)", margin: "4px 0" }} />
+                            <div style={{ padding: "4px 14px 2px", fontSize: 10.5, fontWeight: 700, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                              Bản nháp đã lưu
+                            </div>
+                            {draftVersions.map(v => (
+                              <PickerItem key={v.id}
+                                dot="#94a3b8"
+                                title={v.label || "Bản nháp chưa đặt tên"}
+                                sub={`Nháp · ${new Date(v.submittedAt).toLocaleDateString("vi-VN")}`}
+                                active={viewingVersion?.id === v.id}
+                                onClick={() => { setViewingVersion(v); setShowVersionPicker(false); setTab("content"); }}
+                              />
+                            ))}
+                          </>
+                        )}
+
+                        {/* Các version chính thức khác (PENDING, REJECTED, APPROVED cũ) */}
+                        {otherVersions.length > 0 && (
+                          <>
+                            <div style={{ height: 1, background: "var(--border)", margin: "4px 0" }} />
+                            <div style={{ padding: "4px 14px 2px", fontSize: 10.5, fontWeight: 700, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                              Lịch sử phiên bản
+                            </div>
+                            {otherVersions.map(v => {
+                              const clr = v.status === "REJECTED" ? "#dc2626" : v.status === "PENDING" ? "#0284c7" : "#16a34a";
+                              const lbl = v.status === "REJECTED" ? "Từ chối" : v.status === "PENDING" ? "Chờ duyệt" : "Đã duyệt";
+                              return (
+                                <PickerItem key={v.id}
+                                  dot={clr}
+                                  title={`v${v.versionNumber} · ${lbl}`}
+                                  sub={new Date(v.submittedAt).toLocaleDateString("vi-VN")}
+                                  active={viewingVersion?.id === v.id}
+                                  onClick={() => { setViewingVersion(v); setShowVersionPicker(false); setTab("content"); }}
+                                />
+                              );
+                            })}
+                          </>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
           <div className="row gap-10">
             <button className="btn btn-ghost btn-sm" onClick={() => setShowPreview(true)}><Ic n="eye" size={15} />Xem trước</button>
-            {(course?.status === "DRAFT" || course?.status === "REJECTED") && (
+            {!viewingVersion && (course?.status === "DRAFT" || course?.status === "REJECTED") && (
               <button className="btn btn-success btn-sm" disabled={submitting} onClick={handleSubmit}><Ic n="send" size={15} />{submitting ? "Đang gửi..." : "Gửi duyệt"}</button>
             )}
-            {course?.status === "PUBLISHED" && hasPendingChanges && (
+            {!viewingVersion && course?.status === "PUBLISHED" && hasPendingChanges && (
+              <button className="btn btn-ghost btn-sm" disabled={savingDraft} onClick={() => setShowSaveDraft(true)}
+                style={{ gap: 6, borderColor: "#93c5fd", color: "#1d4ed8" }}>
+                <Ic n="download" size={15} />{savingDraft ? "Đang lưu..." : "Lưu bản nháp"}
+              </button>
+            )}
+            {!viewingVersion && course?.status === "PUBLISHED" && hasPendingChanges && (
               <button className="btn btn-success btn-sm" disabled={submitting} onClick={handleSubmit}><Ic n="send" size={15} />{submitting ? "Đang gửi..." : "Gửi cập nhật"}</button>
             )}
-            {course?.status === "PUBLISHED" && hasPendingChanges && (
+            {!viewingVersion && course?.status === "PUBLISHED" && hasPendingChanges && (
               <button className="btn btn-ghost btn-sm" disabled={submitting} onClick={handleWithdraw}>Hủy thay đổi</button>
             )}
-            {course?.status === "PENDING_UPDATE" && (
+            {!viewingVersion && course?.status === "PENDING_UPDATE" && (
               <button className="btn btn-success btn-sm" disabled={submitting} onClick={handleSubmit}><Ic n="send" size={15} />{submitting ? "Đang gửi..." : "Gửi cập nhật"}</button>
             )}
-            {(course?.status === "PENDING" || course?.status === "PENDING_UPDATE") && (
+            {!viewingVersion && (course?.status === "PENDING" || course?.status === "PENDING_UPDATE") && (
               <button className="btn btn-ghost btn-sm" disabled={submitting} onClick={handleWithdraw}>
                 {course?.status === "PENDING_UPDATE" ? "Hủy cập nhật" : "Rút duyệt"}
               </button>
@@ -829,7 +1110,7 @@
         </div>
 
         {/* Banner: draft rejection reason (update bị từ chối) */}
-        {course?.draftRejectionReason && (
+        {!viewingVersion && course?.draftRejectionReason && (
           <div style={{ padding: "12px 16px", borderRadius: 10, marginBottom: 12, fontSize: 13.5, background: "#fee2e2", color: "#dc2626", display: "flex", gap: 10, alignItems: "center" }}>
             <Ic n="x" size={16} style={{ flex: "none" }} />
             <span><strong>Cập nhật bị từ chối:</strong> {course.draftRejectionReason}</span>
@@ -837,7 +1118,7 @@
         )}
 
         {/* Banner: đang chờ admin duyệt cập nhật — khóa toàn bộ chỉnh sửa */}
-        {course?.status === "PENDING_UPDATE" && (
+        {!viewingVersion && course?.status === "PENDING_UPDATE" && (
           <div style={{ padding: "12px 16px", borderRadius: 10, marginBottom: 12, fontSize: 13.5, background: "#e0f2fe", color: "#0284c7", display: "flex", gap: 10, alignItems: "flex-start" }}>
             <Ic n="clock" size={16} style={{ flex: "none", marginTop: 1 }} />
             <span>
@@ -849,14 +1130,14 @@
         )}
 
         {/* Banner: đang published — không có thay đổi */}
-        {course?.status === "PUBLISHED" && !hasPendingChanges && (
+        {!viewingVersion && course?.status === "PUBLISHED" && !hasPendingChanges && (
           <div style={{ padding: "12px 16px", borderRadius: 10, marginBottom: 12, fontSize: 13.5, background: "#f0fdf4", color: "#15803d", display: "flex", gap: 10, alignItems: "center" }}>
             <Ic n="book" size={16} style={{ flex: "none" }} />
             <span>Khóa học đang được xuất bản. Mọi thay đổi sẽ lưu thành bản nháp — bạn có thể xem lại rồi mới <strong>Gửi cập nhật</strong> để admin duyệt.</span>
           </div>
         )}
         {/* Banner: có thay đổi chưa gửi */}
-        {course?.status === "PUBLISHED" && hasPendingChanges && (
+        {!viewingVersion && course?.status === "PUBLISHED" && hasPendingChanges && (
           <div style={{ padding: "12px 16px", borderRadius: 10, marginBottom: 12, fontSize: 13.5, background: "#fef9c3", color: "#854d0e", display: "flex", gap: 10, alignItems: "center" }}>
             <Ic n="edit" size={16} style={{ flex: "none" }} />
             <span>Bạn có thay đổi chưa gửi duyệt. Bấm <strong>Gửi cập nhật</strong> để gửi admin xem xét, hoặc <strong>Hủy thay đổi</strong> để xóa toàn bộ bản nháp.</span>
@@ -882,14 +1163,15 @@
           <Tabs items={[
             { v: "content", label: "Nội dung khóa học" },
             { v: "info",    label: "Thông tin" },
-            { v: "history", label: "Lịch sử duyệt" },
+            { v: "versions", label: "Phiên bản" },
+            { v: "history",  label: "Lịch sử duyệt" },
           ]} value={tab} onChange={v => {
             setTab(v);
-            if (v === "history" && courseId && versions.length === 0) {
+            if ((v === "versions" || v === "history") && courseId) {
               setHistoryLoading(true);
               Promise.all([
                 api.get(`/instructor/courses/${courseId}/history`),
-                api.get(`/instructor/courses/${courseId}/versions`),
+                ...(versions.length === 0 ? [api.get(`/instructor/courses/${courseId}/versions`)] : [Promise.resolve({ data: versions })]),
               ])
                 .then(([hRes, vRes]) => {
                   setHistory(hRes.data || []);
@@ -902,7 +1184,177 @@
         </div>
 
         {/* ── Content tab ── */}
-        {tab === "content" && (
+        {tab === "content" && viewingVersion && (() => {
+          const snap = (() => { try { return viewingVersion.snapshot ? JSON.parse(viewingVersion.snapshot) : null; } catch { return null; } })();
+          const isDraft    = viewingVersion.status === "DRAFT";
+          const isApproved = viewingVersion.status === "APPROVED";
+          const isPending  = viewingVersion.status === "PENDING";
+          const vName = isDraft    ? (viewingVersion.label || "Bản nháp")
+                      : isApproved ? `v${viewingVersion.versionNumber} · Đang publish`
+                      : `v${viewingVersion.versionNumber}`;
+          const vColor = isDraft ? "#64748b" : isApproved ? "#16a34a" : isPending ? "#0284c7" : "#dc2626";
+          const vBg    = isDraft ? "#f8fafc"  : isApproved ? "#f0fdf4"  : isPending ? "#e0f2fe"  : "#fee2e2";
+          const statusLabel = isDraft    ? "Bản nháp — chỉ xem"
+                            : isApproved ? "Phiên bản đang publish — chỉ xem"
+                            : isPending  ? "Đang chờ admin duyệt — chỉ xem"
+                            : "Phiên bản bị từ chối — chỉ xem";
+
+          return (
+            <Section>
+              {/* Banner */}
+              <div style={{ padding: "10px 16px", borderRadius: 10, marginBottom: 16,
+                background: vBg, border: `1.5px solid ${vColor}40`,
+                display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <Ic n={isDraft ? "file" : isApproved ? "check" : isPending ? "clock" : "x"} size={15} style={{ color: vColor, flex: "none" }} />
+                <span style={{ fontSize: 13, color: vColor, flex: 1, fontWeight: 500, minWidth: 180 }}>
+                  <strong>{vName}</strong>
+                  {viewingVersion.submittedAt && <> · {new Date(viewingVersion.submittedAt).toLocaleDateString("vi-VN")}</>}
+                  {" "}— {statusLabel}
+                </span>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {/* Tải để chỉnh sửa — chỉ với DRAFT */}
+                  {isDraft && (
+                    <button className="btn btn-ghost btn-sm"
+                      style={{ fontSize: 12, gap: 5, borderColor: "#64748b50", color: "#475569" }}
+                      disabled={rollingBack === viewingVersion.id || savingDraft}
+                      onClick={() => handleLoadForEdit(viewingVersion)}>
+                      <Ic n="edit" size={13} />
+                      {rollingBack === viewingVersion.id ? "Đang tải..." : savingDraft ? "Đang lưu..." : "Tải để chỉnh sửa"}
+                    </button>
+                  )}
+                  {/* Nộp duyệt — chỉ với DRAFT */}
+                  {isDraft && (
+                    <button className="btn btn-success btn-sm"
+                      style={{ fontSize: 12, gap: 5 }}
+                      disabled={submittingVersion}
+                      onClick={() => handleSubmitVersion(viewingVersion.id, viewingVersion.label || "bản nháp")}>
+                      <Ic n="send" size={13} />
+                      {submittingVersion ? "Đang nộp..." : "Nộp duyệt"}
+                    </button>
+                  )}
+                  {/* Tạo bản nháp từ phiên bản APPROVED/PENDING/REJECTED */}
+                  {!isDraft && (
+                    <button className="btn btn-ghost btn-sm"
+                      style={{ fontSize: 12, gap: 5, borderColor: vColor + "50", color: vColor }}
+                      disabled={cloningDraft}
+                      onClick={() => handleCloneAsDraft(viewingVersion.id,
+                        isApproved ? `Clone từ v${viewingVersion.versionNumber}` : `Clone · chờ duyệt`)}>
+                      <Ic n="download" size={13} />
+                      {cloningDraft ? "Đang tạo..." : "Tạo bản nháp từ đây"}
+                    </button>
+                  )}
+                  {/* Xóa cứng — DRAFT hoặc REJECTED */}
+                  {(isDraft || viewingVersion.status === "REJECTED") && (
+                    <button className="btn btn-ghost btn-sm"
+                      style={{ fontSize: 12, gap: 5, borderColor: "#fca5a5", color: "#dc2626" }}
+                      disabled={deletingDraft === viewingVersion.id}
+                      onClick={async () => {
+                        if (!confirm("Xóa phiên bản này? Hành động không thể hoàn tác.")) return;
+                        await deleteVersion(viewingVersion.id);
+                        setViewingVersion(null);
+                      }}>
+                      <Ic n="x" size={13} />
+                      {deletingDraft === viewingVersion.id ? "Đang xóa..." : "Xóa phiên bản"}
+                    </button>
+                  )}
+                  <button className="btn btn-ghost btn-sm" style={{ fontSize: 12 }} onClick={() => setViewingVersion(null)}>
+                    Về bản đang sửa
+                  </button>
+                </div>
+              </div>
+
+              <h2 className="t-h2" style={{ marginBottom: 14 }}>Chương trình học — {vName}</h2>
+
+              {!snap && <div className="muted" style={{ fontSize: 13.5 }}>Không có dữ liệu snapshot cho phiên bản này.</div>}
+
+              {snap && (snap.chapters || []).map((ch, ci) => (
+                <div key={ci} style={{ border: "1px solid var(--border)", borderRadius: 12, marginBottom: 10, overflow: "hidden" }}>
+                  <div style={{ padding: "12px 16px", background: "var(--surface-2)", display: "flex", alignItems: "center", gap: 10 }}>
+                    <Ic n="layers" size={14} style={{ color: "var(--text-3)" }} />
+                    <span style={{ fontWeight: 600, fontSize: 14 }}>{ci + 1}. {ch.title}</span>
+                    <span className="muted t-xs" style={{ marginLeft: "auto" }}>{(ch.lessons || []).length} bài</span>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 1, background: "var(--border)" }}>
+                    {(ch.lessons || []).map((l, li) => {
+                      const resources = (l.resources || []).filter(r => !r.pendingDelete);
+                      return (
+                        <div key={li} style={{ background: "var(--surface)" }}>
+                          {/* Lesson row */}
+                          <div style={{ padding: "10px 16px", display: "flex", alignItems: "center", gap: 10 }}>
+                            <div style={{ width: 32, height: 32, borderRadius: 8,
+                              background: l.lessonType === "VIDEO" ? "#1e293b" : "var(--surface-2)",
+                              display: "grid", placeItems: "center", flex: "none" }}>
+                              <Ic n={l.lessonType === "VIDEO" ? "play" : "file_text"} size={13}
+                                style={{ color: l.lessonType === "VIDEO" ? "#fff" : "var(--text-3)" }} />
+                            </div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 13.5, fontWeight: 500 }} className="truncate">{li + 1}. {l.title}</div>
+                              <div style={{ fontSize: 11, color: "var(--text-3)", display: "flex", gap: 6, marginTop: 2 }}>
+                                <span>{l.lessonType === "VIDEO" ? "Video" : "Văn bản"}</span>
+                                {resources.length > 0 && <><span>·</span><Ic n="paperclip" size={10} />{resources.length} tài liệu</>}
+                              </div>
+                            </div>
+                          </div>
+                          {/* Resource list */}
+                          {resources.length > 0 && (
+                            <div style={{ padding: "0 16px 10px 58px", display: "flex", flexDirection: "column", gap: 5 }}>
+                              {resources.map((r, ri) => (
+                                <div key={ri} style={{ display: "flex", alignItems: "center", gap: 8,
+                                  padding: "6px 10px", borderRadius: 8, background: "var(--surface-2)",
+                                  border: "1px solid var(--border-soft)" }}>
+                                  <Ic n={r.resourceType === "PDF" ? "file_text" : r.resourceType === "VIDEO" ? "play" : "file"}
+                                    size={12} style={{ color: "var(--text-3)", flex: "none" }} />
+                                  <span style={{ fontSize: 12, flex: 1, minWidth: 0 }} className="truncate">
+                                    {r.title || r.displayName || r.originalFilename || "Tài liệu"}
+                                  </span>
+                                  <span style={{ fontSize: 10.5, color: "var(--text-3)", flex: "none" }}>
+                                    {r.resourceType}
+                                  </span>
+                                  {(() => {
+                                    const noKey = !r.s3Key;
+                                    const noKeyMsg = "Bản nháp này được lưu trước khi hỗ trợ xem tài liệu. Vui lòng lưu lại bản nháp mới.";
+                                    const getViewUrl = async () => {
+                                      if (noKey) throw new Error(noKeyMsg);
+                                      const res = await api.get(`/instructor/courses/${courseId}/resources/presign-view`, { params: { s3Key: r.s3Key } });
+                                      return res.data.url;
+                                    };
+                                    const getDownUrl = async () => {
+                                      if (noKey) throw new Error(noKeyMsg);
+                                      const res = await api.get(`/instructor/courses/${courseId}/resources/presign-download`, { params: { s3Key: r.s3Key } });
+                                      return res.data.url;
+                                    };
+                                    const btnBase = { height: 24, borderRadius: 6, cursor: "pointer", flex: "none", display: "flex", alignItems: "center", justifyContent: "center", padding: "0 6px", gap: 3, fontSize: 11, fontWeight: 500, border: "1px solid" };
+                                    return (<>
+                                      <button title="Xem tài liệu" style={{ ...btnBase, borderColor: "#bae6fd", background: "#f0f9ff", color: "#0284c7" }}
+                                        onClick={async () => { try { window.open(await getViewUrl(), "_blank"); } catch (e) { alert(e.message || "Không thể xem tài liệu"); } }}>
+                                        <Ic n="eye" size={11} />Xem
+                                      </button>
+                                      <button title="Tải tài liệu" style={{ ...btnBase, borderColor: "#bbf7d0", background: "#f0fdf4", color: "#16a34a" }}
+                                        onClick={async () => {
+                                          try {
+                                            const url = await getDownUrl();
+                                            const a = document.createElement("a"); a.href = url; a.download = r.displayName || "tai-lieu"; a.target = "_blank"; a.click();
+                                          } catch (e) { alert(e.message || "Không thể tải tài liệu"); }
+                                        }}>
+                                        <Ic n="download" size={11} />Tải
+                                      </button>
+                                    </>);
+                                  })()}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </Section>
+          );
+        })()}
+
+        {tab === "content" && !viewingVersion && (
           <Section>
             <div className="between" style={{ marginBottom: 16 }}>
               <h2 className="t-h2">Chương trình học</h2>
@@ -1015,6 +1467,34 @@
                                         {rIsDel && <span className="chip t-xs" style={{ padding: "1px 7px", fontSize: 10.5, background: "#fee2e2", color: "#dc2626", fontWeight: 700 }}>Chờ xóa</span>}
                                       </div>
                                     </div>
+                                    {!rIsDel && (() => {
+                                      const getViewUrl = async () => {
+                                        if (r.externalUrl) return r.externalUrl;
+                                        const res = await api.get(`/instructor/courses/${courseId}/lessons/${lesson.lessonId}/resources/${r.resourceId}/view-url`);
+                                        return res.data.url;
+                                      };
+                                      const getDownUrl = async () => {
+                                        if (r.externalUrl) return r.externalUrl;
+                                        const res = await api.get(`/instructor/courses/${courseId}/lessons/${lesson.lessonId}/resources/${r.resourceId}/download-url`);
+                                        return res.data.url;
+                                      };
+                                      const btnBase = { height: 28, borderRadius: 7, cursor: "pointer", flex: "none", display: "flex", alignItems: "center", justifyContent: "center", padding: "0 8px", gap: 4, fontSize: 11.5, fontWeight: 500, border: "1px solid" };
+                                      return (<>
+                                        <button title="Xem tài liệu" style={{ ...btnBase, borderColor: "#bae6fd", background: "#f0f9ff", color: "#0284c7" }}
+                                          onClick={async () => { try { window.open(await getViewUrl(), "_blank"); } catch (e) { alert(e?.response?.data?.message || "Không thể xem tài liệu"); } }}>
+                                          <Ic n="eye" size={12} />Xem
+                                        </button>
+                                        <button title="Tải tài liệu" style={{ ...btnBase, borderColor: "#bbf7d0", background: "#f0fdf4", color: "#16a34a" }}
+                                          onClick={async () => {
+                                            try {
+                                              const url = await getDownUrl();
+                                              const a = document.createElement("a"); a.href = url; a.download = r.title || "tai-lieu"; a.target = "_blank"; a.click();
+                                            } catch (e) { alert(e?.response?.data?.message || "Không thể tải tài liệu"); }
+                                          }}>
+                                          <Ic n="download" size={12} />Tải
+                                        </button>
+                                      </>);
+                                    })()}
                                     {canEdit && !rIsDel && <>
                                       <button className="icon-btn" style={{ width: 28, height: 28 }} title="Đổi tên"
                                         onClick={() => setEditResourceState({ lessonId: lesson.lessonId, resourceId: r.resourceId, title: r.title, resourceType: r.resourceType, externalUrl: r.externalUrl, mimeType: r.mimeType })}>
@@ -1097,156 +1577,282 @@
         )}
 
         {/* ── History tab ── */}
-        {tab === "history" && (() => {
+        {tab === "versions" && (() => {
           function fmtDT(iso) {
             if (!iso) return "—";
             return new Date(iso).toLocaleString("vi-VN", { dateStyle: "short", timeStyle: "short" });
           }
 
           const statusCfgMap = {
+            DRAFT:    { label: "Bản nháp",       color: "#64748b", bg: "#f1f5f9", border: "#cbd5e1" },
             PENDING:  { label: "Đang chờ duyệt", color: "#0284c7", bg: "#e0f2fe", border: "#7dd3fc" },
-            APPROVED: { label: "Đã duyệt",        color: "#16a34a", bg: "#dcfce7", border: "#86efac" },
-            REJECTED: { label: "Bị từ chối",      color: "#dc2626", bg: "#fee2e2", border: "#fca5a5" },
+            APPROVED: { label: "Đã duyệt",       color: "#16a34a", bg: "#dcfce7", border: "#86efac" },
+            REJECTED: { label: "Bị từ chối",     color: "#dc2626", bg: "#fee2e2", border: "#fca5a5" },
           };
 
-          // Tìm version APPROVED mới nhất để biết đây là bản live
-          const latestApprovedNo = versions.filter(v => v.status === "APPROVED")[0]?.versionNumber;
-          // Course phải PUBLISHED mới được rollback
-          const canRollback = course?.status === "PUBLISHED";
+          const draftVersions    = versions.filter(v => v.status === "DRAFT");
+          const officialVersions = versions.filter(v => v.status !== "DRAFT");
+          const latestApprovedNo = officialVersions.filter(v => v.status === "APPROVED")[0]?.versionNumber;
+          const canRollback      = course?.status === "PUBLISHED";
+          const draftCount       = draftVersions.length;
+
+          function VersionCard({ v }) {
+            const cfg    = statusCfgMap[v.status] || statusCfgMap.PENDING;
+            const isLive = v.status === "APPROVED" && v.versionNumber === latestApprovedNo;
+            const isDraft = v.status === "DRAFT";
+            const snap   = (() => { try { return v.snapshot ? JSON.parse(v.snapshot) : null; } catch { return null; } })();
+
+            return (
+              <div style={{
+                borderRadius: 12, overflow: "hidden",
+                border: `1.5px solid ${cfg.border}`,
+                background: "var(--surface)",
+                boxShadow: v.status === "REJECTED" ? "0 2px 8px rgba(220,38,38,.08)" : "none",
+              }}>
+                {/* Header */}
+                <div style={{ padding: "10px 16px", background: cfg.bg, display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{
+                    width: 28, height: 28, borderRadius: 8,
+                    background: cfg.color, color: "#fff",
+                    display: "grid", placeItems: "center",
+                    fontSize: 12, fontWeight: 800, flex: "none",
+                  }}>
+                    {isDraft ? <Ic n="file" size={13} /> : `v${v.versionNumber}`}
+                  </div>
+
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    {isDraft && renamingVersion === v.id ? (
+                      <form style={{ display: "inline-flex", gap: 6, alignItems: "center" }}
+                        onSubmit={e => { e.preventDefault(); handleRenameVersion(v.id, renameInput); }}>
+                        <input autoFocus value={renameInput}
+                          onChange={e => setRenameInput(e.target.value)}
+                          style={{ fontSize: 13, padding: "2px 8px", borderRadius: 6, border: "1.5px solid #93c5fd",
+                            outline: "none", minWidth: 160, maxWidth: 260 }}
+                          onKeyDown={e => e.key === "Escape" && setRenamingVersion(null)} />
+                        <button type="submit" className="btn btn-ghost btn-sm" style={{ fontSize: 12, padding: "2px 8px", color: "#1d4ed8" }}>Lưu</button>
+                        <button type="button" className="btn btn-ghost btn-sm" style={{ fontSize: 12, padding: "2px 8px" }}
+                          onClick={() => setRenamingVersion(null)}>Hủy</button>
+                      </form>
+                    ) : (
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ fontWeight: 700, fontSize: 13.5, color: cfg.color }}>
+                          {isDraft ? (v.label || "Bản nháp chưa đặt tên") : `Phiên bản ${v.versionNumber}`}
+                        </span>
+                        {isDraft && (
+                          <button className="btn btn-ghost btn-sm" title="Đổi tên"
+                            style={{ padding: "2px 6px", fontSize: 11, color: "#64748b", borderColor: "#e2e8f0", gap: 3 }}
+                            onClick={() => { setRenamingVersion(v.id); setRenameInput(v.label || ""); }}>
+                            <Ic n="edit" size={11} />đổi tên
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    {isLive && (
+                      <span style={{ marginLeft: 8, padding: "2px 8px", borderRadius: 999,
+                        background: "#16a34a", color: "#fff", fontSize: 10.5, fontWeight: 700 }}>
+                        ĐANG LIVE
+                      </span>
+                    )}
+                    <span className="muted" style={{ fontSize: 12, marginLeft: 8 }}>
+                      · {isDraft ? "Lưu" : "Nộp"} {fmtDT(v.submittedAt)}
+                    </span>
+                  </div>
+
+                  <span style={{
+                    padding: "3px 10px", borderRadius: 999, fontSize: 11.5, fontWeight: 700,
+                    background: cfg.color, color: "#fff", flex: "none",
+                  }}>{cfg.label}</span>
+                </div>
+
+                {/* Body */}
+                <div style={{ padding: "12px 16px", display: "flex", flexDirection: "column", gap: 10 }}>
+                  {!isDraft && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#0284c7", flex: "none" }} />
+                        <span style={{ fontSize: 12.5, color: "var(--text-2)" }}>Nộp lúc <strong>{fmtDT(v.submittedAt)}</strong></span>
+                      </div>
+                      {v.reviewedAt && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <div style={{ width: 8, height: 8, borderRadius: "50%", background: cfg.color, flex: "none" }} />
+                          <span style={{ fontSize: 12.5, color: "var(--text-2)" }}>
+                            {v.status === "APPROVED" ? "Duyệt" : "Từ chối"} lúc <strong>{fmtDT(v.reviewedAt)}</strong>
+                          </span>
+                        </div>
+                      )}
+                      {v.status === "PENDING" && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#fbbf24", flex: "none", boxShadow: "0 0 0 3px #fef3c7" }} />
+                          <span style={{ fontSize: 12.5, color: "#a16207", fontStyle: "italic" }}>Đang chờ admin xét duyệt...</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {v.changeSummary && (
+                    <div style={{ fontSize: 12.5, color: "var(--text-2)", fontStyle: "italic" }}>Mô tả: {v.changeSummary}</div>
+                  )}
+
+                  {v.status === "REJECTED" && v.rejectionReason && (
+                    <div style={{ padding: "10px 14px", borderRadius: 9, background: "#fff5f5", border: "1px solid #fecaca", display: "flex", gap: 10, alignItems: "flex-start" }}>
+                      <Ic n="warn" size={15} style={{ color: "#dc2626", flex: "none", marginTop: 1 }} />
+                      <div>
+                        <div style={{ fontSize: 10.5, fontWeight: 700, color: "#dc2626", marginBottom: 3, textTransform: "uppercase" }}>Lý do từ chối</div>
+                        <div style={{ fontSize: 13, color: "#991b1b", lineHeight: 1.5 }}>{v.rejectionReason}</div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Action buttons */}
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {snap && (
+                      <button className="btn btn-ghost btn-sm" style={{ fontSize: 12.5, gap: 6 }}
+                        onClick={() => setSnapshotView({ versionNo: isDraft ? (v.label || "Bản nháp") : v.versionNumber, snapshot: snap })}>
+                        <Ic n="eye" size={13} />Xem nội dung
+                      </button>
+                    )}
+
+                    {/* Rollback — chỉ với APPROVED không phải live */}
+                    {v.status === "APPROVED" && !isLive && canRollback && (
+                      <button className="btn btn-ghost btn-sm"
+                        style={{ fontSize: 12.5, gap: 6, color: "#d97706", borderColor: "#fde68a" }}
+                        disabled={rollingBack === v.id}
+                        onClick={() => handleRollback(v.id, v.versionNumber)}>
+                        <Ic n="rotate_ccw" size={13} />
+                        {rollingBack === v.id ? "Đang rollback..." : `Rollback về v${v.versionNumber}`}
+                      </button>
+                    )}
+
+                    {/* Khôi phục bản nháp — tải lại flags từ snapshot DRAFT */}
+                    {isDraft && canRollback && (
+                      <button className="btn btn-ghost btn-sm"
+                        style={{ fontSize: 12.5, gap: 6, color: "#1d4ed8", borderColor: "#93c5fd" }}
+                        disabled={rollingBack === v.id}
+                        onClick={() => handleRollback(v.id, v.label || "bản nháp")}>
+                        <Ic n="rotate_ccw" size={13} />
+                        {rollingBack === v.id ? "Đang khôi phục..." : "Khôi phục bản nháp này"}
+                      </button>
+                    )}
+
+                    {/* Xóa cứng — DRAFT hoặc REJECTED */}
+                    {(isDraft || v.status === "REJECTED") && (
+                      <button className="btn btn-ghost btn-sm"
+                        style={{ fontSize: 12.5, gap: 6, color: "#dc2626", borderColor: "#fca5a5" }}
+                        disabled={deletingDraft === v.id}
+                        onClick={() => handleDeleteDraft(v.id)}>
+                        <Ic n="x" size={13} />
+                        {deletingDraft === v.id ? "Đang xóa..." : (isDraft ? "Xóa bản nháp" : "Xóa phiên bản từ chối")}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          }
 
           return (
             <Section>
-              <h2 className="t-h2" style={{ marginBottom: 4 }}>Lịch sử phiên bản</h2>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+                <h2 className="t-h2">Lịch sử phiên bản</h2>
+                {(course?.status === "PUBLISHED" || course?.status === "DRAFT") && hasPendingChanges && (
+                  <button className="btn btn-ghost btn-sm"
+                    style={{ gap: 6, borderColor: "#93c5fd", color: "#1d4ed8" }}
+                    disabled={savingDraft}
+                    onClick={() => setShowSaveDraft(true)}>
+                    <Ic n="download" size={14} />Lưu bản nháp
+                    {draftCount > 0 && <span style={{ background: "#e0f2fe", color: "#0284c7", borderRadius: 999, fontSize: 10, padding: "0 5px", fontWeight: 700 }}>{draftCount}/3</span>}
+                  </button>
+                )}
+              </div>
               <p className="muted" style={{ fontSize: 12.5, marginBottom: 20 }}>
-                Mỗi lần nộp duyệt tạo ra một phiên bản. Bạn có thể xem lại nội dung hoặc rollback về bản cũ đã duyệt.
+                Lưu bản nháp để checkpoint tiến độ. Nộp duyệt khi sẵn sàng.
               </p>
 
               {historyLoading && <div className="muted" style={{ fontSize: 13.5 }}>Đang tải...</div>}
-              {!historyLoading && versions.length === 0 && (
-                <Empty icon="clock" title="Chưa có phiên bản nào" sub="Lịch sử sẽ xuất hiện sau khi bạn nộp khóa học lần đầu." />
+
+              {/* Bản nháp */}
+              {!historyLoading && draftVersions.length > 0 && (
+                <div style={{ marginBottom: 20 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                      Bản nháp đã lưu ({draftCount}/3)
+                    </span>
+                    <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    {draftVersions.map(v => <VersionCard key={v.id} v={v} />)}
+                  </div>
+                </div>
               )}
 
-              {!historyLoading && versions.length > 0 && (
-                <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                  {versions.map((v) => {
-                    const cfg = statusCfgMap[v.status] || statusCfgMap.PENDING;
-                    const isLive = v.status === "APPROVED" && v.versionNumber === latestApprovedNo;
-                    const snap = (() => { try { return v.snapshot ? JSON.parse(v.snapshot) : null; } catch { return null; } })();
+              {/* Lịch sử chính thức */}
+              {!historyLoading && officialVersions.length === 0 && draftVersions.length === 0 && (
+                <Empty icon="clock" title="Chưa có phiên bản nào" sub="Lịch sử sẽ xuất hiện sau khi bạn nộp hoặc lưu bản nháp." />
+              )}
+              {!historyLoading && officialVersions.length > 0 && (
+                <div>
+                  {draftVersions.length > 0 && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                        Lịch sử nộp duyệt
+                      </span>
+                      <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
+                    </div>
+                  )}
+                  <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                    {officialVersions.map(v => <VersionCard key={v.id} v={v} />)}
+                  </div>
+                </div>
+              )}
+            </Section>
+          );
+        })()}
 
+        {tab === "history" && (() => {
+          const ACTION_CFG = {
+            SUBMITTED_FIRST:  { label: "Nộp duyệt lần đầu",    color: "#0284c7", icon: "send"       },
+            SUBMITTED_UPDATE: { label: "Nộp cập nhật",          color: "#0284c7", icon: "send"       },
+            APPROVED:         { label: "Được duyệt",            color: "#16a34a", icon: "check"      },
+            REJECTED:         { label: "Bị từ chối",            color: "#dc2626", icon: "x"          },
+            WITHDRAWN:        { label: "Rút khỏi hàng duyệt",   color: "#d97706", icon: "rotate_ccw" },
+          };
+          function fmtDT(iso) {
+            if (!iso) return "—";
+            return new Date(iso).toLocaleString("vi-VN", { dateStyle: "short", timeStyle: "short" });
+          }
+          return (
+            <Section>
+              <h2 className="t-h2" style={{ marginBottom: 16 }}>Lịch sử phê duyệt</h2>
+              {historyLoading && <div className="muted" style={{ fontSize: 13.5 }}>Đang tải...</div>}
+              {!historyLoading && history.length === 0 && (
+                <div className="muted" style={{ fontSize: 13.5 }}>Chưa có hoạt động duyệt nào.</div>
+              )}
+              {!historyLoading && history.length > 0 && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 0, position: "relative" }}>
+                  {/* vertical line */}
+                  <div style={{ position: "absolute", left: 15, top: 8, bottom: 8, width: 2, background: "var(--border)", borderRadius: 2 }} />
+                  {history.map((h, i) => {
+                    const cfg = ACTION_CFG[h.action] || { label: h.action, color: "#64748b", icon: "clock" };
                     return (
-                      <div key={v.id} style={{
-                        borderRadius: 12, overflow: "hidden",
-                        border: `1.5px solid ${cfg.border}`,
-                        background: "var(--surface)",
-                        boxShadow: v.status === "REJECTED" ? "0 2px 8px rgba(220,38,38,.08)" : "none",
-                      }}>
-                        {/* Header */}
-                        <div style={{ padding: "10px 16px", background: cfg.bg, display: "flex", alignItems: "center", gap: 10 }}>
-                          <div style={{
-                            width: 28, height: 28, borderRadius: 8,
-                            background: cfg.color, color: "#fff",
-                            display: "grid", placeItems: "center",
-                            fontSize: 12, fontWeight: 800, flex: "none",
-                          }}>v{v.versionNumber}</div>
-
-                          <div style={{ flex: 1 }}>
-                            <span style={{ fontWeight: 700, fontSize: 13.5, color: cfg.color }}>
-                              Phiên bản {v.versionNumber}
-                            </span>
-                            {isLive && (
-                              <span style={{ marginLeft: 8, padding: "2px 8px", borderRadius: 999,
-                                background: "#16a34a", color: "#fff", fontSize: 10.5, fontWeight: 700 }}>
-                                ĐANG LIVE
-                              </span>
-                            )}
-                            <span className="muted" style={{ fontSize: 12, marginLeft: 8 }}>
-                              · Nộp {fmtDT(v.submittedAt)}
-                            </span>
-                          </div>
-
-                          <span style={{
-                            padding: "3px 10px", borderRadius: 999, fontSize: 11.5, fontWeight: 700,
-                            background: cfg.color, color: "#fff",
-                          }}>{cfg.label}</span>
+                      <div key={h.id || i} style={{ display: "flex", gap: 14, padding: "10px 0", alignItems: "flex-start" }}>
+                        <div style={{ width: 32, height: 32, borderRadius: "50%", background: cfg.color + "18",
+                          border: `2px solid ${cfg.color}`, display: "grid", placeItems: "center", flex: "none", zIndex: 1 }}>
+                          <Ic n={cfg.icon} size={14} style={{ color: cfg.color }} />
                         </div>
-
-                        {/* Body */}
-                        <div style={{ padding: "12px 16px", display: "flex", flexDirection: "column", gap: 10 }}>
-                          {/* Timestamps */}
-                          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                              <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#0284c7", flex: "none" }} />
-                              <span style={{ fontSize: 12.5, color: "var(--text-2)" }}>
-                                Nộp lúc <strong>{fmtDT(v.submittedAt)}</strong>
-                              </span>
-                            </div>
-                            {v.reviewedAt && (
-                              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                                <div style={{ width: 8, height: 8, borderRadius: "50%", background: cfg.color, flex: "none" }} />
-                                <span style={{ fontSize: 12.5, color: "var(--text-2)" }}>
-                                  {v.status === "APPROVED" ? "Duyệt" : "Từ chối"} lúc <strong>{fmtDT(v.reviewedAt)}</strong>
-                                </span>
-                              </div>
-                            )}
-                            {v.status === "PENDING" && (
-                              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                                <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#fbbf24", flex: "none",
-                                  boxShadow: "0 0 0 3px #fef3c7" }} />
-                                <span style={{ fontSize: 12.5, color: "#a16207", fontStyle: "italic" }}>Đang chờ admin xét duyệt...</span>
-                              </div>
-                            )}
+                        <div style={{ flex: 1, paddingTop: 4 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                            <span style={{ fontWeight: 700, fontSize: 13.5, color: cfg.color }}>{cfg.label}</span>
+                            <span className="muted" style={{ fontSize: 12 }}>{fmtDT(h.createdAt)}</span>
                           </div>
-
-                          {/* Change summary */}
-                          {v.changeSummary && (
-                            <div style={{ fontSize: 12.5, color: "var(--text-2)", fontStyle: "italic" }}>
-                              Mô tả: {v.changeSummary}
+                          {h.reason && (
+                            <div style={{ fontSize: 12.5, color: h.action === "REJECTED" ? "#dc2626" : "var(--text-2)",
+                              marginTop: 3, padding: "6px 10px",
+                              background: h.action === "REJECTED" ? "#fff5f5" : "var(--surface-2)",
+                              borderRadius: 7,
+                              border: `1px solid ${h.action === "REJECTED" ? "#fecaca" : "var(--border)"}` }}>
+                              {h.action === "REJECTED" ? "Lý do từ chối: " : ""}{h.reason}
                             </div>
                           )}
-
-                          {/* Rejection reason */}
-                          {v.status === "REJECTED" && v.rejectionReason && (
-                            <div style={{
-                              padding: "10px 14px", borderRadius: 9,
-                              background: "#fff5f5", border: "1px solid #fecaca",
-                              display: "flex", gap: 10, alignItems: "flex-start",
-                            }}>
-                              <Ic n="alert_circle" size={15} style={{ color: "#dc2626", flex: "none", marginTop: 1 }} />
-                              <div>
-                                <div style={{ fontSize: 10.5, fontWeight: 700, color: "#dc2626", marginBottom: 3, textTransform: "uppercase" }}>
-                                  Lý do từ chối
-                                </div>
-                                <div style={{ fontSize: 13, color: "#991b1b", lineHeight: 1.5 }}>{v.rejectionReason}</div>
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Action buttons */}
-                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                            {/* View snapshot */}
-                            {snap && (
-                              <button
-                                className="btn btn-ghost btn-sm"
-                                style={{ fontSize: 12.5, gap: 6 }}
-                                onClick={() => setSnapshotView({ versionNo: v.versionNumber, snapshot: snap })}
-                              >
-                                <Ic n="eye" size={13} />Xem nội dung
-                              </button>
-                            )}
-
-                            {/* Rollback — chỉ hiện với APPROVED, không phải bản live hiện tại, và course đang PUBLISHED */}
-                            {v.status === "APPROVED" && !isLive && canRollback && (
-                              <button
-                                className="btn btn-ghost btn-sm"
-                                style={{ fontSize: 12.5, gap: 6, color: "#d97706", borderColor: "#fde68a" }}
-                                disabled={rollingBack === v.id}
-                                onClick={() => handleRollback(v.id, v.versionNumber)}
-                              >
-                                <Ic n="rotate_ccw" size={13} />
-                                {rollingBack === v.id ? "Đang rollback..." : `Rollback về v${v.versionNumber}`}
-                              </button>
-                            )}
-                          </div>
                         </div>
                       </div>
                     );
@@ -1365,6 +1971,30 @@
           </Modal>
         )}
 
+        {/* Modal lưu bản nháp */}
+        {showSaveDraft && (
+          <Modal open onClose={() => setShowSaveDraft(false)} max={420}>
+            <ModalHead title="Lưu bản nháp" icon="download" iconBg="#eff6ff" iconColor="#1d4ed8" onClose={() => setShowSaveDraft(false)} />
+            <div className="modal-body">
+              <label className="t-label" style={{ display: "block", marginBottom: 7 }}>
+                Tên bản nháp <span className="muted">(tuỳ chọn)</span>
+              </label>
+              <input className="input" placeholder="VD: Thêm bài thực hành tuần 3" autoFocus
+                value={draftLabel} onChange={e => setDraftLabel(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") handleSaveDraft(draftLabel); }} />
+              <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
+                Bạn có thể lưu tối đa 3 bản nháp. Bản nháp không gửi cho admin, chỉ lưu tiến độ.
+              </div>
+            </div>
+            <div className="modal-foot">
+              <button className="btn btn-ghost" onClick={() => setShowSaveDraft(false)}>Hủy</button>
+              <button className="btn btn-primary" disabled={savingDraft} onClick={() => handleSaveDraft(draftLabel)}>
+                <Ic n="download" size={15} />{savingDraft ? "Đang lưu..." : "Lưu bản nháp"}
+              </button>
+            </div>
+          </Modal>
+        )}
+
         {/* Modals */}
         <AddChapterModal   open={addChapterOpen}     onClose={() => setAddChapterOpen(false)}   courseId={courseId} onAdded={() => loadCourse(true)} />
         <AddLessonModal    open={!!addLessonState}   onClose={() => setAddLessonState(null)}    courseId={courseId} chapterId={addLessonState?.chapterId} onAdded={() => loadCourse(true)} />
@@ -1409,6 +2039,67 @@
               courseId={courseId}
               onReplaced={() => { loadCourse(true); setEditResourceState(null); }}
             />
+          );
+        })()}
+
+        {/* Modal: chọn bản nháp để xóa khi đã đủ 3 bản */}
+        {showReplaceDraft && loadDraftTarget && (() => {
+          const draftVersions = versions.filter(v => v.status === "DRAFT");
+          return (
+            <Modal open onClose={() => { setShowReplaceDraft(false); setLoadDraftTarget(null); }} max={460}>
+              <ModalHead title="Đã đủ 3 bản nháp" icon="alert-triangle" iconBg="#fff7ed" iconColor="#ea580c"
+                onClose={() => { setShowReplaceDraft(false); setLoadDraftTarget(null); }} />
+              <div className="modal-body">
+                <p style={{ fontSize: 13, color: "#475569", marginBottom: 12 }}>
+                  Bản đang chỉnh sửa có thay đổi chưa lưu nhưng đã đủ 3 bản nháp. Chọn một bản nháp để xóa và thay bằng bản đang chỉnh sửa:
+                </p>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {draftVersions.map(v => (
+                    <button key={v.id} className="btn btn-ghost"
+                      style={{ justifyContent: "flex-start", gap: 8, fontSize: 13, padding: "8px 12px", borderRadius: 8 }}
+                      disabled={deletingDraft === v.id || savingDraft}
+                      onClick={async () => {
+                        setDeletingDraft(v.id);
+                        try {
+                          await api.delete(`/instructor/courses/${courseId}/versions/${v.id}/draft`);
+                          setVersions(prev => prev.filter(x => x.id !== v.id));
+                          // Lưu bản đang sửa
+                          setSavingDraft(true);
+                          const autoLabel = `Auto-save trước khi tải "${loadDraftTarget.label || "bản nháp"}"`;
+                          const res = await api.post(`/instructor/courses/${courseId}/versions/save-draft?label=${encodeURIComponent(autoLabel)}`);
+                          setVersions(prev => [res.data, ...prev]);
+                          setSavingDraft(false);
+                          setShowReplaceDraft(false);
+                          // Rollback
+                          setRollingBack(loadDraftTarget.id);
+                          await api.post(`/instructor/courses/${courseId}/versions/${loadDraftTarget.id}/rollback`);
+                          setViewingVersion(null);
+                          loadCourse(true);
+                          setTab("content");
+                        } catch (e) {
+                          alert(e?.response?.data?.message || "Thao tác thất bại");
+                        } finally {
+                          setDeletingDraft(null);
+                          setSavingDraft(false);
+                          setRollingBack(null);
+                          setLoadDraftTarget(null);
+                        }
+                      }}>
+                      <Ic n="trash-2" size={14} style={{ color: "#dc2626" }} />
+                      <span style={{ flex: 1, textAlign: "left" }}>
+                        <strong>{v.label || "Bản nháp"}</strong>
+                        {v.createdAt && <span style={{ color: "#94a3b8", marginLeft: 8, fontSize: 12 }}>
+                          {new Date(v.createdAt).toLocaleDateString("vi-VN")}
+                        </span>}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="modal-foot">
+                <button className="btn btn-ghost" onClick={() => { setShowReplaceDraft(false); setLoadDraftTarget(null); }}>Hủy</button>
+              </div>
+            </Modal>
           );
         })()}
       </div>

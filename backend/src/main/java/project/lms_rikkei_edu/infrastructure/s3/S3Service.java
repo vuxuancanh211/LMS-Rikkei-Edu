@@ -65,6 +65,18 @@ public class S3Service {
         );
     }
 
+    /** Presigned GET URL với Content-Disposition: inline — browser hiển thị thay vì tải. */
+    public PresignedGetObjectRequest generatePresignedInlineUrl(String key, long expirySeconds) {
+        return s3Presigner.presignGetObject(req -> req
+                .signatureDuration(Duration.ofSeconds(expirySeconds))
+                .getObjectRequest(get -> get
+                        .bucket(bucket)
+                        .key(key)
+                        .responseContentDisposition("inline")
+                )
+        );
+    }
+
     /**
      * Download object từ S3 dưới dạng stream. Caller phải đóng stream sau khi dùng.
      */

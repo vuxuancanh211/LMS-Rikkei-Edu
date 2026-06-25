@@ -22,6 +22,8 @@ public interface LessonResourceService {
     /** Lấy presigned GET URL để download file */
     ResourceDownloadUrlResponse getDownloadUrl(UUID instructorId, UUID courseId, UUID lessonId, UUID resourceId);
 
+    ResourceDownloadUrlResponse getViewUrl(UUID instructorId, UUID courseId, UUID lessonId, UUID resourceId);
+
     /** Danh sách resource của lesson */
     List<LessonResourceResponse> listResources(UUID instructorId, UUID courseId, UUID lessonId);
 

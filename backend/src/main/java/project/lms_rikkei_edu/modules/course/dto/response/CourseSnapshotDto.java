@@ -51,5 +51,6 @@ public class CourseSnapshotDto {
         private String resourceType;
         private String mimeType;
         private Long fileSizeBytes;
+        private String s3Key; // null = external URL (ext://)
     }
 }

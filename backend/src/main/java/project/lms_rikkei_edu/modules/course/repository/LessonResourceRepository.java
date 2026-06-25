@@ -20,4 +20,8 @@ public interface LessonResourceRepository extends JpaRepository<LessonResource, 
     boolean existsByCourseIdAndPendingDeleteTrue(UUID courseId);
 
     boolean existsByCourseIdAndIsNewInUpdateTrue(UUID courseId);
+
+    void deleteAllByLessonIdIn(List<UUID> lessonIds);
+
+    boolean existsByS3KeyAndDeletedAtIsNull(String s3Key);
 }

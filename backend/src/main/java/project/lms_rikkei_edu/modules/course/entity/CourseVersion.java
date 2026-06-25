@@ -22,12 +22,17 @@ public class CourseVersion {
     @Column(name = "course_id", nullable = false)
     private UUID courseId;
 
-    @Column(name = "version_number", nullable = false)
+    /** null với DRAFT versions — chỉ có giá trị khi PENDING/APPROVED/REJECTED */
+    @Column(name = "version_number")
     private Integer versionNumber;
 
-    /** PENDING | APPROVED | REJECTED */
+    /** DRAFT | PENDING | APPROVED | REJECTED */
     @Column(name = "status", length = 20, nullable = false)
     private String status;
+
+    /** Tên tùy chọn do instructor đặt khi lưu bản nháp */
+    @Column(name = "label", length = 100)
+    private String label;
 
     /** JSON snapshot của toàn bộ course tại thời điểm submit */
     @Column(name = "snapshot", columnDefinition = "text")

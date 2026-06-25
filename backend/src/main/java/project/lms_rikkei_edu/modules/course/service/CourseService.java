@@ -42,4 +42,19 @@ public interface CourseService {
     List<CourseVersionResponse> getCourseVersions(UUID instructorId, UUID courseId);
 
     CourseDetailResponse rollbackToVersion(UUID instructorId, UUID courseId, UUID versionId);
+
+    CourseVersionResponse saveDraft(UUID instructorId, UUID courseId, String label);
+
+    void renameDraftVersion(UUID instructorId, UUID courseId, UUID versionId, String label);
+
+    /** Xóa cứng bản nháp DRAFT hoặc REJECTED (kèm cleanup S3). */
+    void deleteDraftVersion(UUID instructorId, UUID courseId, UUID versionId);
+
+    CourseVersionResponse cloneVersionAsDraft(UUID instructorId, UUID courseId, UUID sourceVersionId, String label);
+
+    /** Nộp một DRAFT version cụ thể để admin duyệt. Nếu đang có PENDING, revert nó về DRAFT trước. */
+    CourseVersionResponse submitVersion(UUID instructorId, UUID courseId, UUID versionId);
+
+    /** Kiểm tra xem có version nào đang PENDING không. */
+    boolean hasPendingVersion(UUID instructorId, UUID courseId);
 }

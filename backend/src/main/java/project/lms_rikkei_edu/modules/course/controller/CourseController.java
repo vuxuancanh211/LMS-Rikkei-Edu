@@ -14,6 +14,7 @@ import project.lms_rikkei_edu.modules.course.dto.request.*;
 import project.lms_rikkei_edu.modules.course.dto.response.*;
 import project.lms_rikkei_edu.modules.course.entity.CourseCategory;
 import project.lms_rikkei_edu.modules.course.repository.CourseCategoryRepository;
+import project.lms_rikkei_edu.modules.course.repository.CourseRepository;
 import project.lms_rikkei_edu.modules.course.service.CourseService;
 import project.lms_rikkei_edu.modules.course.service.LessonResourceService;
 import project.lms_rikkei_edu.infrastructure.s3.S3Service;
@@ -31,6 +32,7 @@ public class CourseController {
     private final CurrentUserProvider currentUserProvider;
     private final S3Service s3Service;
     private final CourseCategoryRepository categoryRepository;
+    private final CourseRepository courseRepository;
 
     private UUID currentUserId() {
         return currentUserProvider.getCurrentUserId()
@@ -177,6 +179,14 @@ public class CourseController {
         return ResponseEntity.ok(lessonResourceService.listResources(currentUserId(), courseId, lessonId));
     }
 
+    @GetMapping("/{courseId}/lessons/{lessonId}/resources/{resourceId}/view-url")
+    public ResponseEntity<ResourceDownloadUrlResponse> getViewUrl(
+            @PathVariable UUID courseId,
+            @PathVariable UUID lessonId,
+            @PathVariable UUID resourceId) {
+        return ResponseEntity.ok(lessonResourceService.getViewUrl(currentUserId(), courseId, lessonId, resourceId));
+    }
+
     @GetMapping("/{courseId}/lessons/{lessonId}/resources/{resourceId}/download-url")
     public ResponseEntity<ResourceDownloadUrlResponse> getDownloadUrl(
             @PathVariable UUID courseId,
@@ -229,5 +239,73 @@ public class CourseController {
             @PathVariable UUID courseId,
             @PathVariable UUID versionId) {
         return ResponseEntity.ok(courseService.rollbackToVersion(currentUserId(), courseId, versionId));
+    }
+
+    @PostMapping("/{courseId}/versions/save-draft")
+    public ResponseEntity<CourseVersionResponse> saveDraft(
+            @PathVariable UUID courseId,
+            @RequestParam(required = false) String label) {
+        return ResponseEntity.ok(courseService.saveDraft(currentUserId(), courseId, label));
+    }
+
+    @GetMapping("/{courseId}/resources/presign-view")
+    public ResponseEntity<java.util.Map<String, String>> presignViewResource(
+            @PathVariable UUID courseId,
+            @RequestParam String s3Key) {
+        UUID userId = currentUserId();
+        if (!courseRepository.existsByIdAndInstructorId(courseId, userId)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        String url = s3Service.generatePresignedInlineUrl(s3Key, 3600).url().toString();
+        return ResponseEntity.ok(java.util.Map.of("url", url));
+    }
+
+    @GetMapping("/{courseId}/resources/presign-download")
+    public ResponseEntity<java.util.Map<String, String>> presignDownloadResource(
+            @PathVariable UUID courseId,
+            @RequestParam String s3Key) {
+        UUID userId = currentUserId();
+        if (!courseRepository.existsByIdAndInstructorId(courseId, userId)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        String url = s3Service.generatePresignedGetUrl(s3Key, 3600).url().toString();
+        return ResponseEntity.ok(java.util.Map.of("url", url));
+    }
+
+    @PatchMapping("/{courseId}/versions/{versionId}/label")
+    public ResponseEntity<Void> renameDraftVersion(
+            @PathVariable UUID courseId,
+            @PathVariable UUID versionId,
+            @RequestBody java.util.Map<String, String> body) {
+        courseService.renameDraftVersion(currentUserId(), courseId, versionId, body.get("label"));
+        return ResponseEntity.noContent().build();
+    }
+
+    @DeleteMapping("/{courseId}/versions/{versionId}/draft")
+    public ResponseEntity<Void> deleteDraftVersion(
+            @PathVariable UUID courseId,
+            @PathVariable UUID versionId) {
+        courseService.deleteDraftVersion(currentUserId(), courseId, versionId);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/{courseId}/versions/{versionId}/submit")
+    public ResponseEntity<CourseVersionResponse> submitVersion(
+            @PathVariable UUID courseId,
+            @PathVariable UUID versionId) {
+        return ResponseEntity.ok(courseService.submitVersion(currentUserId(), courseId, versionId));
+    }
+
+    @GetMapping("/{courseId}/versions/has-pending")
+    public ResponseEntity<Boolean> hasPendingVersion(@PathVariable UUID courseId) {
+        return ResponseEntity.ok(courseService.hasPendingVersion(currentUserId(), courseId));
+    }
+
+    @PostMapping("/{courseId}/versions/{versionId}/clone-as-draft")
+    public ResponseEntity<CourseVersionResponse> cloneVersionAsDraft(
+            @PathVariable UUID courseId,
+            @PathVariable UUID versionId,
+            @RequestParam(required = false) String label) {
+        return ResponseEntity.ok(courseService.cloneVersionAsDraft(currentUserId(), courseId, versionId, label));
     }
 }

@@ -834,7 +834,7 @@ ALTER TABLE "lessons" ADD FOREIGN KEY ("chapter_id") REFERENCES "chapters" ("id"
 
 ALTER TABLE "lessons" ADD FOREIGN KEY ("course_id") REFERENCES "courses" ("id") DEFERRABLE INITIALLY IMMEDIATE;
 
-ALTER TABLE "lesson_resources" ADD FOREIGN KEY ("lesson_id") REFERENCES "lessons" ("id") DEFERRABLE INITIALLY IMMEDIATE;
+ALTER TABLE "lesson_resources" ADD FOREIGN KEY ("lesson_id") REFERENCES "lessons" ("id") ON DELETE CASCADE DEFERRABLE INITIALLY IMMEDIATE;
 
 ALTER TABLE "lesson_resources" ADD FOREIGN KEY ("course_id") REFERENCES "courses" ("id") DEFERRABLE INITIALLY IMMEDIATE;
 
@@ -1033,7 +1033,7 @@ ALTER TABLE "course_approval_logs"
 CREATE TABLE IF NOT EXISTS "course_versions" (
     "id"               uuid PRIMARY KEY DEFAULT (gen_random_uuid()),
     "course_id"        uuid NOT NULL,
-    "version_number"   int  NOT NULL,
+    "version_number"   int  NULL,
     "status"           varchar(20) NOT NULL DEFAULT 'PENDING',
     "snapshot"         text,
     "change_summary"   text,
@@ -1046,3 +1046,4 @@ CREATE TABLE IF NOT EXISTS "course_versions" (
 );
 
 ALTER TABLE "course_versions" ADD FOREIGN KEY ("course_id") REFERENCES "courses" ("id") DEFERRABLE INITIALLY IMMEDIATE;
+ALTER TABLE "course_versions" ADD COLUMN IF NOT EXISTS "label" varchar(100);
