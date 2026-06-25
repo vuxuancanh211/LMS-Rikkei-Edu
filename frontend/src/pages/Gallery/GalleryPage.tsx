@@ -56,9 +56,9 @@ function registerGalleryPage() {
     ],
   };
   const SCREENS = {
-    student: { dashboard: "StuDashboard", courses: "StuCourses", tasks: "StuTasks", forum: "ForumPage", chat: "ChatScreen", certs: "StuCerts", settings: "Settings" },
-    instructor: { dashboard: "InsDashboard", courses: "InsCourses", courseDetail: "InsCourseDetail", groups: "InsGroups", groupDetail: "InsGroupDetail", assess: "InsAssess", grading: "InsGrading", students: "InsStudents", forum: "ForumPage", chat: "ChatScreen", settings: "Settings" },
-    admin: { dashboard: "AdminDashboard", users: "AdminUsers", courses: "AdminCourses", approval: "AdminApproval", reports: "AdminReports", logs: "AdminLogs", settings: "Settings" },
+    student: { dashboard: "StuDashboard", courses: "StuCourses", tasks: "StuTasks", forum: "ForumPage", chat: "ChatScreen", certs: "StuCerts", settings: "Settings", notifications: "NotificationsPage" },
+    instructor: { dashboard: "InsDashboard", courses: "InsCourses", courseDetail: "InsCourseDetail", groups: "InsGroups", groupDetail: "InsGroupDetail", assess: "InsAssess", grading: "InsGrading", students: "InsStudents", forum: "ForumPage", chat: "ChatScreen", settings: "Settings", notifications: "NotificationsPage" },
+    admin: { dashboard: "AdminDashboard", users: "AdminUsers", courses: "AdminCourses", approval: "AdminApproval", reports: "AdminReports", logs: "AdminLogs", settings: "Settings", notifications: "NotificationsPage" },
   };
   const FULLBARE = { player: "LecturePlayer", quiz: "QuizPlayer", result: "QuizResult" };
   const ROLES = [["student", "Học viên"], ["instructor", "Giảng viên"], ["admin", "Quản trị"]];
@@ -211,14 +211,14 @@ function registerGalleryPage() {
             <div className="search field-icon"><Ic n="search" /><input className="input" placeholder="Tìm kiếm khóa học, học viên..." /></div>
             <div className="grow" />
             <div style={{ position: "relative" }} onClick={e => e.stopPropagation()}>
-              <button className="icon-btn" onClick={() => { setNotif(!notif); setUmenu(false); }}><Ic n="bell" size={20} />{unreadCount > 0 && <span className="badge-dot" />}</button>
+              <button className="icon-btn" onClick={() => { setNotif(!notif); setUmenu(false); }}><Ic n="bell" size={20} />{unreadCount > 0 && <span className="badge-count">{unreadCount > 99 ? '99+' : unreadCount}</span>}</button>
               {notif && (
                 <div className="card" style={{ position: "absolute", right: 0, top: 52, width: 360, maxWidth: "90vw", padding: 0, boxShadow: "var(--sh-lg)", zIndex: 60, animation: "popIn .18s" }}>
-                  <div className="between" style={{ padding: "14px 18px", borderBottom: "1px solid var(--border)" }}><b>Thông báo</b>{unreadCount > 0 && <span className="link" onClick={handleMarkAllAsRead}>Đánh dấu đã đọc</span>}</div>
-                  <div style={{ maxHeight: 360, overflowY: "auto" }}>
+                  <div className="between" style={{ padding: "14px 18px", borderBottom: "1px solid var(--border)" }}><b>Thông báo</b><div className="row gap-8">{unreadCount > 0 && <span className="link" onClick={handleMarkAllAsRead}>Đánh dấu đã đọc</span>}</div></div>
+                  <div style={{ maxHeight: 340, overflowY: "auto" }}>
                     {notifLoading && <div className="t-sm muted" style={{ padding: "24px 18px", textAlign: "center" }}>Đang tải...</div>}
                     {!notifLoading && notificationList.length === 0 && <div className="t-sm muted" style={{ padding: "24px 18px", textAlign: "center" }}>Chưa có thông báo nào.</div>}
-                    {!notifLoading && notificationList.map((n) => {
+                    {!notifLoading && notificationList.slice(0, 5).map((n) => {
                       const meta = notifMeta(n.type);
                       return (
                         <div key={n.id} className="row gap-12" style={{ padding: "13px 16px", background: n.read ? "#fff" : "var(--accent-soft)", borderBottom: "1px solid var(--border)", cursor: "pointer" }} onClick={() => { if (!n.read) handleMarkAsRead(n.id); }}>
@@ -228,6 +228,10 @@ function registerGalleryPage() {
                         </div>
                       );
                     })}
+                  </div>
+                  <div className="between" style={{ padding: "10px 18px", borderTop: "1px solid var(--border)" }}>
+                    <span className="link t-sm" onClick={() => { setNotif(false); go("notifications"); }}>Xem tất cả</span>
+                    <span className="t-xs dim">{unreadCount} chưa đọc</span>
                   </div>
                 </div>
               )}

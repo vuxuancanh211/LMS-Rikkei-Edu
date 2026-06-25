@@ -8,11 +8,14 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import project.lms_rikkei_edu.modules.notification.entity.NotificationEntity;
 
+import java.util.Optional;
 import java.util.UUID;
 
 public interface NotificationRepository extends JpaRepository<NotificationEntity, UUID> {
 
     Page<NotificationEntity> findByRecipientIdOrderByCreatedAtDesc(UUID recipientId, Pageable pageable);
+
+    Optional<NotificationEntity> findByIdempotencyKey(String idempotencyKey);
 
     long countByRecipientIdAndReadFalse(UUID recipientId);
 

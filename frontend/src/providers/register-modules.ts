@@ -32,6 +32,7 @@ import '../pages/Admin/AdminLogs';
 
 import '../pages/Auth/LoginPage';
 import '../pages/SettingsPage';
+import '../pages/Notification/NotificationsPage';
 import '../pages/Player/LecturePlayer';
 import '../pages/Player/QuizPlayer';
 import '../pages/Player/QuizResult';
