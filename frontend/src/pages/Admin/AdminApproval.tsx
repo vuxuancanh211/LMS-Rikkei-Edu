@@ -49,10 +49,10 @@
     const typeBg    = { PDF: "#fdecec", DOC: "#eaf1ff", SLIDE: "#fef5e6", IMAGE: "#e7f8f0", VIDEO: "#f3f0ff" };
 
     const draftChanges = isPendUpd ? [
-      detail.draftTitle        && { label: "Tên khóa học",  old: detail.title,        next: detail.draftTitle },
-      detail.draftLevel        && { label: "Cấp độ",        old: detail.level,        next: detail.draftLevel },
-      detail.draftDescription  && { label: "Mô tả",         old: detail.description,  next: detail.draftDescription },
-      detail.draftThumbnailUrl && { label: "Thumbnail",     old: detail.thumbnailUrl, next: detail.draftThumbnailUrl, isImg: true },
+      detail.draftTitle        && detail.draftTitle        !== detail.title        && { label: "Tên khóa học",  old: detail.title,        next: detail.draftTitle },
+      detail.draftLevel        && detail.draftLevel        !== detail.level        && { label: "Cấp độ",        old: detail.level,        next: detail.draftLevel },
+      detail.draftDescription  && detail.draftDescription  !== detail.description  && { label: "Mô tả",         old: detail.description,  next: detail.draftDescription },
+      detail.draftThumbnailUrl && detail.draftThumbnailUrl !== detail.thumbnailUrl && { label: "Thumbnail",     old: detail.thumbnailUrl, next: detail.draftThumbnailUrl, isImg: true },
     ].filter(Boolean) : [];
 
     const newChapters           = isPendUpd ? (detail.chapters || []).filter(ch => ch.isDraft)                              : [];

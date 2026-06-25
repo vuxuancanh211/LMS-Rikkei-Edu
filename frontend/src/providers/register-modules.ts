@@ -16,6 +16,9 @@ import '../pages/Student/StuCerts';
 
 import '../pages/Instructor/InsDashboard';
 import '../pages/Instructor/InsCourses';
+import '../pages/Instructor/course-detail/CourseModals';
+import '../pages/Instructor/course-detail/CourseContentTab';
+import '../pages/Instructor/course-detail/CourseVersionsTab';
 import '../pages/Instructor/InsCourseDetail';
 import '../pages/Instructor/InsGroups';
 import '../pages/Instructor/InsGroupDetail';

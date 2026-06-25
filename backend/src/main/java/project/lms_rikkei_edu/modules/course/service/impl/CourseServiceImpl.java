@@ -97,25 +97,20 @@ public class CourseServiceImpl implements CourseService {
     @Override
     public CourseResponse updateCourse(UUID instructorId, UUID courseId, UpdateCourseRequest request) {
         Course course = loadOwnedCourse(instructorId, courseId);
-        assertEditable(course);
-
-        if (isLive(course)) {
-            // Khóa học đang published — ghi vào draft fields thay vì sửa trực tiếp
-            if (request.getTitle() != null) course.setDraftTitle(request.getTitle());
-            if (request.getDescription() != null) course.setDraftDescription(request.getDescription());
-            if (request.getLevel() != null) course.setDraftLevel(request.getLevel());
-            if (request.getThumbnailUrl() != null) course.setDraftThumbnailUrl(request.getThumbnailUrl());
-        } else {
-            if (request.getTitle() != null) {
-                course.setTitle(request.getTitle());
-                course.setSlug(generateUniqueSlug(request.getTitle(), courseId));
-            }
-            if (request.getDescription() != null) course.setDescription(request.getDescription());
-            if (request.getLevel() != null) course.setLevel(request.getLevel());
-            if (request.getThumbnailUrl() != null) course.setThumbnailUrl(request.getThumbnailUrl());
-            if (request.getChatEnabled() != null) course.setChatEnabled(request.getChatEnabled());
-            if (request.getCategoryId() != null) course.setCategory(resolveCategory(request.getCategoryId()));
+        if (course.getStatus() == CourseStatus.ARCHIVED) {
+            throw new CourseStateException("Cannot modify an archived course");
         }
+
+        // Thông tin cơ bản (tên, mô tả, cấp độ, danh mục) luôn cập nhật trực tiếp — không cần duyệt
+        if (request.getTitle() != null) {
+            course.setTitle(request.getTitle());
+            course.setSlug(generateUniqueSlug(request.getTitle(), courseId));
+        }
+        if (request.getDescription() != null) course.setDescription(request.getDescription());
+        if (request.getLevel() != null) course.setLevel(request.getLevel());
+        if (request.getCategoryId() != null) course.setCategory(resolveCategory(request.getCategoryId()));
+        if (request.getThumbnailUrl() != null) course.setThumbnailUrl(request.getThumbnailUrl());
+        if (request.getChatEnabled() != null) course.setChatEnabled(request.getChatEnabled());
 
         return courseMapper.toResponse(courseRepository.save(course));
     }
@@ -184,9 +179,13 @@ public class CourseServiceImpl implements CourseService {
         Course course = loadOwnedCourse(instructorId, courseId);
 
         if (course.getStatus() == CourseStatus.PENDING) {
-            // Lần đầu pending → về DRAFT
+            // Lần đầu pending → về DRAFT, revert CourseVersion PENDING → DRAFT
             course.setStatus(CourseStatus.DRAFT);
             course.setSubmittedAt(null);
+            courseVersionRepository.findFirstByCourseIdAndStatus(courseId, "PENDING").ifPresent(v -> {
+                v.setStatus("DRAFT");
+                courseVersionRepository.save(v);
+            });
 
         } else if (course.getStatus() == CourseStatus.PENDING_UPDATE) {
             // Rút lại khỏi hàng chờ → về PUBLISHED, xóa tất cả draft content
@@ -195,6 +194,11 @@ public class CourseServiceImpl implements CourseService {
             course.setStatus(CourseStatus.PUBLISHED);
             course.setPendingUpdateAt(null);
             course.setSubmittedAt(null);
+            // Revert CourseVersion PENDING → DRAFT để instructor có thể chỉnh sửa lại
+            courseVersionRepository.findFirstByCourseIdAndStatus(courseId, "PENDING").ifPresent(v -> {
+                v.setStatus("DRAFT");
+                courseVersionRepository.save(v);
+            });
 
         } else if (course.getStatus() == CourseStatus.PUBLISHED) {
             boolean hasDraft = course.isHasPendingDraft();
