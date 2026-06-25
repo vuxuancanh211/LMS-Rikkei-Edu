@@ -1,55 +1,51 @@
 -- ============================================================
 -- RIKKEI EDU LMS — SEED DATA (Dev/Testing Local)
 -- 10 users · 5 courses · full flow
--- Password for all users: Test@123456
--- BCrypt hash of "Test@123456"
--- ============================================================
-
-BEGIN;
-
+-- Password for all users: 123456
+-- BCrypt hash of "123456"
 -- ============================================================
 -- 1. USERS
 -- 1 admin, 2 instructors, 7 students
 -- ============================================================
 INSERT INTO users (id, email, full_name, password_hash, role, status, phone_number, bio, created_at, updated_at) VALUES
                                                                                                                      ('00000000-0000-0000-0000-000000000001', 'admin@rikkei.edu', 'Admin System',
-                                                                                                                       '$2y$12$NY8m2Y/3xrXw6U1MvaDeWekKwyK.aoN7a61NgQXG11J5Hhc8ikHvC',
+                                                                                                                      '$2y$12$NY8m2Y/3xrXw6U1MvaDeWekKwyK.aoN7a61NgQXG11J5Hhc8ikHvC',
                                                                                                                       'ADMIN', 'ACTIVE', '0900000001', 'Quản trị viên hệ thống', now(), now()),
 
                                                                                                                      ('00000000-0000-0000-0000-000000000002', 'instructor1@rikkei.edu', 'Nguyễn Văn Minh',
-                                                                                                                       '$2y$12$NY8m2Y/3xrXw6U1MvaDeWekKwyK.aoN7a61NgQXG11J5Hhc8ikHvC',
+                                                                                                                      '$2y$12$NY8m2Y/3xrXw6U1MvaDeWekKwyK.aoN7a61NgQXG11J5Hhc8ikHvC',
                                                                                                                       'INSTRUCTOR', 'ACTIVE', '0900000002', 'Giảng viên Java Backend 8 năm kinh nghiệm', now(), now()),
 
                                                                                                                      ('00000000-0000-0000-0000-000000000003', 'instructor2@rikkei.edu', 'Trần Thị Lan',
-                                                                                                                       '$2y$12$NY8m2Y/3xrXw6U1MvaDeWekKwyK.aoN7a61NgQXG11J5Hhc8ikHvC',
+                                                                                                                      '$2y$12$NY8m2Y/3xrXw6U1MvaDeWekKwyK.aoN7a61NgQXG11J5Hhc8ikHvC',
                                                                                                                       'INSTRUCTOR', 'ACTIVE', '0900000003', 'Giảng viên Frontend ReactJS & UX Design', now(), now()),
 
                                                                                                                      ('00000000-0000-0000-0000-000000000004', 'student1@rikkei.edu', 'Phạm Quốc Hùng',
-                                                                                                                       '$2y$12$NY8m2Y/3xrXw6U1MvaDeWekKwyK.aoN7a61NgQXG11J5Hhc8ikHvC',
+                                                                                                                      '$2y$12$NY8m2Y/3xrXw6U1MvaDeWekKwyK.aoN7a61NgQXG11J5Hhc8ikHvC',
                                                                                                                       'STUDENT', 'ACTIVE', '0900000004', NULL, now(), now()),
 
                                                                                                                      ('00000000-0000-0000-0000-000000000005', 'student2@rikkei.edu', 'Lê Thị Mai',
-                                                                                                                       '$2y$12$NY8m2Y/3xrXw6U1MvaDeWekKwyK.aoN7a61NgQXG11J5Hhc8ikHvC',
+                                                                                                                      '$2y$12$NY8m2Y/3xrXw6U1MvaDeWekKwyK.aoN7a61NgQXG11J5Hhc8ikHvC',
                                                                                                                       'STUDENT', 'ACTIVE', '0900000005', NULL, now(), now()),
 
                                                                                                                      ('00000000-0000-0000-0000-000000000006', 'student3@rikkei.edu', 'Hoàng Minh Tuấn',
-                                                                                                                       '$2y$12$NY8m2Y/3xrXw6U1MvaDeWekKwyK.aoN7a61NgQXG11J5Hhc8ikHvC',
+                                                                                                                      '$2y$12$NY8m2Y/3xrXw6U1MvaDeWekKwyK.aoN7a61NgQXG11J5Hhc8ikHvC',
                                                                                                                       'STUDENT', 'ACTIVE', '0900000006', NULL, now(), now()),
 
                                                                                                                      ('00000000-0000-0000-0000-000000000007', 'student4@rikkei.edu', 'Đặng Thị Hoa',
-                                                                                                                       '$2y$12$NY8m2Y/3xrXw6U1MvaDeWekKwyK.aoN7a61NgQXG11J5Hhc8ikHvC',
+                                                                                                                      '$2y$12$NY8m2Y/3xrXw6U1MvaDeWekKwyK.aoN7a61NgQXG11J5Hhc8ikHvC',
                                                                                                                       'STUDENT', 'ACTIVE', '0900000007', NULL, now(), now()),
 
                                                                                                                      ('00000000-0000-0000-0000-000000000008', 'student5@rikkei.edu', 'Vũ Đức Long',
-                                                                                                                       '$2y$12$NY8m2Y/3xrXw6U1MvaDeWekKwyK.aoN7a61NgQXG11J5Hhc8ikHvC',
+                                                                                                                      '$2y$12$NY8m2Y/3xrXw6U1MvaDeWekKwyK.aoN7a61NgQXG11J5Hhc8ikHvC',
                                                                                                                       'STUDENT', 'ACTIVE', '0900000008', NULL, now(), now()),
 
                                                                                                                      ('00000000-0000-0000-0000-000000000009', 'student6@rikkei.edu', 'Bùi Thị Thu',
-                                                                                                                       '$2y$12$NY8m2Y/3xrXw6U1MvaDeWekKwyK.aoN7a61NgQXG11J5Hhc8ikHvC',
+                                                                                                                      '$2y$12$NY8m2Y/3xrXw6U1MvaDeWekKwyK.aoN7a61NgQXG11J5Hhc8ikHvC',
                                                                                                                       'STUDENT', 'ACTIVE', '0900000009', NULL, now(), now()),
 
                                                                                                                      ('00000000-0000-0000-0000-000000000010', 'vuxuancanh2004@gmail.com', 'Vũ Xuân Cảnh',
-                                                                                                                       '$2y$12$NY8m2Y/3xrXw6U1MvaDeWekKwyK.aoN7a61NgQXG11J5Hhc8ikHvC',
+                                                                                                                      '$2y$12$NY8m2Y/3xrXw6U1MvaDeWekKwyK.aoN7a61NgQXG11J5Hhc8ikHvC',
                                                                                                                       'STUDENT', 'ACTIVE', '0900000010', NULL, now(), now());
 
 -- ============================================================
@@ -558,8 +554,6 @@ INSERT INTO notification_preferences (id, user_id, notification_type, in_app_ena
                                                                                                                                    (gen_random_uuid(), '00000000-0000-0000-0000-000000000004', 'ASSIGNMENT_PUBLISHED',  true, true,  false, now()),
                                                                                                                                    (gen_random_uuid(), '00000000-0000-0000-0000-000000000005', 'FORUM_REPLY_ADDED',     true, false, false, now()),
                                                                                                                                    (gen_random_uuid(), '00000000-0000-0000-0000-000000000005', 'QUIZ_PUBLISHED',        true, true,  false, now());
-
-COMMIT;
 
 -- ============================================================
 -- SUMMARY
