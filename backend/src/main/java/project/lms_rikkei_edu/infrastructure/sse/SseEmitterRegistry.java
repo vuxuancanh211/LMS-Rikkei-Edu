@@ -17,13 +17,11 @@ import java.util.concurrent.CopyOnWriteArrayList;
 @Slf4j
 public class SseEmitterRegistry {
 
-    private static final long TIMEOUT_MS = 180_000L;
-
     private final Map<UUID, CopyOnWriteArrayList<SseEmitter>> registry =
             new ConcurrentHashMap<>();
 
     public SseEmitter register(UUID userId) {
-        SseEmitter emitter = new SseEmitter(TIMEOUT_MS);
+        SseEmitter emitter = new SseEmitter(0L);
         registry.computeIfAbsent(userId, k -> new CopyOnWriteArrayList<>())
                 .add(emitter);
 

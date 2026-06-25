@@ -151,6 +151,34 @@ public class ForumServiceImpl implements ForumService {
 
         ForumPostEntity savedPost = forumPostRepository.save(post);
         forumAttachmentService.attachToPost(request.getAttachmentIds(), savedPost.getId(), currentUser.getId());
+
+        UUID postAuthorId = currentUser.getId();
+        String actorName = post.getAuthor().getFullName() != null ? post.getAuthor().getFullName() : "Người dùng";
+        String notiBody = summarizeForumContent(request.getContent());
+
+        Set<UUID> recipients = new HashSet<>();
+        if (course.getInstructorId() != null && !course.getInstructorId().equals(postAuthorId)) {
+            recipients.add(course.getInstructorId());
+        }
+        for (UUID enrolledId : forumCourseRepository.findEnrolledStudentIdsByCourseId(course.getId())) {
+            if (!enrolledId.equals(postAuthorId)) {
+                recipients.add(enrolledId);
+            }
+        }
+
+        for (UUID recipientId : recipients) {
+            notificationService.createNotification(
+                    recipientId,
+                    "FORUM_POST",
+                    actorName + " đã đăng bài viết \"" + request.getTitle().trim() + "\"",
+                    notiBody,
+                    "FORUM_POST",
+                    savedPost.getId(),
+                    postAuthorId,
+                    actorName
+            );
+        }
+
         return toPostResponse(savedPost, Collections.emptySet(), forumAttachmentService.findByPostIds(List.of(savedPost.getId())).getOrDefault(savedPost.getId(), List.of()));
     }
 

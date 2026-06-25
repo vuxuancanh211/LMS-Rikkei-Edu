@@ -88,6 +88,7 @@ class ForumServiceImplTest {
         );
         lenient().when(forumAttachmentService.findByPostIds(anyList())).thenReturn(Map.of());
         lenient().when(forumAttachmentService.findByReplyIds(anyList())).thenReturn(Map.of());
+        lenient().when(forumCourseRepository.findEnrolledStudentIdsByCourseId(any())).thenReturn(List.of());
     }
 
     @Test
@@ -129,6 +130,31 @@ class ForumServiceImplTest {
         assertThat(captor.getValue().getAuthor()).isSameAs(user);
         assertThat(captor.getValue().getPinned()).isFalse();
         assertThat(captor.getValue().getUpvoteCount()).isZero();
+    }
+
+    @Test
+    void createPostSendsNotificationToInstructorAndEnrolledStudents() {
+        UUID studentId = UUID.randomUUID();
+        UUID courseId = UUID.randomUUID();
+        UUID instructorId = UUID.randomUUID();
+        UUID enrolledStudent1 = UUID.randomUUID();
+        UUID enrolledStudent2 = UUID.randomUUID();
+        ForumCourseEntity course = course(courseId, instructorId);
+        UserEntity user = user(studentId, UserRole.STUDENT);
+
+        when(currentUserProvider.getCurrentUser()).thenReturn(Optional.of(principal(studentId, UserRole.STUDENT)));
+        when(forumCourseRepository.findById(courseId)).thenReturn(Optional.of(course));
+        when(forumCourseRepository.isStudentEnrolled(courseId, studentId)).thenReturn(true);
+        when(forumCourseRepository.findEnrolledStudentIdsByCourseId(courseId))
+                .thenReturn(List.of(studentId, enrolledStudent1, enrolledStudent2));
+        when(userRepository.getReferenceById(studentId)).thenReturn(user);
+        when(forumPostRepository.save(any(ForumPostEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        forumService.createPost(createPostRequest(courseId, false));
+
+        verify(notificationService).createNotification(eq(instructorId), eq("FORUM_POST"), any(), any(), eq("FORUM_POST"), any(), eq(studentId), any());
+        verify(notificationService).createNotification(eq(enrolledStudent1), eq("FORUM_POST"), any(), any(), eq("FORUM_POST"), any(), eq(studentId), any());
+        verify(notificationService).createNotification(eq(enrolledStudent2), eq("FORUM_POST"), any(), any(), eq("FORUM_POST"), any(), eq(studentId), any());
     }
 
     @Test
