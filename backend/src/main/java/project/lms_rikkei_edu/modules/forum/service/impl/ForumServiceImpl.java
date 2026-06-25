@@ -49,11 +49,16 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 @RequiredArgsConstructor
 public class ForumServiceImpl implements ForumService {
 
     private static final int MAX_REPLY_DEPTH = 3;
+    private static final String ATTACHMENT_IMAGE_PLACEHOLDER_ORIGIN = "https://forum-attachment.local";
+    private static final Pattern ATTACHMENT_IMAGE_SRC_PATTERN = Pattern.compile(
+            "(?i)(src\\s*=\\s*['\\\"])(?:https?://[^/'\\\"]+)?(/api/forum/attachments/[0-9a-f-]{36}/content)(?:\\?[^'\\\"]*)?(['\\\"])"
+    );
     private static final Safelist FORUM_CONTENT_SAFELIST = Safelist.relaxed()
             .addTags("pre", "code", "figure", "figcaption")
             .addAttributes("*", "class")
@@ -651,7 +656,18 @@ public class ForumServiceImpl implements ForumService {
         if (content == null) {
             return null;
         }
-        return Jsoup.clean(content.trim(), FORUM_CONTENT_SAFELIST);
+        String normalizedContent = normalizeForumAttachmentImageSources(content.trim());
+        String cleanedContent = Jsoup.clean(normalizedContent, FORUM_CONTENT_SAFELIST);
+        return restoreForumAttachmentImageSources(cleanedContent);
+    }
+
+    private String normalizeForumAttachmentImageSources(String content) {
+        return ATTACHMENT_IMAGE_SRC_PATTERN.matcher(content)
+                .replaceAll("$1" + ATTACHMENT_IMAGE_PLACEHOLDER_ORIGIN + "$2$3");
+    }
+
+    private String restoreForumAttachmentImageSources(String content) {
+        return content.replace(ATTACHMENT_IMAGE_PLACEHOLDER_ORIGIN + "/api/forum/attachments/", "/api/forum/attachments/");
     }
 
     private String summarizeForumContent(String content) {
