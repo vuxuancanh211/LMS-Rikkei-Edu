@@ -5,6 +5,14 @@
    Bấm 1 thẻ -> mở màn hình đó full-viewport (responsive, tương tác thật).
    Trong mỗi màn vẫn điều hướng & mở popup được; "← Thư viện" để quay lại.
    ============================================================ */
+import {
+  getNotifications,
+  getUnreadCount,
+  markAsRead,
+  markAllAsRead,
+  connectNotificationSSE,
+} from '../../services/notification-service';
+
 function registerGalleryPage() {
   const { useState, useEffect } = React;
   const Ic = window.Icon;
@@ -48,13 +56,32 @@ function registerGalleryPage() {
     ],
   };
   const SCREENS = {
-    student: { dashboard: "StuDashboard", courses: "StuCourses", tasks: "StuTasks", forum: "StuForum", chat: "ChatScreen", certs: "StuCerts", settings: "Settings" },
-    instructor: { dashboard: "InsDashboard", courses: "InsCourses", courseDetail: "InsCourseDetail", groups: "InsGroups", groupDetail: "InsGroupDetail", assess: "InsAssess", grading: "InsGrading", students: "InsStudents", forum: "StuForum", chat: "ChatScreen", settings: "Settings" },
+    student: { dashboard: "StuDashboard", courses: "StuCourses", tasks: "StuTasks", forum: "ForumPage", chat: "ChatScreen", certs: "StuCerts", settings: "Settings" },
+    instructor: { dashboard: "InsDashboard", courses: "InsCourses", courseDetail: "InsCourseDetail", groups: "InsGroups", groupDetail: "InsGroupDetail", assess: "InsAssess", grading: "InsGrading", students: "InsStudents", forum: "ForumPage", chat: "ChatScreen", settings: "Settings" },
     admin: { dashboard: "AdminDashboard", users: "AdminUsers", courses: "AdminCourses", approval: "AdminApproval", reports: "AdminReports", logs: "AdminLogs", settings: "Settings" },
   };
   const FULLBARE = { player: "LecturePlayer", quiz: "QuizPlayer", result: "QuizResult", preview: "PreviewPlayer" };
   const ROLES = [["student", "Học viên"], ["instructor", "Giảng viên"], ["admin", "Quản trị"]];
   const ALIAS = { groupDetail: "groups", courseDetail: "courses" };
+
+  function notifMeta(type) {
+    if (type === 'FORUM_REPLY') return { icon: 'message', color: '#8b5cf6' };
+    if (type === 'CERTIFICATE_ISSUED') return { icon: 'award', color: '#10b981' };
+    return { icon: 'bell', color: '#2563eb' };
+  }
+
+  function timeAgo(value) {
+    if (!value) return '';
+    const ms = Date.now() - new Date(value).getTime();
+    const min = Math.floor(ms / 60000);
+    if (min < 1) return 'Vừa xong';
+    if (min < 60) return `${min} phút trước`;
+    const hr = Math.floor(min / 60);
+    if (hr < 24) return `${hr} giờ trước`;
+    const day = Math.floor(hr / 24);
+    if (day < 7) return `${day} ngày trước`;
+    return new Intl.DateTimeFormat('vi-VN', { dateStyle: 'medium' }).format(new Date(value));
+  }
 
   /* ---------- App shell used inside the gallery (one role, full nav) ---------- */
   function Shell({ role0, route0, demo0, authUser, onExit, onBare, onNavigate, onLogout }) {
@@ -71,6 +98,57 @@ function registerGalleryPage() {
     const [drawer, setDrawer] = useState(false);
     const [notif, setNotif] = useState(false);
     const [umenu, setUmenu] = useState(false);
+    const [notificationList, setNotificationList] = useState([]);
+    const [unreadCount, setUnreadCount] = useState(0);
+    const [notifLoading, setNotifLoading] = useState(false);
+
+    const loadNotifications = async (showLoading = true) => {
+      if (showLoading) setNotifLoading(true);
+      try {
+        const data = await getNotifications(0, 20);
+        setNotificationList(data.content || []);
+        const count = await getUnreadCount();
+        setUnreadCount(count);
+      } catch {
+        // Notification failures should not block the shell layout.
+      } finally {
+        if (showLoading) setNotifLoading(false);
+      }
+    };
+
+    useEffect(() => {
+      if (!authUser) return;
+      loadNotifications();
+    }, [authUser]);
+
+    useEffect(() => {
+      if (!authUser) return;
+      const disconnect = connectNotificationSSE((notif) => {
+        setNotificationList(prev => [notif, ...prev]);
+        setUnreadCount(prev => prev + 1);
+      }, undefined, () => loadNotifications(false));
+      return disconnect;
+    }, [authUser]);
+
+    const handleMarkAsRead = async (id) => {
+      try {
+        await markAsRead(id);
+        setNotificationList(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
+        setUnreadCount(prev => Math.max(0, prev - 1));
+      } catch {
+        // Keep the optimistic UI unchanged if the request fails.
+      }
+    };
+
+    const handleMarkAllAsRead = async () => {
+      try {
+        await markAllAsRead();
+        setNotificationList(prev => prev.map(n => ({ ...n, read: true })));
+        setUnreadCount(0);
+      } catch {
+        // Keep the optimistic UI unchanged if the request fails.
+      }
+    };
 
     useEffect(() => {
       const close = () => { setNotif(false); setUmenu(false); };
@@ -133,18 +211,23 @@ function registerGalleryPage() {
             <div className="search field-icon"><Ic n="search" /><input className="input" placeholder="Tìm kiếm khóa học, học viên..." /></div>
             <div className="grow" />
             <div style={{ position: "relative" }} onClick={e => e.stopPropagation()}>
-              <button className="icon-btn" onClick={() => { setNotif(!notif); setUmenu(false); }}><Ic n="bell" size={20} /><span className="badge-dot" /></button>
+              <button className="icon-btn" onClick={() => { setNotif(!notif); setUmenu(false); }}><Ic n="bell" size={20} />{unreadCount > 0 && <span className="badge-dot" />}</button>
               {notif && (
                 <div className="card" style={{ position: "absolute", right: 0, top: 52, width: 360, maxWidth: "90vw", padding: 0, boxShadow: "var(--sh-lg)", zIndex: 60, animation: "popIn .18s" }}>
-                  <div className="between" style={{ padding: "14px 18px", borderBottom: "1px solid var(--border)" }}><b>Thông báo</b><span className="link">Đánh dấu đã đọc</span></div>
+                  <div className="between" style={{ padding: "14px 18px", borderBottom: "1px solid var(--border)" }}><b>Thông báo</b>{unreadCount > 0 && <span className="link" onClick={handleMarkAllAsRead}>Đánh dấu đã đọc</span>}</div>
                   <div style={{ maxHeight: 360, overflowY: "auto" }}>
-                    {D.notifications.map((n, i) => (
-                      <div key={i} className="row gap-12" style={{ padding: "13px 16px", background: n.unread ? "var(--accent-soft)" : "#fff", borderBottom: "1px solid var(--border)", cursor: "pointer" }}>
-                        <div className="stat-ic" style={{ width: 38, height: 38, borderRadius: 10, background: n.color + "1a", color: n.color, flex: "none" }}><Ic n={n.icon} size={18} /></div>
-                        <div className="grow"><div className="t-sm" style={{ lineHeight: 1.4, fontWeight: n.unread ? 600 : 400 }}>{n.text}</div><div className="t-xs dim" style={{ marginTop: 3 }}>{n.time}</div></div>
-                        {n.unread && <span style={{ width: 8, height: 8, borderRadius: 999, background: "var(--accent)", flex: "none" }} />}
-                      </div>
-                    ))}
+                    {notifLoading && <div className="t-sm muted" style={{ padding: "24px 18px", textAlign: "center" }}>Đang tải...</div>}
+                    {!notifLoading && notificationList.length === 0 && <div className="t-sm muted" style={{ padding: "24px 18px", textAlign: "center" }}>Chưa có thông báo nào.</div>}
+                    {!notifLoading && notificationList.map((n) => {
+                      const meta = notifMeta(n.type);
+                      return (
+                        <div key={n.id} className="row gap-12" style={{ padding: "13px 16px", background: n.read ? "#fff" : "var(--accent-soft)", borderBottom: "1px solid var(--border)", cursor: "pointer" }} onClick={() => { if (!n.read) handleMarkAsRead(n.id); }}>
+                          <div className="stat-ic" style={{ width: 38, height: 38, borderRadius: 10, background: meta.color + "1a", color: meta.color, flex: "none" }}><Ic n={meta.icon} size={18} /></div>
+                          <div className="grow"><div className="t-sm" style={{ lineHeight: 1.4, fontWeight: n.read ? 400 : 600 }}>{n.title}</div><div className="t-xs dim" style={{ marginTop: 3 }}>{timeAgo(n.createdAt)}</div></div>
+                          {!n.read && <span style={{ width: 8, height: 8, borderRadius: 999, background: "var(--accent)", flex: "none" }} />}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}

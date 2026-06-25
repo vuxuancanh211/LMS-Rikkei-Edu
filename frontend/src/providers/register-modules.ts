@@ -11,7 +11,7 @@ import '../components/features/ChatScreen';
 import '../pages/Student/StuDashboard';
 import '../pages/Student/StuCourses';
 import '../pages/Student/StuTasks';
-import '../pages/Student/StuForum';
+import '../pages/Forum/ForumPage';
 import '../pages/Student/StuCerts';
 
 import '../pages/Instructor/InsDashboard';

@@ -1,6 +1,7 @@
 package project.lms_rikkei_edu.modules.auth.service.impl;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
@@ -43,6 +44,7 @@ import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class AuthServiceImpl implements AuthService {
 
     private static final String FORGOT_PASSWORD_MESSAGE = "If the email exists, a password reset link has been sent";
@@ -177,7 +179,11 @@ public class AuthServiceImpl implements AuthService {
                     String resetLink = buildResetLink(token);
 
                     redisService.savePasswordResetToken(tokenHash, user.getId());
-                    emailService.sendPasswordResetMail(user.getEmail(), resetLink);
+                    try {
+                        emailService.sendPasswordResetMail(user.getEmail(), resetLink);
+                    } catch (RuntimeException e) {
+                        log.error("Failed to send password reset email to {}: {}", user.getEmail(), e.getMessage());
+                    }
                 });
 
         return ForgotPasswordResponse.builder()
