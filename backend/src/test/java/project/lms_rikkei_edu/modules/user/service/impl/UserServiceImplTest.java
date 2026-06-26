@@ -9,6 +9,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -82,6 +83,7 @@ class UserServiceImplTest {
                 redisService, emailService, emailAsyncService,
                 jwtService, currentUserProvider, auditLogRepository
         );
+        ReflectionTestUtils.setField(userService, "defaultTempPassword", "123456@");
     }
 
     // ── getUsers ─────────────────────────────────────────────────────────────

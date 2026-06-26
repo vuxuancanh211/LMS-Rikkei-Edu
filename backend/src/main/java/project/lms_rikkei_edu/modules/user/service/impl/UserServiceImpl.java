@@ -35,6 +35,7 @@ import project.lms_rikkei_edu.modules.user.specification.UserSpecification;
 import project.lms_rikkei_edu.modules.user.service.UserService;
 
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -42,8 +43,6 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class UserServiceImpl implements UserService {
-
-    private static final String DEFAULT_TEMP_PASSWORD = "123456@";
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
@@ -57,6 +56,9 @@ public class UserServiceImpl implements UserService {
 
     @Value("${app.auth.password-reset-url}")
     private String passwordResetUrl;
+
+    @Value("${app.auth.default-temp-password}")
+    private String defaultTempPassword;
 
     @Override
     public PagedResponse<UserResponse> getUsers(AdminUserListRequest request) {
@@ -113,10 +115,9 @@ public class UserServiceImpl implements UserService {
         String tempPassword = generateTemporaryPassword();
         String passwordHash = passwordEncoder.encode(tempPassword);
 
-        if (request.getPhoneNumber() != null && !request.getPhoneNumber().isBlank()) {
-            if (userRepository.findByPhoneNumberAndDeletedAtIsNull(request.getPhoneNumber()).isPresent()) {
-                throw new BusinessException("Số điện thoại này đã được sử dụng");
-            }
+        if (request.getPhoneNumber() != null && !request.getPhoneNumber().isBlank()
+                && userRepository.findByPhoneNumberAndDeletedAtIsNull(request.getPhoneNumber()).isPresent()) {
+            throw new BusinessException("Số điện thoại này đã được sử dụng");
         }
 
         UserEntity user = new UserEntity();
@@ -128,8 +129,8 @@ public class UserServiceImpl implements UserService {
         user.setStatus(UserStatus.ACTIVE);
         user.setPhoneNumber(request.getPhoneNumber());
         user.setCreatedBy(adminId);
-        user.setCreatedAt(OffsetDateTime.now());
-        user.setUpdatedAt(OffsetDateTime.now());
+        user.setCreatedAt(OffsetDateTime.now(ZoneOffset.UTC));
+        user.setUpdatedAt(OffsetDateTime.now(ZoneOffset.UTC));
 
         userRepository.save(user);
 
@@ -146,88 +147,19 @@ public class UserServiceImpl implements UserService {
     @Transactional
     public UserResponse updateUser(UUID adminId, UUID userId, AdminUserUpdateRequest request) {
         UserEntity user = findActiveUser(userId);
-
         String beforeJson = captureUserState(user);
 
-        if (request.getFullName() != null) {
-            user.setFullName(request.getFullName().trim());
-        }
-        if (request.getEmail() != null) {
-            String newEmail = request.getEmail().trim().toLowerCase();
-            if (!newEmail.equals(user.getEmail())) {
-                if (userRepository.findByEmailIgnoreCaseAndDeletedAtIsNull(newEmail).isPresent()) {
-                    throw new BusinessException("Email này đã được sử dụng");
-                }
-                user.setEmail(newEmail);
-            }
-        }
-        if (request.getPhoneNumber() != null) {
-            String newPhone = request.getPhoneNumber().trim();
-            if (!newPhone.equals(user.getPhoneNumber())) {
-                if (userRepository.findByPhoneNumberAndDeletedAtIsNull(newPhone).isPresent()) {
-                    throw new BusinessException("Số điện thoại này đã được sử dụng");
-                }
-                user.setPhoneNumber(newPhone);
-            }
-        }
-        if (request.getAvatarUrl() != null) {
-            user.setAvatarUrl(request.getAvatarUrl());
-        }
-        if (request.getBirthDate() != null) {
-            user.setBirthDate(request.getBirthDate());
-        }
-        if (request.getGender() != null) {
-            user.setGender(request.getGender());
-        }
-        if (request.getBio() != null) {
-            user.setBio(request.getBio());
-        }
-        if (request.getRole() != null) {
-            UserRole newRole;
-            try {
-                newRole = UserRole.valueOf(request.getRole().toUpperCase());
-            } catch (IllegalArgumentException e) {
-                throw new BusinessException("Vai trò không hợp lệ: " + request.getRole());
-            }
+        if (request.getFullName() != null) user.setFullName(request.getFullName().trim());
+        updateEmail(user, request.getEmail());
+        updatePhoneNumber(user, request.getPhoneNumber());
+        if (request.getAvatarUrl() != null) user.setAvatarUrl(request.getAvatarUrl());
+        if (request.getBirthDate() != null) user.setBirthDate(request.getBirthDate());
+        if (request.getGender() != null) user.setGender(request.getGender());
+        if (request.getBio() != null) user.setBio(request.getBio());
+        updateRole(user, request.getRole(), adminId, userId);
+        updateStatus(user, request.getStatus(), adminId);
 
-            if (adminId.equals(userId) && newRole != user.getRole()) {
-                throw new BusinessException("Quản trị viên không thể tự đổi vai trò của chính mình");
-            }
-
-            if (user.getRole() == UserRole.ADMIN && newRole != UserRole.ADMIN) {
-                long remainingAdmins = userRepository.countByRoleAndDeletedAtIsNull(UserRole.ADMIN);
-                if (remainingAdmins <= 1) {
-                    throw new BusinessException("Không thể hạ cấp quản trị viên cuối cùng");
-                }
-            }
-
-            user.setRole(newRole);
-        }
-        if (request.getStatus() != null) {
-            UserStatus newStatus;
-            try {
-                newStatus = UserStatus.valueOf(request.getStatus().toUpperCase());
-            } catch (IllegalArgumentException e) {
-                throw new BusinessException("Trạng thái không hợp lệ: " + request.getStatus());
-            }
-
-            if (user.getStatus() == UserStatus.DELETED && newStatus != UserStatus.DELETED) {
-                throw new BusinessException("Không thể thay đổi trạng thái của tài khoản đã xóa");
-            }
-
-            if (newStatus == UserStatus.DISABLED) {
-                user.setDisabledAt(OffsetDateTime.now());
-                user.setDisabledBy(adminId);
-            } else if (user.getStatus() == UserStatus.DISABLED && newStatus == UserStatus.ACTIVE) {
-                user.setDisabledAt(null);
-                user.setDisabledBy(null);
-                user.setDisabledReason(null);
-            }
-
-            user.setStatus(newStatus);
-        }
-
-        user.setUpdatedAt(OffsetDateTime.now());
+        user.setUpdatedAt(OffsetDateTime.now(ZoneOffset.UTC));
         userRepository.save(user);
 
         invalidateUserCaches(userId);
@@ -253,8 +185,8 @@ public class UserServiceImpl implements UserService {
         String passwordHash = passwordEncoder.encode(tempPassword);
 
         user.setPasswordHash(passwordHash);
-        user.setPasswordChangedAt(OffsetDateTime.now());
-        user.setUpdatedAt(OffsetDateTime.now());
+        user.setPasswordChangedAt(OffsetDateTime.now(ZoneOffset.UTC));
+        user.setUpdatedAt(OffsetDateTime.now(ZoneOffset.UTC));
         userRepository.save(user);
 
         revokeUserSessions(userId);
@@ -289,8 +221,8 @@ public class UserServiceImpl implements UserService {
             user.setStatus(UserStatus.ACTIVE);
             user.setPhoneNumber(request.getPhoneNumber());
             user.setCreatedBy(adminId);
-            user.setCreatedAt(OffsetDateTime.now());
-            user.setUpdatedAt(OffsetDateTime.now());
+            user.setCreatedAt(OffsetDateTime.now(ZoneOffset.UTC));
+            user.setUpdatedAt(OffsetDateTime.now(ZoneOffset.UTC));
             users.add(user);
         }
 
@@ -306,13 +238,75 @@ public class UserServiceImpl implements UserService {
         return users.stream().map(userMapper::toResponse).toList();
     }
 
+    private void updateEmail(UserEntity user, String newEmail) {
+        if (newEmail == null) return;
+        String email = newEmail.trim().toLowerCase();
+        if (email.equals(user.getEmail())) return;
+        if (userRepository.findByEmailIgnoreCaseAndDeletedAtIsNull(email).isPresent()) {
+            throw new BusinessException("Email này đã được sử dụng");
+        }
+        user.setEmail(email);
+    }
+
+    private void updatePhoneNumber(UserEntity user, String newPhone) {
+        if (newPhone == null) return;
+        String phone = newPhone.trim();
+        if (phone.equals(user.getPhoneNumber())) return;
+        if (userRepository.findByPhoneNumberAndDeletedAtIsNull(phone).isPresent()) {
+            throw new BusinessException("Số điện thoại này đã được sử dụng");
+        }
+        user.setPhoneNumber(phone);
+    }
+
+    private void updateRole(UserEntity user, String newRole, UUID adminId, UUID userId) {
+        if (newRole == null) return;
+        UserRole role;
+        try {
+            role = UserRole.valueOf(newRole.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new BusinessException("Vai trò không hợp lệ: " + newRole);
+        }
+        if (adminId.equals(userId) && role != user.getRole()) {
+            throw new BusinessException("Quản trị viên không thể tự đổi vai trò của chính mình");
+        }
+        if (user.getRole() == UserRole.ADMIN && role != UserRole.ADMIN) {
+            long remainingAdmins = userRepository.countByRoleAndDeletedAtIsNull(UserRole.ADMIN);
+            if (remainingAdmins <= 1) {
+                throw new BusinessException("Không thể hạ cấp quản trị viên cuối cùng");
+            }
+        }
+        user.setRole(role);
+    }
+
+    private void updateStatus(UserEntity user, String newStatus, UUID adminId) {
+        if (newStatus == null) return;
+        UserStatus status;
+        try {
+            status = UserStatus.valueOf(newStatus.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new BusinessException("Trạng thái không hợp lệ: " + newStatus);
+        }
+        if (user.getStatus() == UserStatus.DELETED && status != UserStatus.DELETED) {
+            throw new BusinessException("Không thể thay đổi trạng thái của tài khoản đã xóa");
+        }
+        if (status == UserStatus.DISABLED) {
+            user.setDisabledAt(OffsetDateTime.now(ZoneOffset.UTC));
+            user.setDisabledBy(adminId);
+        } else if (user.getStatus() == UserStatus.DISABLED && status == UserStatus.ACTIVE) {
+            user.setDisabledAt(null);
+            user.setDisabledBy(null);
+            user.setDisabledReason(null);
+        }
+        user.setStatus(status);
+    }
+
     private UserEntity findActiveUser(UUID userId) {
         return userRepository.findByIdAndDeletedAtIsNull(userId)
                 .orElseThrow(() -> new BusinessException("Không tìm thấy người dùng"));
     }
 
     private String generateTemporaryPassword() {
-        return DEFAULT_TEMP_PASSWORD;
+        return defaultTempPassword;
     }
 
     private String mapSortField(String sortBy) {
@@ -348,7 +342,7 @@ public class UserServiceImpl implements UserService {
             log.setPayloadBefore(payloadBefore);
             log.setPayloadAfter(payloadAfter);
             log.setReason(reason);
-            log.setCreatedAt(OffsetDateTime.now());
+            log.setCreatedAt(OffsetDateTime.now(ZoneOffset.UTC));
             auditLogRepository.save(log);
         } catch (Exception ignored) {
             // Audit log failure should not break the main operation

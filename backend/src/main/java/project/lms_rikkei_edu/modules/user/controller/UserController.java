@@ -29,6 +29,8 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class UserController {
 
+    private static final String ADMIN_NOT_AUTHENTICATED = "Admin not authenticated";
+
     private final UserService userService;
     private final CurrentUserProvider currentUserProvider;
 
@@ -48,7 +50,7 @@ public class UserController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<UserResponse> createUser(@Valid @RequestBody AdminUserCreateRequest request) {
         UUID adminId = currentUserProvider.getCurrentUserId()
-                .orElseThrow(() -> new RuntimeException("Admin not authenticated"));
+                .orElseThrow(() -> new RuntimeException(ADMIN_NOT_AUTHENTICATED));
         return ResponseEntity.ok(userService.createUser(adminId, request));
     }
 
@@ -58,7 +60,7 @@ public class UserController {
             @PathVariable UUID userId,
             @Valid @RequestBody AdminUserUpdateRequest request) {
         UUID adminId = currentUserProvider.getCurrentUserId()
-                .orElseThrow(() -> new RuntimeException("Admin not authenticated"));
+                .orElseThrow(() -> new RuntimeException(ADMIN_NOT_AUTHENTICATED));
         return ResponseEntity.ok(userService.updateUser(adminId, userId, request));
     }
 
@@ -68,7 +70,7 @@ public class UserController {
             @PathVariable UUID userId,
             @Valid @RequestBody ResetPasswordRequest request) {
         UUID adminId = currentUserProvider.getCurrentUserId()
-                .orElseThrow(() -> new RuntimeException("Admin not authenticated"));
+                .orElseThrow(() -> new RuntimeException(ADMIN_NOT_AUTHENTICATED));
         return ResponseEntity.ok(userService.resetPassword(adminId, userId, request));
     }
 }

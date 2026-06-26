@@ -9,6 +9,8 @@ import java.util.List;
 
 public class UserSpecification {
 
+    private UserSpecification() {}
+
     public static Specification<UserEntity> withDynamicQuery(String search, String role, String status) {
         return (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
