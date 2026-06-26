@@ -55,7 +55,7 @@ public class CourseController {
         String ext = mimeType.contains("png") ? "png" : "jpg";
         String s3Key = "courses/thumbnails/" + UUID.randomUUID() + "." + ext;
         String uploadUrl = s3Service.generatePresignedPutUrl(s3Key, mimeType, 3600).url().toString();
-        String viewUrl = s3Service.generatePresignedGetUrl(s3Key, 7 * 24 * 3600).url().toString();
+        String viewUrl = s3Service.generatePresignedGetUrl(s3Key, 7L * 24 * 3600).url().toString();
         return ResponseEntity.ok(ThumbnailPresignResponse.builder()
                 .uploadUrl(uploadUrl).s3Key(s3Key).viewUrl(viewUrl).build());
     }
