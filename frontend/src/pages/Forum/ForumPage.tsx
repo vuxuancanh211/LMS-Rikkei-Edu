@@ -228,12 +228,12 @@ function ForumEditor({ value, onChange, attachments, onAttachmentsChange, placeh
       <div style={{ minHeight }}>
         <Suspense fallback={<div className="input" style={{ minHeight, padding: 12 }}>Đang tải editor...</div>}>
           <ForumRichEditor
-          disabled={disabled || uploading}
-          value={resolveForumContentUrls(value || '')}
-          onChange={(nextValue) => onChange(normalizeForumContentForSave(nextValue))}
-          onUploadedAttachment={(attachment) => onAttachmentsChange((current = []) => [...current, { ...attachment, url: toStableApiPath(attachment.url) }])}
-          placeholder={placeholder}
-        />
+            disabled={disabled || uploading}
+            value={resolveForumContentUrls(value || '')}
+            onChange={(nextValue) => onChange(normalizeForumContentForSave(nextValue))}
+            onUploadedAttachment={(attachment) => onAttachmentsChange((current = []) => [...current, { ...attachment, url: toStableApiPath(attachment.url) }])}
+            placeholder={placeholder}
+          />
         </Suspense>
       </div>
       <div className="between" style={{ marginTop: 8 }}>
@@ -510,7 +510,7 @@ function ForumDetail({ detail, setDetail, loading, error, onBack }) {
                 <textarea className="input" style={{ height: 86, padding: 12, resize: 'none' }} value={editingReplyContent} onChange={(event) => setEditingReplyContent(event.target.value)} autoFocus />
                 <div className="row gap-8" style={{ justifyContent: 'flex-end', marginTop: 8 }}><button className="btn btn-ghost btn-sm" onClick={() => setEditingReplyId(null)}>Hủy</button><button className="btn btn-primary btn-sm" disabled={submitting || !editingReplyContent.trim()} onClick={handleUpdateReply}>Lưu</button></div>
               </div>
-            ) : <><ForumContent content={reply.content} /><AttachmentList attachments={reply.attachments || []} /></>}
+            ) : <><ForumContent content={reply.content} attachments={reply.attachments || []} /><AttachmentList attachments={reply.attachments || []} /></>}
 
             {replyTarget?.id === reply.id && (
               <div className="row gap-10" style={{ marginTop: 12, alignItems: 'flex-start' }}>
@@ -539,17 +539,17 @@ function ForumDetail({ detail, setDetail, loading, error, onBack }) {
       <div className="row gap-10" style={{ marginBottom: 16, cursor: 'pointer', color: 'var(--text-2)' }} onClick={() => onBack(true)}><Ic n="arrow_left" size={18} /><span style={{ fontWeight: 600 }}>Quay lại diễn đàn</span></div>
 
       <div className="card card-pad" style={{ marginBottom: 18 }}>
-          <div className="between gap-12" style={{ marginBottom: 12 }}>
-            <div className="row gap-8 wrap">
-              {post.pinned && <span className="chip chip-warning"><Ic n="pin" size={12} />Ghim</span>}
-              {topicInfo(post.topic) && <span className={`chip ${topicInfo(post.topic).cls}`}>{topicInfo(post.topic).label}</span>}
-              <span className="chip chip-info">{post.courseTitle}</span>
-            </div>
-            <div className="row gap-8">
-              {(role === 'instructor' || role === 'admin') && <button className="icon-btn" style={{ width: 34, height: 34, color: post.pinned ? 'var(--warning)' : undefined }} onClick={handleTogglePin} title={post.pinned ? 'Bỏ ghim' : 'Ghim bài viết'}><Ic n="pin" size={16} /></button>}
-              {canEditPost && <><button className="icon-btn" style={{ width: 34, height: 34 }} onClick={() => setEditPostOpen(true)} title="Sửa"><Ic n="edit" size={16} /></button><button className="icon-btn" style={{ width: 34, height: 34, color: 'var(--error)' }} onClick={() => setDeleteTarget({ type: 'post', id: post.id })} title="Xóa"><Ic n="trash" size={16} /></button></>}
-            </div>
+        <div className="between gap-12" style={{ marginBottom: 12 }}>
+          <div className="row gap-8 wrap">
+            {post.pinned && <span className="chip chip-warning"><Ic n="pin" size={12} />Ghim</span>}
+            {topicInfo(post.topic) && <span className={`chip ${topicInfo(post.topic).cls}`}>{topicInfo(post.topic).label}</span>}
+            <span className="chip chip-info">{post.courseTitle}</span>
           </div>
+          <div className="row gap-8">
+            {(role === 'instructor' || role === 'admin') && <button className="icon-btn" style={{ width: 34, height: 34, color: post.pinned ? 'var(--warning)' : undefined }} onClick={handleTogglePin} title={post.pinned ? 'Bỏ ghim' : 'Ghim bài viết'}><Ic n="pin" size={16} /></button>}
+            {canEditPost && <><button className="icon-btn" style={{ width: 34, height: 34 }} onClick={() => setEditPostOpen(true)} title="Sửa"><Ic n="edit" size={16} /></button><button className="icon-btn" style={{ width: 34, height: 34, color: 'var(--error)' }} onClick={() => setDeleteTarget({ type: 'post', id: post.id })} title="Xóa"><Ic n="trash" size={16} /></button></>}
+          </div>
+        </div>
         <h1 className="t-h2" style={{ margin: '0 0 14px', lineHeight: 1.3 }}>{post.title}</h1>
         <div className="row gap-12" style={{ marginBottom: 18 }}>
           <Av name={post.author.fullName} size={44} />

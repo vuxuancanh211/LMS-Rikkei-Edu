@@ -33,6 +33,8 @@ import project.lms_rikkei_edu.modules.forum.dto.request.CreateForumReportRequest
 import project.lms_rikkei_edu.modules.forum.entity.ForumReportEntity;
 import project.lms_rikkei_edu.modules.forum.service.ForumAttachmentService;
 import project.lms_rikkei_edu.modules.forum.service.ForumService;
+import project.lms_rikkei_edu.modules.notification.enums.NotificationType;
+import project.lms_rikkei_edu.modules.notification.service.NotificationPreferenceService;
 import project.lms_rikkei_edu.modules.notification.service.NotificationService;
 import project.lms_rikkei_edu.modules.user.entity.UserEntity;
 import project.lms_rikkei_edu.modules.user.enums.UserRole;
@@ -70,6 +72,7 @@ public class ForumServiceImpl implements ForumService {
     private final ForumReportRepository forumReportRepository;
     private final ForumAttachmentService forumAttachmentService;
     private final NotificationService notificationService;
+    private final NotificationPreferenceService notificationPreferenceService;
     private final UserRepository userRepository;
     private final CurrentUserProvider currentUserProvider;
 
@@ -167,9 +170,10 @@ public class ForumServiceImpl implements ForumService {
         }
 
         for (UUID recipientId : recipients) {
+            if (!notificationPreferenceService.isInAppEnabled(recipientId, NotificationType.FORUM_POST.name())) continue;
             notificationService.createNotification(
                     recipientId,
-                    "FORUM_POST",
+                    NotificationType.FORUM_POST.name(),
                     actorName + " đã đăng bài viết \"" + request.getTitle().trim() + "\"",
                     notiBody,
                     "FORUM_POST",
@@ -224,10 +228,11 @@ public class ForumServiceImpl implements ForumService {
         String actorName = reply.getAuthor().getFullName() != null ? reply.getAuthor().getFullName() : "Người dùng";
         String notificationBody = summarizeForumContent(request.getContent());
 
-        if (!post.getAuthor().getId().equals(currentUserId)) {
+        if (!post.getAuthor().getId().equals(currentUserId)
+                && notificationPreferenceService.isInAppEnabled(post.getAuthor().getId(), NotificationType.FORUM_REPLY.name())) {
             notificationService.createNotification(
                     post.getAuthor().getId(),
-                    "FORUM_REPLY",
+                    NotificationType.FORUM_REPLY.name(),
                     actorName + " đã trả lời bài viết \"" + post.getTitle() + "\"",
                     notificationBody,
                     "FORUM_POST",
@@ -238,10 +243,11 @@ public class ForumServiceImpl implements ForumService {
         }
 
         if (parentReply != null && !parentReply.getAuthor().getId().equals(currentUserId)
-                && !parentReply.getAuthor().getId().equals(post.getAuthor().getId())) {
+                && !parentReply.getAuthor().getId().equals(post.getAuthor().getId())
+                && notificationPreferenceService.isInAppEnabled(parentReply.getAuthor().getId(), NotificationType.FORUM_REPLY.name())) {
             notificationService.createNotification(
                     parentReply.getAuthor().getId(),
-                    "FORUM_REPLY",
+                    NotificationType.FORUM_REPLY.name(),
                     actorName + " đã trả lời bình luận của bạn trong \"" + post.getTitle() + "\"",
                     notificationBody,
                     "FORUM_POST",

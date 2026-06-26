@@ -27,6 +27,7 @@ import project.lms_rikkei_edu.modules.forum.repository.ForumReactionRepository;
 import project.lms_rikkei_edu.modules.forum.repository.ForumReportRepository;
 import project.lms_rikkei_edu.modules.forum.repository.ForumReplyRepository;
 import project.lms_rikkei_edu.modules.forum.service.impl.ForumServiceImpl;
+import project.lms_rikkei_edu.modules.notification.service.NotificationPreferenceService;
 import project.lms_rikkei_edu.modules.notification.service.NotificationService;
 import project.lms_rikkei_edu.modules.user.entity.UserEntity;
 import project.lms_rikkei_edu.modules.user.enums.UserRole;
@@ -67,6 +68,8 @@ class ForumServiceImplTest {
     @Mock
     private NotificationService notificationService;
     @Mock
+    private NotificationPreferenceService notificationPreferenceService;
+    @Mock
     private UserRepository userRepository;
     @Mock
     private CurrentUserProvider currentUserProvider;
@@ -83,12 +86,14 @@ class ForumServiceImplTest {
                 forumReportRepository,
                 forumAttachmentService,
                 notificationService,
+                notificationPreferenceService,
                 userRepository,
                 currentUserProvider
         );
         lenient().when(forumAttachmentService.findByPostIds(anyList())).thenReturn(Map.of());
         lenient().when(forumAttachmentService.findByReplyIds(anyList())).thenReturn(Map.of());
         lenient().when(forumCourseRepository.findEnrolledStudentIdsByCourseId(any())).thenReturn(List.of());
+        lenient().when(notificationPreferenceService.isInAppEnabled(any(), any())).thenReturn(true);
     }
 
     @Test

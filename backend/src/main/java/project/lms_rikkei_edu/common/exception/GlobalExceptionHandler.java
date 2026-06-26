@@ -138,8 +138,9 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler({ AsyncRequestTimeoutException.class, AsyncRequestNotUsableException.class })
     public ResponseEntity<Void> handleSseTimeout() {
-                return ResponseEntity.noContent().build();
-    }       
+        return ResponseEntity.noContent().build();
+    }
+
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleUnhandledException(
