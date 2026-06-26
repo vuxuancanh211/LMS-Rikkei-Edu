@@ -5,7 +5,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import project.lms_rikkei_edu.infrastructure.s3.S3Service;
-import project.lms_rikkei_edu.modules.ai.service.ingestion.CourseEmbeddingService;
 import project.lms_rikkei_edu.modules.course.dto.request.ResourceConfirmUploadRequest;
 import project.lms_rikkei_edu.modules.course.dto.request.ResourceUploadPresignRequest;
 import project.lms_rikkei_edu.modules.course.dto.response.LessonResourceResponse;
@@ -44,7 +43,6 @@ public class LessonResourceServiceImpl implements LessonResourceService {
     private final CourseRepository courseRepository;
     private final S3Service s3Service;
     private final LessonResourceMapper lessonResourceMapper;
-    private final CourseEmbeddingService embeddingService;
 
     @Value("${app.s3.presigned-url-expiry:3600}")
     private long presignedUrlExpiry;
@@ -212,9 +210,6 @@ public class LessonResourceServiceImpl implements LessonResourceService {
         resource.setDeletedAt(Instant.now());
         resource.setStatus("DELETED");
         lessonResourceRepository.save(resource);
-
-        // Xóa embedding của resource này
-        embeddingService.deleteEmbeddingsByResource(resourceId);
 
         // Xóa thật trên S3 (bỏ qua external URL)
         String s3Key = resource.getS3Key();

@@ -10,7 +10,6 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.test.util.ReflectionTestUtils;
 import project.lms_rikkei_edu.infrastructure.s3.S3Service;
-import project.lms_rikkei_edu.modules.ai.service.ingestion.CourseEmbeddingService;
 import project.lms_rikkei_edu.modules.course.dto.request.ResourceConfirmUploadRequest;
 import project.lms_rikkei_edu.modules.course.dto.request.ResourceUploadPresignRequest;
 import project.lms_rikkei_edu.modules.course.dto.response.LessonResourceResponse;
@@ -52,7 +51,6 @@ class LessonResourceServiceImplTest {
     @Mock CourseRepository courseRepository;
     @Mock S3Service s3Service;
     @Mock LessonResourceMapper lessonResourceMapper;
-    @Mock CourseEmbeddingService embeddingService;
 
     LessonResourceServiceImpl service;
 
@@ -65,7 +63,7 @@ class LessonResourceServiceImplTest {
     void setUp() {
         service = new LessonResourceServiceImpl(
                 lessonRepository, lessonResourceRepository, courseRepository,
-                s3Service, lessonResourceMapper, embeddingService
+                s3Service, lessonResourceMapper
         );
         ReflectionTestUtils.setField(service, "presignedUrlExpiry", 3600L);
     }
@@ -497,7 +495,6 @@ class LessonResourceServiceImplTest {
             assertThat(r.getDeletedAt()).isNotNull();
             assertThat(r.getStatus()).isEqualTo("DELETED");
             verify(s3Service).deleteObject("courses/file.pdf");
-            verify(embeddingService).deleteEmbeddingsByResource(resourceId);
         }
 
         @Test

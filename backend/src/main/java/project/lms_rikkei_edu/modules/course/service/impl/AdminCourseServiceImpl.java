@@ -8,7 +8,6 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import project.lms_rikkei_edu.infrastructure.s3.S3Service;
-import project.lms_rikkei_edu.modules.ai.service.ingestion.CourseEmbeddingService;
 import project.lms_rikkei_edu.modules.course.dto.response.*;
 import project.lms_rikkei_edu.modules.course.entity.*;
 import project.lms_rikkei_edu.modules.course.enums.CourseStatus;
@@ -36,7 +35,6 @@ public class AdminCourseServiceImpl implements AdminCourseService {
 
     private final CourseRepository courseRepo;
     private final CourseMapper courseMapper;
-    private final CourseEmbeddingService embeddingService;
     private final CourseApprovalLogRepository approvalLogRepo;
     private final LessonResourceRepository lessonResourceRepo;
     private final CourseVersionRepository courseVersionRepo;
@@ -106,8 +104,7 @@ public class AdminCourseServiceImpl implements AdminCourseService {
 
         saveLog(adminId, courseId, "APPROVED_FIRST", null);
 
-        embeddingService.embedCourseAsync(courseId);
-        log.info("Course approved and embedding started: courseId={}, adminId={}", courseId, adminId);
+        log.info("Course approved: courseId={}, adminId={}", courseId, adminId);
 
         return courseMapper.toDetailResponse(course);
     }
@@ -227,8 +224,7 @@ public class AdminCourseServiceImpl implements AdminCourseService {
 
         saveLog(adminId, courseId, "APPROVED_UPDATE", null);
 
-        embeddingService.embedCourseAsync(courseId);
-        log.info("Course update approved and re-embedding started: courseId={}, adminId={}", courseId, adminId);
+        log.info("Course update approved: courseId={}, adminId={}", courseId, adminId);
 
         return courseMapper.toDetailResponse(course);
     }

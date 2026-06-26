@@ -13,7 +13,6 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import project.lms_rikkei_edu.infrastructure.s3.S3Service;
-import project.lms_rikkei_edu.modules.ai.service.ingestion.CourseEmbeddingService;
 import project.lms_rikkei_edu.modules.course.dto.response.*;
 import project.lms_rikkei_edu.modules.course.entity.*;
 import project.lms_rikkei_edu.modules.course.enums.CourseStatus;
@@ -39,7 +38,6 @@ class AdminCourseServiceImplTest {
 
     @Mock CourseRepository courseRepo;
     @Mock CourseMapper courseMapper;
-    @Mock CourseEmbeddingService embeddingService;
     @Mock CourseApprovalLogRepository approvalLogRepo;
     @Mock LessonResourceRepository lessonResourceRepo;
     @Mock CourseVersionRepository courseVersionRepo;
@@ -53,7 +51,7 @@ class AdminCourseServiceImplTest {
     @BeforeEach
     void setUp() {
         adminCourseService = new AdminCourseServiceImpl(
-                courseRepo, courseMapper, embeddingService,
+                courseRepo, courseMapper,
                 approvalLogRepo, lessonResourceRepo, courseVersionRepo,
                 s3Service, new ObjectMapper()
         );
@@ -215,7 +213,6 @@ class AdminCourseServiceImplTest {
             assertThat(c.getPublishedAt()).isNotNull();
             assertThat(c.getRejectionReason()).isNull();
             verify(approvalLogRepo).save(argThat(log -> "APPROVED_FIRST".equals(log.getAction())));
-            verify(embeddingService).embedCourseAsync(courseId);
             assertThat(result.getId()).isEqualTo(courseId);
         }
 
@@ -330,7 +327,6 @@ class AdminCourseServiceImplTest {
             assertThat(c.getDraftTitle()).isNull();
             assertThat(c.getStatus()).isEqualTo(CourseStatus.PUBLISHED);
             assertThat(c.getPendingUpdateAt()).isNull();
-            verify(embeddingService).embedCourseAsync(courseId);
         }
 
         @Test

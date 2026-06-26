@@ -16,7 +16,6 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
-import project.lms_rikkei_edu.modules.ai.exception.*;
 import project.lms_rikkei_edu.modules.course.exception.*;
 
 import java.time.OffsetDateTime;
@@ -78,36 +77,6 @@ public class GlobalExceptionHandler {
             CourseStateException ex,
             HttpServletRequest request) {
         return buildResponse(HttpStatus.CONFLICT, ex.getMessage(), request.getRequestURI(), null);
-    }
-
-    // ── AI exceptions ─────────────────────────────────────────────────────────
-
-    @ExceptionHandler(UserContextException.class)
-    public ResponseEntity<ErrorResponse> handleUserContext(
-            UserContextException ex,
-            HttpServletRequest request) {
-        return buildResponse(HttpStatus.NOT_FOUND, ex.getMessage(), request.getRequestURI(), null);
-    }
-
-    @ExceptionHandler(AiSourceNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleAiSourceNotFound(
-            AiSourceNotFoundException ex,
-            HttpServletRequest request) {
-        return buildResponse(HttpStatus.NOT_FOUND, ex.getMessage(), request.getRequestURI(), null);
-    }
-
-    @ExceptionHandler(ConversationNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleConversationNotFound(
-            ConversationNotFoundException ex,
-            HttpServletRequest request) {
-        return buildResponse(HttpStatus.NOT_FOUND, ex.getMessage(), request.getRequestURI(), null);
-    }
-
-    @ExceptionHandler(IngestionException.class)
-    public ResponseEntity<ErrorResponse> handleIngestion(
-            IngestionException ex,
-            HttpServletRequest request) {
-        return buildResponse(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage(), request.getRequestURI(), null);
     }
 
     // ── Validation ────────────────────────────────────────────────────────────

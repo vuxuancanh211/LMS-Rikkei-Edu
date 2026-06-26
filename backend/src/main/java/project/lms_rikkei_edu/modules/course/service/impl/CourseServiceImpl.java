@@ -465,16 +465,16 @@ public class CourseServiceImpl implements CourseService {
         course.getChapters().removeAll(draftChapters);
     }
 
-    private void saveLog(UUID actorId, UUID courseId, String action) {
-        approvalLogRepository.save(
-                CourseApprovalLog.builder()
-                        .courseId(courseId)
-                        .adminId(actorId)
-                        .action(action)
-                        .createdAt(Instant.now())
-                        .build()
-        );
-    }
+    // private void saveLog(UUID actorId, UUID courseId, String action) {
+    //     approvalLogRepository.save(
+    //             CourseApprovalLog.builder()
+    //                     .courseId(courseId)
+    //                     .adminId(actorId)
+    //                     .action(action)
+    //                     .createdAt(Instant.now())
+    //                     .build()
+    //     );
+    // }
 
     private void saveLogWithSnapshot(UUID actorId, UUID courseId, String action, Course course) {
         String snapshotJson = null;
