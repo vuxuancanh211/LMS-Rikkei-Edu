@@ -33,6 +33,8 @@ import project.lms_rikkei_edu.modules.forum.dto.request.CreateForumReportRequest
 import project.lms_rikkei_edu.modules.forum.entity.ForumReportEntity;
 import project.lms_rikkei_edu.modules.forum.service.ForumAttachmentService;
 import project.lms_rikkei_edu.modules.forum.service.ForumService;
+import project.lms_rikkei_edu.modules.notification.enums.NotificationType;
+import project.lms_rikkei_edu.modules.notification.service.NotificationPreferenceService;
 import project.lms_rikkei_edu.modules.notification.service.NotificationService;
 import project.lms_rikkei_edu.modules.user.entity.UserEntity;
 import project.lms_rikkei_edu.modules.user.enums.UserRole;
@@ -77,6 +79,7 @@ public class ForumServiceImpl implements ForumService {
     private final ForumReportRepository forumReportRepository;
     private final ForumAttachmentService forumAttachmentService;
     private final NotificationService notificationService;
+    private final NotificationPreferenceService notificationPreferenceService;
     private final UserRepository userRepository;
     private final CurrentUserProvider currentUserProvider;
 
@@ -158,6 +161,35 @@ public class ForumServiceImpl implements ForumService {
 
         ForumPostEntity savedPost = forumPostRepository.save(post);
         forumAttachmentService.attachToPost(request.getAttachmentIds(), savedPost.getId(), currentUser.getId());
+
+        UUID postAuthorId = currentUser.getId();
+        String actorName = post.getAuthor().getFullName() != null ? post.getAuthor().getFullName() : "Người dùng";
+        String notiBody = summarizeForumContent(request.getContent());
+
+        Set<UUID> recipients = new HashSet<>();
+        if (course.getInstructorId() != null && !course.getInstructorId().equals(postAuthorId)) {
+            recipients.add(course.getInstructorId());
+        }
+        for (UUID enrolledId : forumCourseRepository.findEnrolledStudentIdsByCourseId(course.getId())) {
+            if (!enrolledId.equals(postAuthorId)) {
+                recipients.add(enrolledId);
+            }
+        }
+
+        for (UUID recipientId : recipients) {
+            if (!notificationPreferenceService.isInAppEnabled(recipientId, NotificationType.FORUM_POST.name())) continue;
+            notificationService.createNotification(
+                    recipientId,
+                    NotificationType.FORUM_POST.name(),
+                    actorName + " đã đăng bài viết \"" + request.getTitle().trim() + "\"",
+                    notiBody,
+                    "FORUM_POST",
+                    savedPost.getId(),
+                    postAuthorId,
+                    actorName
+            );
+        }
+
         return toPostResponse(savedPost, Collections.emptySet(), forumAttachmentService.findByPostIds(List.of(savedPost.getId())).getOrDefault(savedPost.getId(), List.of()));
     }
 
@@ -203,10 +235,11 @@ public class ForumServiceImpl implements ForumService {
         String actorName = reply.getAuthor().getFullName() != null ? reply.getAuthor().getFullName() : "Người dùng";
         String notificationBody = summarizeForumContent(request.getContent());
 
-        if (!post.getAuthor().getId().equals(currentUserId)) {
+        if (!post.getAuthor().getId().equals(currentUserId)
+                && notificationPreferenceService.isInAppEnabled(post.getAuthor().getId(), NotificationType.FORUM_REPLY.name())) {
             notificationService.createNotification(
                     post.getAuthor().getId(),
-                    "FORUM_REPLY",
+                    NotificationType.FORUM_REPLY.name(),
                     actorName + " đã trả lời bài viết \"" + post.getTitle() + "\"",
                     notificationBody,
                     "FORUM_POST",
@@ -217,10 +250,11 @@ public class ForumServiceImpl implements ForumService {
         }
 
         if (parentReply != null && !parentReply.getAuthor().getId().equals(currentUserId)
-                && !parentReply.getAuthor().getId().equals(post.getAuthor().getId())) {
+                && !parentReply.getAuthor().getId().equals(post.getAuthor().getId())
+                && notificationPreferenceService.isInAppEnabled(parentReply.getAuthor().getId(), NotificationType.FORUM_REPLY.name())) {
             notificationService.createNotification(
                     parentReply.getAuthor().getId(),
-                    "FORUM_REPLY",
+                    NotificationType.FORUM_REPLY.name(),
                     actorName + " đã trả lời bình luận của bạn trong \"" + post.getTitle() + "\"",
                     notificationBody,
                     "FORUM_POST",

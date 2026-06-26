@@ -57,7 +57,7 @@ class ForumUploadAdapter implements UploadAdapter {
     return { default: uploaded.url };
   }
 
-  abort() {}
+  abort() { }
 }
 
 function ForumUploadAdapterPlugin(onUploaded: (attachment: ForumAttachment) => void) {
@@ -105,6 +105,7 @@ export default function ForumRichEditor({
           CodeBlock,
           Image,
           ImageUpload,
+          FileRepository,
           ImageToolbar,
           ImageStyle,
           ImageResize,

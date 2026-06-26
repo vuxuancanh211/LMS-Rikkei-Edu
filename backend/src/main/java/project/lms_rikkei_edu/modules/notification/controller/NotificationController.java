@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import project.lms_rikkei_edu.common.security.CurrentUserProvider;
 import project.lms_rikkei_edu.infrastructure.sse.SseEmitterRegistry;
-import project.lms_rikkei_edu.modules.notification.entity.NotificationEntity;
+import project.lms_rikkei_edu.modules.notification.dto.response.NotificationResponse;
 import project.lms_rikkei_edu.modules.notification.service.NotificationService;
 
 import java.util.Map;
@@ -33,7 +33,7 @@ public class NotificationController {
     private final CurrentUserProvider currentUserProvider;
 
     @GetMapping
-    public ResponseEntity<Page<NotificationEntity>> getNotifications(
+    public ResponseEntity<Page<NotificationResponse>> getNotifications(
             @PageableDefault(size = 20) Pageable pageable
     ) {
         UUID userId = currentUserProvider.getCurrentUserId()
