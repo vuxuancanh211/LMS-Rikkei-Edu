@@ -23,7 +23,10 @@ import '../pages/Instructor/InsAssess';
 import '../pages/Instructor/InsGrading';
 import '../pages/Instructor/InsStudents';
 
+import '../services/api-registry';
+
 import '../pages/Admin/AdminDashboard';
+import '../pages/Admin/CsvImportWizard';
 import '../pages/Admin/AdminUsers';
 import '../pages/Admin/AdminCourses';
 import '../pages/Admin/AdminApproval';

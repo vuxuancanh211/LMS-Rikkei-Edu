@@ -42,7 +42,7 @@ public class GlobalExceptionHandler {
         exception.getBindingResult().getFieldErrors().forEach(error ->
                 validationErrors.put(error.getField(), error.getDefaultMessage())
         );
-        return buildResponse(HttpStatus.BAD_REQUEST, "Validation failed", request.getRequestURI(), validationErrors);
+        return buildResponse(HttpStatus.BAD_REQUEST, "Dữ liệu nhập không hợp lệ", request.getRequestURI(), validationErrors);
     }
 
     @ExceptionHandler(ConstraintViolationException.class)
@@ -54,7 +54,7 @@ public class GlobalExceptionHandler {
         exception.getConstraintViolations().forEach(violation ->
                 validationErrors.put(violation.getPropertyPath().toString(), violation.getMessage())
         );
-        return buildResponse(HttpStatus.BAD_REQUEST, "Validation failed", request.getRequestURI(), validationErrors);
+        return buildResponse(HttpStatus.BAD_REQUEST, "Dữ liệu nhập không hợp lệ", request.getRequestURI(), validationErrors);
     }
 
     @ExceptionHandler(HttpMessageNotReadableException.class)
