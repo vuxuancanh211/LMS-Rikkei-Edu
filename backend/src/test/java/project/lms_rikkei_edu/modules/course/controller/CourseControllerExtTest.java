@@ -389,4 +389,257 @@ class CourseControllerExtTest {
                     .andExpect(status().isForbidden());
         }
     }
+
+    // ── POST /{courseId}/lessons/{lessonId}/resources/presign-upload ──────────
+
+    @Nested
+    class RequestUploadUrl {
+        @Test
+        void returns200_withPresignResponse() throws Exception {
+            ResourceUploadPresignResponse presignResp = ResourceUploadPresignResponse.builder()
+                    .presignedUrl("https://s3.example.com/upload")
+                    .s3Key("courses/file.pdf")
+                    .contentType("application/pdf")
+                    .build();
+            when(lessonResourceService.requestUploadUrl(eq(instructorId), eq(courseId), eq(lessonId), any()))
+                    .thenReturn(presignResp);
+
+            String body = objectMapper.writeValueAsString(java.util.Map.of(
+                    "originalFilename", "lecture.pdf",
+                    "mimeType", "application/pdf",
+                    "fileSizeBytes", 1024L,
+                    "resourceType", "PDF"
+            ));
+
+            mockMvc.perform(post("/api/instructor/courses/{c}/lessons/{l}/resources/presign-upload",
+                            courseId, lessonId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.s3Key").value("courses/file.pdf"));
+        }
+    }
+
+    // ── POST /{courseId}/lessons/{lessonId}/resources/confirm-upload ──────────
+
+    @Nested
+    class ConfirmUpload {
+        @Test
+        void returns201_withLessonResource() throws Exception {
+            LessonResourceResponse resourceResp = LessonResourceResponse.builder()
+                    .id(UUID.randomUUID()).displayName("Lecture PDF").build();
+            when(lessonResourceService.confirmUpload(eq(instructorId), eq(courseId), eq(lessonId), any()))
+                    .thenReturn(resourceResp);
+
+            String body = objectMapper.writeValueAsString(java.util.Map.of(
+                    "s3Key", "courses/file.pdf",
+                    "resourceType", "PDF"
+            ));
+
+            mockMvc.perform(post("/api/instructor/courses/{c}/lessons/{l}/resources/confirm-upload",
+                            courseId, lessonId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.displayName").value("Lecture PDF"));
+        }
+    }
+
+    // ── GET /{courseId}/lessons/{lessonId}/resources ──────────────────────────
+
+    @Nested
+    class ListResources {
+        @Test
+        void returns200_withList() throws Exception {
+            LessonResourceResponse r1 = LessonResourceResponse.builder()
+                    .id(UUID.randomUUID()).displayName("Slide 1").build();
+            LessonResourceResponse r2 = LessonResourceResponse.builder()
+                    .id(UUID.randomUUID()).displayName("Slide 2").build();
+            when(lessonResourceService.listResources(instructorId, courseId, lessonId))
+                    .thenReturn(java.util.List.of(r1, r2));
+
+            mockMvc.perform(get("/api/instructor/courses/{c}/lessons/{l}/resources",
+                            courseId, lessonId))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.length()").value(2));
+        }
+
+        @Test
+        void returns200_emptyList() throws Exception {
+            when(lessonResourceService.listResources(instructorId, courseId, lessonId))
+                    .thenReturn(java.util.List.of());
+
+            mockMvc.perform(get("/api/instructor/courses/{c}/lessons/{l}/resources",
+                            courseId, lessonId))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.length()").value(0));
+        }
+    }
+
+    // ── GET /{courseId}/lessons/{lessonId}/resources/{resourceId}/view-url ────
+
+    @Nested
+    class GetViewUrl {
+        @Test
+        void returns200_withViewUrl() throws Exception {
+            UUID resourceId = UUID.randomUUID();
+            ResourceDownloadUrlResponse resp = ResourceDownloadUrlResponse.builder()
+                    .url("https://s3.example.com/view").build();
+            when(lessonResourceService.getViewUrl(instructorId, courseId, lessonId, resourceId))
+                    .thenReturn(resp);
+
+            mockMvc.perform(get("/api/instructor/courses/{c}/lessons/{l}/resources/{r}/view-url",
+                            courseId, lessonId, resourceId))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.url").value("https://s3.example.com/view"));
+        }
+    }
+
+    // ── GET /{courseId}/lessons/{lessonId}/resources/{resourceId}/download-url ─
+
+    @Nested
+    class GetDownloadUrl {
+        @Test
+        void returns200_withDownloadUrl() throws Exception {
+            UUID resourceId = UUID.randomUUID();
+            ResourceDownloadUrlResponse resp = ResourceDownloadUrlResponse.builder()
+                    .url("https://s3.example.com/dl").build();
+            when(lessonResourceService.getDownloadUrl(instructorId, courseId, lessonId, resourceId))
+                    .thenReturn(resp);
+
+            mockMvc.perform(get("/api/instructor/courses/{c}/lessons/{l}/resources/{r}/download-url",
+                            courseId, lessonId, resourceId))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.url").value("https://s3.example.com/dl"));
+        }
+    }
+
+    // ── DELETE /{courseId}/lessons/{lessonId}/resources/{resourceId} ──────────
+
+    @Nested
+    class DeleteResource {
+        @Test
+        void returns204_whenDeleted() throws Exception {
+            UUID resourceId = UUID.randomUUID();
+            doNothing().when(lessonResourceService)
+                    .deleteResource(instructorId, courseId, lessonId, resourceId);
+
+            mockMvc.perform(delete("/api/instructor/courses/{c}/lessons/{l}/resources/{r}",
+                            courseId, lessonId, resourceId))
+                    .andExpect(status().isNoContent());
+        }
+    }
+
+    // ── PATCH /{courseId}/lessons/{lessonId}/resources/{resourceId} ───────────
+
+    @Nested
+    class RenameResource {
+        @Test
+        void returns200_withRenamedResource() throws Exception {
+            UUID resourceId = UUID.randomUUID();
+            LessonResourceResponse resp = LessonResourceResponse.builder()
+                    .id(resourceId).displayName("New Name").build();
+            when(lessonResourceService.renameResource(
+                    eq(instructorId), eq(courseId), eq(lessonId), eq(resourceId), eq("New Name")))
+                    .thenReturn(resp);
+
+            mockMvc.perform(patch("/api/instructor/courses/{c}/lessons/{l}/resources/{r}",
+                            courseId, lessonId, resourceId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"displayName\":\"New Name\"}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.displayName").value("New Name"));
+        }
+    }
+
+    // ── GET /categories ───────────────────────────────────────────────────────
+
+    @Nested
+    class GetCategories {
+        @Test
+        void returns200_withActiveCategories() throws Exception {
+            project.lms_rikkei_edu.modules.course.entity.CourseCategory active =
+                    new project.lms_rikkei_edu.modules.course.entity.CourseCategory();
+            active.setId(UUID.randomUUID());
+            active.setName("Programming");
+            active.setIsActive(true);
+
+            project.lms_rikkei_edu.modules.course.entity.CourseCategory inactive =
+                    new project.lms_rikkei_edu.modules.course.entity.CourseCategory();
+            inactive.setId(UUID.randomUUID());
+            inactive.setName("Deprecated");
+            inactive.setIsActive(false);
+
+            when(catRepo.findAll()).thenReturn(java.util.List.of(active, inactive));
+
+            mockMvc.perform(get("/api/instructor/courses/categories"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.length()").value(1))
+                    .andExpect(jsonPath("$[0].name").value("Programming"));
+        }
+
+        @Test
+        void returns200_emptyList_whenNoCategoriesActive() throws Exception {
+            when(catRepo.findAll()).thenReturn(java.util.List.of());
+
+            mockMvc.perform(get("/api/instructor/courses/categories"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.length()").value(0));
+        }
+    }
+
+    // ── GET /{courseId}/versions/has-pending ──────────────────────────────────
+
+    @Nested
+    class HasPendingVersion {
+        @Test
+        void returns200_true_whenPendingExists() throws Exception {
+            when(courseService.hasPendingVersion(instructorId, courseId)).thenReturn(true);
+
+            mockMvc.perform(get("/api/instructor/courses/{c}/versions/has-pending", courseId))
+                    .andExpect(status().isOk())
+                    .andExpect(content().string("true"));
+        }
+
+        @Test
+        void returns200_false_whenNoPending() throws Exception {
+            when(courseService.hasPendingVersion(instructorId, courseId)).thenReturn(false);
+
+            mockMvc.perform(get("/api/instructor/courses/{c}/versions/has-pending", courseId))
+                    .andExpect(status().isOk())
+                    .andExpect(content().string("false"));
+        }
+    }
+
+    // ── POST /{courseId}/versions/{versionId}/clone-as-draft ─────────────────
+
+    @Nested
+    class CloneVersionAsDraft {
+        @Test
+        void returns200_withClonedVersion() throws Exception {
+            CourseVersionResponse cloned = CourseVersionResponse.builder()
+                    .id(versionId).status("DRAFT").build();
+            when(courseService.cloneVersionAsDraft(instructorId, courseId, versionId, "My Clone"))
+                    .thenReturn(cloned);
+
+            mockMvc.perform(post("/api/instructor/courses/{c}/versions/{v}/clone-as-draft",
+                            courseId, versionId)
+                            .param("label", "My Clone"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.status").value("DRAFT"));
+        }
+
+        @Test
+        void returns200_withoutLabel() throws Exception {
+            CourseVersionResponse cloned = CourseVersionResponse.builder()
+                    .id(versionId).status("DRAFT").build();
+            when(courseService.cloneVersionAsDraft(instructorId, courseId, versionId, null))
+                    .thenReturn(cloned);
+
+            mockMvc.perform(post("/api/instructor/courses/{c}/versions/{v}/clone-as-draft",
+                            courseId, versionId))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.status").value("DRAFT"));
+        }
+    }
 }
