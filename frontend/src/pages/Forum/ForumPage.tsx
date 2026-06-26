@@ -237,7 +237,7 @@ function ForumEditor({ value, onChange, attachments, onAttachmentsChange, placeh
           <ForumRichEditor
           disabled={disabled || uploading}
           value={resolveForumContentUrls(value || '', attachments || [])}
-          onChange={(nextValue) => onChange(normalizeForumContentForSave(nextValue))}
+          onChange={onChange}
           onUploadedAttachment={(attachment) => onAttachmentsChange((current = []) => [...current, attachment])}
           placeholder={placeholder}
         />
