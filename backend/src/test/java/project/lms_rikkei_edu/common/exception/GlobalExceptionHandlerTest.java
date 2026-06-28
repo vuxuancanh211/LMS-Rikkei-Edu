@@ -137,7 +137,7 @@ class GlobalExceptionHandlerTest {
         void constraintViolation_returns400() throws Exception {
             mvc.perform(get("/fake/constraint-violation"))
                     .andExpect(status().isBadRequest())
-                    .andExpect(jsonPath("$.message").value("Validation failed"));
+                    .andExpect(jsonPath("$.message").value("Dữ liệu nhập không hợp lệ"));
         }
     }
 
