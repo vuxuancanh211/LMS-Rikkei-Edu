@@ -10,7 +10,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import project.lms_rikkei_edu.common.security.CurrentUserProvider;
 import project.lms_rikkei_edu.infrastructure.sse.SseEmitterRegistry;
-import project.lms_rikkei_edu.modules.notification.entity.NotificationEntity;
+import project.lms_rikkei_edu.modules.notification.dto.response.NotificationResponse;
 import project.lms_rikkei_edu.modules.notification.service.NotificationService;
 
 import java.time.OffsetDateTime;
@@ -53,7 +53,7 @@ class NotificationControllerIntegrationTest {
 
     @Test
     void getNotificationsReturnsPage() throws Exception {
-        NotificationEntity notification = notification(UUID.randomUUID(), userId);
+        NotificationResponse notification = notificationResponse(UUID.randomUUID(), userId);
         when(notificationService.getNotifications(eq(userId), any()))
                 .thenReturn(new PageImpl<>(List.of(notification), PageRequest.of(0, 20), 1));
 
@@ -103,18 +103,16 @@ class NotificationControllerIntegrationTest {
         verify(sseEmitterRegistry).register(userId);
     }
 
-    private NotificationEntity notification(UUID notificationId, UUID recipientId) {
-        NotificationEntity notification = new NotificationEntity();
-        notification.setId(notificationId);
-        notification.setRecipientId(recipientId);
-        notification.setType("FORUM_REPLY");
-        notification.setTitle("Notification title");
-        notification.setBody("Notification body");
-        notification.setPriority("NORMAL");
-        notification.setRead(false);
-        notification.setEmailSent(false);
-        notification.setPushSent(false);
-        notification.setCreatedAt(OffsetDateTime.now());
-        return notification;
+    private NotificationResponse notificationResponse(UUID notificationId, UUID recipientId) {
+        return NotificationResponse.builder()
+                .id(notificationId)
+                .recipientId(recipientId)
+                .type("FORUM_REPLY")
+                .title("Notification title")
+                .body("Notification body")
+                .priority("NORMAL")
+                .read(false)
+                .createdAt(OffsetDateTime.now())
+                .build();
     }
 }

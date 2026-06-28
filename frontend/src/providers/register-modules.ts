@@ -26,7 +26,10 @@ import '../pages/Instructor/InsAssess';
 import '../pages/Instructor/InsGrading';
 import '../pages/Instructor/InsStudents';
 
+import '../services/api-registry';
+
 import '../pages/Admin/AdminDashboard';
+import '../pages/Admin/CsvImportWizard';
 import '../pages/Admin/AdminUsers';
 import '../pages/Admin/AdminCourses';
 import '../pages/Admin/AdminApproval';
@@ -35,6 +38,7 @@ import '../pages/Admin/AdminLogs';
 
 import '../pages/Auth/LoginPage';
 import '../pages/SettingsPage';
+import '../pages/Notification/NotificationsPage';
 import '../pages/Player/LecturePlayer';
 import '../pages/Player/QuizPlayer';
 import '../pages/Player/QuizResult';

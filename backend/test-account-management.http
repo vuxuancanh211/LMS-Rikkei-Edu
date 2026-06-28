@@ -1,0 +1,370 @@
+# ============================================================
+# RIKKEI EDU LMS — TEST: Quản lý tài khoản (UC08)
+# Admin quản lý Instructor & Student
+# ============================================================
+# Yêu cầu:
+#   - Backend đang chạy tại http://localhost:8080
+#   - Đã chạy data.sql (seed data)
+#   - Hướng dẫn chạy: Mở file trong VS Code (REST Client)
+#     và nhấn "Send Request" trên từng request
+# ============================================================
+
+# ---------- Biến toàn cục ----------
+@baseUrl = http://localhost:8080/api
+@adminToken = {{loginAdmin.response.body.accessToken}}
+@studentId = 00000000-0000-0000-0000-000000000004
+@instructorId = 00000000-0000-0000-0000-000000000002
+@selfAdminId = 00000000-0000-0000-0000-000000000001
+@nonExistentId = 00000000-0000-0000-0000-000000009999
+
+
+# ============================================================
+# 0. AUTH — Login để lấy token
+# ============================================================
+
+### 0.1 — Login ADMIN (token cho toàn bộ test)
+# @name loginAdmin
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+    "email": "admin@rikkei.edu",
+    "password": "Test@123456"
+}
+
+### 0.2 — Login STUDENT (dùng test permission)
+# @name loginStudent
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+    "email": "student1@rikkei.edu",
+    "password": "Test@123456"
+}
+
+
+# ============================================================
+# 1. GET /api/admin/users — Danh sách tài khoản
+# ============================================================
+
+### 1.1 — [Happy path] List mặc định (page 1, size 10)
+# Expected: 200 OK, PagedResponse với items là danh sách user
+GET {{baseUrl}}/admin/users
+Authorization: Bearer {{adminToken}}
+
+### 1.2 — [Filter] Lọc theo role = INSTRUCTOR
+# Expected: 200 OK, tất cả items có role = "INSTRUCTOR"
+GET {{baseUrl}}/admin/users?role=INSTRUCTOR
+Authorization: Bearer {{adminToken}}
+
+### 1.3 — [Filter] Lọc theo role = STUDENT
+# Expected: 200 OK, tất cả items có role = "STUDENT"
+GET {{baseUrl}}/admin/users?role=STUDENT
+Authorization: Bearer {{adminToken}}
+
+### 1.4 — [Search] Tìm kiếm theo keyword "an" (match email hoặc full_name)
+# Expected: 200 OK, items chứa "an" trong email hoặc tên
+GET {{baseUrl}}/admin/users?search=an
+Authorization: Bearer {{adminToken}}
+
+### 1.5 — [Pagination] Phân trang page=1, size=3
+# Expected: 200 OK, items có 3 phần tử, totalRecords = tổng số user
+GET {{baseUrl}}/admin/users?page=1&size=3
+Authorization: Bearer {{adminToken}}
+
+### 1.6 — [Pagination] Trang 2, size=3
+# Expected: 200 OK, page=2, 3 items
+GET {{baseUrl}}/admin/users?page=2&size=3
+Authorization: Bearer {{adminToken}}
+
+### 1.7 — [Sort] Sắp xếp theo full_name tăng dần
+# Expected: 200 OK, items sắp xếp theo full_name ASC
+GET {{baseUrl}}/admin/users?sortBy=full_name&sortDir=asc
+Authorization: Bearer {{adminToken}}
+
+### 1.8 — [Filter] Lọc theo status = ACTIVE
+# Expected: 200 OK, tất cả items có status = "ACTIVE"
+GET {{baseUrl}}/admin/users?status=ACTIVE
+Authorization: Bearer {{adminToken}}
+
+### 1.9 — [Edge case] Page vượt quá tổng số trang
+# Expected: 200 OK, items = [], totalRecords giống page 1
+GET {{baseUrl}}/admin/users?page=999&size=10
+Authorization: Bearer {{adminToken}}
+
+### 1.10 — [Combine] Search + Filter + Sort cùng lúc
+# Expected: 200 OK, kết hợp tất cả điều kiện
+GET {{baseUrl}}/admin/users?search=nguyen&role=INSTRUCTOR&sortBy=full_name&sortDir=asc
+Authorization: Bearer {{adminToken}}
+
+
+# ============================================================
+# 2. GET /api/admin/users/{id} — Chi tiết tài khoản
+# ============================================================
+
+### 2.1 — [Happy path] Xem chi tiết Student
+# Expected: 200 OK, AdminUserDetailResponse (không chứa passwordHash)
+GET {{baseUrl}}/admin/users/{{studentId}}
+Authorization: Bearer {{adminToken}}
+
+### 2.2 — [Happy path] Xem chi tiết Instructor
+# Expected: 200 OK, AdminUserDetailResponse
+GET {{baseUrl}}/admin/users/{{instructorId}}
+Authorization: Bearer {{adminToken}}
+
+### 2.3 — [Error] User không tồn tại
+# Expected: 400 Bad Request, BusinessException "User not found"
+GET {{baseUrl}}/admin/users/{{nonExistentId}}
+Authorization: Bearer {{adminToken}}
+
+
+# ============================================================
+# 3. POST /api/admin/users — Tạo tài khoản mới
+# ============================================================
+
+### 3.1 — [Happy path] Tạo Student mới
+# Expected: 200 OK, UserResponse, email gửi password tạm
+POST {{baseUrl}}/admin/users
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+    "fullName": "Nguyễn Văn Test",
+    "email": "teststudent@rikkei.edu",
+    "role": "STUDENT",
+    "phoneNumber": "0900000099"
+}
+
+### 3.2 — [Happy path] Tạo Instructor mới
+# Expected: 200 OK, UserResponse
+POST {{baseUrl}}/admin/users
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+    "fullName": "Trần Thị Test",
+    "email": "testinstructor@rikkei.edu",
+    "role": "INSTRUCTOR",
+    "phoneNumber": "0900000098"
+}
+
+### 3.3 — [Validation] Email đã tồn tại
+# Expected: 400 Bad Request, "Email already exists"
+POST {{baseUrl}}/admin/users
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+    "fullName": "Trùng email",
+    "email": "admin@rikkei.edu",
+    "role": "STUDENT"
+}
+
+### 3.4 — [Validation] Role không hợp lệ
+# Expected: 400 Bad Request, "Invalid role: WRONG"
+POST {{baseUrl}}/admin/users
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+    "fullName": "Sai role",
+    "email": "wrongrole@rikkei.edu",
+    "role": "WRONG"
+}
+
+### 3.5 — [Validation] Thiếu fullName (NotBlank)
+# Expected: 400 Bad Request, validation error
+POST {{baseUrl}}/admin/users
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+    "email": "nofullname@rikkei.edu",
+    "role": "STUDENT"
+}
+
+### 3.6 — [Validation] Email không đúng định dạng
+# Expected: 400 Bad Request, validation error
+POST {{baseUrl}}/admin/users
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+    "fullName": "Sai email",
+    "email": "not-an-email",
+    "role": "STUDENT"
+}
+
+
+# ============================================================
+# 4. PUT /api/admin/users/{id} — Cập nhật tài khoản
+# ============================================================
+
+### 4.1 — [Happy path] Cập nhật fullName + phone của Student
+# Expected: 200 OK, UserResponse với thông tin mới
+PUT {{baseUrl}}/admin/users/{{studentId}}
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+    "fullName": "Phạm Quốc Hùng (đã cập nhật)",
+    "phoneNumber": "0900000111"
+}
+
+### 4.2 — [Happy path] Cập nhật role Student → Instructor
+# Expected: 200 OK, role mới là "INSTRUCTOR"
+PUT {{baseUrl}}/admin/users/{{studentId}}
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+    "role": "INSTRUCTOR"
+}
+# Sau test này nên set lại role = STUDENT nếu cần
+
+### 4.3 — [Happy path] Cập nhật status Student → DISABLED
+# Expected: 200 OK, status = "DISABLED", disabledAt có giá trị
+PUT {{baseUrl}}/admin/users/{{studentId}}
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+    "status": "DISABLED"
+}
+# Sau test này nên set lại status = ACTIVE nếu cần
+
+### 4.4 — [Happy path] Cập nhật status DISABLED → ACTIVE
+# Expected: 200 OK, status = "ACTIVE", disabledAt = null
+PUT {{baseUrl}}/admin/users/{{studentId}}
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+    "status": "ACTIVE"
+}
+
+### 4.5 — [Business rule] Admin tự thay đổi role của chính mình
+# Expected: 400 Bad Request, "Admin cannot change their own role"
+PUT {{baseUrl}}/admin/users/{{selfAdminId}}
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+    "role": "STUDENT"
+}
+
+### 4.6 — [Validation] Status không hợp lệ
+# Expected: 400 Bad Request, "Invalid status: WRONG_STATUS"
+PUT {{baseUrl}}/admin/users/{{studentId}}
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+    "status": "WRONG_STATUS"
+}
+
+### 4.7 — [Validation] Role không hợp lệ
+# Expected: 400 Bad Request, "Invalid role: WRONG_ROLE"
+PUT {{baseUrl}}/admin/users/{{studentId}}
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+    "role": "WRONG_ROLE"
+}
+
+
+# ============================================================
+# 5. DELETE /api/admin/users/{id} — Xoá mềm tài khoản
+# ============================================================
+
+### 5.1 — [Happy path] Xoá mềm Student
+# Expected: 200 OK, MessageResponse, status → DELETED
+DELETE {{baseUrl}}/admin/users/{{studentId}}
+Authorization: Bearer {{adminToken}}
+
+### 5.2 — [Business rule] Admin tự xoá chính mình
+# Expected: 400 Bad Request, "Admin cannot delete their own account"
+DELETE {{baseUrl}}/admin/users/{{selfAdminId}}
+Authorization: Bearer {{adminToken}}
+
+### 5.3 — [Error] User không tồn tại
+# Expected: 400 Bad Request, "User not found"
+DELETE {{baseUrl}}/admin/users/{{nonExistentId}}
+Authorization: Bearer {{adminToken}}
+
+### 5.4 — [Idempotent] Xoá user đã bị xoá trước đó
+# Expected: 400 Bad Request (vì findActiveUser không tìm thấy)
+DELETE {{baseUrl}}/admin/users/{{studentId}}
+Authorization: Bearer {{adminToken}}
+
+
+# ============================================================
+# 6. POST /api/admin/users/{id}/reset-password
+# ============================================================
+
+### 6.1 — [Happy path] Reset password cho Instructor
+# Expected: 200 OK, MessageResponse, email gửi password mới
+POST {{baseUrl}}/admin/users/{{instructorId}}/reset-password
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+    "reason": "Quên mật khẩu"
+}
+
+### 6.2 — [Error] Reset password cho user không tồn tại
+# Expected: 400 Bad Request, "User not found"
+POST {{baseUrl}}/admin/users/{{nonExistentId}}/reset-password
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+    "reason": "Test"
+}
+
+### 6.3 — [Error] Reset password cho user đã bị xoá mềm
+# Expected: 400 Bad Request, "Cannot reset password for a deleted user"
+POST {{baseUrl}}/admin/users/{{studentId}}/reset-password
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+    "reason": "Test deleted user"
+}
+
+
+# ============================================================
+# 7. AUTH & PERMISSION — Kiểm tra bảo mật
+# ============================================================
+
+### 7.1 — [401] Không gửi token
+# Expected: 401 Unauthorized
+GET {{baseUrl}}/admin/users
+
+### 7.2 — [403] Gửi token STUDENT
+# Expected: 403 Forbidden
+GET {{baseUrl}}/admin/users
+Authorization: Bearer {{loginStudent.response.body.accessToken}}
+
+### 7.3 — [401] Token sai
+# Expected: 401 Unauthorized
+GET {{baseUrl}}/admin/users
+Authorization: Bearer invalid_token_here
+
+### 7.4 — [403] Student không thể tạo user
+# Expected: 403 Forbidden
+POST {{baseUrl}}/admin/users
+Authorization: Bearer {{loginStudent.response.body.accessToken}}
+Content-Type: application/json
+
+{
+    "fullName": "Hack",
+    "email": "hack@rikkei.edu",
+    "role": "STUDENT"
+}
+
+### 7.5 — [403] Student không thể xoá user
+# Expected: 403 Forbidden
+DELETE {{baseUrl}}/admin/users/{{studentId}}
+Authorization: Bearer {{loginStudent.response.body.accessToken}}

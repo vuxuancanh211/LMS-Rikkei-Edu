@@ -10,6 +10,8 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
+import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -86,9 +88,10 @@ public class GlobalExceptionHandler {
             MethodArgumentNotValidException exception,
             HttpServletRequest request) {
         Map<String, String> validationErrors = new LinkedHashMap<>();
-        exception.getBindingResult().getFieldErrors()
-                .forEach(error -> validationErrors.put(error.getField(), error.getDefaultMessage()));
-        return buildResponse(HttpStatus.BAD_REQUEST, "Validation failed", request.getRequestURI(), validationErrors);
+        exception.getBindingResult().getFieldErrors().forEach(error ->
+                validationErrors.put(error.getField(), error.getDefaultMessage())
+        );
+        return buildResponse(HttpStatus.BAD_REQUEST, "Dữ liệu nhập không hợp lệ", request.getRequestURI(), validationErrors);
     }
 
     @ExceptionHandler(ConstraintViolationException.class)
@@ -96,9 +99,10 @@ public class GlobalExceptionHandler {
             ConstraintViolationException exception,
             HttpServletRequest request) {
         Map<String, String> validationErrors = new LinkedHashMap<>();
-        exception.getConstraintViolations().forEach(
-                violation -> validationErrors.put(violation.getPropertyPath().toString(), violation.getMessage()));
-        return buildResponse(HttpStatus.BAD_REQUEST, "Validation failed", request.getRequestURI(), validationErrors);
+        exception.getConstraintViolations().forEach(violation ->
+                validationErrors.put(violation.getPropertyPath().toString(), violation.getMessage())
+        );
+        return buildResponse(HttpStatus.BAD_REQUEST, "Dữ liệu nhập không hợp lệ", request.getRequestURI(), validationErrors);
     }
 
     // ── HTTP / request ────────────────────────────────────────────────────────
@@ -167,6 +171,12 @@ public class GlobalExceptionHandler {
             HttpServletRequest request) {
         return buildResponse(HttpStatus.CONFLICT, ex.getMessage(), request.getRequestURI(), null);
     }
+
+    @ExceptionHandler({ AsyncRequestTimeoutException.class, AsyncRequestNotUsableException.class })
+    public ResponseEntity<Void> handleSseTimeout() {
+        return ResponseEntity.noContent().build();
+    }
+
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleUnhandledException(

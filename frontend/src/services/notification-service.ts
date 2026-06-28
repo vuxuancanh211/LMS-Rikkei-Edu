@@ -24,22 +24,49 @@ export type NotificationPageResponse<T> = {
   totalPages: number;
 };
 
-export async function getNotifications(page = 0, size = 20) {
+export type NotificationPreference = {
+  id: string | null;
+  type: string;
+  inAppEnabled: boolean;
+  emailEnabled: boolean;
+  pushEnabled: boolean;
+};
+
+export type UpdateNotificationPreference = {
+  inAppEnabled: boolean;
+  emailEnabled: boolean;
+  pushEnabled: boolean;
+};
+
+export async function getNotifications(page = 0, size = 20): Promise<NotificationPageResponse<NotificationItem>> {
   const response = await httpClient.get<NotificationPageResponse<NotificationItem>>('/notifications', { params: { page, size } });
   return response.data;
 }
 
-export async function getUnreadCount() {
+export async function getUnreadCount(): Promise<number> {
   const response = await httpClient.get<{ count: number }>('/notifications/unread-count');
   return response.data.count;
 }
 
-export async function markAsRead(id: string) {
+export async function markAsRead(id: string): Promise<void> {
   await httpClient.patch(`/notifications/${id}/read`);
 }
 
-export async function markAllAsRead() {
+export async function markAllAsRead(): Promise<void> {
   await httpClient.patch('/notifications/read-all');
+}
+
+export async function getNotificationPreferences(): Promise<NotificationPreference[]> {
+  const response = await httpClient.get<NotificationPreference[]>('/notifications/preferences');
+  return response.data;
+}
+
+export async function updateNotificationPreference(
+  type: string,
+  data: UpdateNotificationPreference
+): Promise<NotificationPreference> {
+  const response = await httpClient.put<NotificationPreference>(`/notifications/preferences/${type}`, data);
+  return response.data;
 }
 
 export function connectNotificationSSE(
