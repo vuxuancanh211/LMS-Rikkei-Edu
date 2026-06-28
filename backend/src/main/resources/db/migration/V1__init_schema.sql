@@ -83,6 +83,8 @@ CREATE TABLE "courses" (
                            "chat_enabled" boolean DEFAULT false,
                            "submitted_at" timestamptz,
                            "published_at" timestamptz,
+                           "pending_update_at" timestamptz,
+                           "deleted_at" timestamptz,
                            "created_at" timestamptz,
                            "updated_at" timestamptz
 );
@@ -93,7 +95,8 @@ CREATE TABLE "course_approval_logs" (
                                         "admin_id" uuid NOT NULL,
                                         "action" varchar(20),
                                         "reason" text,
-                                        "created_at" timestamptz
+                                        "created_at" timestamptz,
+                                        "snapshot" text
 );
 
 CREATE TABLE "course_enrollments" (
@@ -145,7 +148,9 @@ CREATE TABLE "lesson_resources" (
                                     "order_index" int,
                                     "status" varchar(20) DEFAULT 'ACTIVE',
                                     "deleted_at" timestamptz,
-                                    "uploaded_at" timestamptz
+                                    "uploaded_at" timestamptz,
+                                    "is_new_in_update" boolean NOT NULL DEFAULT false,
+                                    "pending_delete" boolean NOT NULL DEFAULT false
 );
 
 CREATE TABLE "video_upload_jobs" (
@@ -164,7 +169,9 @@ CREATE TABLE "video_upload_jobs" (
 
 CREATE TABLE "ai_sources" (
                               "id" uuid PRIMARY KEY,
-                              "course_id" uuid NOT NULL,
+                              "course_id" uuid,
+                              "lesson_id" uuid,
+                              "resource_id" uuid,
                               "uploaded_by" uuid,
                               "source_type" varchar(30),
                               "source_name" varchar(255),
@@ -195,7 +202,7 @@ CREATE TABLE "ai_ingestion_jobs" (
 CREATE TABLE "document_chunks" (
                                    "id" uuid PRIMARY KEY,
                                    "source_id" uuid NOT NULL,
-                                   "course_id" uuid NOT NULL,
+                                   "course_id" uuid,
                                    "chunk_index" int,
                                    "page_number" int,
                                    "section_title" varchar(255),
@@ -639,6 +646,10 @@ CREATE UNIQUE INDEX ON "course_enrollments" ("course_id", "student_id");
 
 CREATE INDEX ON "ai_sources" ("course_id");
 
+CREATE INDEX ON "ai_sources" ("lesson_id");
+
+CREATE INDEX ON "ai_sources" ("resource_id");
+
 CREATE INDEX ON "ai_sources" ("source_type");
 
 CREATE INDEX ON "ai_sources" ("ingest_status");
@@ -715,7 +726,7 @@ COMMENT ON COLUMN "bulk_import_jobs"."status" IS 'PENDING | PROCESSING | DONE | 
 
 COMMENT ON COLUMN "courses"."level" IS 'BEGINNER | INTERMEDIATE | ADVANCED';
 
-COMMENT ON COLUMN "courses"."status" IS 'DRAFT | PENDING | APPROVED | REJECTED | PUBLISHED | ARCHIVED';
+COMMENT ON COLUMN "courses"."status" IS 'DRAFT | PENDING | APPROVED | REJECTED | PUBLISHED | PENDING_UPDATE | ARCHIVED';
 
 COMMENT ON COLUMN "course_approval_logs"."action" IS 'APPROVED | REJECTED | REVERTED';
 
@@ -823,7 +834,7 @@ ALTER TABLE "lessons" ADD FOREIGN KEY ("chapter_id") REFERENCES "chapters" ("id"
 
 ALTER TABLE "lessons" ADD FOREIGN KEY ("course_id") REFERENCES "courses" ("id") DEFERRABLE INITIALLY IMMEDIATE;
 
-ALTER TABLE "lesson_resources" ADD FOREIGN KEY ("lesson_id") REFERENCES "lessons" ("id") DEFERRABLE INITIALLY IMMEDIATE;
+ALTER TABLE "lesson_resources" ADD FOREIGN KEY ("lesson_id") REFERENCES "lessons" ("id") ON DELETE CASCADE DEFERRABLE INITIALLY IMMEDIATE;
 
 ALTER TABLE "lesson_resources" ADD FOREIGN KEY ("course_id") REFERENCES "courses" ("id") DEFERRABLE INITIALLY IMMEDIATE;
 
@@ -834,6 +845,10 @@ ALTER TABLE "video_upload_jobs" ADD FOREIGN KEY ("lesson_id") REFERENCES "lesson
 ALTER TABLE "video_upload_jobs" ADD FOREIGN KEY ("instructor_id") REFERENCES "users" ("id") DEFERRABLE INITIALLY IMMEDIATE;
 
 ALTER TABLE "ai_sources" ADD FOREIGN KEY ("course_id") REFERENCES "courses" ("id") DEFERRABLE INITIALLY IMMEDIATE;
+
+ALTER TABLE "ai_sources" ADD FOREIGN KEY ("lesson_id") REFERENCES "lessons" ("id") DEFERRABLE INITIALLY IMMEDIATE;
+
+ALTER TABLE "ai_sources" ADD FOREIGN KEY ("resource_id") REFERENCES "lesson_resources" ("id") DEFERRABLE INITIALLY IMMEDIATE;
 
 ALTER TABLE "ai_sources" ADD FOREIGN KEY ("uploaded_by") REFERENCES "users" ("id") DEFERRABLE INITIALLY IMMEDIATE;
 
@@ -980,3 +995,55 @@ ALTER TABLE "certificates" ADD FOREIGN KEY ("student_id") REFERENCES "users" ("i
 ALTER TABLE "certificates" ADD FOREIGN KEY ("course_id") REFERENCES "courses" ("id") DEFERRABLE INITIALLY IMMEDIATE;
 
 ALTER TABLE "certificates" ADD FOREIGN KEY ("revoked_by") REFERENCES "users" ("id") DEFERRABLE INITIALLY IMMEDIATE;
+
+-- ============================================================
+-- HYBRID VERSIONING MIGRATION
+-- Thêm draft fields cho courses, chapters, lessons
+-- ============================================================
+
+ALTER TABLE "courses"
+    ADD COLUMN IF NOT EXISTS "draft_title"             varchar(200),
+    ADD COLUMN IF NOT EXISTS "draft_description"       text,
+    ADD COLUMN IF NOT EXISTS "draft_thumbnail_url"     text,
+    ADD COLUMN IF NOT EXISTS "draft_level"             varchar(20),
+    ADD COLUMN IF NOT EXISTS "change_summary"          varchar(500),
+    ADD COLUMN IF NOT EXISTS "draft_rejection_reason"  text;
+
+ALTER TABLE "chapters"
+    ADD COLUMN IF NOT EXISTS "is_draft"       boolean NOT NULL DEFAULT false,
+    ADD COLUMN IF NOT EXISTS "pending_delete" boolean NOT NULL DEFAULT false;
+
+ALTER TABLE "lessons"
+    ADD COLUMN IF NOT EXISTS "is_draft"            boolean NOT NULL DEFAULT false,
+    ADD COLUMN IF NOT EXISTS "pending_delete"      boolean NOT NULL DEFAULT false,
+    ADD COLUMN IF NOT EXISTS "draft_title"         varchar(200),
+    ADD COLUMN IF NOT EXISTS "draft_content_text"  text;
+
+CREATE INDEX IF NOT EXISTS idx_chapters_is_draft        ON chapters(course_id) WHERE is_draft = true;
+CREATE INDEX IF NOT EXISTS idx_lessons_is_draft         ON lessons(course_id) WHERE is_draft = true;
+CREATE INDEX IF NOT EXISTS idx_lessons_pending_delete   ON lessons(course_id) WHERE pending_delete = true;
+
+ALTER TABLE "lesson_resources"
+    ADD COLUMN IF NOT EXISTS "is_new_in_update" boolean NOT NULL DEFAULT false,
+    ADD COLUMN IF NOT EXISTS "pending_delete"   boolean NOT NULL DEFAULT false;
+
+ALTER TABLE "course_approval_logs"
+    ADD COLUMN IF NOT EXISTS "snapshot" text;
+
+CREATE TABLE IF NOT EXISTS "course_versions" (
+    "id"               uuid PRIMARY KEY DEFAULT (gen_random_uuid()),
+    "course_id"        uuid NOT NULL,
+    "version_number"   int  NULL,
+    "status"           varchar(20) NOT NULL DEFAULT 'PENDING',
+    "snapshot"         text,
+    "change_summary"   text,
+    "rejection_reason" text,
+    "submitted_by"     uuid,
+    "reviewed_by"      uuid,
+    "submitted_at"     timestamptz,
+    "reviewed_at"      timestamptz,
+    CONSTRAINT uq_course_version UNIQUE ("course_id", "version_number")
+);
+
+ALTER TABLE "course_versions" ADD FOREIGN KEY ("course_id") REFERENCES "courses" ("id") DEFERRABLE INITIALLY IMMEDIATE;
+ALTER TABLE "course_versions" ADD COLUMN IF NOT EXISTS "label" varchar(100);

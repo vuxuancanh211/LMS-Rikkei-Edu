@@ -1,0 +1,31 @@
+package project.lms_rikkei_edu.modules.course.dto.response;
+
+import lombok.Builder;
+import lombok.Getter;
+import project.lms_rikkei_edu.modules.course.enums.LessonType;
+import project.lms_rikkei_edu.modules.course.enums.VideoStatus;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.UUID;
+
+@Getter
+@Builder
+public class LessonResponse {
+    private UUID id;
+    private String title;
+    private Integer orderIndex;
+    private LessonType type;
+    private String contentText;
+    private Integer durationSeconds;
+    private Boolean isPreview;
+    private VideoStatus videoStatus;
+    private String hlsManifestUrl;
+    private List<LessonResourceResponse> resources;
+    private Instant createdAt;
+    private Instant updatedAt;
+    private Boolean isDraft;
+    private Boolean pendingDelete;
+    private String draftTitle;
+    private String draftContentText;
+}

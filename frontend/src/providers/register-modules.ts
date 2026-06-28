@@ -16,6 +16,9 @@ import '../pages/Student/StuCerts';
 
 import '../pages/Instructor/InsDashboard';
 import '../pages/Instructor/InsCourses';
+import '../pages/Instructor/course-detail/CourseModals';
+import '../pages/Instructor/course-detail/CourseContentTab';
+import '../pages/Instructor/course-detail/CourseVersionsTab';
 import '../pages/Instructor/InsCourseDetail';
 import '../pages/Instructor/InsGroups';
 import '../pages/Instructor/InsGroupDetail';
@@ -39,4 +42,5 @@ import '../pages/Notification/NotificationsPage';
 import '../pages/Player/LecturePlayer';
 import '../pages/Player/QuizPlayer';
 import '../pages/Player/QuizResult';
+import '../pages/Player/PreviewPlayer';
 import '../pages/Gallery/GalleryPage';

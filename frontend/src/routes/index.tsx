@@ -46,6 +46,7 @@ const playerRoutes = {
   player: '/player/lecture',
   quiz: '/player/quiz',
   result: '/player/quiz-result',
+  preview: '/player/preview',
 };
 
 function dashboardForRole(role: keyof typeof roleRoutes | null) {
@@ -217,5 +218,6 @@ export const router = createBrowserRouter([
   { path: '/player/lecture', element: <RequireAuth><PlayerRoute name="LecturePlayer" /></RequireAuth> },
   { path: '/player/quiz', element: <RequireAuth><PlayerRoute name="QuizPlayer" /></RequireAuth> },
   { path: '/player/quiz-result', element: <RequireAuth><PlayerRoute name="QuizResult" /></RequireAuth> },
+  { path: '/player/preview', element: <RequireAuth><PlayerRoute name="PreviewPlayer" /></RequireAuth> },
   { path: '*', element: <Navigate to="/login" replace /> },
 ]);
