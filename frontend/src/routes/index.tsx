@@ -111,7 +111,9 @@ function RoutedShell({ role, route }: { role: keyof typeof roleRoutes; route: st
       authUser={authUser}
       onLogout={handleLogout}
       onExit={() => navigate('/gallery')}
-      onBare={(key: keyof typeof playerRoutes) => navigate(playerRoutes[key] || '/player/lecture')}
+      onBare={(key: keyof typeof playerRoutes, state?: Record<string, string>) =>
+        navigate(playerRoutes[key] || '/player/lecture', state ? { state } : undefined)
+      }
       onNavigate={(nextRole: keyof typeof roleRoutes, nextRoute: string) => {
         const path = roleRoutes[nextRole]?.[nextRoute as keyof (typeof roleRoutes)[typeof nextRole]];
         navigate(path || '/gallery');
@@ -173,13 +175,25 @@ function NotificationsRoute() {
 
 function PlayerRoute({ name }: { name: string }) {
   const navigate = useNavigate();
+  const location = useLocation();
+  const authUser = useAuthStore((state) => state.user);
   const Comp = window[name];
 
   if (!Comp) return <MissingRuntime name={name} />;
 
+  // Pass route state (courseId, quizId, attemptId) down to the player component
+  const state = (location.state as Record<string, string>) || {};
+
   return (
     <div className="app">
-      <Comp onBack={() => navigate(-1)} onSubmit={() => navigate('/player/quiz-result')} />
+      <Comp
+        {...state}
+        authUser={authUser}
+        onBack={() => navigate(-1)}
+        onSubmit={(attemptId: string, courseId: string, quizId: string) =>
+          navigate('/player/quiz-result', { state: { attemptId, courseId, quizId } })
+        }
+      />
     </div>
   );
 }

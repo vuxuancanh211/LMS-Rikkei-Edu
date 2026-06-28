@@ -166,9 +166,9 @@ function registerGalleryPage() {
       return () => window.removeEventListener("click", close);
     }, []);
 
-    const go = (k) => {
+    const go = (k, state) => {
       setDemo(null);
-      if (FULLBARE[k]) { if (onBare) { onBare(k); return; } setBack(SCREENS[role][route] ? route : "dashboard"); setRoute(k); setDrawer(false); const m = document.querySelector(".main"); if (m) m.scrollTop = 0; return; }
+      if (FULLBARE[k]) { if (onBare) { onBare(k, state); return; } setBack(SCREENS[role][route] ? route : "dashboard"); setRoute(k); setDrawer(false); const m = document.querySelector(".main"); if (m) m.scrollTop = 0; return; }
       if (SCREENS[role][k]) { if (onNavigate) { onNavigate(role, k); return; } setRoute(k); setDrawer(false); const m = document.querySelector(".main"); if (m) m.scrollTop = 0; }
     };
     const switchRole = (r) => {

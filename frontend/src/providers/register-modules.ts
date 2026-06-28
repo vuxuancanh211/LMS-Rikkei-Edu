@@ -2,6 +2,8 @@ import './globals';
 import '../styles/tokens.css';
 import '../styles/layout.css';
 
+import '../services/api-registry';
+
 import '../constants/mock-data';
 import '../components/base/icons';
 import '../components/base';
@@ -22,8 +24,6 @@ import '../pages/Instructor/InsGroupDetail';
 import '../pages/Instructor/InsAssess';
 import '../pages/Instructor/InsGrading';
 import '../pages/Instructor/InsStudents';
-
-import '../services/api-registry';
 
 import '../pages/Admin/AdminDashboard';
 import '../pages/Admin/CsvImportWizard';
