@@ -14,6 +14,7 @@ const roleRoutes = {
     chat: '/student/chat',
     certs: '/student/certs',
     settings: '/settings',
+    notifications: '/notifications',
   },
   instructor: {
     dashboard: '/instructor/dashboard',
@@ -27,6 +28,7 @@ const roleRoutes = {
     forum: '/instructor/forum',
     chat: '/instructor/chat',
     settings: '/settings',
+    notifications: '/notifications',
   },
   admin: {
     dashboard: '/admin/dashboard',
@@ -36,6 +38,7 @@ const roleRoutes = {
     reports: '/admin/reports',
     logs: '/admin/logs',
     settings: '/settings',
+    notifications: '/notifications',
   },
 };
 
@@ -43,6 +46,7 @@ const playerRoutes = {
   player: '/player/lecture',
   quiz: '/player/quiz',
   result: '/player/quiz-result',
+  preview: '/player/preview',
 };
 
 function dashboardForRole(role: keyof typeof roleRoutes | null) {
@@ -163,6 +167,11 @@ function SettingsRoute() {
   return <RoutedShell role={role} route="settings" />;
 }
 
+function NotificationsRoute() {
+  const role = useAuthStore((state) => state.role) || 'student';
+  return <RoutedShell role={role} route="notifications" />;
+}
+
 function PlayerRoute({ name }: { name: string }) {
   const navigate = useNavigate();
   const Comp = window[name];
@@ -199,6 +208,7 @@ export const router = createBrowserRouter([
   { path: '/instructor/students', element: <RequireAuth><RoutedShell role="instructor" route="students" /></RequireAuth> },
   { path: '/instructor/forum', element: <RequireAuth><RoutedShell role="instructor" route="forum" /></RequireAuth> },
   { path: '/instructor/chat', element: <RequireAuth><RoutedShell role="instructor" route="chat" /></RequireAuth> },
+  { path: '/notifications', element: <RequireAuth><NotificationsRoute /></RequireAuth> },
   { path: '/admin/dashboard', element: <RequireAuth><RoutedShell role="admin" route="dashboard" /></RequireAuth> },
   { path: '/admin/users', element: <RequireAuth><RoutedShell role="admin" route="users" /></RequireAuth> },
   { path: '/admin/courses', element: <RequireAuth><RoutedShell role="admin" route="courses" /></RequireAuth> },
@@ -208,5 +218,6 @@ export const router = createBrowserRouter([
   { path: '/player/lecture', element: <RequireAuth><PlayerRoute name="LecturePlayer" /></RequireAuth> },
   { path: '/player/quiz', element: <RequireAuth><PlayerRoute name="QuizPlayer" /></RequireAuth> },
   { path: '/player/quiz-result', element: <RequireAuth><PlayerRoute name="QuizResult" /></RequireAuth> },
+  { path: '/player/preview', element: <RequireAuth><PlayerRoute name="PreviewPlayer" /></RequireAuth> },
   { path: '*', element: <Navigate to="/login" replace /> },
 ]);

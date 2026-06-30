@@ -56,7 +56,9 @@
 }
 .icon-btn:hover { background: var(--surface-2); color: var(--text); }
 .icon-btn svg { width: 20px; height: 20px; }
+.icon-btn[data-size] svg { width: unset; height: unset; }
 .icon-btn .badge-dot { position: absolute; top: 9px; right: 10px; width: 9px; height: 9px; background: var(--error); border-radius: 50%; border: 2px solid #fff; }
+.icon-btn .badge-count { position: absolute; top: -4px; right: -4px; min-width: 18px; height: 18px; padding: 0 5px; background: var(--error); color: #fff; font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; border-radius: 999px; border: 2px solid #fff; }
 .user-pill { display: flex; align-items: center; gap: 11px; padding: 6px 12px 6px 8px; border: 1px solid var(--border); border-radius: var(--r-pill); background: var(--surface); cursor: pointer; transition: .15s; }
 .user-pill:hover { background: var(--surface-2); }
 .user-pill .nm { font-size: 13.5px; font-weight: 700; line-height: 1.1; }
