@@ -5,7 +5,7 @@
 (function () {
   const { useState, useEffect } = React;
   const Ic = window.Icon;
-  const { Avatar, Status, StatCard, Search, Tabs, Select, Section, Modal, ModalHead } = window;
+  const { Avatar, Status, StatCard, Search, Tabs, Select, Section, Modal, ModalHead, AlertModal } = window;
   const http = window.httpClient;
 
   function fmtDate(d) {
@@ -697,6 +697,8 @@
     const [rejectNote, setRejectNote] = useState("");
     const [rejectLoading, setRejectLoading] = useState(false);
     const [showPreview, setShowPreview] = useState(false);
+    const [alertState, setAlertState] = useState(null);
+    const showAlert = (message, opts?) => setAlertState({ message, ...opts });
 
     useEffect(() => { loadList(); }, [tab, page]);
 
@@ -750,7 +752,7 @@
         setStats(st => ({ ...st, pending: Math.max(0, st.pending - 1), approved: st.approved + 1 }));
         setDetail(null);
       } catch (e) {
-        alert("Lỗi khi phê duyệt: " + (e?.response?.data?.message || e.message));
+        showAlert(e?.response?.data?.message || e.message, { title: "Lỗi khi phê duyệt" });
       }
     }
 
@@ -768,7 +770,7 @@
         setReject(null);
         setRejectNote("");
       } catch (e) {
-        alert("Lỗi khi từ chối: " + (e?.response?.data?.message || e.message));
+        showAlert(e?.response?.data?.message || e.message, { title: "Lỗi khi từ chối" });
       } finally {
         setRejectLoading(false);
       }
@@ -878,6 +880,7 @@
           </>}
         </Modal>
         {showPreview && React.createElement(window.PreviewPlayer, { onBack: () => setShowPreview(false) })}
+        <AlertModal open={!!alertState} onClose={() => setAlertState(null)} title={alertState?.title} message={alertState?.message} type={alertState?.type} />
       </div>
     );
   }

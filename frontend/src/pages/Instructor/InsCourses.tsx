@@ -193,7 +193,17 @@
             )}
 
             <Field label="Thời lượng dự kiến">
-              <input className="input" value={duration} onChange={e => setDuration(e.target.value)} placeholder="VD: 32 giờ" />
+              <div style={{ position: "relative" }}>
+                <input
+                  className="input"
+                  style={{ paddingRight: 44 }}
+                  value={duration}
+                  onChange={e => setDuration(e.target.value.replace(/[^0-9]/g, ""))}
+                  placeholder="VD: 32"
+                  inputMode="numeric"
+                />
+                <span style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", color: "var(--text-3)", fontSize: 14, pointerEvents: "none", userSelect: "none" }}>giờ</span>
+              </div>
             </Field>
             <Field label="Yêu cầu đầu vào">
               <input className="input" value={prereq} onChange={e => setPrereq(e.target.value)} placeholder="VD: Đã biết JavaScript cơ bản" />
