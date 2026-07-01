@@ -12,6 +12,7 @@ import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequ
 import java.time.Duration;
 import java.util.Map;
 
+@Profile("dev")
 @RestController
 @RequestMapping("/api/test/s3")
 @RequiredArgsConstructor
