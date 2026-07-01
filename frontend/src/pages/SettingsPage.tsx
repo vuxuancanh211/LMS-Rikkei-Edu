@@ -13,6 +13,71 @@
     { v: 'notif',    l: 'Thông báo',      ic: 'bell' },
     { v: 'pref',     l: 'Tùy chọn',       ic: 'sliders' },
   ];
+  const typeLabels = {
+    FORUM_REPLY: 'Trả lời diễn đàn',
+    FORUM_POST: 'Bài đăng diễn đàn',
+    QUIZ_PUBLISHED: 'Bài kiểm tra mới',
+    SUBMISSION_GRADED: 'Bài làm đã chấm',
+    ASSIGNMENT_PUBLISHED: 'Bài tập mới',
+    ASSIGNMENT_SUBMITTED: 'Bài tập đã nộp',
+    CERTIFICATE_ISSUED: 'Chứng chỉ mới',
+    COURSE_ENROLLMENT: 'Ghi danh khóa học',
+    COURSE_APPROVED: 'Khóa học được duyệt',
+    SYSTEM_ANNOUNCEMENT: 'Thông báo hệ thống',
+  };
+
+  function NotificationSettings() {
+    const [prefs, setPrefs] = React.useState([]);
+    const [loading, setLoading] = React.useState(true);
+
+    React.useEffect(() => {
+      (async () => {
+        try {
+          const { getNotificationPreferences } = await import('../services/notification-service');
+          const data = await getNotificationPreferences();
+          setPrefs(data);
+        } catch { /* ignore */ }
+        setLoading(false);
+      })();
+    }, []);
+
+    const toggle = async (type, field) => {
+      const pref = prefs.find(p => p.type === type);
+      if (!pref) return;
+      const newValue = !pref[field];
+      try {
+        const { updateNotificationPreference } = await import('../services/notification-service');
+        const updated = await updateNotificationPreference(type, {
+          ...pref,
+          [field]: newValue,
+        });
+        setPrefs(prev => prev.map(p => p.type === type ? updated : p));
+      } catch { /* ignore */ }
+    };
+
+    if (loading) return <div className="t-sm muted" style={{ textAlign: 'center', padding: 24 }}>Đang tải...</div>;
+
+    return (
+      <div>
+        <p className="t-sm muted" style={{ marginBottom: 16 }}>Tùy chỉnh các loại thông báo bạn muốn nhận.</p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {prefs.map((pref) => (
+            <div key={pref.type} style={{ padding: '14px 4px', borderBottom: '1px solid var(--border)' }}>
+              <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8 }}>{typeLabels[pref.type] || pref.type.replace(/_/g, ' ')}</div>
+              <div className="row gap-16">
+                <label className="row gap-6" style={{ cursor: 'pointer', fontSize: 13 }} onClick={() => toggle(pref.type, 'inAppEnabled')}>
+                  <span className="toggle" data-on={pref.inAppEnabled} /> Trong ứng dụng
+                </label>
+                <label className="row gap-6" style={{ cursor: 'pointer', fontSize: 13 }} onClick={() => toggle(pref.type, 'emailEnabled')}>
+                  <span className="toggle" data-on={pref.emailEnabled} /> Email
+                </label>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   function Settings({ persona }) {
     const [tab, setTab] = useState('profile');

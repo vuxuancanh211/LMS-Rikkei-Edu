@@ -28,4 +28,7 @@ public interface ForumCourseRepository extends JpaRepository<ForumCourseEntity, 
 
     @Query(value = "select exists(select 1 from course_enrollments where course_id = :courseId and student_id = :userId)", nativeQuery = true)
     boolean isStudentEnrolled(@Param("courseId") UUID courseId, @Param("userId") UUID userId);
+
+    @Query("select ce.studentId from ForumCourseEnrollmentEntity ce where ce.courseId = :courseId")
+    List<UUID> findEnrolledStudentIdsByCourseId(@Param("courseId") UUID courseId);
 }

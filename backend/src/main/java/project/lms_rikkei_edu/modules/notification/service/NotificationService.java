@@ -6,6 +6,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import project.lms_rikkei_edu.infrastructure.sse.SseEmitterRegistry;
+import project.lms_rikkei_edu.modules.notification.dto.response.NotificationResponse;
 import project.lms_rikkei_edu.modules.notification.entity.NotificationEntity;
 import project.lms_rikkei_edu.modules.notification.repository.NotificationRepository;
 
@@ -21,8 +22,9 @@ public class NotificationService {
     private final SseEmitterRegistry sseEmitterRegistry;
 
     @Transactional(readOnly = true)
-    public Page<NotificationEntity> getNotifications(UUID recipientId, Pageable pageable) {
-        return notificationRepository.findByRecipientIdOrderByCreatedAtDesc(recipientId, pageable);
+    public Page<NotificationResponse> getNotifications(UUID recipientId, Pageable pageable) {
+        return notificationRepository.findByRecipientIdOrderByCreatedAtDesc(recipientId, pageable)
+                .map(this::toResponse);
     }
 
     @Transactional(readOnly = true)
@@ -41,10 +43,26 @@ public class NotificationService {
     }
 
     @Transactional
-    public NotificationEntity createNotification(
+    public NotificationResponse createNotification(
             UUID recipientId, String type, String title, String body,
             String referenceType, UUID referenceId, UUID actorId, String actorName
     ) {
+        return createNotification(recipientId, type, title, body, referenceType, referenceId, actorId, actorName, null);
+    }
+
+    @Transactional
+    public NotificationResponse createNotification(
+            UUID recipientId, String type, String title, String body,
+            String referenceType, UUID referenceId, UUID actorId, String actorName,
+            String idempotencyKey
+    ) {
+        if (idempotencyKey != null) {
+            var existing = notificationRepository.findByIdempotencyKey(idempotencyKey);
+            if (existing.isPresent()) {
+                return toResponse(existing.get());
+            }
+        }
+
         OffsetDateTime now = OffsetDateTime.now();
         NotificationEntity notif = new NotificationEntity();
         notif.setId(UUID.randomUUID());
@@ -56,6 +74,7 @@ public class NotificationService {
         notif.setReferenceId(referenceId);
         notif.setActorId(actorId);
         notif.setActorName(actorName);
+        notif.setIdempotencyKey(idempotencyKey);
         notif.setPriority("NORMAL");
         notif.setRead(false);
         notif.setEmailSent(false);
@@ -63,11 +82,30 @@ public class NotificationService {
         notif.setCreatedAt(now);
         NotificationEntity saved = notificationRepository.save(notif);
 
+        NotificationResponse response = toResponse(saved);
+
         sseEmitterRegistry.sendToUser(recipientId, "NOTIFICATION", Map.of(
                 "type", "NEW_NOTIFICATION",
-                "notification", saved
+                "notification", response
         ));
 
-        return saved;
+        return response;
+    }
+
+    public NotificationResponse toResponse(NotificationEntity entity) {
+        return NotificationResponse.builder()
+                .id(entity.getId())
+                .recipientId(entity.getRecipientId())
+                .type(entity.getType())
+                .title(entity.getTitle())
+                .body(entity.getBody())
+                .referenceType(entity.getReferenceType())
+                .referenceId(entity.getReferenceId())
+                .actorId(entity.getActorId())
+                .actorName(entity.getActorName())
+                .priority(entity.getPriority())
+                .read(Boolean.TRUE.equals(entity.getRead()))
+                .createdAt(entity.getCreatedAt())
+                .build();
     }
 }

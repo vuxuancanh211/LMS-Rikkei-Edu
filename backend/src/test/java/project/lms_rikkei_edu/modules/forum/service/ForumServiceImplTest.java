@@ -27,6 +27,7 @@ import project.lms_rikkei_edu.modules.forum.repository.ForumReactionRepository;
 import project.lms_rikkei_edu.modules.forum.repository.ForumReportRepository;
 import project.lms_rikkei_edu.modules.forum.repository.ForumReplyRepository;
 import project.lms_rikkei_edu.modules.forum.service.impl.ForumServiceImpl;
+import project.lms_rikkei_edu.modules.notification.service.NotificationPreferenceService;
 import project.lms_rikkei_edu.modules.notification.service.NotificationService;
 import project.lms_rikkei_edu.modules.user.entity.UserEntity;
 import project.lms_rikkei_edu.modules.user.enums.UserRole;
@@ -67,6 +68,8 @@ class ForumServiceImplTest {
     @Mock
     private NotificationService notificationService;
     @Mock
+    private NotificationPreferenceService notificationPreferenceService;
+    @Mock
     private UserRepository userRepository;
     @Mock
     private CurrentUserProvider currentUserProvider;
@@ -83,11 +86,14 @@ class ForumServiceImplTest {
                 forumReportRepository,
                 forumAttachmentService,
                 notificationService,
+                notificationPreferenceService,
                 userRepository,
                 currentUserProvider
         );
         lenient().when(forumAttachmentService.findByPostIds(anyList())).thenReturn(Map.of());
         lenient().when(forumAttachmentService.findByReplyIds(anyList())).thenReturn(Map.of());
+        lenient().when(forumCourseRepository.findEnrolledStudentIdsByCourseId(any())).thenReturn(List.of());
+        lenient().when(notificationPreferenceService.isInAppEnabled(any(), any())).thenReturn(true);
     }
 
     @Test
@@ -129,6 +135,31 @@ class ForumServiceImplTest {
         assertThat(captor.getValue().getAuthor()).isSameAs(user);
         assertThat(captor.getValue().getPinned()).isFalse();
         assertThat(captor.getValue().getUpvoteCount()).isZero();
+    }
+
+    @Test
+    void createPostSendsNotificationToInstructorAndEnrolledStudents() {
+        UUID studentId = UUID.randomUUID();
+        UUID courseId = UUID.randomUUID();
+        UUID instructorId = UUID.randomUUID();
+        UUID enrolledStudent1 = UUID.randomUUID();
+        UUID enrolledStudent2 = UUID.randomUUID();
+        ForumCourseEntity course = course(courseId, instructorId);
+        UserEntity user = user(studentId, UserRole.STUDENT);
+
+        when(currentUserProvider.getCurrentUser()).thenReturn(Optional.of(principal(studentId, UserRole.STUDENT)));
+        when(forumCourseRepository.findById(courseId)).thenReturn(Optional.of(course));
+        when(forumCourseRepository.isStudentEnrolled(courseId, studentId)).thenReturn(true);
+        when(forumCourseRepository.findEnrolledStudentIdsByCourseId(courseId))
+                .thenReturn(List.of(studentId, enrolledStudent1, enrolledStudent2));
+        when(userRepository.getReferenceById(studentId)).thenReturn(user);
+        when(forumPostRepository.save(any(ForumPostEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        forumService.createPost(createPostRequest(courseId, false));
+
+        verify(notificationService).createNotification(eq(instructorId), eq("FORUM_POST"), any(), any(), eq("FORUM_POST"), any(), eq(studentId), any());
+        verify(notificationService).createNotification(eq(enrolledStudent1), eq("FORUM_POST"), any(), any(), eq("FORUM_POST"), any(), eq(studentId), any());
+        verify(notificationService).createNotification(eq(enrolledStudent2), eq("FORUM_POST"), any(), any(), eq("FORUM_POST"), any(), eq(studentId), any());
     }
 
     @Test
@@ -389,7 +420,8 @@ class ForumServiceImplTest {
         request.setParentReplyId(parentReplyId);
         request.setContent("Reply");
 
-        assertThatThrownBy(() -> forumService.createReply(post.getId(), request))
+        UUID replyPostId = post.getId();
+        assertThatThrownBy(() -> forumService.createReply(replyPostId, request))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("Parent reply does not belong to this post");
     }
@@ -425,7 +457,8 @@ class ForumServiceImplTest {
         when(currentUserProvider.getCurrentUser()).thenReturn(Optional.of(principal(userId, UserRole.STUDENT)));
         when(forumPostRepository.findActiveById(postId)).thenReturn(Optional.of(post));
 
-        assertThatThrownBy(() -> forumService.updatePost(postId, new UpdateForumPostRequest()))
+        UpdateForumPostRequest updateRequest = new UpdateForumPostRequest();
+        assertThatThrownBy(() -> forumService.updatePost(postId, updateRequest))
                 .isInstanceOf(BusinessException.class)
                 .extracting("status")
                 .isEqualTo(HttpStatus.FORBIDDEN);
@@ -655,9 +688,34 @@ class ForumServiceImplTest {
         ArgumentCaptor<ForumPostEntity> captor = ArgumentCaptor.forClass(ForumPostEntity.class);
         verify(forumPostRepository).save(captor.capture());
         String savedContent = captor.getValue().getContent();
-        assertThat(savedContent).doesNotContain("script");
-        assertThat(savedContent).doesNotContain("javascript:");
-        assertThat(savedContent).contains("<p>Hello</p>");
+        assertThat(savedContent)
+                .doesNotContain("script")
+                .doesNotContain("javascript:")
+                .contains("<p>Hello</p>");
+    }
+
+    @Test
+    void createPostPreservesForumAttachmentImageSource() {
+        UUID studentId = UUID.randomUUID();
+        UUID courseId = UUID.randomUUID();
+        UUID attachmentId = UUID.randomUUID();
+        ForumCourseEntity course = course(courseId, UUID.randomUUID());
+
+        when(currentUserProvider.getCurrentUser()).thenReturn(Optional.of(principal(studentId, UserRole.STUDENT)));
+        when(forumCourseRepository.findById(courseId)).thenReturn(Optional.of(course));
+        when(forumCourseRepository.isStudentEnrolled(courseId, studentId)).thenReturn(true);
+        when(userRepository.getReferenceById(studentId)).thenReturn(user(studentId, UserRole.STUDENT));
+        when(forumPostRepository.save(any(ForumPostEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        CreateForumPostRequest request = createPostRequest(courseId, false);
+        request.setContent("<figure><img src=\"http://localhost:8080/api/forum/attachments/" + attachmentId + "/content?token=old\"></figure>");
+
+        forumService.createPost(request);
+
+        ArgumentCaptor<ForumPostEntity> captor = ArgumentCaptor.forClass(ForumPostEntity.class);
+        verify(forumPostRepository).save(captor.capture());
+        assertThat(captor.getValue().getContent()).contains("src=\"/api/forum/attachments/" + attachmentId + "/content\"");
+        assertThat(captor.getValue().getContent()).doesNotContain("token=old");
     }
 
     @Test

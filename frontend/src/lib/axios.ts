@@ -25,13 +25,31 @@ httpClient.interceptors.request.use((config) => {
   return config;
 });
 
+/* ── Refresh token queue ─────────────────────────────────────────── */
+let isRefreshing = false;
+type QueueItem = { resolve: (token: string) => void; reject: (err: unknown) => void };
+let waitingQueue: QueueItem[] = [];
+
+function flushQueue(token: string | null, error: unknown = null) {
+  waitingQueue.forEach(({ resolve, reject }) => {
+    if (token) resolve(token);
+    else reject(error);
+  });
+  waitingQueue = [];
+}
+
 httpClient.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
     const status = error.response?.status;
 
-    if (status !== 401 || !originalRequest || originalRequest._retry || originalRequest.skipAuthRefresh) {
+    if (
+      status !== 401 ||
+      !originalRequest ||
+      originalRequest._retry ||
+      originalRequest.skipAuthRefresh
+    ) {
       return Promise.reject(error);
     }
 
@@ -43,20 +61,40 @@ httpClient.interceptors.response.use(
       return Promise.reject(error);
     }
 
+    /* Another request is already refreshing — queue this one */
+    if (isRefreshing) {
+      return new Promise((resolve, reject) => {
+        waitingQueue.push({
+          resolve: (newToken) => {
+            originalRequest.headers.Authorization = `Bearer ${newToken}`;
+            resolve(httpClient(originalRequest));
+          },
+          reject,
+        });
+      });
+    }
+
+    originalRequest._retry = true;
+    isRefreshing = true;
+
     try {
-      originalRequest._retry = true;
       const { data: tokens } = await axios.post(
         `${httpClient.defaults.baseURL || ''}/auth/refresh`,
         { refreshToken: storedRefreshToken },
         { headers: { 'Content-Type': 'application/json' } },
       );
       setTokens(tokens);
-      originalRequest.headers.Authorization = `${tokens.tokenType || 'Bearer'} ${tokens.accessToken}`;
+      const newToken = tokens.accessToken;
+      originalRequest.headers.Authorization = `${tokens.tokenType || 'Bearer'} ${newToken}`;
+      flushQueue(newToken);
       return httpClient(originalRequest);
     } catch (refreshError) {
+      flushQueue(null, refreshError);
       logout();
       window.location.assign('/login');
       return Promise.reject(refreshError);
+    } finally {
+      isRefreshing = false;
     }
   },
 );

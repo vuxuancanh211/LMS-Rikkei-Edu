@@ -121,12 +121,13 @@ function sanitizeForumHtml(html?: string, attachments: ForumAttachment[] = []) {
   if (!html) return '';
   return DOMPurify.sanitize(resolveForumContentUrls(html, attachments), {
     ADD_TAGS: ['pre', 'code', 'figure', 'figcaption'],
-    ADD_ATTR: ['target', 'rel', 'class'],
+    ADD_ATTR: ['target', 'rel', 'class', 'src', 'width', 'height', 'alt'],
+    ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|cid|xmpp|data):|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$))/i,
   });
 }
 
 function resolveForumContentUrls(content: string, attachments: ForumAttachment[] = []) {
-  return content.replace(/(src|href)=(['"])(\/api\/forum\/attachments\/([^/'"]+)\/content)\2/g, (_, attr, quote, url, attachmentId) => {
+  return content.replace(/(src|href)=(['"])([^'"]*\/api\/forum\/attachments\/([^/'"?]+)\/content(?:\?[^'"]*)?)\2/g, (_, attr, quote, url, attachmentId) => {
     const attachment = attachments.find((item) => item.id === attachmentId);
     return `${attr}=${quote}${toAbsoluteApiUrl(attachment?.url || url)}${quote}`;
   });
@@ -155,12 +156,18 @@ function attachmentIdsForSubmit(content: string, attachments: ForumAttachment[] 
     .map((attachment) => attachment.id);
 }
 
-function ForumContent({ content, attachments = [] }: { content?: string; attachments?: ForumAttachment[] }) {
+function ForumContent({ content, attachments = [], onImageClick }: { content?: string; attachments?: ForumAttachment[]; onImageClick?: (url: string) => void }) {
+  const handleClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!onImageClick || !(event.target instanceof HTMLImageElement)) return;
+    event.preventDefault();
+    onImageClick(event.target.currentSrc || event.target.src);
+  };
+
   if (!content || !/<[a-z][\s\S]*>/i.test(content)) {
     return <div className="forum-content" style={{ whiteSpace: 'pre-line' }}>{content || ''}</div>;
   }
 
-  return <div className="forum-content" dangerouslySetInnerHTML={{ __html: sanitizeForumHtml(content, attachments) }} />;
+  return <div className="forum-content" onClick={handleClick} dangerouslySetInnerHTML={{ __html: sanitizeForumHtml(content, attachments) }} />;
 }
 
 function AttachmentList({ attachments = [] }: { attachments?: ForumAttachment[] }) {
@@ -229,9 +236,9 @@ function ForumEditor({ value, onChange, attachments, onAttachmentsChange, placeh
         <Suspense fallback={<div className="input" style={{ minHeight, padding: 12 }}>Đang tải editor...</div>}>
           <ForumRichEditor
           disabled={disabled || uploading}
-          value={resolveForumContentUrls(value || '')}
-          onChange={(nextValue) => onChange(normalizeForumContentForSave(nextValue))}
-          onUploadedAttachment={(attachment) => onAttachmentsChange((current = []) => [...current, { ...attachment, url: toStableApiPath(attachment.url) }])}
+          value={resolveForumContentUrls(value || '', attachments || [])}
+          onChange={onChange}
+          onUploadedAttachment={(attachment) => onAttachmentsChange((current = []) => [...current, attachment])}
           placeholder={placeholder}
         />
         </Suspense>
@@ -287,6 +294,7 @@ function ForumDetail({ detail, setDetail, loading, error, onBack }) {
   const [reportTarget, setReportTarget] = useState<{ type: 'post' | 'reply'; id: string } | null>(null);
   const [reportReason, setReportReason] = useState('');
   const [reportDescription, setReportDescription] = useState('');
+  const [previewImageUrl, setPreviewImageUrl] = useState('');
   const [visibleTopLevelReplyCount, setVisibleTopLevelReplyCount] = useState(TOP_LEVEL_REPLY_BATCH_SIZE);
   const [expandedReplyIds, setExpandedReplyIds] = useState(() => new Set());
   const [visibleChildReplyCounts, setVisibleChildReplyCounts] = useState({});
@@ -510,7 +518,7 @@ function ForumDetail({ detail, setDetail, loading, error, onBack }) {
                 <textarea className="input" style={{ height: 86, padding: 12, resize: 'none' }} value={editingReplyContent} onChange={(event) => setEditingReplyContent(event.target.value)} autoFocus />
                 <div className="row gap-8" style={{ justifyContent: 'flex-end', marginTop: 8 }}><button className="btn btn-ghost btn-sm" onClick={() => setEditingReplyId(null)}>Hủy</button><button className="btn btn-primary btn-sm" disabled={submitting || !editingReplyContent.trim()} onClick={handleUpdateReply}>Lưu</button></div>
               </div>
-            ) : <><ForumContent content={reply.content} /><AttachmentList attachments={reply.attachments || []} /></>}
+            ) : <><ForumContent content={reply.content} attachments={reply.attachments || []} onImageClick={setPreviewImageUrl} /><AttachmentList attachments={reply.attachments || []} /></>}
 
             {replyTarget?.id === reply.id && (
               <div className="row gap-10" style={{ marginTop: 12, alignItems: 'flex-start' }}>
@@ -539,23 +547,23 @@ function ForumDetail({ detail, setDetail, loading, error, onBack }) {
       <div className="row gap-10" style={{ marginBottom: 16, cursor: 'pointer', color: 'var(--text-2)' }} onClick={() => onBack(true)}><Ic n="arrow_left" size={18} /><span style={{ fontWeight: 600 }}>Quay lại diễn đàn</span></div>
 
       <div className="card card-pad" style={{ marginBottom: 18 }}>
-          <div className="between gap-12" style={{ marginBottom: 12 }}>
-            <div className="row gap-8 wrap">
-              {post.pinned && <span className="chip chip-warning"><Ic n="pin" size={12} />Ghim</span>}
-              {topicInfo(post.topic) && <span className={`chip ${topicInfo(post.topic).cls}`}>{topicInfo(post.topic).label}</span>}
-              <span className="chip chip-info">{post.courseTitle}</span>
-            </div>
-            <div className="row gap-8">
-              {(role === 'instructor' || role === 'admin') && <button className="icon-btn" style={{ width: 34, height: 34, color: post.pinned ? 'var(--warning)' : undefined }} onClick={handleTogglePin} title={post.pinned ? 'Bỏ ghim' : 'Ghim bài viết'}><Ic n="pin" size={16} /></button>}
-              {canEditPost && <><button className="icon-btn" style={{ width: 34, height: 34 }} onClick={() => setEditPostOpen(true)} title="Sửa"><Ic n="edit" size={16} /></button><button className="icon-btn" style={{ width: 34, height: 34, color: 'var(--error)' }} onClick={() => setDeleteTarget({ type: 'post', id: post.id })} title="Xóa"><Ic n="trash" size={16} /></button></>}
-            </div>
+        <div className="between gap-12" style={{ marginBottom: 12 }}>
+          <div className="row gap-8 wrap">
+            {post.pinned && <span className="chip chip-warning"><Ic n="pin" size={12} />Ghim</span>}
+            {topicInfo(post.topic) && <span className={`chip ${topicInfo(post.topic).cls}`}>{topicInfo(post.topic).label}</span>}
+            <span className="chip chip-info">{post.courseTitle}</span>
           </div>
+          <div className="row gap-8">
+            {(role === 'instructor' || role === 'admin') && <button className="icon-btn" style={{ width: 34, height: 34, color: post.pinned ? 'var(--warning)' : undefined }} onClick={handleTogglePin} title={post.pinned ? 'Bỏ ghim' : 'Ghim bài viết'}><Ic n="pin" size={16} /></button>}
+            {canEditPost && <><button className="icon-btn" style={{ width: 34, height: 34 }} onClick={() => setEditPostOpen(true)} title="Sửa"><Ic n="edit" size={16} /></button><button className="icon-btn" style={{ width: 34, height: 34, color: 'var(--error)' }} onClick={() => setDeleteTarget({ type: 'post', id: post.id })} title="Xóa"><Ic n="trash" size={16} /></button></>}
+          </div>
+        </div>
         <h1 className="t-h2" style={{ margin: '0 0 14px', lineHeight: 1.3 }}>{post.title}</h1>
         <div className="row gap-12" style={{ marginBottom: 18 }}>
           <Av name={post.author.fullName} size={44} />
           <div className="grow"><div style={{ fontWeight: 700, fontSize: 14.5 }}>{post.author.fullName}</div><div className="t-xs muted">{roleLabel(post.author.role)} • {formatTime(post.createdAt)}</div></div>
         </div>
-        <ForumContent content={post.content} />
+        <ForumContent content={post.content} attachments={post.attachments || []} onImageClick={setPreviewImageUrl} />
         <AttachmentList attachments={post.attachments || []} />
         <div className="row gap-10" style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
           <button className="btn btn-ghost btn-sm" onClick={handleToggleUpvote} style={upvotedButtonStyle(post.upvoted)}><Ic n="thumbs_up" size={15} />{post.upvoteCount}</button>
@@ -621,6 +629,13 @@ function ForumDetail({ detail, setDetail, loading, error, onBack }) {
           </div>
         </div>
         <div className="modal-foot"><button className="btn btn-ghost" onClick={() => setReportTarget(null)}>Hủy</button><button className="btn btn-primary" disabled={submitting || !reportReason} onClick={handleReportSubmit}>Gửi báo cáo</button></div>
+      </Md>
+
+      <Md open={!!previewImageUrl} onClose={() => setPreviewImageUrl('')} max="fit-content" maxHeight="92vh">
+        <div className="forum-image-preview-modal">
+          <button type="button" className="forum-image-lightbox-close" onClick={() => setPreviewImageUrl('')} aria-label="Đóng ảnh">×</button>
+          <img src={previewImageUrl} alt="Ảnh đính kèm" />
+        </div>
       </Md>
     </div>
   );

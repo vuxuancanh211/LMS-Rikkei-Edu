@@ -33,12 +33,15 @@ import project.lms_rikkei_edu.modules.forum.dto.request.CreateForumReportRequest
 import project.lms_rikkei_edu.modules.forum.entity.ForumReportEntity;
 import project.lms_rikkei_edu.modules.forum.service.ForumAttachmentService;
 import project.lms_rikkei_edu.modules.forum.service.ForumService;
+import project.lms_rikkei_edu.modules.notification.enums.NotificationType;
+import project.lms_rikkei_edu.modules.notification.service.NotificationPreferenceService;
 import project.lms_rikkei_edu.modules.notification.service.NotificationService;
 import project.lms_rikkei_edu.modules.user.entity.UserEntity;
 import project.lms_rikkei_edu.modules.user.enums.UserRole;
 import project.lms_rikkei_edu.modules.user.repository.UserRepository;
 
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -49,11 +52,17 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 @RequiredArgsConstructor
 public class ForumServiceImpl implements ForumService {
 
     private static final int MAX_REPLY_DEPTH = 3;
+    private static final String REPLY_NOT_FOUND = "Reply not found";
+    private static final String ATTACHMENT_IMAGE_PLACEHOLDER_ORIGIN = "https://forum-attachment.local";
+    private static final Pattern ATTACHMENT_IMAGE_SRC_PATTERN = Pattern.compile(
+            "(?i)(src\\s*=\\s*['\\\"])(?:https?://[^/'\\\"]+)?(/api/forum/attachments/[0-9a-f-]{36}/content)(?:\\?[^'\\\"]*)?(['\\\"])"
+    );
     private static final Safelist FORUM_CONTENT_SAFELIST = Safelist.relaxed()
             .addTags("pre", "code", "figure", "figcaption")
             .addAttributes("*", "class")
@@ -70,6 +79,7 @@ public class ForumServiceImpl implements ForumService {
     private final ForumReportRepository forumReportRepository;
     private final ForumAttachmentService forumAttachmentService;
     private final NotificationService notificationService;
+    private final NotificationPreferenceService notificationPreferenceService;
     private final UserRepository userRepository;
     private final CurrentUserProvider currentUserProvider;
 
@@ -134,7 +144,7 @@ public class ForumServiceImpl implements ForumService {
             ensureCanPinInCourse(currentUser, course.getId());
         }
 
-        OffsetDateTime now = OffsetDateTime.now();
+        OffsetDateTime now = OffsetDateTime.now(ZoneId.systemDefault());
         ForumPostEntity post = new ForumPostEntity();
         post.setId(UUID.randomUUID());
         post.setCourse(course);
@@ -151,6 +161,35 @@ public class ForumServiceImpl implements ForumService {
 
         ForumPostEntity savedPost = forumPostRepository.save(post);
         forumAttachmentService.attachToPost(request.getAttachmentIds(), savedPost.getId(), currentUser.getId());
+
+        UUID postAuthorId = currentUser.getId();
+        String actorName = post.getAuthor().getFullName() != null ? post.getAuthor().getFullName() : "Người dùng";
+        String notiBody = summarizeForumContent(request.getContent());
+
+        Set<UUID> recipients = new HashSet<>();
+        if (course.getInstructorId() != null && !course.getInstructorId().equals(postAuthorId)) {
+            recipients.add(course.getInstructorId());
+        }
+        for (UUID enrolledId : forumCourseRepository.findEnrolledStudentIdsByCourseId(course.getId())) {
+            if (!enrolledId.equals(postAuthorId)) {
+                recipients.add(enrolledId);
+            }
+        }
+
+        for (UUID recipientId : recipients) {
+            if (!notificationPreferenceService.isInAppEnabled(recipientId, NotificationType.FORUM_POST.name())) continue;
+            notificationService.createNotification(
+                    recipientId,
+                    NotificationType.FORUM_POST.name(),
+                    actorName + " đã đăng bài viết \"" + request.getTitle().trim() + "\"",
+                    notiBody,
+                    "FORUM_POST",
+                    savedPost.getId(),
+                    postAuthorId,
+                    actorName
+            );
+        }
+
         return toPostResponse(savedPost, Collections.emptySet(), forumAttachmentService.findByPostIds(List.of(savedPost.getId())).getOrDefault(savedPost.getId(), List.of()));
     }
 
@@ -161,7 +200,7 @@ public class ForumServiceImpl implements ForumService {
         ForumPostEntity post = findActivePost(postId);
         ensureCanPinInCourse(currentUser, post.getCourse().getId());
         post.setPinned(!Boolean.TRUE.equals(post.getPinned()));
-        post.setUpdatedAt(OffsetDateTime.now());
+        post.setUpdatedAt(OffsetDateTime.now(ZoneId.systemDefault()));
         return toPostResponse(post, findUpvotedPostIds(postId, currentUser.getId()), forumAttachmentService.findByPostIds(List.of(postId)).getOrDefault(postId, List.of()));
     }
 
@@ -171,7 +210,7 @@ public class ForumServiceImpl implements ForumService {
         UserPrincipal currentUser = requireCurrentUser();
         ForumPostEntity post = findActivePost(postId);
 
-        OffsetDateTime now = OffsetDateTime.now();
+        OffsetDateTime now = OffsetDateTime.now(ZoneId.systemDefault());
         ForumReplyEntity parentReply = resolveParentReply(post, request.getParentReplyId());
         ForumReplyEntity reply = new ForumReplyEntity();
         reply.setId(UUID.randomUUID());
@@ -196,10 +235,11 @@ public class ForumServiceImpl implements ForumService {
         String actorName = reply.getAuthor().getFullName() != null ? reply.getAuthor().getFullName() : "Người dùng";
         String notificationBody = summarizeForumContent(request.getContent());
 
-        if (!post.getAuthor().getId().equals(currentUserId)) {
+        if (!post.getAuthor().getId().equals(currentUserId)
+                && notificationPreferenceService.isInAppEnabled(post.getAuthor().getId(), NotificationType.FORUM_REPLY.name())) {
             notificationService.createNotification(
                     post.getAuthor().getId(),
-                    "FORUM_REPLY",
+                    NotificationType.FORUM_REPLY.name(),
                     actorName + " đã trả lời bài viết \"" + post.getTitle() + "\"",
                     notificationBody,
                     "FORUM_POST",
@@ -210,10 +250,11 @@ public class ForumServiceImpl implements ForumService {
         }
 
         if (parentReply != null && !parentReply.getAuthor().getId().equals(currentUserId)
-                && !parentReply.getAuthor().getId().equals(post.getAuthor().getId())) {
+                && !parentReply.getAuthor().getId().equals(post.getAuthor().getId())
+                && notificationPreferenceService.isInAppEnabled(parentReply.getAuthor().getId(), NotificationType.FORUM_REPLY.name())) {
             notificationService.createNotification(
                     parentReply.getAuthor().getId(),
-                    "FORUM_REPLY",
+                    NotificationType.FORUM_REPLY.name(),
                     actorName + " đã trả lời bình luận của bạn trong \"" + post.getTitle() + "\"",
                     notificationBody,
                     "FORUM_POST",
@@ -246,7 +287,7 @@ public class ForumServiceImpl implements ForumService {
         if (currentUser.getRole() == UserRole.ADMIN || currentUser.getRole() == UserRole.INSTRUCTOR) {
             post.setPinned(Boolean.TRUE.equals(request.getPinned()));
         }
-        post.setUpdatedAt(OffsetDateTime.now());
+        post.setUpdatedAt(OffsetDateTime.now(ZoneId.systemDefault()));
 
         forumAttachmentService.attachToPost(request.getAttachmentIds(), post.getId(), currentUser.getId());
         return toPostResponse(post, findUpvotedPostIds(postId, currentUser.getId()), forumAttachmentService.findByPostIds(List.of(postId)).getOrDefault(postId, List.of()));
@@ -257,14 +298,14 @@ public class ForumServiceImpl implements ForumService {
     public ForumReplyResponse updateReply(UUID replyId, CreateForumReplyRequest request) {
         UserPrincipal currentUser = requireCurrentUser();
         ForumReplyEntity reply = forumReplyRepository.findActiveById(replyId)
-                .orElseThrow(() -> new BusinessException("Reply not found", HttpStatus.NOT_FOUND));
+                .orElseThrow(() -> new BusinessException(REPLY_NOT_FOUND, HttpStatus.NOT_FOUND));
 
         if (!isReplyAuthor(currentUser, reply)) {
             throw new BusinessException("You are not allowed to update this reply", HttpStatus.FORBIDDEN);
         }
 
         reply.setContent(sanitizeForumContent(request.getContent()));
-        reply.setUpdatedAt(OffsetDateTime.now());
+        reply.setUpdatedAt(OffsetDateTime.now(ZoneId.systemDefault()));
 
         forumAttachmentService.attachToReply(request.getAttachmentIds(), reply.getId(), currentUser.getId());
         return toReplyResponse(reply, getReplyDepth(reply), findUpvotedReplyIds(replyId, currentUser.getId()), forumAttachmentService.findByReplyIds(List.of(replyId)).getOrDefault(replyId, List.of()));
@@ -282,7 +323,7 @@ public class ForumServiceImpl implements ForumService {
 
         post.setDeleted(true);
         post.setDeletedBy(currentUser.getId());
-        post.setDeletedAt(OffsetDateTime.now());
+        post.setDeletedAt(OffsetDateTime.now(ZoneId.systemDefault()));
         post.setUpdatedAt(post.getDeletedAt());
     }
 
@@ -291,13 +332,13 @@ public class ForumServiceImpl implements ForumService {
     public void deleteReply(UUID replyId) {
         UserPrincipal currentUser = requireCurrentUser();
         ForumReplyEntity reply = forumReplyRepository.findActiveById(replyId)
-                .orElseThrow(() -> new BusinessException("Reply not found", HttpStatus.NOT_FOUND));
+                .orElseThrow(() -> new BusinessException(REPLY_NOT_FOUND, HttpStatus.NOT_FOUND));
 
         if (!isReplyAuthor(currentUser, reply)) {
             throw new BusinessException("You are not allowed to delete this reply", HttpStatus.FORBIDDEN);
         }
 
-        OffsetDateTime now = OffsetDateTime.now();
+        OffsetDateTime now = OffsetDateTime.now(ZoneId.systemDefault());
         reply.setDeleted(true);
         reply.setDeletedBy(currentUser.getId());
         reply.setDeletedAt(now);
@@ -323,11 +364,11 @@ public class ForumServiceImpl implements ForumService {
             reaction.setId(UUID.randomUUID());
             reaction.setPostId(postId);
             reaction.setUserId(currentUser.getId());
-            reaction.setCreatedAt(OffsetDateTime.now());
+            reaction.setCreatedAt(OffsetDateTime.now(ZoneId.systemDefault()));
             forumReactionRepository.save(reaction);
             post.setUpvoteCount(nullToZero(post.getUpvoteCount()) + 1);
         }
-        post.setUpdatedAt(OffsetDateTime.now());
+        post.setUpdatedAt(OffsetDateTime.now(ZoneId.systemDefault()));
 
         return toPostResponse(post, findUpvotedPostIds(postId, currentUser.getId()), forumAttachmentService.findByPostIds(List.of(postId)).getOrDefault(postId, List.of()));
     }
@@ -337,7 +378,7 @@ public class ForumServiceImpl implements ForumService {
     public ForumReplyResponse toggleReplyUpvote(UUID replyId) {
         UserPrincipal currentUser = requireCurrentUser();
         ForumReplyEntity reply = forumReplyRepository.findActiveById(replyId)
-                .orElseThrow(() -> new BusinessException("Reply not found", HttpStatus.NOT_FOUND));
+                .orElseThrow(() -> new BusinessException(REPLY_NOT_FOUND, HttpStatus.NOT_FOUND));
 
         Optional<ForumReactionEntity> existing = forumReactionRepository.findByReplyIdAndUserId(replyId, currentUser.getId());
         if (existing.isPresent()) {
@@ -348,11 +389,11 @@ public class ForumServiceImpl implements ForumService {
             reaction.setId(UUID.randomUUID());
             reaction.setReplyId(replyId);
             reaction.setUserId(currentUser.getId());
-            reaction.setCreatedAt(OffsetDateTime.now());
+            reaction.setCreatedAt(OffsetDateTime.now(ZoneId.systemDefault()));
             forumReactionRepository.save(reaction);
             reply.setUpvoteCount(nullToZero(reply.getUpvoteCount()) + 1);
         }
-        reply.setUpdatedAt(OffsetDateTime.now());
+        reply.setUpdatedAt(OffsetDateTime.now(ZoneId.systemDefault()));
 
         return toReplyResponse(reply, getReplyDepth(reply), findUpvotedReplyIds(replyId, currentUser.getId()), forumAttachmentService.findByReplyIds(List.of(replyId)).getOrDefault(replyId, List.of()));
     }
@@ -375,7 +416,7 @@ public class ForumServiceImpl implements ForumService {
         report.setReason(request.getReason());
         report.setDescription(request.getDescription());
         report.setStatus("PENDING");
-        report.setCreatedAt(OffsetDateTime.now());
+        report.setCreatedAt(OffsetDateTime.now(ZoneId.systemDefault()));
         forumReportRepository.save(report);
     }
 
@@ -384,7 +425,7 @@ public class ForumServiceImpl implements ForumService {
     public void reportReply(UUID replyId, CreateForumReportRequest request) {
         UserPrincipal currentUser = requireCurrentUser();
         forumReplyRepository.findActiveById(replyId)
-                .orElseThrow(() -> new BusinessException("Reply not found", HttpStatus.NOT_FOUND));
+                .orElseThrow(() -> new BusinessException(REPLY_NOT_FOUND, HttpStatus.NOT_FOUND));
 
         if (forumReportRepository.findByTargetTypeAndTargetIdAndReporterId("REPLY", replyId, currentUser.getId()).isPresent()) {
             throw new BusinessException("You have already reported this reply", HttpStatus.CONFLICT);
@@ -398,7 +439,7 @@ public class ForumServiceImpl implements ForumService {
         report.setReason(request.getReason());
         report.setDescription(request.getDescription());
         report.setStatus("PENDING");
-        report.setCreatedAt(OffsetDateTime.now());
+        report.setCreatedAt(OffsetDateTime.now(ZoneId.systemDefault()));
         forumReportRepository.save(report);
     }
 
@@ -651,13 +692,24 @@ public class ForumServiceImpl implements ForumService {
         if (content == null) {
             return null;
         }
-        return Jsoup.clean(content.trim(), FORUM_CONTENT_SAFELIST);
+        String normalizedContent = normalizeForumAttachmentImageSources(content.trim());
+        String cleanedContent = Jsoup.clean(normalizedContent, FORUM_CONTENT_SAFELIST);
+        return restoreForumAttachmentImageSources(cleanedContent);
+    }
+
+    private String normalizeForumAttachmentImageSources(String content) {
+        return ATTACHMENT_IMAGE_SRC_PATTERN.matcher(content)
+                .replaceAll("$1" + ATTACHMENT_IMAGE_PLACEHOLDER_ORIGIN + "$2$3");
+    }
+
+    private String restoreForumAttachmentImageSources(String content) {
+        return content.replace(ATTACHMENT_IMAGE_PLACEHOLDER_ORIGIN + "/api/forum/attachments/", "/api/forum/attachments/");
     }
 
     private String summarizeForumContent(String content) {
         String plainText = sanitizeForumContent(content)
                 .replaceAll("<[^>]*>", " ")
-                .replaceAll("&nbsp;", " ")
+                .replace("&nbsp;", " ")
                 .replaceAll("\\s+", " ")
                 .trim();
         return plainText.length() > 100 ? plainText.substring(0, 100) + "..." : plainText;
