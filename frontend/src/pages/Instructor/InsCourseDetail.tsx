@@ -6,7 +6,7 @@
   const { useState, useEffect, useRef } = React;
   const Ic = window.Icon;
   const { Status, StatCard, Tabs, Select, Section, Modal, ModalHead, Empty } = window;
-  const { AddChapterModal, AddLessonModal, AddResourceModal, ResourcePreviewModal, CourseContentTab, CourseVersionsTab, CourseHistoryTab } = window;
+  const { AddChapterModal, AddLessonModal, AddResourceModal, ResourcePreviewModal, CourseContentTab, CourseVersionsTab, CourseHistoryTab, AiDocsTab } = window;
   const EditResourceInner = window.EditResourceModal;
   const api = window.httpClient;
 
@@ -733,6 +733,7 @@
             { v: "info",    label: "Thông tin" },
             { v: "versions", label: "Phiên bản" },
             { v: "history",  label: "Lịch sử duyệt" },
+            { v: "ai-docs",  label: "Tài liệu AI" },
           ]} value={tab} onChange={v => {
             setTab(v);
             if ((v === "versions" || v === "history") && courseId) {
@@ -1023,6 +1024,10 @@
 
         {tab === "history" && (
           <CourseHistoryTab history={history} historyLoading={historyLoading} />
+        )}
+
+        {tab === "ai-docs" && (
+          <AiDocsTab courseId={courseId} />
         )}
 
         {/* ── Modal đổi ảnh bìa ── */}

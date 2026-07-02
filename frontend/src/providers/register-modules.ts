@@ -19,6 +19,7 @@ import '../pages/Instructor/InsCourses';
 import '../pages/Instructor/course-detail/CourseModals';
 import '../pages/Instructor/course-detail/CourseContentTab';
 import '../pages/Instructor/course-detail/CourseVersionsTab';
+import '../pages/Instructor/course-detail/AiDocsTab';
 import '../pages/Instructor/InsCourseDetail';
 import '../pages/Instructor/InsGroups';
 import '../pages/Instructor/InsGroupDetail';

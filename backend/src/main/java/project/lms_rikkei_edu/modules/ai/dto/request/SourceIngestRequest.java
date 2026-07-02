@@ -16,7 +16,13 @@ import java.util.UUID;
 public record SourceIngestRequest(
 
         @NotNull UUID courseId,
-        @NotNull UUID uploadedBy,
+
+        /**
+         * Ignored if sent by the client — the controller always overrides
+         * this with the authenticated user's ID before calling the service.
+         */
+        UUID uploadedBy,
+
         @NotNull SourceType sourceType,
 
         /** Human-readable label shown in the admin UI. */

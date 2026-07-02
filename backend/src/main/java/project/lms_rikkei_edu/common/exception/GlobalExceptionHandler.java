@@ -18,6 +18,8 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
+import project.lms_rikkei_edu.modules.ai.exception.AiSourceNotFoundException;
+import project.lms_rikkei_edu.modules.ai.exception.ConversationNotFoundException;
 import project.lms_rikkei_edu.modules.course.exception.*;
 
 import java.time.OffsetDateTime;
@@ -79,6 +81,15 @@ public class GlobalExceptionHandler {
             CourseStateException ex,
             HttpServletRequest request) {
         return buildResponse(HttpStatus.CONFLICT, ex.getMessage(), request.getRequestURI(), null);
+    }
+
+    // ── AI module exceptions ──────────────────────────────────────────────────
+
+    @ExceptionHandler({ AiSourceNotFoundException.class, ConversationNotFoundException.class })
+    public ResponseEntity<ErrorResponse> handleAiNotFound(
+            RuntimeException ex,
+            HttpServletRequest request) {
+        return buildResponse(HttpStatus.NOT_FOUND, ex.getMessage(), request.getRequestURI(), null);
     }
 
     // ── Validation ────────────────────────────────────────────────────────────

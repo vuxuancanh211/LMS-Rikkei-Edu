@@ -100,6 +100,23 @@ class AiSourceServiceTest {
 
             verify(sourceRepo, atLeastOnce()).save(any(AiSource.class));
         }
+
+        @Test
+        void mapsMetadataS3KeyToExternalId_soPdfHandlerCanFindIt() {
+            SourceIngestRequest req = new SourceIngestRequest(
+                    courseId, uploadedBy, SourceType.PDF,
+                    "PDF Source", null, null, java.util.Map.of("s3Key", "courses/doc.pdf"));
+
+            AiSource saved = buildSource(sourceId);
+            when(sourceRepo.save(any())).thenReturn(saved);
+            when(sourceRepo.findById(sourceId)).thenReturn(Optional.of(saved));
+
+            service.ingest(req);
+
+            org.mockito.ArgumentCaptor<AiSource> captor = org.mockito.ArgumentCaptor.forClass(AiSource.class);
+            verify(sourceRepo).save(captor.capture());
+            assertThat(captor.getValue().getExternalId()).isEqualTo("courses/doc.pdf");
+        }
     }
 
     // ── listByCourse ──────────────────────────────────────────────────────────

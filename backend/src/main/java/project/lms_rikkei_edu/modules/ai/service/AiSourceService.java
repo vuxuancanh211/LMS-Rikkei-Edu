@@ -33,12 +33,16 @@ public class AiSourceService {
         if (req.metadata() != null) meta.putAll(req.metadata());
         if (req.content() != null)  meta.put("content", req.content());
 
+        // PDF/DOC handlers read the S3 key from AiSource.externalId, not from metadata directly.
+        Object s3Key = meta.get("s3Key");
+
         AiSource source = AiSource.builder()
                 .courseId(req.courseId())
                 .uploadedBy(req.uploadedBy())
                 .sourceType(req.sourceType())
                 .sourceName(req.sourceName())
                 .sourceUrl(req.sourceUrl())
+                .externalId(s3Key != null ? s3Key.toString() : null)
                 .status("ACTIVE")
                 .ingestStatus(IngestStatus.PENDING)
                 .metadata(meta)

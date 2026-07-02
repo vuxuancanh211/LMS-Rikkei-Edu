@@ -16,19 +16,31 @@
   function AIChatbot({ contained }) {
     const [open, setOpen] = useState(false);
     const [input, setInput] = useState("");
+    const [sending, setSending] = useState(false);
+    const [conversationId, setConversationId] = useState(null);
     const pos = contained ? "absolute" : "fixed";
     const [msgs, setMsgs] = useState([
       { me: false, t: "Xin chào! Mình là trợ lý AI của Rikkei Edu. Mình có thể giúp bạn về bài giảng, bài tập, deadline hay cách dùng nền tảng. Bạn cần hỗ trợ gì? 🤖" },
     ]);
     const endRef = useRef();
-    useEffect(() => { endRef.current && endRef.current.scrollIntoView({ block: "nearest" }); }, [msgs, open]);
+    useEffect(() => { endRef.current && endRef.current.scrollIntoView({ block: "nearest" }); }, [msgs, open, sending]);
 
-    const send = (text) => {
+    const send = async (text) => {
       const q = (text != null ? text : input).trim();
-      if (!q) return;
+      if (!q || sending) return;
       setMsgs(m => [...m, { me: true, t: q }]);
       setInput("");
-      setTimeout(() => setMsgs(m => [...m, { me: false, t: "Mình hiểu câu hỏi của bạn. Đây là phần mình có thể hỗ trợ: tóm tắt bài giảng, gợi ý tài liệu ôn tập, nhắc deadline và hướng dẫn thao tác trên hệ thống. Bạn muốn mình đi sâu vào phần nào nhé?" }]), 600);
+      setSending(true);
+      try {
+        const courseId = window.__selectedCourseId || sessionStorage.getItem("selectedCourseId") || null;
+        const res = await window.__aiService.sendChatMessage({ message: q, courseId, conversationId });
+        setConversationId(res.conversationId);
+        setMsgs(m => [...m, { me: false, t: res.answer }]);
+      } catch (e) {
+        setMsgs(m => [...m, { me: false, t: "Xin lỗi, mình đang gặp sự cố khi trả lời. Bạn thử lại sau nhé.", error: true }]);
+      } finally {
+        setSending(false);
+      }
     };
 
     return (
@@ -47,7 +59,12 @@
                   {!m.me && i > 0 && <div className="row gap-6" style={{ marginTop: 6 }}><button className="icon-btn" style={{ width: 28, height: 28, color: "var(--text-3)" }}><Ic n="thumbs_up" size={14} /></button><button className="icon-btn" style={{ width: 28, height: 28, color: "var(--text-3)" }}><Ic n="thumbs_down" size={14} /></button></div>}
                 </div>
               ))}
-              {msgs.length <= 1 && (
+              {sending && (
+                <div style={{ alignSelf: "flex-start", maxWidth: "85%" }}>
+                  <div style={{ padding: "10px 14px", borderRadius: 14, fontSize: 13.5, background: "#fff", color: "var(--text-3)", border: "1px solid var(--border)", borderBottomLeftRadius: 4 }}>Đang trả lời...</div>
+                </div>
+              )}
+              {msgs.length <= 1 && !sending && (
                 <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
                   <div className="t-xs dim" style={{ paddingLeft: 2 }}>Gợi ý câu hỏi</div>
                   {SUGGEST.map((s, i) => (
@@ -60,8 +77,8 @@
               <div ref={endRef} />
             </div>
             <div className="row gap-8" style={{ padding: 14, borderTop: "1px solid var(--border)" }}>
-              <input className="input" placeholder="Nhập câu hỏi của bạn..." value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === "Enter" && send()} />
-              <button className="btn btn-primary btn-icon" onClick={() => send()}><Ic n="send" size={17} /></button>
+              <input className="input" placeholder="Nhập câu hỏi của bạn..." value={input} disabled={sending} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === "Enter" && send()} />
+              <button className="btn btn-primary btn-icon" disabled={sending} onClick={() => send()}><Ic n="send" size={17} /></button>
             </div>
           </div>
         )}
