@@ -8,5 +8,7 @@ public record ChatResponse(
         UUID messageId,
         String answer,
         List<SourceReference> sources,
-        int totalTokens
+        int totalTokens,
+        StructuredData structuredData,
+        UiRender uiRender
 ) {}

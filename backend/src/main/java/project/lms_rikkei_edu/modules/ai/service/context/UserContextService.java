@@ -60,6 +60,22 @@ public class UserContextService {
                         rs.getDouble("progress_pct")),
                 studentId);
 
+        // B6: cấu trúc khóa học (số chương/bài học) — khóa đã đăng ký
+        List<CourseStructureInfo> courseStructure = jdbc.query("""
+                SELECT c.title AS course_name,
+                       (SELECT COUNT(*) FROM chapters WHERE course_id = c.id)::int AS chapter_count,
+                       (SELECT COUNT(*) FROM lessons WHERE course_id = c.id)::int AS lesson_count
+                FROM course_enrollments ce
+                JOIN courses c ON c.id = ce.course_id
+                WHERE ce.student_id = ?
+                ORDER BY c.title
+                """,
+                (rs, i) -> new CourseStructureInfo(
+                        rs.getString("course_name"),
+                        rs.getInt("chapter_count"),
+                        rs.getInt("lesson_count")),
+                studentId);
+
         List<DeadlineInfo> deadlines = jdbc.query("""
                 SELECT a.title, c.title AS course_name,
                        TO_CHAR(a.deadline, 'DD/MM/YYYY HH24:MI') AS deadline,
@@ -167,11 +183,54 @@ public class UserContextService {
                         rs.getBoolean("is_overdue")),
                 studentId, studentId);
 
+        // B1: tiến độ theo từng chương (các khóa đã đăng ký)
+        List<ChapterProgressInfo> chapterProgress = jdbc.query("""
+                SELECT c.title AS course_name, ch.title AS chapter_title, ch.order_index,
+                       COUNT(*) FILTER (WHERE lp.status = 'COMPLETED')::int AS completed_lessons,
+                       COUNT(l.id)::int AS total_lessons
+                FROM course_enrollments ce
+                JOIN courses c ON c.id = ce.course_id
+                JOIN chapters ch ON ch.course_id = c.id
+                JOIN lessons l ON l.chapter_id = ch.id
+                LEFT JOIN lesson_progress lp ON lp.lesson_id = l.id AND lp.student_id = ce.student_id
+                WHERE ce.student_id = ?
+                GROUP BY c.title, ch.id, ch.title, ch.order_index
+                ORDER BY c.title, ch.order_index
+                LIMIT 20
+                """,
+                (rs, i) -> new ChapterProgressInfo(
+                        rs.getString("course_name"),
+                        rs.getString("chapter_title"),
+                        rs.getInt("completed_lessons"),
+                        rs.getInt("total_lessons")),
+                studentId);
+
+        // B2: lịch sử điểm bài tập đã chấm
+        List<AssignmentScoreInfo> assignmentScores = jdbc.query("""
+                SELECT a.title, c.title AS course_name, s.score, a.max_score,
+                       TO_CHAR(s.graded_at, 'DD/MM/YYYY HH24:MI') AS graded_at
+                FROM assignment_submissions s
+                JOIN assignments a ON a.id = s.assignment_id
+                JOIN courses c ON c.id = a.course_id
+                WHERE s.student_id = ? AND s.status = 'GRADED' AND s.graded_at IS NOT NULL
+                ORDER BY s.graded_at DESC
+                LIMIT 5
+                """,
+                (rs, i) -> new AssignmentScoreInfo(
+                        rs.getString(COL_TITLE),
+                        rs.getString("course_name"),
+                        rs.getDouble("score"),
+                        rs.getDouble("max_score"),
+                        rs.getString("graded_at")),
+                studentId);
+
         return new UserContext(
                 studentId, fullName, UserRole.STUDENT,
                 courses, deadlines, groups,
                 recentLessons, recentQuizResults, unsubmitted,
-                List.of(), List.of(), null);
+                List.of(), List.of(), null,
+                chapterProgress, assignmentScores, List.of(), List.of(), List.of(),
+                courseStructure);
     }
 
     // ── INSTRUCTOR ───────────────────────────────────────────────────────────
@@ -189,6 +248,21 @@ public class UserContextService {
                         rs.getString(COL_TITLE),
                         rs.getString("progress_status"),
                         rs.getDouble("enrollment_count")),
+                instructorId);
+
+        // B6: cấu trúc khóa học (số chương/bài học) — khóa đang quản lý
+        List<CourseStructureInfo> courseStructure = jdbc.query("""
+                SELECT c.title AS course_name,
+                       (SELECT COUNT(*) FROM chapters WHERE course_id = c.id)::int AS chapter_count,
+                       (SELECT COUNT(*) FROM lessons WHERE course_id = c.id)::int AS lesson_count
+                FROM courses c
+                WHERE c.instructor_id = ?
+                ORDER BY c.title
+                """,
+                (rs, i) -> new CourseStructureInfo(
+                        rs.getString("course_name"),
+                        rs.getInt("chapter_count"),
+                        rs.getInt("lesson_count")),
                 instructorId);
 
         List<DeadlineInfo> deadlines = jdbc.query("""
@@ -274,11 +348,68 @@ public class UserContextService {
                         rs.getInt("days_enrolled")),
                 instructorId);
 
+        // B3: thống kê điểm trung bình + tỷ lệ đạt theo từng quiz
+        List<QuizStatsInfo> quizStats = jdbc.query("""
+                SELECT q.title AS quiz_title, c.title AS course_name,
+                       AVG(qa.score) AS avg_score,
+                       (COUNT(*) FILTER (WHERE qa.is_passed))::float / NULLIF(COUNT(*), 0) * 100 AS pass_rate_percent,
+                       COUNT(*)::int AS total_attempts
+                FROM quiz_attempts qa
+                JOIN quizzes q ON q.id = qa.quiz_id
+                JOIN courses c ON c.id = qa.course_id
+                WHERE c.instructor_id = ? AND qa.status = 'GRADED'
+                GROUP BY q.id, q.title, c.title
+                ORDER BY avg_score ASC NULLS LAST
+                LIMIT 10
+                """,
+                (rs, i) -> new QuizStatsInfo(
+                        rs.getString("quiz_title"),
+                        rs.getString("course_name"),
+                        rs.getDouble("avg_score"),
+                        rs.getDouble("pass_rate_percent"),
+                        rs.getInt("total_attempts")),
+                instructorId);
+
+        // B4: học viên xuất sắc (tiến độ >= 80%) — đối xứng với at-risk
+        List<TopStudentInfo> topStudents = jdbc.query("""
+                SELECT u.full_name AS student_name, c.title AS course_name,
+                       COALESCE(cp.overall_percentage, 0) AS progress_pct
+                FROM course_enrollments ce
+                JOIN users u ON u.id = ce.student_id
+                JOIN courses c ON c.id = ce.course_id
+                LEFT JOIN course_progress cp ON cp.student_id = ce.student_id
+                                             AND cp.course_id = ce.course_id
+                WHERE c.instructor_id = ?
+                  AND COALESCE(cp.overall_percentage, 0) >= 80
+                ORDER BY cp.overall_percentage DESC NULLS LAST
+                LIMIT 10
+                """,
+                (rs, i) -> new TopStudentInfo(
+                        rs.getString("student_name"),
+                        rs.getString("course_name"),
+                        rs.getDouble("progress_pct")),
+                instructorId);
+
+        // B5: khóa học đang chờ duyệt / bị từ chối
+        List<CourseApprovalInfo> courseApprovals = jdbc.query("""
+                SELECT title, status, rejection_reason
+                FROM courses
+                WHERE instructor_id = ? AND status IN ('PENDING', 'REJECTED', 'PENDING_UPDATE')
+                ORDER BY created_at DESC
+                """,
+                (rs, i) -> new CourseApprovalInfo(
+                        rs.getString(COL_TITLE),
+                        rs.getString("status"),
+                        rs.getString("rejection_reason")),
+                instructorId);
+
         return new UserContext(
                 instructorId, fullName, UserRole.INSTRUCTOR,
                 courses, deadlines, groups,
                 List.of(), List.of(), List.of(),
-                submissionGaps, atRisk, null);
+                submissionGaps, atRisk, null,
+                List.of(), List.of(), quizStats, topStudents, courseApprovals,
+                courseStructure);
     }
 
     // ── ADMIN ─────────────────────────────────────────────────────────────────
@@ -309,7 +440,9 @@ public class UserContextService {
                 adminId, fullName, UserRole.ADMIN,
                 List.of(), List.of(), List.of(),
                 List.of(), List.of(), List.of(),
-                List.of(), List.of(), adminStats);
+                List.of(), List.of(), adminStats,
+                List.of(), List.of(), List.of(), List.of(), List.of(),
+                List.of());
     }
 
     private static long toLong(Object val) {

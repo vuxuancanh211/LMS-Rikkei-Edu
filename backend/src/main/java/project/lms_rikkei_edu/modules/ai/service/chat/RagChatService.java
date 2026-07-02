@@ -13,6 +13,7 @@ import project.lms_rikkei_edu.modules.ai.dto.response.ChatResponse;
 import project.lms_rikkei_edu.modules.ai.service.context.UserContext;
 import project.lms_rikkei_edu.modules.ai.service.context.UserContextService;
 import project.lms_rikkei_edu.modules.ai.dto.response.SourceReference;
+import project.lms_rikkei_edu.modules.ai.dto.response.StructuredData;
 import project.lms_rikkei_edu.modules.ai.entity.AiConversation;
 import project.lms_rikkei_edu.modules.ai.entity.AiMessage;
 import project.lms_rikkei_edu.modules.ai.entity.AiMessageDebug;
@@ -52,6 +53,9 @@ import java.util.*;
 public class RagChatService {
 
     private static final String LLM_PROVIDER = "openai";
+
+    /** Simple keyword heuristic — not real intent classification, see {@link #detectStructuredData}. */
+    private static final List<String> COURSE_LIST_KEYWORDS = List.of("khóa học", "khoá học", "course");
 
     private final AiConversationRepository  conversationRepo;
     private final AiMessageRepository       messageRepo;
@@ -107,14 +111,51 @@ public class RagChatService {
 
         // 10. Build response with source attributions
         List<SourceReference> sources = buildSourceReferences(chunks);
+        StructuredData structuredData = detectStructuredData(req.message(), userCtx);
 
         return new ChatResponse(
                 conversation.getId(),
                 assistantMsg.getId(),
                 llmResp.content(),
                 sources,
-                llmResp.totalTokens()
+                llmResp.totalTokens(),
+                structuredData,
+                llmResp.uiRender()
         );
+    }
+
+    /**
+     * Heuristic keyword match — not a real intent classifier. Covers the
+     * instructor "how many/which courses do I have" case.
+     *
+     * <p>Naively matching on "khóa học" also fires for questions that merely
+     * mention a course in passing while actually asking about one of its
+     * sub-resources (e.g. "khóa học X có bao nhiêu chương?" — asking about
+     * chapters, not requesting the course list). To avoid that false
+     * positive, this suppresses the table whenever the message names one of
+     * the instructor's own courses specifically — that's a much more
+     * reliable "this is about ONE course, not a list" signal than trying to
+     * enumerate every possible drill-down keyword (chapters, assignments,
+     * students, ...).
+     */
+    private StructuredData detectStructuredData(String message, UserContext ctx) {
+        if (ctx.role() != UserContext.UserRole.INSTRUCTOR || ctx.courses().isEmpty()) {
+            return null;
+        }
+        String normalized = message.toLowerCase();
+        boolean asksAboutCourses = COURSE_LIST_KEYWORDS.stream().anyMatch(normalized::contains);
+        if (!asksAboutCourses) {
+            return null;
+        }
+        boolean namesSpecificCourse = ctx.courses().stream()
+                .anyMatch(c -> normalized.contains(c.title().toLowerCase()));
+        if (namesSpecificCourse) {
+            return null;
+        }
+        List<StructuredData.CourseListItem> items = ctx.courses().stream()
+                .map(c -> new StructuredData.CourseListItem(c.courseId(), c.title(), c.progressStatus(), c.progressPct()))
+                .toList();
+        return new StructuredData("COURSE_LIST", items);
     }
 
     // ── conversation helpers ──────────────────────────────────────────────────
@@ -232,6 +273,26 @@ public class RagChatService {
                 }
             }
 
+            if (!ctx.chapterProgress().isEmpty()) {                                 // B1
+                sb.append("\nTIẾN ĐỘ THEO CHƯƠNG:\n");
+                for (var p : ctx.chapterProgress()) {
+                    sb.append("  - [").append(p.courseName()).append("] ")
+                      .append(p.chapterTitle())
+                      .append(" — ").append(p.completedLessons()).append("/").append(p.totalLessons())
+                      .append(" bài học hoàn thành\n");
+                }
+            }
+
+            if (!ctx.assignmentScores().isEmpty()) {                                // B2
+                sb.append("\nĐIỂM BÀI TẬP ĐÃ CHẤM:\n");
+                for (var s : ctx.assignmentScores()) {
+                    sb.append("  - ").append(s.assignmentTitle())
+                      .append(" [").append(s.courseName()).append("]")
+                      .append(" — ").append(s.score()).append("/").append(s.maxScore())
+                      .append(" — chấm lúc ").append(s.gradedAt()).append("\n");
+                }
+            }
+
             if (!ctx.groups().isEmpty()) {
                 sb.append("\nNHÓM HỌC:\n");
                 for (var g : ctx.groups()) {
@@ -302,6 +363,46 @@ public class RagChatService {
                       .append(" — đã đăng ký ").append(s.daysEnrolled()).append(" ngày\n");
                 }
             }
+
+            if (!ctx.quizStats().isEmpty()) {                                       // B3
+                sb.append("\nTHỐNG KÊ QUIZ:\n");
+                for (var q : ctx.quizStats()) {
+                    sb.append("  - ").append(q.quizTitle())
+                      .append(" [").append(q.courseName()).append("]")
+                      .append(" — điểm TB: ").append(String.format("%.1f", q.avgScore()))
+                      .append(" — tỷ lệ đạt: ").append(String.format("%.0f", q.passRatePercent())).append("%")
+                      .append(" — ").append(q.totalAttempts()).append(" lượt làm\n");
+                }
+            }
+
+            if (!ctx.topStudents().isEmpty()) {                                     // B4
+                sb.append("\nHỌC VIÊN XUẤT SẮC (>= 80%):\n");
+                for (var s : ctx.topStudents()) {
+                    sb.append("  - ").append(s.studentName())
+                      .append(" — ").append(s.courseName())
+                      .append(" — tiến độ: ").append(String.format("%.1f", s.progressPct())).append("%\n");
+                }
+            }
+
+            if (!ctx.courseApprovals().isEmpty()) {                                 // B5
+                sb.append("\nTRẠNG THÁI DUYỆT KHÓA HỌC:\n");
+                for (var c : ctx.courseApprovals()) {
+                    sb.append("  - ").append(c.courseName())
+                      .append(" [").append(c.status()).append("]");
+                    if (c.rejectionReason() != null) sb.append(" — lý do từ chối: ").append(c.rejectionReason());
+                    sb.append("\n");
+                }
+            }
+        }
+
+        // ── Course structure (STUDENT + INSTRUCTOR) ───────────────────────────
+        if (!ctx.courseStructure().isEmpty()) {                                     // B6
+            sb.append("\nCẤU TRÚC KHÓA HỌC (số chương/bài học):\n");
+            for (var c : ctx.courseStructure()) {
+                sb.append("  - ").append(c.courseName())
+                  .append(" — ").append(c.chapterCount()).append(" chương, ")
+                  .append(c.lessonCount()).append(" bài học\n");
+            }
         }
 
         // ── ADMIN sections ────────────────────────────────────────────────────
@@ -330,6 +431,22 @@ public class RagChatService {
         } else {
             sb.append("\nChưa có tài liệu khóa học được index cho câu hỏi này.\n");
         }
+
+        sb.append("""
+
+                === HƯỚNG DẪN HIỂN THỊ ===
+                Nếu câu trả lời của bạn dựa trên số liệu/danh sách đã có ở các mục phía trên
+                (không phải nội dung tài liệu tự do), hãy LUÔN gọi thêm 1 tool render_table/
+                render_stat_cards/render_progress_bars/render_list phù hợp để hiển thị trực
+                quan kèm theo câu trả lời text — kể cả khi chỉ có 1-2 mục. Cụ thể:
+                  - Trả lời có breakdown theo từng khóa/mục (VD: tổng số học viên chia theo
+                    từng khóa, điểm trung bình từng quiz) → render_table hoặc render_stat_cards.
+                  - Trả lời có phần trăm/tiến độ → render_progress_bars.
+                  - Trả lời là 1 danh sách tên (học viên, khóa học...) → render_list.
+                CHỈ dùng số liệu đã có ở trên, không tự tính toán hay suy diễn thêm. Chỉ bỏ
+                qua tool khi câu trả lời thực sự không có số liệu/danh sách nào để hiển thị
+                (VD: câu chào hỏi, giải thích khái niệm chung chung, nội dung tài liệu tự do).
+                """);
 
         return sb.toString();
     }

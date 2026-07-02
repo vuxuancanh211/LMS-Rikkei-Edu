@@ -41,7 +41,25 @@ public record UserContext(
         List<AtRiskStudentInfo> atRiskStudents,
 
         // ── A6: system stats (ADMIN only) ─────────────────────────────────────
-        AdminStats adminStats
+        AdminStats adminStats,
+
+        // ── B1: chapter-level progress (STUDENT only) ─────────────────────────
+        List<ChapterProgressInfo> chapterProgress,
+
+        // ── B2: graded assignment score history (STUDENT only) ───────────────
+        List<AssignmentScoreInfo> assignmentScores,
+
+        // ── B3: quiz stats per quiz (INSTRUCTOR only) ─────────────────────────
+        List<QuizStatsInfo> quizStats,
+
+        // ── B4: top-performing students (INSTRUCTOR only) ─────────────────────
+        List<TopStudentInfo> topStudents,
+
+        // ── B5: course approval status (INSTRUCTOR only) ──────────────────────
+        List<CourseApprovalInfo> courseApprovals,
+
+        // ── B6: course structure — chapter/lesson counts (STUDENT + INSTRUCTOR) ─
+        List<CourseStructureInfo> courseStructure
 ) {
 
     public enum UserRole { STUDENT, INSTRUCTOR, ADMIN }
@@ -114,5 +132,58 @@ public record UserContext(
             long publishedCourses,
             long totalEnrollments,
             long activeConversations
+    ) {}
+
+    // ── B1 ───────────────────────────────────────────────────────────────────
+
+    public record ChapterProgressInfo(
+            String courseName,
+            String chapterTitle,
+            int completedLessons,
+            int totalLessons
+    ) {}
+
+    // ── B2 ───────────────────────────────────────────────────────────────────
+
+    public record AssignmentScoreInfo(
+            String assignmentTitle,
+            String courseName,
+            Double score,
+            Double maxScore,
+            String gradedAt          // formatted dd/MM/yyyy HH:mm
+    ) {}
+
+    // ── B3 ───────────────────────────────────────────────────────────────────
+
+    public record QuizStatsInfo(
+            String quizTitle,
+            String courseName,
+            Double avgScore,
+            Double passRatePercent,
+            int totalAttempts
+    ) {}
+
+    // ── B4 ───────────────────────────────────────────────────────────────────
+
+    public record TopStudentInfo(
+            String studentName,
+            String courseName,
+            Double progressPct
+    ) {}
+
+    // ── B5 ───────────────────────────────────────────────────────────────────
+
+    public record CourseApprovalInfo(
+            String courseName,
+            String status,
+            String rejectionReason
+    ) {}
+
+    // ── B6 ───────────────────────────────────────────────────────────────────
+
+    public record CourseStructureInfo(
+            String courseName,
+            int chapterCount,
+            int lessonCount
     ) {}
 }

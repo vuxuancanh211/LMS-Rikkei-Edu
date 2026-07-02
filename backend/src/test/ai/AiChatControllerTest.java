@@ -67,7 +67,7 @@ class AiChatControllerTest {
             ChatRequest req = new ChatRequest(userId, courseId, null, null, "Explain recursion");
 
             ChatResponse resp = new ChatResponse(conversationId, UUID.randomUUID(),
-                    "Recursion is...", List.of(), 150);
+                    "Recursion is...", List.of(), 150, null, null);
 
             when(ragChatService.chat(any())).thenReturn(resp);
 
@@ -84,7 +84,7 @@ class AiChatControllerTest {
             UUID spoofedUserId = UUID.randomUUID();
             ChatRequest req = new ChatRequest(spoofedUserId, courseId, null, null, "Explain recursion");
 
-            ChatResponse resp = new ChatResponse(conversationId, UUID.randomUUID(), "...", List.of(), 10);
+            ChatResponse resp = new ChatResponse(conversationId, UUID.randomUUID(), "...", List.of(), 10, null, null);
             when(ragChatService.chat(any())).thenReturn(resp);
 
             mockMvc.perform(post("/api/ai/chat")

@@ -8,12 +8,31 @@ export type SourceReference = {
   similarity: number;
 };
 
+export type StructuredCourseItem = {
+  courseId: string;
+  title: string;
+  status: string;
+  metric: number | null;
+};
+
+export type StructuredData = {
+  type: 'COURSE_LIST';
+  items: StructuredCourseItem[];
+} | null;
+
+export type UiRender = {
+  component: 'table' | 'stat_cards' | 'progress_bars' | 'list';
+  props: Record<string, any>;
+} | null;
+
 export type ChatResponse = {
   conversationId: string;
   messageId: string;
   answer: string;
   sources: SourceReference[];
   totalTokens: number;
+  structuredData: StructuredData;
+  uiRender: UiRender;
 };
 
 export type AiConversation = {
