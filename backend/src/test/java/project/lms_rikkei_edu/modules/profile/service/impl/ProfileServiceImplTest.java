@@ -326,7 +326,7 @@ class ProfileServiceImplTest {
 
         when(file.isEmpty()).thenReturn(false);
         when(file.getContentType()).thenReturn("image/png");
-        when(file.getOriginalFilename()).thenReturn("photo.png");
+        when(file.getOriginalFilename()).thenReturn("photo.jpg");
         when(file.getSize()).thenReturn(2048L);
         when(file.getInputStream()).thenReturn(new java.io.ByteArrayInputStream(new byte[2048]));
 
@@ -357,9 +357,6 @@ class ProfileServiceImplTest {
         when(s3Client.putObject(any(Consumer.class), any(RequestBody.class))).thenReturn(PutObjectResponse.builder().build());
         when(userRepository.save(any(UserEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(userMapper.toProfileResponse(any(UserEntity.class))).thenReturn(profileResponse(userId));
-        var presignedRequest = mock(PresignedGetObjectRequest.class);
-        when(presignedRequest.url()).thenReturn(new URI("https://s3.test/presigned/" + userId).toURL());
-        when(s3Presigner.presignGetObject(any(Consumer.class))).thenReturn(presignedRequest);
 
         profileService.uploadAvatar(userId, file);
 

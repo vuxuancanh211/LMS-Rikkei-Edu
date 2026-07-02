@@ -60,11 +60,11 @@ class ProfileControllerIntegrationTest {
     }
 
     @Test
-    void getProfile_whenNotAuthenticated_returns500() throws Exception {
+    void getProfile_whenNotAuthenticated_returns401() throws Exception {
         when(currentUserProvider.getCurrentUserId()).thenReturn(Optional.empty());
 
         mockMvc.perform(get("/api/profile"))
-                .andExpect(status().isInternalServerError());
+                .andExpect(status().isUnauthorized());
     }
 
     // ── PUT /api/profile ─────────────────────────────────────────────────────
