@@ -85,6 +85,62 @@ export type MessageResponse = {
   message: string;
 };
 
+// Group types
+export type GroupResponse = {
+  id: string;
+  courseId: string;
+  courseTitle: string;
+  name: string;
+  description?: string | null;
+  maxCapacity?: number | null;
+  memberCount: number;
+  startDate: string;
+  endDate?: string | null;
+  status: 'UPCOMING' | 'ACTIVE' | 'COMPLETED';
+  createdAt: string;
+};
+
+export type StudentSearchItem = {
+  id: string;
+  email: string;
+  fullName: string;
+  avatarUrl?: string | null;
+};
+
+export type GroupMemberResponse = {
+  id: string;
+  studentId: string;
+  studentName: string;
+  studentEmail: string;
+  avatarUrl?: string | null;
+  joinedAt: string;
+};
+
+export type GroupDetailResponse = GroupResponse & {
+  members: GroupMemberResponse[];
+};
+
+export type CreateGroupPayload = {
+  courseId: string;
+  name: string;
+  description?: string;
+  maxCapacity?: number;
+  startDate: string;
+  endDate?: string | null;
+};
+
+export type UpdateGroupPayload = {
+  name: string;
+  description?: string;
+  maxCapacity?: number;
+  startDate?: string;
+  endDate?: string | null;
+};
+
+export type AddMembersPayload = {
+  emails: string[];
+};
+
 // CSV Import
 export type CsvRowStatus = 'VALID' | 'FORMAT_ERROR' | 'DUPLICATE_IN_FILE' | 'DUPLICATE_IN_DB' | 'IMPORTED' | 'IMPORT_FAILED';
 
