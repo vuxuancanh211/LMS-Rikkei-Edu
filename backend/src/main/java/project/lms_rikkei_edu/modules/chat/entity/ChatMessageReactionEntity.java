@@ -9,8 +9,7 @@ import java.time.OffsetDateTime;
 import java.util.UUID;
 
 @Entity
-@Table(name = "chat_message_reactions",
-        uniqueConstraints = @UniqueConstraint(columnNames = {"message_id", "user_id", "emoji"}))
+@Table(name = "chat_message_reactions")
 @Getter @Setter
 @NoArgsConstructor
 @AllArgsConstructor

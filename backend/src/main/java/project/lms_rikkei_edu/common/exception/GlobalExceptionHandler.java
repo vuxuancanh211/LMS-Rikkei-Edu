@@ -18,6 +18,9 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
+import project.lms_rikkei_edu.modules.chat.exception.ChatAccessDeniedException;
+import project.lms_rikkei_edu.modules.chat.exception.ChatMessageNotFoundException;
+import project.lms_rikkei_edu.modules.chat.exception.ChatRoomNotFoundException;
 import project.lms_rikkei_edu.modules.course.exception.*;
 
 import java.time.OffsetDateTime;
@@ -184,6 +187,22 @@ public class GlobalExceptionHandler {
             HttpServletRequest request) {
         log.error("Unhandled exception", exception);
         return buildResponse(HttpStatus.INTERNAL_SERVER_ERROR, "Internal server error", request.getRequestURI(), null);
+    }
+
+    // ── Chat exceptions ───────────────────────────────────────────────────────
+
+    @ExceptionHandler({ ChatRoomNotFoundException.class, ChatMessageNotFoundException.class })
+    public ResponseEntity<ErrorResponse> handleChatNotFound(
+            RuntimeException ex,
+            HttpServletRequest request) {
+        return buildResponse(HttpStatus.NOT_FOUND, ex.getMessage(), request.getRequestURI(), null);
+    }
+
+    @ExceptionHandler(ChatAccessDeniedException.class)
+    public ResponseEntity<ErrorResponse> handleChatAccessDenied(
+            ChatAccessDeniedException ex,
+            HttpServletRequest request) {
+        return buildResponse(HttpStatus.FORBIDDEN, ex.getMessage(), request.getRequestURI(), null);
     }
 
     // ── helper ────────────────────────────────────────────────────────────────

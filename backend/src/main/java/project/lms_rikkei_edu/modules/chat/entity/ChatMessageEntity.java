@@ -30,7 +30,7 @@ public class ChatMessageEntity {
     @JoinColumn(name = "sender_id", nullable = false)
     private UserEntity sender;
 
-    @Enumerated(EnumType.STRING)          // thêm annotation bị thiếu
+    @Enumerated(EnumType.STRING)
     @Column(name = "message_type", length = 20)
     private MessageType messageType = MessageType.TEXT;
 
