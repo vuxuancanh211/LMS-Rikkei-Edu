@@ -5,6 +5,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
+import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import project.lms_rikkei_edu.common.exception.BusinessException;
 import project.lms_rikkei_edu.common.security.CurrentUserProvider;
@@ -23,6 +24,9 @@ import project.lms_rikkei_edu.modules.group.entity.StudyGroupEntity;
 import project.lms_rikkei_edu.modules.group.repository.GroupMemberRepository;
 import project.lms_rikkei_edu.modules.group.repository.StudyGroupRepository;
 import project.lms_rikkei_edu.modules.group.service.GroupService;
+import project.lms_rikkei_edu.modules.notification.enums.NotificationType;
+import project.lms_rikkei_edu.modules.notification.service.NotificationPreferenceService;
+import project.lms_rikkei_edu.modules.notification.service.NotificationService;
 import project.lms_rikkei_edu.modules.user.entity.UserEntity;
 import project.lms_rikkei_edu.modules.user.enums.UserRole;
 import project.lms_rikkei_edu.modules.user.repository.UserRepository;
@@ -31,17 +35,22 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 @RequiredArgsConstructor
-@org.springframework.stereotype.Service
+@Service
 public class GroupServiceImpl implements GroupService {
+
+    private static final String GROUP_REFERENCE_TYPE = "GROUP";
 
     private final StudyGroupRepository studyGroupRepository;
     private final GroupMemberRepository groupMemberRepository;
     private final CourseRepository courseRepository;
     private final UserRepository userRepository;
     private final CurrentUserProvider currentUserProvider;
+    private final NotificationService notificationService;
+    private final NotificationPreferenceService notificationPreferenceService;
 
     @Override
     @Transactional(readOnly = true)
@@ -109,6 +118,8 @@ public class GroupServiceImpl implements GroupService {
     public GroupResponse updateGroup(UUID groupId, UpdateGroupRequest request) {
         UserPrincipal currentUser = requireCurrentUser();
         StudyGroupEntity group = findGroupForInstructor(groupId, currentUser.getId());
+        LocalDate oldStartDate = group.getStartDate();
+        LocalDate oldEndDate = group.getEndDate();
 
         if (request.getEndDate() != null && request.getStartDate() != null
                 && request.getEndDate().isBefore(request.getStartDate())) {
@@ -132,6 +143,14 @@ public class GroupServiceImpl implements GroupService {
         group.setUpdatedAt(OffsetDateTime.now(ZoneId.systemDefault()));
 
         studyGroupRepository.save(group);
+        if (!Objects.equals(oldStartDate, group.getStartDate()) || !Objects.equals(oldEndDate, group.getEndDate())) {
+            notifyScheduleChanged(
+                    group,
+                    groupMemberRepository.findByGroupIdWithStudent(groupId),
+                    currentUser,
+                    oldStartDate,
+                    oldEndDate);
+        }
         return toGroupResponse(group);
     }
 
@@ -140,6 +159,8 @@ public class GroupServiceImpl implements GroupService {
     public void deleteGroup(UUID groupId) {
         UserPrincipal currentUser = requireCurrentUser();
         StudyGroupEntity group = findGroupForInstructor(groupId, currentUser.getId());
+        List<GroupMemberEntity> members = groupMemberRepository.findByGroupIdWithStudent(groupId);
+        notifyGroupDeleted(group, members, currentUser);
         groupMemberRepository.deleteByGroupId(groupId);
         studyGroupRepository.delete(group);
     }
@@ -196,20 +217,55 @@ public class GroupServiceImpl implements GroupService {
                 .toList();
 
         groupMemberRepository.saveAll(members);
+        notifyAddedMembers(group, members, currentUser);
         return members.stream().map(this::toMemberResponse).toList();
+    }
+
+    private void notifyAddedMembers(StudyGroupEntity group, List<GroupMemberEntity> members, UserPrincipal actor) {
+        String title = "Bạn đã được thêm vào nhóm học";
+        String body = "Bạn đã được thêm vào nhóm \"" + group.getName()
+                + "\" của khóa học \"" + group.getCourse().getTitle() + "\".";
+        notifyMembers(group, members, NotificationType.GROUP_MEMBER_ADDED, title, body,
+                "group-member-added", actor);
+    }
+
+    private void notifyScheduleChanged(StudyGroupEntity group, List<GroupMemberEntity> members, UserPrincipal actor,
+                                       LocalDate oldStartDate, LocalDate oldEndDate) {
+        String title = "Lịch nhóm học đã thay đổi";
+        String body = "Lịch nhóm \"" + group.getName() + "\" đã thay đổi: "
+                + formatRange(oldStartDate, oldEndDate) + " -> "
+                + formatRange(group.getStartDate(), group.getEndDate()) + ".";
+        notifyMembers(group, members, NotificationType.GROUP_SCHEDULE_CHANGED, title, body,
+                "group-schedule-changed:" + group.getUpdatedAt().toInstant().toEpochMilli(), actor);
+    }
+
+    private void notifyGroupDeleted(StudyGroupEntity group, List<GroupMemberEntity> members, UserPrincipal actor) {
+        String title = "Nhóm học đã bị xoá";
+        String body = "Nhóm \"" + group.getName() + "\" của khóa học \""
+                + group.getCourse().getTitle() + "\" đã bị xoá.";
+        notifyMembers(group, members, NotificationType.GROUP_DELETED, title, body,
+                "group-deleted", actor);
     }
 
     @Override
     @Transactional
     public void removeMember(UUID groupId, UUID studentId) {
         UserPrincipal currentUser = requireCurrentUser();
-        findGroupForInstructor(groupId, currentUser.getId());
+        StudyGroupEntity group = findGroupForInstructor(groupId, currentUser.getId());
 
-        if (!groupMemberRepository.existsByGroupIdAndStudentId(groupId, studentId)) {
-            throw new BusinessException("Student is not a member of this group", HttpStatus.NOT_FOUND);
-        }
+        GroupMemberEntity member = groupMemberRepository.findByGroupIdAndStudentIdWithStudent(groupId, studentId)
+                .orElseThrow(() -> new BusinessException("Student is not a member of this group", HttpStatus.NOT_FOUND));
 
+        notifyMemberRemoved(group, member, currentUser);
         groupMemberRepository.deleteByGroupIdAndStudentId(groupId, studentId);
+    }
+
+    private void notifyMemberRemoved(StudyGroupEntity group, GroupMemberEntity member, UserPrincipal actor) {
+        String title = "Bạn đã được xoá khỏi nhóm học";
+        String body = "Bạn đã được xoá khỏi nhóm \"" + group.getName()
+                + "\" của khóa học \"" + group.getCourse().getTitle() + "\".";
+        notifyStudent(group, member.getStudent().getId(), NotificationType.GROUP_MEMBER_REMOVED, title, body,
+                "group-member-removed:" + group.getId() + ":" + member.getStudent().getId(), actor);
     }
 
     @Override
@@ -274,6 +330,40 @@ public class GroupServiceImpl implements GroupService {
             return "UPCOMING";
         }
         return "ACTIVE";
+    }
+
+    private void notifyMembers(StudyGroupEntity group, List<GroupMemberEntity> members, NotificationType type,
+                               String title, String body, String keyPrefix, UserPrincipal actor) {
+        for (GroupMemberEntity member : members) {
+            UUID studentId = member.getStudent().getId();
+            notifyStudent(group, studentId, type, title, body, notificationKey(keyPrefix, group.getId(), studentId), actor);
+        }
+    }
+
+    private void notifyStudent(StudyGroupEntity group, UUID studentId, NotificationType type,
+                               String title, String body, String idempotencyKey, UserPrincipal actor) {
+        if (!notificationPreferenceService.isInAppEnabled(studentId, type.name())) {
+            return;
+        }
+        notificationService.createNotification(
+                studentId,
+                type.name(),
+                title,
+                body,
+                GROUP_REFERENCE_TYPE,
+                group.getId(),
+                actor.getId(),
+                actor.getUsername(),
+                idempotencyKey
+        );
+    }
+
+    private String formatRange(LocalDate startDate, LocalDate endDate) {
+        return startDate + (endDate != null ? " - " + endDate : "");
+    }
+
+    private String notificationKey(String prefix, UUID groupId, UUID studentId) {
+        return prefix + ":" + groupId + ":" + studentId;
     }
 
     private GroupResponse toGroupResponse(StudyGroupEntity group) {

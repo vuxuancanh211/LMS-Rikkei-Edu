@@ -7,12 +7,16 @@ import project.lms_rikkei_edu.modules.group.entity.GroupMemberEntity;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public interface GroupMemberRepository extends JpaRepository<GroupMemberEntity, UUID> {
 
     @Query("SELECT gm FROM GroupMemberEntity gm JOIN FETCH gm.student WHERE gm.group.id = :groupId ORDER BY gm.joinedAt ASC")
     List<GroupMemberEntity> findByGroupIdWithStudent(@Param("groupId") UUID groupId);
+
+    @Query("SELECT gm FROM GroupMemberEntity gm JOIN FETCH gm.student WHERE gm.group.id = :groupId AND gm.student.id = :studentId")
+    Optional<GroupMemberEntity> findByGroupIdAndStudentIdWithStudent(@Param("groupId") UUID groupId, @Param("studentId") UUID studentId);
 
     boolean existsByGroupIdAndStudentId(UUID groupId, UUID studentId);
 

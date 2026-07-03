@@ -3,6 +3,8 @@ import type {
   GroupResponse,
   GroupDetailResponse,
   GroupMemberResponse,
+  GroupMemberCsvImportConfirmResponse,
+  GroupMemberCsvImportPreviewResponse,
   StudentSearchItem,
   CreateGroupPayload,
   UpdateGroupPayload,
@@ -87,6 +89,25 @@ export async function getStudentGroups() {
 export async function getStudentGroupDetail(groupId: string) {
   const response = await httpClient.get<GroupDetailResponse>(
     `/student/groups/${groupId}`,
+  );
+  return response.data;
+}
+
+export async function previewGroupMembersCsvImport(groupId: string, file: File) {
+  const formData = new FormData();
+  formData.append('file', file);
+  const response = await httpClient.post<GroupMemberCsvImportPreviewResponse>(
+    `/instructor/groups/${groupId}/members/import-csv/preview`,
+    formData,
+    { headers: { 'Content-Type': 'multipart/form-data' } },
+  );
+  return response.data;
+}
+
+export async function confirmGroupMembersCsvImport(groupId: string, token: string) {
+  const response = await httpClient.post<GroupMemberCsvImportConfirmResponse>(
+    `/instructor/groups/${groupId}/members/import-csv/confirm`,
+    { token },
   );
   return response.data;
 }

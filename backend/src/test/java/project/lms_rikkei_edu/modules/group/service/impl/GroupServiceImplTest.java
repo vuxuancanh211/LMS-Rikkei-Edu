@@ -25,6 +25,9 @@ import project.lms_rikkei_edu.modules.group.entity.GroupMemberEntity;
 import project.lms_rikkei_edu.modules.group.entity.StudyGroupEntity;
 import project.lms_rikkei_edu.modules.group.repository.GroupMemberRepository;
 import project.lms_rikkei_edu.modules.group.repository.StudyGroupRepository;
+import project.lms_rikkei_edu.modules.notification.enums.NotificationType;
+import project.lms_rikkei_edu.modules.notification.service.NotificationPreferenceService;
+import project.lms_rikkei_edu.modules.notification.service.NotificationService;
 import project.lms_rikkei_edu.modules.user.entity.UserEntity;
 import project.lms_rikkei_edu.modules.user.enums.UserRole;
 import project.lms_rikkei_edu.modules.user.enums.UserStatus;
@@ -58,6 +61,10 @@ class GroupServiceImplTest {
     private UserRepository userRepository;
     @Mock
     private CurrentUserProvider currentUserProvider;
+    @Mock
+    private NotificationService notificationService;
+    @Mock
+    private NotificationPreferenceService notificationPreferenceService;
 
     private GroupServiceImpl groupService;
 
@@ -74,7 +81,9 @@ class GroupServiceImplTest {
                 groupMemberRepository,
                 courseRepository,
                 userRepository,
-                currentUserProvider
+                currentUserProvider,
+                notificationService,
+                notificationPreferenceService
         );
     }
 
@@ -212,6 +221,32 @@ class GroupServiceImplTest {
     }
 
     @Test
+    void deleteGroup_notifiesMembersBeforeDeletingGroup() {
+        StudyGroupEntity group = groupEntity(groupId, courseEntity(instructorId), instructorUser());
+        UserEntity student = studentUser(studentId, "student@example.com");
+        GroupMemberEntity member = memberEntity(group, student);
+        when(currentUserProvider.getCurrentUser()).thenReturn(Optional.of(principal(instructorId, UserRole.INSTRUCTOR)));
+        when(studyGroupRepository.findByIdAndInstructorId(groupId, instructorId)).thenReturn(Optional.of(group));
+        when(groupMemberRepository.findByGroupIdWithStudent(groupId)).thenReturn(List.of(member));
+        when(notificationPreferenceService.isInAppEnabled(studentId, NotificationType.GROUP_DELETED.name()))
+                .thenReturn(true);
+
+        groupService.deleteGroup(groupId);
+
+        verify(notificationService).createNotification(
+                eq(studentId),
+                eq(NotificationType.GROUP_DELETED.name()),
+                eq("Nhóm học đã bị xoá"),
+                eq("Nhóm \"Group A\" của khóa học \"React Basics\" đã bị xoá."),
+                eq("GROUP"),
+                eq(groupId),
+                eq(instructorId),
+                eq("instructor@example.com"),
+                eq("group-deleted:" + groupId + ":" + studentId)
+        );
+    }
+
+    @Test
     void addMembers_savesMembers_whenEmailsAreValid() {
         StudyGroupEntity group = groupEntity(groupId, courseEntity(instructorId), instructorUser());
         group.setMaxCapacity(5);
@@ -224,12 +259,46 @@ class GroupServiceImplTest {
                 .thenReturn(List.of(student));
         when(groupMemberRepository.countByGroupId(groupId)).thenReturn(0L);
         when(groupMemberRepository.findExistingStudentIds(eq(groupId), anyList())).thenReturn(List.of());
+        when(notificationPreferenceService.isInAppEnabled(studentId, NotificationType.GROUP_MEMBER_ADDED.name()))
+                .thenReturn(true);
 
         List<GroupMemberResponse> result = groupService.addMembers(groupId, request);
 
         verify(groupMemberRepository).saveAll(anyList());
+        verify(notificationService).createNotification(
+                eq(studentId),
+                eq(NotificationType.GROUP_MEMBER_ADDED.name()),
+                eq("Bạn đã được thêm vào nhóm học"),
+                eq("Bạn đã được thêm vào nhóm \"Group A\" của khóa học \"React Basics\"."),
+                eq("GROUP"),
+                eq(groupId),
+                eq(instructorId),
+                eq("instructor@example.com"),
+                eq("group-member-added:" + groupId + ":" + studentId)
+        );
         assertThat(result).hasSize(1);
         assertThat(result.getFirst().getStudentEmail()).isEqualTo("student@example.com");
+    }
+
+    @Test
+    void addMembers_skipsNotification_whenStudentDisabledPreference() {
+        StudyGroupEntity group = groupEntity(groupId, courseEntity(instructorId), instructorUser());
+        UserEntity student = studentUser(studentId, "student@example.com");
+        AddGroupMembersRequest request = addMembersRequest("student@example.com");
+
+        when(currentUserProvider.getCurrentUser()).thenReturn(Optional.of(principal(instructorId, UserRole.INSTRUCTOR)));
+        when(studyGroupRepository.findByIdAndInstructorId(groupId, instructorId)).thenReturn(Optional.of(group));
+        when(userRepository.findByEmailIgnoreCaseInAndDeletedAtIsNull(List.of("student@example.com")))
+                .thenReturn(List.of(student));
+        when(groupMemberRepository.countByGroupId(groupId)).thenReturn(0L);
+        when(groupMemberRepository.findExistingStudentIds(eq(groupId), anyList())).thenReturn(List.of());
+        when(notificationPreferenceService.isInAppEnabled(studentId, NotificationType.GROUP_MEMBER_ADDED.name()))
+                .thenReturn(false);
+
+        groupService.addMembers(groupId, request);
+
+        verify(groupMemberRepository).saveAll(anyList());
+        verify(notificationService, never()).createNotification(any(), any(), any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -272,11 +341,71 @@ class GroupServiceImplTest {
     }
 
     @Test
+    void updateGroup_notifiesMembers_whenScheduleChanged() {
+        StudyGroupEntity group = groupEntity(groupId, courseEntity(instructorId), instructorUser());
+        UserEntity student = studentUser(studentId, "student@example.com");
+        UpdateGroupRequest request = new UpdateGroupRequest();
+        request.setName("Group A");
+        request.setDescription("Description");
+        request.setMaxCapacity(20);
+        request.setStartDate(LocalDate.now().plusDays(2));
+        request.setEndDate(LocalDate.now().plusDays(12));
+
+        when(currentUserProvider.getCurrentUser()).thenReturn(Optional.of(principal(instructorId, UserRole.INSTRUCTOR)));
+        when(studyGroupRepository.findByIdAndInstructorId(groupId, instructorId)).thenReturn(Optional.of(group));
+        when(groupMemberRepository.countByGroupId(groupId)).thenReturn(1L);
+        when(groupMemberRepository.findByGroupIdWithStudent(groupId)).thenReturn(List.of(memberEntity(group, student)));
+        when(notificationPreferenceService.isInAppEnabled(studentId, NotificationType.GROUP_SCHEDULE_CHANGED.name()))
+                .thenReturn(true);
+
+        groupService.updateGroup(groupId, request);
+
+        verify(notificationService).createNotification(
+                eq(studentId),
+                eq(NotificationType.GROUP_SCHEDULE_CHANGED.name()),
+                eq("Lịch nhóm học đã thay đổi"),
+                any(),
+                eq("GROUP"),
+                eq(groupId),
+                eq(instructorId),
+                eq("instructor@example.com"),
+                any()
+        );
+    }
+
+    @Test
+    void removeMember_notifiesStudentBeforeRemoving() {
+        StudyGroupEntity group = groupEntity(groupId, courseEntity(instructorId), instructorUser());
+        UserEntity student = studentUser(studentId, "student@example.com");
+        when(currentUserProvider.getCurrentUser()).thenReturn(Optional.of(principal(instructorId, UserRole.INSTRUCTOR)));
+        when(studyGroupRepository.findByIdAndInstructorId(groupId, instructorId)).thenReturn(Optional.of(group));
+        when(groupMemberRepository.findByGroupIdAndStudentIdWithStudent(groupId, studentId))
+                .thenReturn(Optional.of(memberEntity(group, student)));
+        when(notificationPreferenceService.isInAppEnabled(studentId, NotificationType.GROUP_MEMBER_REMOVED.name()))
+                .thenReturn(true);
+
+        groupService.removeMember(groupId, studentId);
+
+        verify(notificationService).createNotification(
+                eq(studentId),
+                eq(NotificationType.GROUP_MEMBER_REMOVED.name()),
+                eq("Bạn đã được xoá khỏi nhóm học"),
+                eq("Bạn đã được xoá khỏi nhóm \"Group A\" của khóa học \"React Basics\"."),
+                eq("GROUP"),
+                eq(groupId),
+                eq(instructorId),
+                eq("instructor@example.com"),
+                eq("group-member-removed:" + groupId + ":" + studentId)
+        );
+        verify(groupMemberRepository).deleteByGroupIdAndStudentId(groupId, studentId);
+    }
+
+    @Test
     void removeMember_throwsNotFound_whenStudentIsNotMember() {
         StudyGroupEntity group = groupEntity(groupId, courseEntity(instructorId), instructorUser());
         when(currentUserProvider.getCurrentUser()).thenReturn(Optional.of(principal(instructorId, UserRole.INSTRUCTOR)));
         when(studyGroupRepository.findByIdAndInstructorId(groupId, instructorId)).thenReturn(Optional.of(group));
-        when(groupMemberRepository.existsByGroupIdAndStudentId(groupId, studentId)).thenReturn(false);
+        when(groupMemberRepository.findByGroupIdAndStudentIdWithStudent(groupId, studentId)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> groupService.removeMember(groupId, studentId))
                 .isInstanceOf(BusinessException.class)

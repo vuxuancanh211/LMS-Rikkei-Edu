@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import project.lms_rikkei_edu.modules.group.entity.StudyGroupEntity;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -42,4 +43,13 @@ public interface StudyGroupRepository extends JpaRepository<StudyGroupEntity, UU
 
     @Query("SELECT sg FROM StudyGroupEntity sg JOIN FETCH sg.course WHERE sg.id IN (SELECT gm.group.id FROM GroupMemberEntity gm WHERE gm.student.id = :studentId) ORDER BY sg.createdAt DESC")
     List<StudyGroupEntity> findByStudentId(@Param("studentId") UUID studentId);
+
+    @Query("SELECT sg FROM StudyGroupEntity sg JOIN FETCH sg.course WHERE sg.startDate = :date")
+    List<StudyGroupEntity> findByStartDateWithCourse(@Param("date") LocalDate date);
+
+    @Query("SELECT sg FROM StudyGroupEntity sg JOIN FETCH sg.course WHERE sg.endDate = :date")
+    List<StudyGroupEntity> findByEndDateWithCourse(@Param("date") LocalDate date);
+
+    @Query("SELECT sg FROM StudyGroupEntity sg JOIN FETCH sg.course WHERE sg.endDate < :date")
+    List<StudyGroupEntity> findByEndDateBeforeWithCourse(@Param("date") LocalDate date);
 }

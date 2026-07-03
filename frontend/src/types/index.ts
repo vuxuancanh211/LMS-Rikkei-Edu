@@ -169,3 +169,31 @@ export type CsvImportConfirmResponse = {
   failCount: number;
   results: CsvImportRowResult[];
 };
+
+export type GroupMemberCsvRowStatus = 'VALID' | 'FORMAT_ERROR' | 'DUPLICATE_IN_FILE' | 'NOT_FOUND' | 'ALREADY_IN_GROUP' | 'CAPACITY_EXCEEDED' | 'IMPORTED' | 'IMPORT_FAILED';
+
+export type GroupMemberCsvImportRowResult = {
+  rowNumber: number;
+  email: string;
+  status: GroupMemberCsvRowStatus;
+  errors: string[];
+};
+
+export type GroupMemberCsvImportPreviewResponse = {
+  token: string;
+  totalRows: number;
+  validCount: number;
+  formatErrorCount: number;
+  duplicateInFileCount: number;
+  notFoundCount: number;
+  alreadyInGroupCount: number;
+  capacityExceededCount: number;
+  rows: GroupMemberCsvImportRowResult[];
+};
+
+export type GroupMemberCsvImportConfirmResponse = {
+  totalProcessed: number;
+  successCount: number;
+  failCount: number;
+  results: GroupMemberCsvImportRowResult[];
+};
