@@ -2,6 +2,7 @@ package project.lms_rikkei_edu.modules.chat.service.impl;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -17,6 +18,7 @@ import project.lms_rikkei_edu.modules.chat.exception.ChatMessageNotFoundExceptio
 import project.lms_rikkei_edu.modules.chat.exception.ChatRoomNotFoundException;
 import project.lms_rikkei_edu.modules.chat.mapper.ChatMapper;
 import project.lms_rikkei_edu.modules.chat.repository.ChatMessageRepository;
+import project.lms_rikkei_edu.modules.chat.repository.ChatMessageReactionRepository;
 import project.lms_rikkei_edu.modules.chat.repository.ChatRoomMemberRepository;
 import project.lms_rikkei_edu.modules.chat.repository.ChatRoomRepository;
 import project.lms_rikkei_edu.modules.group.entity.StudyGroupEntity;
@@ -30,6 +32,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -45,6 +48,9 @@ class ChatRoomServiceImplTest {
 
     @Mock
     private ChatMessageRepository messageRepo;
+
+    @Mock
+    private ChatMessageReactionRepository reactionRepo;
 
     @Mock
     private ChatMapper chatMapper;
@@ -342,13 +348,31 @@ class ChatRoomServiceImplTest {
     }
 
     @Test
-    void shouldThrowWhenRemoveMemberNotFound() {
+    void shouldIgnoreWhenRemoveMemberNotFound() {
         UUID roomId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
 
         when(memberRepo.findByRoomIdAndUserId(roomId, userId)).thenReturn(Optional.empty());
 
-        assertThrows(ChatRoomNotFoundException.class,
-                () -> service.removeMember(roomId, userId));
+        service.removeMember(roomId, userId);
+
+        verify(memberRepo, never()).delete(any());
+    }
+
+    @Test
+    void shouldDeleteRoomForGroupInForeignKeySafeOrder() {
+        UUID groupId = UUID.randomUUID();
+        ChatRoomEntity room = room(UUID.randomUUID());
+
+        when(roomRepo.findByGroupId(groupId)).thenReturn(Optional.of(room));
+
+        service.deleteRoomForGroup(groupId);
+
+        InOrder inOrder = inOrder(memberRepo, reactionRepo, messageRepo, roomRepo);
+        inOrder.verify(memberRepo).clearLastReadMessagesByRoomId(room.getId());
+        inOrder.verify(reactionRepo).deleteAllByRoomId(room.getId());
+        inOrder.verify(messageRepo).deleteAllByRoomId(room.getId());
+        inOrder.verify(memberRepo).deleteAllByRoomId(room.getId());
+        inOrder.verify(roomRepo).delete(room);
     }
 }

@@ -1,6 +1,7 @@
 package project.lms_rikkei_edu.modules.chat.repository;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -36,4 +37,8 @@ public interface ChatMessageReactionRepository
         GROUP BY r.emoji
         """)
     List<Object[]> countReactionsByMessageId(@Param("messageId") UUID messageId);
+
+    @Modifying
+    @Query("DELETE FROM ChatMessageReactionEntity r WHERE r.message.room.id = :roomId")
+    void deleteAllByRoomId(@Param("roomId") UUID roomId);
 }

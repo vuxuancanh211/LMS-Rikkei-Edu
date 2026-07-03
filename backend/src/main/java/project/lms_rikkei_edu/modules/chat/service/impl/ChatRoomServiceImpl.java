@@ -14,6 +14,7 @@ import project.lms_rikkei_edu.modules.chat.exception.ChatMessageNotFoundExceptio
 import project.lms_rikkei_edu.modules.chat.exception.ChatRoomNotFoundException;
 import project.lms_rikkei_edu.modules.chat.mapper.ChatMapper;
 import project.lms_rikkei_edu.modules.chat.repository.ChatMessageRepository;
+import project.lms_rikkei_edu.modules.chat.repository.ChatMessageReactionRepository;
 import project.lms_rikkei_edu.modules.chat.repository.ChatRoomMemberRepository;
 import project.lms_rikkei_edu.modules.chat.repository.ChatRoomRepository;
 import project.lms_rikkei_edu.modules.chat.service.ChatRoomService;
@@ -33,6 +34,7 @@ public class ChatRoomServiceImpl implements ChatRoomService {
     private final ChatRoomRepository       roomRepo;
     private final ChatRoomMemberRepository memberRepo;
     private final ChatMessageRepository    messageRepo;
+    private final ChatMessageReactionRepository reactionRepo;
     private final ChatMapper               chatMapper;
 
     private static final OffsetDateTime EPOCH =
@@ -72,6 +74,15 @@ public class ChatRoomServiceImpl implements ChatRoomService {
                 .build();
 
         return roomRepo.save(room);
+    }
+
+    @Override
+    @Transactional
+    public ChatRoomEntity getOrCreateRoomForGroup(StudyGroupEntity group, UserEntity instructor) {
+        ChatRoomEntity room = roomRepo.findByGroupId(group.getId())
+                .orElseGet(() -> createRoomForGroup(group, instructor));
+        addMember(room.getId(), instructor, ChatRoomMemberEntity.MemberRole.MODERATOR);
+        return room;
     }
 
     @Override
@@ -145,10 +156,8 @@ public class ChatRoomServiceImpl implements ChatRoomService {
     @Override
     @Transactional
     public void removeMember(UUID roomId, UUID userId) {
-        ChatRoomMemberEntity member = memberRepo
-                .findByRoomIdAndUserId(roomId, userId)
-                .orElseThrow(() -> new ChatRoomNotFoundException(roomId));
-        memberRepo.delete(member);
+        memberRepo.findByRoomIdAndUserId(roomId, userId)
+                .ifPresent(memberRepo::delete);
     }
 
     @Override
@@ -157,5 +166,18 @@ public class ChatRoomServiceImpl implements ChatRoomService {
         ChatRoomEntity room = findRoomById(roomId);
         room.setActive(false);
         roomRepo.save(room);
+    }
+
+    @Override
+    @Transactional
+    public void deleteRoomForGroup(UUID groupId) {
+        roomRepo.findByGroupId(groupId).ifPresent(room -> {
+            UUID roomId = room.getId();
+            memberRepo.clearLastReadMessagesByRoomId(roomId);
+            reactionRepo.deleteAllByRoomId(roomId);
+            messageRepo.deleteAllByRoomId(roomId);
+            memberRepo.deleteAllByRoomId(roomId);
+            roomRepo.delete(room);
+        });
     }
 }

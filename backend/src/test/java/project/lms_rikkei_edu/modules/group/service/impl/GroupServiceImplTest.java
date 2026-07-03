@@ -12,6 +12,10 @@ import org.springframework.http.HttpStatus;
 import project.lms_rikkei_edu.common.exception.BusinessException;
 import project.lms_rikkei_edu.common.security.CurrentUserProvider;
 import project.lms_rikkei_edu.common.security.UserPrincipal;
+import project.lms_rikkei_edu.infrastructure.sse.SseEmitterRegistry;
+import project.lms_rikkei_edu.modules.chat.entity.ChatRoomEntity;
+import project.lms_rikkei_edu.modules.chat.entity.ChatRoomMemberEntity;
+import project.lms_rikkei_edu.modules.chat.service.ChatRoomService;
 import project.lms_rikkei_edu.modules.course.entity.Course;
 import project.lms_rikkei_edu.modules.course.repository.CourseRepository;
 import project.lms_rikkei_edu.modules.group.dto.request.AddGroupMembersRequest;
@@ -65,6 +69,10 @@ class GroupServiceImplTest {
     private NotificationService notificationService;
     @Mock
     private NotificationPreferenceService notificationPreferenceService;
+    @Mock
+    private ChatRoomService chatRoomService;
+    @Mock
+    private SseEmitterRegistry sseEmitterRegistry;
 
     private GroupServiceImpl groupService;
 
@@ -83,7 +91,9 @@ class GroupServiceImplTest {
                 userRepository,
                 currentUserProvider,
                 notificationService,
-                notificationPreferenceService
+                notificationPreferenceService,
+                chatRoomService,
+                sseEmitterRegistry
         );
     }
 
@@ -111,11 +121,13 @@ class GroupServiceImplTest {
         when(currentUserProvider.getCurrentUser()).thenReturn(Optional.of(principal(instructorId, UserRole.INSTRUCTOR)));
         when(courseRepository.findById(courseId)).thenReturn(Optional.of(course));
         when(userRepository.getReferenceById(instructorId)).thenReturn(instructor);
+        when(studyGroupRepository.save(any(StudyGroupEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         GroupResponse result = groupService.createGroup(request);
 
         ArgumentCaptor<StudyGroupEntity> captor = ArgumentCaptor.forClass(StudyGroupEntity.class);
         verify(studyGroupRepository).save(captor.capture());
+        verify(chatRoomService).getOrCreateRoomForGroup(captor.getValue(), instructor);
         assertThat(captor.getValue().getCourse()).isSameAs(course);
         assertThat(captor.getValue().getInstructor()).isSameAs(instructor);
         assertThat(captor.getValue().getName()).isEqualTo("Group A");
@@ -217,6 +229,7 @@ class GroupServiceImplTest {
         groupService.deleteGroup(groupId);
 
         verify(groupMemberRepository).deleteByGroupId(groupId);
+        verify(chatRoomService).deleteRoomForGroup(groupId);
         verify(studyGroupRepository).delete(group);
     }
 
@@ -259,12 +272,14 @@ class GroupServiceImplTest {
                 .thenReturn(List.of(student));
         when(groupMemberRepository.countByGroupId(groupId)).thenReturn(0L);
         when(groupMemberRepository.findExistingStudentIds(eq(groupId), anyList())).thenReturn(List.of());
+        when(chatRoomService.getOrCreateRoomForGroup(group, group.getInstructor())).thenReturn(chatRoomEntity(group));
         when(notificationPreferenceService.isInAppEnabled(studentId, NotificationType.GROUP_MEMBER_ADDED.name()))
                 .thenReturn(true);
 
         List<GroupMemberResponse> result = groupService.addMembers(groupId, request);
 
         verify(groupMemberRepository).saveAll(anyList());
+        verify(chatRoomService).addMember(eq(groupId), eq(student), eq(ChatRoomMemberEntity.MemberRole.MEMBER));
         verify(notificationService).createNotification(
                 eq(studentId),
                 eq(NotificationType.GROUP_MEMBER_ADDED.name()),
@@ -292,12 +307,14 @@ class GroupServiceImplTest {
                 .thenReturn(List.of(student));
         when(groupMemberRepository.countByGroupId(groupId)).thenReturn(0L);
         when(groupMemberRepository.findExistingStudentIds(eq(groupId), anyList())).thenReturn(List.of());
+        when(chatRoomService.getOrCreateRoomForGroup(group, group.getInstructor())).thenReturn(chatRoomEntity(group));
         when(notificationPreferenceService.isInAppEnabled(studentId, NotificationType.GROUP_MEMBER_ADDED.name()))
                 .thenReturn(false);
 
         groupService.addMembers(groupId, request);
 
         verify(groupMemberRepository).saveAll(anyList());
+        verify(chatRoomService).addMember(eq(groupId), eq(student), eq(ChatRoomMemberEntity.MemberRole.MEMBER));
         verify(notificationService, never()).createNotification(any(), any(), any(), any(), any(), any(), any(), any(), any());
     }
 
@@ -381,6 +398,7 @@ class GroupServiceImplTest {
         when(studyGroupRepository.findByIdAndInstructorId(groupId, instructorId)).thenReturn(Optional.of(group));
         when(groupMemberRepository.findByGroupIdAndStudentIdWithStudent(groupId, studentId))
                 .thenReturn(Optional.of(memberEntity(group, student)));
+        when(chatRoomService.getOrCreateRoomForGroup(group, group.getInstructor())).thenReturn(chatRoomEntity(group));
         when(notificationPreferenceService.isInAppEnabled(studentId, NotificationType.GROUP_MEMBER_REMOVED.name()))
                 .thenReturn(true);
 
@@ -398,6 +416,7 @@ class GroupServiceImplTest {
                 eq("group-member-removed:" + groupId + ":" + studentId)
         );
         verify(groupMemberRepository).deleteByGroupIdAndStudentId(groupId, studentId);
+        verify(chatRoomService).removeMember(groupId, studentId);
     }
 
     @Test
@@ -519,6 +538,16 @@ class GroupServiceImplTest {
         member.setStudent(student);
         member.setJoinedAt(OffsetDateTime.now());
         return member;
+    }
+
+    private ChatRoomEntity chatRoomEntity(StudyGroupEntity group) {
+        return ChatRoomEntity.builder()
+                .id(group.getId())
+                .name(group.getName())
+                .group(group)
+                .createdBy(group.getInstructor())
+                .active(true)
+                .build();
     }
 
     private UserEntity instructorUser() {

@@ -20,6 +20,7 @@ import {
   sendMessageViaStomp,
   subscribeRoom,
 } from '../../services/chat/stomp-client';
+import { connectSSE } from '../../services/notification-service';
 
 type MsgGroup = {
   senderId: string;
@@ -85,72 +86,84 @@ function ChatScreen({ nav, persona, demo }) {
   const roomGenRef = useRef(0);
   const myReactionsRef = useRef<Record<string, string[]>>({});
 
-  useEffect(() => {
-    setLoading(true);
-    setError('');
+  const handleMarkAsRead = useCallback((roomId: string, messageId: string) => {
+    markAsRead(roomId, messageId);
+    setRooms((prev) => prev.map((r) => (r.id === roomId ? { ...r, unreadCount: 0 } : r)));
+  }, []);
 
-    const subscribeAllRooms = (ids: string[]) => {
-      ids.forEach((id) =>
-        subscribeRoom(id, (msg) => {
-          try {
-            const body = JSON.parse(msg.body);
-            if (body.event === 'CHAT_MESSAGE' && body.message) {
-              if (id === activeRoomIdRef.current) {
-                setMessages((prev) => [...prev, body.message]);
-                handleMarkAsRead(id, body.message.id);
-              } else {
-                setRooms((prev) =>
-                  prev.map((r) =>
-                    r.id === id
-                      ? {
-                          ...r,
-                          lastMessage: body.message,
-                          lastMessageAt: body.message.createdAt,
-                          unreadCount: (r.unreadCount || 0) + 1,
-                        }
-                      : r,
-                  ),
-                );
-              }
-            } else if (body.event === 'MESSAGE_DELETED' && body.message) {
-              if (id === activeRoomIdRef.current) {
-                setMessages((prev) =>
-                  prev.map((m) => (m.id === body.message.id ? { ...m, deleted: true } : m)),
-                );
-              }
-            } else if (
-              (body.event === 'REACTION_ADDED' || body.event === 'REACTION_REMOVED') &&
-              body.messageId &&
-              body.reactions
-            ) {
-              if (id === activeRoomIdRef.current) {
-                setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === body.messageId ? { ...m, reactions: body.reactions } : m,
-                  ),
-                );
-              }
+  const subscribeAllRooms = useCallback((ids: string[]) => {
+    ids.forEach((id) =>
+      subscribeRoom(id, (msg) => {
+        try {
+          const body = JSON.parse(msg.body);
+          if (body.event === 'CHAT_MESSAGE' && body.message) {
+            if (id === activeRoomIdRef.current) {
+              setMessages((prev) => [...prev, body.message]);
+              handleMarkAsRead(id, body.message.id);
+            } else {
+              setRooms((prev) =>
+                prev.map((r) =>
+                  r.id === id
+                    ? {
+                        ...r,
+                        lastMessage: body.message,
+                        lastMessageAt: body.message.createdAt,
+                        unreadCount: (r.unreadCount || 0) + 1,
+                      }
+                    : r,
+                ),
+              );
             }
-          } catch (e) {
-            console.warn('Invalid STOMP message body', msg.body);
+          } else if (body.event === 'MESSAGE_DELETED' && body.message) {
+            if (id === activeRoomIdRef.current) {
+              setMessages((prev) =>
+                prev.map((m) => (m.id === body.message.id ? { ...m, deleted: true } : m)),
+              );
+            }
+          } else if (
+            (body.event === 'REACTION_ADDED' || body.event === 'REACTION_REMOVED') &&
+            body.messageId &&
+            body.reactions
+          ) {
+            if (id === activeRoomIdRef.current) {
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === body.messageId ? { ...m, reactions: body.reactions } : m,
+                ),
+              );
+            }
           }
-        }),
-      );
-    };
+        } catch (e) {
+          console.warn('Invalid STOMP message body', msg.body);
+        }
+      }),
+    );
+  }, [handleMarkAsRead]);
+
+  const loadRooms = useCallback((showLoading = false) => {
+    if (showLoading) setLoading(true);
+    setError('');
 
     getRooms()
       .then((data) => {
         setRooms(data);
         roomIdsRef.current = data.map((r) => r.id);
-        if (data.length > 0 && !activeRoomId) {
-          setActiveRoomId(data[0].id);
-        }
+        setActiveRoomId((current) => {
+          if (current && data.some((room) => room.id === current)) return current;
+          return data[0]?.id ?? null;
+        });
         if (isConnected()) {
           subscribeAllRooms(roomIdsRef.current);
         }
       })
       .catch((err) => setError(err?.response?.data?.message || 'Không tải được danh sách phòng'))
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (showLoading) setLoading(false);
+      });
+  }, [subscribeAllRooms]);
+
+  useEffect(() => {
+    loadRooms(true);
 
     if (!isConnected()) {
       connectStomp(
@@ -164,7 +177,25 @@ function ChatScreen({ nav, persona, demo }) {
     return () => {
       disconnectStomp();
     };
-  }, []);
+  }, [loadRooms]);
+
+  useEffect(() => {
+    const disconnect = connectSSE((eventName, data) => {
+      if (eventName === 'CHAT_ROOMS_CHANGED') {
+        loadRooms(false);
+        return;
+      }
+
+      if (eventName === 'NOTIFICATION' && data && typeof data === 'object') {
+        const notif = (data as { notification?: { type?: string } }).notification;
+        if (notif?.type && ['GROUP_MEMBER_ADDED', 'GROUP_MEMBER_REMOVED', 'GROUP_DELETED'].includes(notif.type)) {
+          loadRooms(false);
+        }
+      }
+    }, undefined, () => loadRooms(false));
+
+    return disconnect;
+  }, [loadRooms]);
 
   useEffect(() => {
     activeRoomIdRef.current = activeRoomId;
@@ -256,11 +287,6 @@ function ChatScreen({ nav, persona, demo }) {
     const t = setTimeout(() => setError(''), 3000);
     return () => clearTimeout(t);
   }, [error]);
-
-  const handleMarkAsRead = useCallback((roomId: string, messageId: string) => {
-    markAsRead(roomId, messageId);
-    setRooms((prev) => prev.map((r) => (r.id === roomId ? { ...r, unreadCount: 0 } : r)));
-  }, []);
 
   useEffect(() => {
     const close = () => {

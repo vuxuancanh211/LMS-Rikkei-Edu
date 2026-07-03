@@ -17,6 +17,8 @@ public interface ChatRoomService {
 
     ChatRoomEntity createRoomForGroup(StudyGroupEntity group, UserEntity instructor);
 
+    ChatRoomEntity getOrCreateRoomForGroup(StudyGroupEntity group, UserEntity instructor);
+
     void addMember(UUID roomId, UserEntity user, ChatRoomMemberEntity.MemberRole role);
 
     void markAsRead(UUID roomId, UUID messageId, UUID userId);
@@ -28,4 +30,6 @@ public interface ChatRoomService {
     void removeMember(UUID roomId, UUID userId);
 
     void deactivateRoom(UUID roomId);
+
+    void deleteRoomForGroup(UUID groupId);
 }

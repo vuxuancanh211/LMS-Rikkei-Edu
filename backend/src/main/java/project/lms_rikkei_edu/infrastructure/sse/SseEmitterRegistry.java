@@ -74,7 +74,7 @@ public class SseEmitterRegistry {
                 emitter.send(SseEmitter.event()
                         .name(eventType)
                         .data(data));
-            } catch (IOException e) {
+            } catch (Exception e) {
                 dead.add(emitter);
             }
         }
