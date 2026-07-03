@@ -141,8 +141,9 @@ public class CourseEmbeddingService {
         orchestrator.ingest(source.getId());
     }
 
-    private void embedResource(UUID courseId, UUID resourceId, String s3Key, String mimeType, String displayName) {
-        SourceType type = resolveSourceType(mimeType);
+    /** Embeds one resource synchronously — reused by both the auto-embed async flow and manual instructor selection. */
+    public void embedResource(UUID courseId, UUID resourceId, String s3Key, String mimeType, String displayName) {
+        SourceType type = SourceType.fromMimeType(mimeType);
         if (type == null) {
             log.debug("Skipping resource {} — unsupported MIME type: {}", resourceId, mimeType);
             return;
@@ -177,14 +178,6 @@ public class CourseEmbeddingService {
     private void deleteChunksByLessonId(UUID lessonId) {
         sourceRepo.findByLessonIdAndDeletedAtIsNull(lessonId)
                 .forEach(s -> chunkRepo.deleteBySourceId(s.getId()));
-    }
-
-    private static SourceType resolveSourceType(String mimeType) {
-        if (mimeType == null) return null;
-        String m = mimeType.toLowerCase();
-        if (m.contains("pdf")) return SourceType.PDF;
-        if (m.contains("word") || m.contains("docx") || m.contains("openxmlformats")) return SourceType.DOC;
-        return null;
     }
 
     record LessonTextRow(UUID id, String title, String contentText) {}

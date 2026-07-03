@@ -9,8 +9,10 @@ import project.lms_rikkei_edu.common.exception.BusinessException;
 import project.lms_rikkei_edu.common.security.CurrentUserProvider;
 import project.lms_rikkei_edu.common.security.UserPrincipal;
 import project.lms_rikkei_edu.infrastructure.s3.S3Service;
+import project.lms_rikkei_edu.modules.ai.dto.request.AddFromResourcesRequest;
 import project.lms_rikkei_edu.modules.ai.dto.request.SourceIngestRequest;
 import project.lms_rikkei_edu.modules.ai.dto.request.SourcePresignRequest;
+import project.lms_rikkei_edu.modules.ai.dto.response.AvailableResourceResponse;
 import project.lms_rikkei_edu.modules.ai.dto.response.SourcePresignResponse;
 import project.lms_rikkei_edu.modules.ai.dto.response.SourceResponse;
 import project.lms_rikkei_edu.modules.ai.service.AiSourceService;
@@ -93,5 +95,19 @@ public class AiSourceController {
         SourceResponse source = sourceService.getById(id);
         verifyCourseOwnership(source.courseId(), currentUser());
         return ResponseEntity.ok(sourceService.reingest(id));
+    }
+
+    /** List lesson resources (PDF/DOC) in the course eligible to be added to the AI knowledge base. */
+    @GetMapping("/available-resources")
+    public ResponseEntity<List<AvailableResourceResponse>> availableResources(@RequestParam UUID courseId) {
+        verifyCourseOwnership(courseId, currentUser());
+        return ResponseEntity.ok(sourceService.listAvailableResources(courseId));
+    }
+
+    /** Add already-uploaded lesson resources to the AI knowledge base. */
+    @PostMapping("/from-resources")
+    public ResponseEntity<List<SourceResponse>> addFromResources(@Valid @RequestBody AddFromResourcesRequest req) {
+        verifyCourseOwnership(req.courseId(), currentUser());
+        return ResponseEntity.status(HttpStatus.CREATED).body(sourceService.ingestFromResources(req.courseId(), req.resourceIds()));
     }
 }

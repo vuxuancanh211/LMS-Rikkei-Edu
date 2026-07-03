@@ -101,6 +101,117 @@
     );
   }
 
+  function PickLessonResourcesModal({ courseId, onClose, onAdded }) {
+    const [resources, setResources] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [selected, setSelected] = useState({});
+    const [saving, setSaving] = useState(false);
+    const [err, setErr] = useState("");
+
+    useEffect(() => {
+      (async () => {
+        setLoading(true);
+        try {
+          const data = await window.__aiService.listAvailableResources(courseId);
+          setResources(data);
+        } catch (e) {
+          setErr(e?.response?.data?.message || "Không tải được danh sách tài liệu");
+        } finally {
+          setLoading(false);
+        }
+      })();
+    }, [courseId]);
+
+    function toggle(resourceId) {
+      setSelected(prev => ({ ...prev, [resourceId]: !prev[resourceId] }));
+    }
+
+    async function submit() {
+      const resourceIds = Object.keys(selected).filter(id => selected[id]);
+      if (resourceIds.length === 0) { setErr("Chọn ít nhất 1 tài liệu"); return; }
+      setSaving(true); setErr("");
+      try {
+        await window.__aiService.addResourcesToAi(courseId, resourceIds);
+        onAdded();
+        onClose();
+      } catch (e) {
+        setErr(e?.response?.data?.message || e?.message || "Thao tác thất bại");
+      } finally {
+        setSaving(false);
+      }
+    }
+
+    // Nhóm theo chapterTitle → lessonTitle để hiển thị cây, giữ đúng thứ tự trả về từ API.
+    const chapterGroups = [];
+    const chapterIndex = new Map();
+    resources.forEach(r => {
+      let chapter = chapterIndex.get(r.chapterTitle);
+      if (!chapter) {
+        chapter = { chapterTitle: r.chapterTitle, lessons: [] };
+        chapterIndex.set(r.chapterTitle, chapter);
+        chapterGroups.push(chapter);
+      }
+      let lesson = chapter.lessons.find(l => l.lessonTitle === r.lessonTitle);
+      if (!lesson) {
+        lesson = { lessonTitle: r.lessonTitle, resources: [] };
+        chapter.lessons.push(lesson);
+      }
+      lesson.resources.push(r);
+    });
+
+    const selectedCount = Object.values(selected).filter(Boolean).length;
+
+    return (
+      <Modal open onClose={onClose} max={560}>
+        <ModalHead title="Chọn từ tài liệu bài giảng" icon="folder" iconBg="#eaf1ff" iconColor="#2563eb" onClose={onClose} />
+        <div className="modal-body" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <p className="muted" style={{ fontSize: 12.5 }}>
+            Chọn tài liệu PDF/DOCX đã có sẵn trong bài giảng để đưa vào kho tri thức AI, không cần tải lên lại.
+          </p>
+          {loading && <div className="muted" style={{ fontSize: 13.5 }}>Đang tải...</div>}
+          {!loading && resources.length === 0 && (
+            <Empty icon="file" title="Không có tài liệu phù hợp" sub="Chỉ hỗ trợ file PDF/DOCX đính kèm trong bài giảng." />
+          )}
+          {!loading && resources.length > 0 && (
+            <div style={{ maxHeight: 360, overflowY: "auto", display: "flex", flexDirection: "column", gap: 16 }}>
+              {chapterGroups.map(ch => (
+                <div key={ch.chapterTitle}>
+                  <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6 }}>{ch.chapterTitle}</div>
+                  {ch.lessons.map(l => (
+                    <div key={l.lessonTitle} style={{ marginLeft: 10, marginBottom: 8 }}>
+                      <div className="t-xs muted" style={{ marginBottom: 4 }}>{l.lessonTitle}</div>
+                      {l.resources.map(r => (
+                        <label key={r.resourceId} className="row gap-8"
+                          style={{ padding: "6px 8px", borderRadius: 8, cursor: r.alreadyAdded ? "default" : "pointer", opacity: r.alreadyAdded ? 0.6 : 1 }}>
+                          <input type="checkbox" checked={r.alreadyAdded || !!selected[r.resourceId]} disabled={r.alreadyAdded}
+                            onChange={() => toggle(r.resourceId)} />
+                          <Ic n="file" size={14} />
+                          <span className="grow truncate" style={{ fontSize: 13 }}>{r.displayName}</span>
+                          {r.alreadyAdded && (
+                            <span style={{ padding: "2px 8px", borderRadius: 999, fontSize: 10.5, fontWeight: 700, background: "#dcfce7", color: "#16a34a", flex: "none" }}>
+                              Đã thêm
+                            </span>
+                          )}
+                        </label>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
+          {err && <div className="t-xs" style={{ color: "var(--error)" }}>{err}</div>}
+          <div className="row gap-8" style={{ justifyContent: "flex-end" }}>
+            <button className="btn btn-ghost btn-sm" onClick={onClose} disabled={saving}>Hủy</button>
+            <button className="btn btn-primary btn-sm" onClick={submit} disabled={saving || selectedCount === 0}>
+              {saving ? "Đang thêm..." : `Thêm vào AI${selectedCount ? ` (${selectedCount})` : ""}`}
+            </button>
+          </div>
+        </div>
+      </Modal>
+    );
+  }
+
   /**
    * Tab "Tài liệu AI" — instructor quản lý kho tri thức RAG của khóa học.
    * Props: courseId
@@ -109,6 +220,7 @@
     const [sources, setSources] = useState([]);
     const [loading, setLoading] = useState(true);
     const [showAdd, setShowAdd] = useState(false);
+    const [showPick, setShowPick] = useState(false);
     const [busyId, setBusyId] = useState(null);
 
     const load = async () => {
@@ -145,9 +257,14 @@
       <Section>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
           <h2 className="t-h2">Tài liệu AI</h2>
-          <button className="btn btn-primary btn-sm" style={{ gap: 6 }} onClick={() => setShowAdd(true)}>
-            <Ic n="plus" size={14} />Thêm tài liệu
-          </button>
+          <div className="row gap-8">
+            <button className="btn btn-ghost btn-sm" style={{ gap: 6 }} onClick={() => setShowPick(true)}>
+              <Ic n="folder" size={14} />Chọn từ bài giảng
+            </button>
+            <button className="btn btn-primary btn-sm" style={{ gap: 6 }} onClick={() => setShowAdd(true)}>
+              <Ic n="plus" size={14} />Thêm tài liệu
+            </button>
+          </div>
         </div>
         <p className="muted" style={{ fontSize: 12.5, marginBottom: 20 }}>
           Tài liệu PDF/DOCX đưa vào đây sẽ được trợ lý AI dùng để trả lời câu hỏi của học viên trong khóa học này.
@@ -197,6 +314,9 @@
 
         {showAdd && (
           <AddAiDocModal courseId={courseId} onClose={() => setShowAdd(false)} onAdded={load} />
+        )}
+        {showPick && (
+          <PickLessonResourcesModal courseId={courseId} onClose={() => setShowPick(false)} onAdded={load} />
         )}
       </Section>
     );

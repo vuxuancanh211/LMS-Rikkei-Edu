@@ -13,7 +13,9 @@ import project.lms_rikkei_edu.common.security.CurrentUserProvider;
 import project.lms_rikkei_edu.common.security.UserPrincipal;
 import project.lms_rikkei_edu.infrastructure.s3.S3Service;
 import project.lms_rikkei_edu.modules.ai.controller.AiSourceController;
+import project.lms_rikkei_edu.modules.ai.dto.request.AddFromResourcesRequest;
 import project.lms_rikkei_edu.modules.ai.dto.request.SourceIngestRequest;
+import project.lms_rikkei_edu.modules.ai.dto.response.AvailableResourceResponse;
 import project.lms_rikkei_edu.modules.ai.dto.response.SourceResponse;
 import project.lms_rikkei_edu.modules.ai.entity.enums.IngestStatus;
 import project.lms_rikkei_edu.modules.ai.entity.enums.SourceType;
@@ -242,6 +244,70 @@ class AiSourceControllerTest {
             mockMvc.perform(post("/api/ai/sources/{id}/reingest", sourceId))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.ingestStatus").value("INDEXED"));
+        }
+    }
+
+    // ── GET /api/ai/sources/available-resources ───────────────────────────────
+
+    @Nested
+    class AvailableResources {
+
+        @Test
+        void returns200_withResources() throws Exception {
+            UUID resourceId = UUID.randomUUID();
+            when(sourceService.listAvailableResources(courseId)).thenReturn(List.of(
+                    new AvailableResourceResponse(resourceId, UUID.randomUUID(), "Bài 1", "Chương 1",
+                            "Slide.pdf", "application/pdf", false, null)));
+
+            mockMvc.perform(get("/api/ai/sources/available-resources")
+                            .param("courseId", courseId.toString()))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$[0].resourceId").value(resourceId.toString()))
+                    .andExpect(jsonPath("$[0].alreadyAdded").value(false));
+        }
+
+        @Test
+        void returns403_whenInstructorDoesNotOwnCourse() throws Exception {
+            UUID otherCourseId = UUID.randomUUID();
+
+            mockMvc.perform(get("/api/ai/sources/available-resources")
+                            .param("courseId", otherCourseId.toString()))
+                    .andExpect(status().isForbidden());
+
+            verify(sourceService, never()).listAvailableResources(any());
+        }
+    }
+
+    // ── POST /api/ai/sources/from-resources ────────────────────────────────────
+
+    @Nested
+    class AddFromResources {
+
+        @Test
+        void returns201_whenAdded() throws Exception {
+            UUID resourceId = UUID.randomUUID();
+            AddFromResourcesRequest req = new AddFromResourcesRequest(courseId, List.of(resourceId));
+            when(sourceService.ingestFromResources(courseId, List.of(resourceId)))
+                    .thenReturn(List.of(sampleResponse()));
+
+            mockMvc.perform(post("/api/ai/sources/from-resources")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(req)))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$[0].id").value(sourceId.toString()));
+        }
+
+        @Test
+        void returns403_whenInstructorDoesNotOwnCourse() throws Exception {
+            UUID otherCourseId = UUID.randomUUID();
+            AddFromResourcesRequest req = new AddFromResourcesRequest(otherCourseId, List.of(UUID.randomUUID()));
+
+            mockMvc.perform(post("/api/ai/sources/from-resources")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(req)))
+                    .andExpect(status().isForbidden());
+
+            verify(sourceService, never()).ingestFromResources(any(), any());
         }
     }
 }

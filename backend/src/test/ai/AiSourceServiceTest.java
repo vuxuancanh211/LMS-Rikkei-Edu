@@ -9,6 +9,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import project.lms_rikkei_edu.modules.ai.dto.request.SourceIngestRequest;
+import project.lms_rikkei_edu.modules.ai.dto.response.AvailableResourceResponse;
 import project.lms_rikkei_edu.modules.ai.dto.response.SourceResponse;
 import project.lms_rikkei_edu.modules.ai.entity.AiSource;
 import project.lms_rikkei_edu.modules.ai.entity.enums.IngestStatus;
@@ -17,7 +18,13 @@ import project.lms_rikkei_edu.modules.ai.exception.AiSourceNotFoundException;
 import project.lms_rikkei_edu.modules.ai.repository.AiSourceRepository;
 import project.lms_rikkei_edu.modules.ai.repository.DocumentChunkRepository;
 import project.lms_rikkei_edu.modules.ai.service.AiSourceService;
+import project.lms_rikkei_edu.modules.ai.service.ingestion.CourseEmbeddingService;
 import project.lms_rikkei_edu.modules.ai.service.ingestion.IngestionOrchestrator;
+import project.lms_rikkei_edu.modules.course.entity.Chapter;
+import project.lms_rikkei_edu.modules.course.entity.Lesson;
+import project.lms_rikkei_edu.modules.course.entity.LessonResource;
+import project.lms_rikkei_edu.modules.course.enums.ResourceType;
+import project.lms_rikkei_edu.modules.course.repository.LessonResourceRepository;
 
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -35,6 +42,8 @@ class AiSourceServiceTest {
     @Mock AiSourceRepository sourceRepo;
     @Mock DocumentChunkRepository chunkRepo;
     @Mock IngestionOrchestrator orchestrator;
+    @Mock LessonResourceRepository lessonResourceRepo;
+    @Mock CourseEmbeddingService courseEmbeddingService;
 
     AiSourceService service;
 
@@ -44,7 +53,7 @@ class AiSourceServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new AiSourceService(sourceRepo, chunkRepo, orchestrator);
+        service = new AiSourceService(sourceRepo, chunkRepo, orchestrator, lessonResourceRepo, courseEmbeddingService);
     }
 
     private AiSource buildSource(UUID id) {
@@ -206,6 +215,141 @@ class AiSourceServiceTest {
 
             verify(orchestrator).reingest(sourceId);
             assertThat(resp.id()).isEqualTo(sourceId);
+        }
+    }
+
+    // ── listAvailableResources ───────────────────────────────────────────────
+
+    @Nested
+    class ListAvailableResources {
+
+        private LessonResource buildResource(UUID resourceId, String mimeType) {
+            Chapter chapter = Chapter.builder().id(UUID.randomUUID()).title("Chương 1").build();
+            Lesson lesson = Lesson.builder().id(UUID.randomUUID()).chapter(chapter).title("Bài 1").build();
+            return LessonResource.builder()
+                    .id(resourceId)
+                    .lesson(lesson)
+                    .courseId(courseId)
+                    .displayName("Slide.pdf")
+                    .s3Key("courses/slide.pdf")
+                    .mimeType(mimeType)
+                    .resourceType(ResourceType.PDF)
+                    .build();
+        }
+
+        @Test
+        void marksAlreadyAdded_whenAiSourceExistsForResource() {
+            UUID resourceId = UUID.randomUUID();
+            when(lessonResourceRepo.findAllByCourseIdWithLessonAndChapter(courseId))
+                    .thenReturn(List.of(buildResource(resourceId, "application/pdf")));
+            AiSource existing = buildSource(UUID.randomUUID());
+            existing.setResourceId(resourceId);
+            when(sourceRepo.findByCourseIdAndDeletedAtIsNull(courseId)).thenReturn(List.of(existing));
+
+            List<AvailableResourceResponse> result = service.listAvailableResources(courseId);
+
+            assertThat(result).hasSize(1);
+            assertThat(result.get(0).alreadyAdded()).isTrue();
+            assertThat(result.get(0).aiSourceId()).isEqualTo(existing.getId());
+        }
+
+        @Test
+        void excludesUnsupportedMimeTypes() {
+            LessonResource videoResource = buildResource(UUID.randomUUID(), "video/mp4");
+            videoResource.setResourceType(ResourceType.VIDEO);
+            when(lessonResourceRepo.findAllByCourseIdWithLessonAndChapter(courseId))
+                    .thenReturn(List.of(videoResource));
+            when(sourceRepo.findByCourseIdAndDeletedAtIsNull(courseId)).thenReturn(List.of());
+
+            assertThat(service.listAvailableResources(courseId)).isEmpty();
+        }
+
+        @Test
+        void includesResource_whenMimeTypeBlankButResourceTypeIsDoc() {
+            // Regression: some legacy lesson_resources rows have a NULL mime_type even though
+            // resourceType (DOC/PDF) is set correctly — must not be silently excluded.
+            LessonResource resource = buildResource(UUID.randomUUID(), null);
+            resource.setResourceType(ResourceType.DOC);
+            when(lessonResourceRepo.findAllByCourseIdWithLessonAndChapter(courseId)).thenReturn(List.of(resource));
+            when(sourceRepo.findByCourseIdAndDeletedAtIsNull(courseId)).thenReturn(List.of());
+
+            assertThat(service.listAvailableResources(courseId)).hasSize(1);
+        }
+    }
+
+    // ── ingestFromResources ──────────────────────────────────────────────────
+
+    @Nested
+    class IngestFromResources {
+
+        @Test
+        void embedsEachResource_andReturnsCreatedSources() {
+            UUID resourceId = UUID.randomUUID();
+            Chapter chapter = Chapter.builder().id(UUID.randomUUID()).title("Chương 1").build();
+            Lesson lesson = Lesson.builder().id(UUID.randomUUID()).chapter(chapter).title("Bài 1").build();
+            LessonResource resource = LessonResource.builder()
+                    .id(resourceId).lesson(lesson).courseId(courseId)
+                    .displayName("Slide.pdf").s3Key("courses/slide.pdf")
+                    .mimeType("application/pdf").resourceType(ResourceType.PDF)
+                    .build();
+            when(lessonResourceRepo.findById(resourceId)).thenReturn(Optional.of(resource));
+
+            AiSource created = buildSource(UUID.randomUUID());
+            created.setResourceId(resourceId);
+            when(sourceRepo.findByResourceIdAndDeletedAtIsNull(resourceId)).thenReturn(List.of(created));
+
+            List<SourceResponse> result = service.ingestFromResources(courseId, List.of(resourceId));
+
+            verify(courseEmbeddingService).embedResource(courseId, resourceId, "courses/slide.pdf", "application/pdf", "Slide.pdf");
+            assertThat(result).hasSize(1);
+            assertThat(result.get(0).id()).isEqualTo(created.getId());
+        }
+
+        @Test
+        void throws_whenResourceBelongsToDifferentCourse() {
+            UUID resourceId = UUID.randomUUID();
+            LessonResource resource = LessonResource.builder()
+                    .id(resourceId).courseId(UUID.randomUUID())
+                    .mimeType("application/pdf")
+                    .build();
+            when(lessonResourceRepo.findById(resourceId)).thenReturn(Optional.of(resource));
+
+            assertThatThrownBy(() -> service.ingestFromResources(courseId, List.of(resourceId)))
+                    .isInstanceOf(IllegalArgumentException.class);
+
+            verify(courseEmbeddingService, never()).embedResource(any(), any(), any(), any(), any());
+        }
+
+        @Test
+        void embedsResource_whenMimeTypeBlankButResourceTypeIsDoc() {
+            UUID resourceId = UUID.randomUUID();
+            LessonResource resource = LessonResource.builder()
+                    .id(resourceId).courseId(courseId)
+                    .displayName("Slide.docx").s3Key("courses/slide.docx")
+                    .mimeType(null).resourceType(ResourceType.DOC)
+                    .build();
+            when(lessonResourceRepo.findById(resourceId)).thenReturn(Optional.of(resource));
+            AiSource created = buildSource(UUID.randomUUID());
+            when(sourceRepo.findByResourceIdAndDeletedAtIsNull(resourceId)).thenReturn(List.of(created));
+
+            service.ingestFromResources(courseId, List.of(resourceId));
+
+            verify(courseEmbeddingService).embedResource(courseId, resourceId, "courses/slide.docx", "application/msword", "Slide.docx");
+        }
+
+        @Test
+        void throws_whenMimeTypeUnsupported() {
+            UUID resourceId = UUID.randomUUID();
+            LessonResource resource = LessonResource.builder()
+                    .id(resourceId).courseId(courseId)
+                    .mimeType("video/mp4")
+                    .build();
+            when(lessonResourceRepo.findById(resourceId)).thenReturn(Optional.of(resource));
+
+            assertThatThrownBy(() -> service.ingestFromResources(courseId, List.of(resourceId)))
+                    .isInstanceOf(IllegalArgumentException.class);
+
+            verify(courseEmbeddingService, never()).embedResource(any(), any(), any(), any(), any());
         }
     }
 }

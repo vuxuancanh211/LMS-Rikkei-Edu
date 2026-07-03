@@ -127,3 +127,24 @@ export async function reingestAiSource(id: string): Promise<AiSource> {
   const response = await httpClient.post<AiSource>(`/ai/sources/${id}/reingest`);
   return response.data;
 }
+
+export type AvailableResource = {
+  resourceId: string;
+  lessonId: string;
+  lessonTitle: string;
+  chapterTitle: string;
+  displayName: string;
+  mimeType: string;
+  alreadyAdded: boolean;
+  aiSourceId: string | null;
+};
+
+export async function listAvailableResources(courseId: string): Promise<AvailableResource[]> {
+  const response = await httpClient.get<AvailableResource[]>('/ai/sources/available-resources', { params: { courseId } });
+  return response.data;
+}
+
+export async function addResourcesToAi(courseId: string, resourceIds: string[]): Promise<AiSource[]> {
+  const response = await httpClient.post<AiSource[]>('/ai/sources/from-resources', { courseId, resourceIds });
+  return response.data;
+}
