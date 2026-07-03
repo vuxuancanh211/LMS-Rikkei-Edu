@@ -139,6 +139,31 @@ export type UpdateGroupPayload = {
 
 export type AddMembersPayload = {
   emails: string[];
+export type ProfileResponse = {
+  id: string;
+  email: string;
+  fullName: string;
+  role: ApiUserRole;
+  status: string;
+  phoneNumber?: string | null;
+  avatarUrl?: string | null;
+  birthDate?: string | null;
+  gender?: string | null;
+  bio?: string | null;
+  createdAt?: string | null;
+};
+
+export type ProfileUpdateRequest = {
+  fullName?: string;
+  phoneNumber?: string;
+  birthDate?: string;
+  gender?: string;
+  bio?: string;
+};
+
+export type ChangePasswordRequest = {
+  currentPassword: string;
+  newPassword: string;
 };
 
 // CSV Import

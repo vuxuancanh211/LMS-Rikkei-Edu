@@ -1,5 +1,9 @@
 package project.lms_rikkei_edu.infrastructure.redis;
 
+import tools.jackson.databind.DefaultTyping;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.jsontype.BasicPolymorphicTypeValidator;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.EnableCaching;
@@ -40,15 +44,25 @@ public class RedisConfig {
         return new LettuceConnectionFactory(config);
     }
 
+    private GenericJacksonJsonRedisSerializer redisSerializer() {
+        ObjectMapper mapper = JsonMapper.builder()
+                .activateDefaultTyping(
+                        BasicPolymorphicTypeValidator.builder()
+                                .allowIfSubType(Object.class)
+                                .build(),
+                        DefaultTyping.NON_FINAL
+                )
+                .build();
+        return new GenericJacksonJsonRedisSerializer(mapper);
+    }
+
     // Dùng cho session + rate limit + blacklist
     @Bean
     public RedisTemplate<String, Object> redisTemplate(LettuceConnectionFactory factory) {
         RedisTemplate<String, Object> template = new RedisTemplate<>();
         template.setConnectionFactory(factory);
 
-        GenericJacksonJsonRedisSerializer serializer = GenericJacksonJsonRedisSerializer
-                .builder()
-                .build();
+        GenericJacksonJsonRedisSerializer serializer = redisSerializer();
 
         template.setKeySerializer(new StringRedisSerializer());
         template.setHashKeySerializer(new StringRedisSerializer());
@@ -61,10 +75,7 @@ public class RedisConfig {
     // Dùng cho @Cacheable
     @Bean
     public CacheManager cacheManager(LettuceConnectionFactory factory) {
-        GenericJacksonJsonRedisSerializer serializer = GenericJacksonJsonRedisSerializer
-                .builder()
-                .enableSpringCacheNullValueSupport()
-                .build();
+        GenericJacksonJsonRedisSerializer serializer = redisSerializer();
 
         RedisCacheConfiguration defaultConfig = RedisCacheConfiguration.defaultCacheConfig()
                 .entryTtl(Duration.ofMinutes(5))

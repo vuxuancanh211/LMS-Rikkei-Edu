@@ -16,6 +16,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
 import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 import project.lms_rikkei_edu.modules.course.exception.*;
@@ -35,6 +36,59 @@ public class GlobalExceptionHandler {
             BusinessException exception,
             HttpServletRequest request) {
         return buildResponse(exception.getStatus(), exception.getMessage(), request.getRequestURI(), null);
+    }
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<ErrorResponse> handleValidationException(
+            MethodArgumentNotValidException exception,
+            HttpServletRequest request
+    ) {
+        Map<String, String> validationErrors = new LinkedHashMap<>();
+        exception.getBindingResult().getFieldErrors().forEach(error ->
+                validationErrors.put(error.getField(), error.getDefaultMessage())
+        );
+        return buildResponse(HttpStatus.BAD_REQUEST, "Dữ liệu nhập không hợp lệ", request.getRequestURI(), validationErrors);
+    }
+
+    @ExceptionHandler(ConstraintViolationException.class)
+    public ResponseEntity<ErrorResponse> handleConstraintViolationException(
+            ConstraintViolationException exception,
+            HttpServletRequest request
+    ) {
+        Map<String, String> validationErrors = new LinkedHashMap<>();
+        exception.getConstraintViolations().forEach(violation ->
+                validationErrors.put(violation.getPropertyPath().toString(), violation.getMessage())
+        );
+        return buildResponse(HttpStatus.BAD_REQUEST, "Dữ liệu nhập không hợp lệ", request.getRequestURI(), validationErrors);
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ErrorResponse> handleHttpMessageNotReadableException(
+            HttpMessageNotReadableException exception,
+            HttpServletRequest request
+    ) {
+        return buildResponse(HttpStatus.BAD_REQUEST, "Request body is invalid or malformed", request.getRequestURI(), null);
+    }
+
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<ErrorResponse> handleMissingServletRequestParameterException(
+            MissingServletRequestParameterException exception,
+            HttpServletRequest request
+    ) {
+        return buildResponse(
+                HttpStatus.BAD_REQUEST,
+                "Required request parameter is missing: " + exception.getParameterName(),
+                request.getRequestURI(),
+                null
+        );
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<ErrorResponse> handleIllegalArgumentException(
+            IllegalArgumentException exception,
+            HttpServletRequest request
+    ) {
+        return buildResponse(HttpStatus.BAD_REQUEST, exception.getMessage(), request.getRequestURI(), null);
     }
 
     @ExceptionHandler(AuthenticationException.class)
@@ -81,51 +135,6 @@ public class GlobalExceptionHandler {
         return buildResponse(HttpStatus.CONFLICT, ex.getMessage(), request.getRequestURI(), null);
     }
 
-    // ── Validation ────────────────────────────────────────────────────────────
-
-    @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ErrorResponse> handleValidationException(
-            MethodArgumentNotValidException exception,
-            HttpServletRequest request) {
-        Map<String, String> validationErrors = new LinkedHashMap<>();
-        exception.getBindingResult().getFieldErrors().forEach(error ->
-                validationErrors.put(error.getField(), error.getDefaultMessage())
-        );
-        return buildResponse(HttpStatus.BAD_REQUEST, "Dữ liệu nhập không hợp lệ", request.getRequestURI(), validationErrors);
-    }
-
-    @ExceptionHandler(ConstraintViolationException.class)
-    public ResponseEntity<ErrorResponse> handleConstraintViolationException(
-            ConstraintViolationException exception,
-            HttpServletRequest request) {
-        Map<String, String> validationErrors = new LinkedHashMap<>();
-        exception.getConstraintViolations().forEach(violation ->
-                validationErrors.put(violation.getPropertyPath().toString(), violation.getMessage())
-        );
-        return buildResponse(HttpStatus.BAD_REQUEST, "Dữ liệu nhập không hợp lệ", request.getRequestURI(), validationErrors);
-    }
-
-    // ── HTTP / request ────────────────────────────────────────────────────────
-
-    @ExceptionHandler(HttpMessageNotReadableException.class)
-    public ResponseEntity<ErrorResponse> handleHttpMessageNotReadableException(
-            HttpMessageNotReadableException exception,
-            HttpServletRequest request) {
-        return buildResponse(HttpStatus.BAD_REQUEST, "Request body is invalid or malformed", request.getRequestURI(),
-                null);
-    }
-
-    @ExceptionHandler(MissingServletRequestParameterException.class)
-    public ResponseEntity<ErrorResponse> handleMissingServletRequestParameterException(
-            MissingServletRequestParameterException exception,
-            HttpServletRequest request) {
-        return buildResponse(
-                HttpStatus.BAD_REQUEST,
-                "Required request parameter is missing: " + exception.getParameterName(),
-                request.getRequestURI(),
-                null);
-    }
-
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
     public ResponseEntity<ErrorResponse> handleHttpRequestMethodNotSupportedException(
             HttpRequestMethodNotSupportedException exception,
@@ -158,13 +167,6 @@ public class GlobalExceptionHandler {
 
     // ── Generic ───────────────────────────────────────────────────────────────
 
-    @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<ErrorResponse> handleIllegalArgument(
-            IllegalArgumentException ex,
-            HttpServletRequest request) {
-        return buildResponse(HttpStatus.BAD_REQUEST, ex.getMessage(), request.getRequestURI(), null);
-    }
-
     @ExceptionHandler(IllegalStateException.class)
     public ResponseEntity<ErrorResponse> handleIllegalState(
             IllegalStateException ex,
@@ -172,11 +174,10 @@ public class GlobalExceptionHandler {
         return buildResponse(HttpStatus.CONFLICT, ex.getMessage(), request.getRequestURI(), null);
     }
 
-    @ExceptionHandler({ AsyncRequestTimeoutException.class, AsyncRequestNotUsableException.class })
-    public ResponseEntity<Void> handleSseTimeout() {
-        return ResponseEntity.noContent().build();
+    @ExceptionHandler(AsyncRequestTimeoutException.class)
+    public void handleAsyncRequestTimeoutException() {
+        // SSE emitter timeout — already handled by onTimeout callback
     }
-
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleUnhandledException(
