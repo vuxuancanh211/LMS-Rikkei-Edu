@@ -85,6 +85,62 @@ export type MessageResponse = {
   message: string;
 };
 
+// Group types
+export type GroupResponse = {
+  id: string;
+  courseId: string;
+  courseTitle: string;
+  name: string;
+  description?: string | null;
+  maxCapacity?: number | null;
+  memberCount: number;
+  startDate: string;
+  endDate?: string | null;
+  status: 'UPCOMING' | 'ACTIVE' | 'COMPLETED';
+  createdAt: string;
+};
+
+export type StudentSearchItem = {
+  id: string;
+  email: string;
+  fullName: string;
+  avatarUrl?: string | null;
+};
+
+export type GroupMemberResponse = {
+  id: string;
+  studentId: string;
+  studentName: string;
+  studentEmail: string;
+  avatarUrl?: string | null;
+  joinedAt: string;
+};
+
+export type GroupDetailResponse = GroupResponse & {
+  members: GroupMemberResponse[];
+};
+
+export type CreateGroupPayload = {
+  courseId: string;
+  name: string;
+  description?: string;
+  maxCapacity?: number;
+  startDate: string;
+  endDate?: string | null;
+};
+
+export type UpdateGroupPayload = {
+  name: string;
+  description?: string;
+  maxCapacity?: number;
+  startDate?: string;
+  endDate?: string | null;
+};
+
+export type AddMembersPayload = {
+  emails: string[];
+};
+
 export type ProfileResponse = {
   id: string;
   email: string;
@@ -139,4 +195,32 @@ export type CsvImportConfirmResponse = {
   successCount: number;
   failCount: number;
   results: CsvImportRowResult[];
+};
+
+export type GroupMemberCsvRowStatus = 'VALID' | 'FORMAT_ERROR' | 'DUPLICATE_IN_FILE' | 'NOT_FOUND' | 'ALREADY_IN_GROUP' | 'CAPACITY_EXCEEDED' | 'IMPORTED' | 'IMPORT_FAILED';
+
+export type GroupMemberCsvImportRowResult = {
+  rowNumber: number;
+  email: string;
+  status: GroupMemberCsvRowStatus;
+  errors: string[];
+};
+
+export type GroupMemberCsvImportPreviewResponse = {
+  token: string;
+  totalRows: number;
+  validCount: number;
+  formatErrorCount: number;
+  duplicateInFileCount: number;
+  notFoundCount: number;
+  alreadyInGroupCount: number;
+  capacityExceededCount: number;
+  rows: GroupMemberCsvImportRowResult[];
+};
+
+export type GroupMemberCsvImportConfirmResponse = {
+  totalProcessed: number;
+  successCount: number;
+  failCount: number;
+  results: GroupMemberCsvImportRowResult[];
 };
