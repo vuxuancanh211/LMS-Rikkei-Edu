@@ -45,7 +45,7 @@ import java.util.regex.Pattern;
 @RequiredArgsConstructor
 public class GroupMemberCsvImportServiceImpl implements GroupMemberCsvImportService {
 
-    private static final long PREVIEW_TTL_SECONDS = 30 * 60;
+    private static final long PREVIEW_TTL_SECONDS = 30L * 60;
     private static final Pattern EMAIL_PATTERN = Pattern.compile("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$");
 
     private final StudyGroupRepository studyGroupRepository;

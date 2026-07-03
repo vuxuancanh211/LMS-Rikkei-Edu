@@ -139,6 +139,8 @@ export type UpdateGroupPayload = {
 
 export type AddMembersPayload = {
   emails: string[];
+};
+
 export type ProfileResponse = {
   id: string;
   email: string;
