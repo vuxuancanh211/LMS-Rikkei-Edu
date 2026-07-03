@@ -5,7 +5,7 @@
 (function () {
   const { useState, useEffect, useRef } = React;
   const Ic = window.Icon;
-  const { Status, StatCard, Tabs, Select, Section, Modal, ModalHead, Empty } = window;
+  const { Status, StatCard, Tabs, Select, Section, Modal, ModalHead, ConfirmModal, AlertModal, Empty } = window;
   const { AddChapterModal, AddLessonModal, AddResourceModal, ResourcePreviewModal, CourseContentTab, CourseVersionsTab, CourseHistoryTab } = window;
   const EditResourceInner = window.EditResourceModal;
   const api = window.httpClient;
@@ -190,6 +190,10 @@
     const toggleLesson = (id: string) => setOpenLessons(prev => ({ ...prev, [id]: !prev[id] }));
     const [loadDraftTarget,   setLoadDraftTarget]   = useState(null); // version đang chờ load khi cần chọn draft để xóa
     const [showReplaceDraft,  setShowReplaceDraft]  = useState(false);
+    const [confirmState,      setConfirmState]      = useState(null); // { message, title?, danger?, onConfirm }
+    const [alertState,        setAlertState]        = useState(null); // { message, title?, type? }
+    const showConfirm = (message, onConfirm, opts?) => setConfirmState({ message, onConfirm, ...opts });
+    const showAlert   = (message, opts?)           => setAlertState({ message, ...opts });
 
     function loadCourse(silent = false) {
       if (!courseId) { setLoading(false); return; }
@@ -233,43 +237,43 @@
       const msg = isPendingUpdate
         ? "Hủy toàn bộ thay đổi đang chờ duyệt? Khóa học sẽ trở về trạng thái live gốc."
         : "Rút khỏi hàng chờ duyệt và chuyển về Bản nháp?";
-      if (!confirm(msg)) return;
-      setSubmitting(true); setSubmitMsg(null);
-      try {
-        await api.put(`/instructor/courses/${courseId}/withdraw`);
-        setSubmitMsg(isPendingUpdate ? "Đã hủy cập nhật – khóa học trở về trạng thái đang xuất bản." : "Đã rút duyệt – khóa học trở về Bản nháp.");
-        loadCourse(true);
-      }
-      catch (e) { setSubmitMsg(e?.response?.data?.message || "Thao tác thất bại"); }
-      finally { setSubmitting(false); }
+      showConfirm(msg, async () => {
+        setSubmitting(true); setSubmitMsg(null);
+        try {
+          await api.put(`/instructor/courses/${courseId}/withdraw`);
+          setSubmitMsg(isPendingUpdate ? "Đã hủy cập nhật – khóa học trở về trạng thái đang xuất bản." : "Đã rút duyệt – khóa học trở về Bản nháp.");
+          loadCourse(true);
+        }
+        catch (e) { setSubmitMsg(e?.response?.data?.message || "Thao tác thất bại"); }
+        finally { setSubmitting(false); }
+      }, { title: "Xác nhận rút duyệt", danger: true, confirmLabel: "Rút duyệt" });
     }
 
     async function handleRollback(versionId, versionNumber) {
-      if (!confirm(`Rollback về v${versionNumber}?\n\nThao tác này sẽ tạo bản nháp từ nội dung cũ. Bạn cần xem lại và bấm "Gửi cập nhật" để admin duyệt.`)) return;
-      setRollingBack(versionId);
-      try {
-        await api.post(`/instructor/courses/${courseId}/versions/${versionId}/rollback`);
-        setSubmitMsg(`Đã khôi phục v${versionNumber}. Xem lại nội dung rồi bấm "Gửi cập nhật".`);
-        setViewingVersion(null);
-        loadCourse(true);
-        setTab("content");
-      } catch (e) {
-        setSubmitMsg(e?.response?.data?.message || "Khôi phục thất bại");
-      } finally {
-        setRollingBack(null);
-      }
+      showConfirm(
+        `Thao tác này sẽ tạo bản nháp từ nội dung cũ. Bạn cần xem lại và bấm "Gửi cập nhật" để admin duyệt.`,
+        async () => {
+          setRollingBack(versionId);
+          try {
+            await api.post(`/instructor/courses/${courseId}/versions/${versionId}/rollback`);
+            setSubmitMsg(`Đã khôi phục v${versionNumber}. Xem lại nội dung rồi bấm "Gửi cập nhật".`);
+            setViewingVersion(null);
+            loadCourse(true);
+            setTab("content");
+          } catch (e) {
+            setSubmitMsg(e?.response?.data?.message || "Khôi phục thất bại");
+          } finally {
+            setRollingBack(null);
+          }
+        },
+        { title: `Rollback về v${versionNumber}?`, confirmLabel: "Rollback" }
+      );
     }
 
-    async function handleSubmitVersion(versionId, versionLabel) {
+    async function doSubmitVersion(versionId, versionLabel) {
       setSubmittingVersion(true);
       try {
-        // Kiểm tra có pending không
-        const { data: hasPending } = await api.get(`/instructor/courses/${courseId}/versions/has-pending`);
-        if (hasPending) {
-          if (!confirm(`Đang có một phiên bản khác chờ admin duyệt.\n\nBạn có muốn thay bằng "${versionLabel}" không?\nPhiên bản cũ sẽ bị hủy và chuyển về bản nháp.`)) return;
-        }
         const res = await api.post(`/instructor/courses/${courseId}/versions/${versionId}/submit`);
-        // Reload versions + course để đồng bộ dropdown và trạng thái
         const [vRes] = await Promise.all([
           api.get(`/instructor/courses/${courseId}/versions`),
           api.get(`/instructor/courses/${courseId}`).then(r => { setCourse(r.data); setChapters(mapCourse(r.data)); }),
@@ -278,8 +282,27 @@
         setViewingVersion(v => v?.id === versionId ? { ...v, status: "PENDING", versionNumber: res.data.versionNumber } : v);
         setSubmitMsg(`Đã nộp "${versionLabel}" để admin duyệt.`);
       } catch (e) {
-        alert(e?.response?.data?.message || "Nộp duyệt thất bại");
+        showAlert(e?.response?.data?.message || "Nộp duyệt thất bại", { title: "Lỗi nộp duyệt" });
       } finally {
+        setSubmittingVersion(false);
+      }
+    }
+    async function handleSubmitVersion(versionId, versionLabel) {
+      setSubmittingVersion(true);
+      try {
+        const { data: hasPending } = await api.get(`/instructor/courses/${courseId}/versions/has-pending`);
+        setSubmittingVersion(false);
+        if (hasPending) {
+          showConfirm(
+            `Đang có một phiên bản khác chờ admin duyệt.\n\nBạn có muốn thay bằng "${versionLabel}" không?\nPhiên bản cũ sẽ bị hủy và chuyển về bản nháp.`,
+            () => doSubmitVersion(versionId, versionLabel),
+            { title: "Xác nhận thay thế phiên bản", confirmLabel: "Thay thế", danger: true }
+          );
+        } else {
+          await doSubmitVersion(versionId, versionLabel);
+        }
+      } catch (e) {
+        showAlert(e?.response?.data?.message || "Nộp duyệt thất bại", { title: "Lỗi" });
         setSubmittingVersion(false);
       }
     }
@@ -295,7 +318,7 @@
           loadCourse(true);
           setTab("content");
         } catch (e) {
-          alert(e?.response?.data?.message || "Không thể tải bản nháp");
+          showAlert(e?.response?.data?.message || "Không thể tải bản nháp", { title: "Lỗi" });
           throw e;
         } finally {
           setRollingBack(null);
@@ -311,7 +334,7 @@
           const res = await api.post(`/instructor/courses/${courseId}/versions/save-draft?label=${encodeURIComponent(autoLabel)}`);
           setVersions(prev => [res.data, ...prev]);
         } catch (e) {
-          alert(e?.response?.data?.message || "Không thể lưu bản đang chỉnh sửa");
+          showAlert(e?.response?.data?.message || "Không thể lưu bản đang chỉnh sửa", { title: "Lỗi lưu bản nháp" });
           setSavingDraft(false);
           return;
         } finally {
@@ -326,16 +349,14 @@
     }
 
     async function handleCloneAsDraft(versionId, defaultLabel) {
-      const label = prompt("Tên bản nháp:", defaultLabel || "");
-      if (label === null) return; // cancelled
       setCloningDraft(true);
       try {
-        const params = label.trim() ? `?label=${encodeURIComponent(label.trim())}` : "";
+        const params = defaultLabel?.trim() ? `?label=${encodeURIComponent(defaultLabel.trim())}` : "";
         const res = await api.post(`/instructor/courses/${courseId}/versions/${versionId}/clone-as-draft${params}`);
         setVersions(prev => [res.data, ...prev]);
-        setSubmitMsg(`Đã tạo bản nháp "${res.data.label || label || "mới"}" từ phiên bản này.`);
+        setSubmitMsg(`Đã tạo bản nháp "${res.data.label || defaultLabel || "mới"}" từ phiên bản này.`);
       } catch (e) {
-        alert(e?.response?.data?.message || "Tạo bản nháp thất bại");
+        showAlert(e?.response?.data?.message || "Tạo bản nháp thất bại", { title: "Lỗi" });
       } finally {
         setCloningDraft(false);
       }
@@ -352,7 +373,7 @@
         // Reload versions list
         api.get(`/instructor/courses/${courseId}/versions`).then(r => setVersions(r.data || []));
       } catch (e) {
-        alert(e?.response?.data?.message || "Lưu bản nháp thất bại");
+        showAlert(e?.response?.data?.message || "Lưu bản nháp thất bại", { title: "Lỗi lưu bản nháp" });
       } finally {
         setSavingDraft(false);
       }
@@ -364,7 +385,7 @@
         await api.delete(`/instructor/courses/${courseId}/versions/${versionId}/draft`);
         setVersions(prev => prev.filter(v => v.id !== versionId));
       } catch (e) {
-        alert(e?.response?.data?.message || "Xóa thất bại");
+        showAlert(e?.response?.data?.message || "Xóa thất bại", { title: "Lỗi xóa phiên bản" });
       } finally {
         setDeletingDraft(null);
       }
@@ -376,27 +397,35 @@
         setVersions(prev => prev.map(v => v.id === versionId ? { ...v, label: trimmed || null } : v));
         setViewingVersion(v => v?.id === versionId ? { ...v, label: trimmed || null } : v);
       } catch (e) {
-        alert(e?.response?.data?.message || "Đổi tên thất bại");
+        showAlert(e?.response?.data?.message || "Đổi tên thất bại", { title: "Lỗi đổi tên" });
       } finally {
         setRenamingVersion(null);
       }
     }
 
     async function handleDeleteDraft(versionId) {
-      if (!confirm("Xóa phiên bản này? Hành động không thể hoàn tác.")) return;
-      await deleteVersion(versionId);
+      showConfirm(
+        "Hành động này không thể hoàn tác.",
+        () => deleteVersion(versionId),
+        { title: "Xóa phiên bản này?", danger: true, confirmLabel: "Xóa" }
+      );
     }
 
-    async function handleWithdraw() {
-      if (!confirm("Rút khỏi hàng chờ duyệt?\n\nPhiên bản đang chờ sẽ chuyển về bản nháp, bạn có thể chỉnh sửa và nộp lại sau.")) return;
-      try {
-        await api.put(`/instructor/courses/${courseId}/withdraw`);
-        await loadCourse(true);
-        const vRes = await api.get(`/instructor/courses/${courseId}/versions`);
-        setVersions(vRes.data || []);
-      } catch (e) {
-        alert(e?.response?.data?.message || "Rút gửi duyệt thất bại");
-      }
+    async function handleWithdrawVersion() {
+      showConfirm(
+        "Phiên bản đang chờ sẽ chuyển về bản nháp, bạn có thể chỉnh sửa và nộp lại sau.",
+        async () => {
+          try {
+            await api.put(`/instructor/courses/${courseId}/withdraw`);
+            await loadCourse(true);
+            const vRes = await api.get(`/instructor/courses/${courseId}/versions`);
+            setVersions(vRes.data || []);
+          } catch (e) {
+            showAlert(e?.response?.data?.message || "Rút gửi duyệt thất bại", { title: "Lỗi" });
+          }
+        },
+        { title: "Rút khỏi hàng chờ duyệt?", danger: true, confirmLabel: "Rút duyệt" }
+      );
     }
 
     async function handleSaveInfo() {
@@ -421,23 +450,38 @@
       try { await api.put(`/instructor/courses/${courseId}/chapters/${chapterId}/lessons/${lessonId}`, { title: newTitle }); loadCourse(true); } catch (e) { console.error("Rename lesson failed", e); }
     }
     async function handleDeleteChapter(chapterId) {
-      if (!confirm("Xóa chương này và toàn bộ bài giảng bên trong?")) return;
-      try { await api.delete(`/instructor/courses/${courseId}/chapters/${chapterId}`); loadCourse(true); }
-      catch (e) { alert(e?.response?.data?.message || "Xóa thất bại"); }
+      showConfirm(
+        "Toàn bộ bài giảng và tài liệu trong chương này cũng sẽ bị xóa.",
+        async () => {
+          try { await api.delete(`/instructor/courses/${courseId}/chapters/${chapterId}`); loadCourse(true); }
+          catch (e) { showAlert(e?.response?.data?.message || "Xóa thất bại", { title: "Lỗi" }); }
+        },
+        { title: "Xóa chương này?", danger: true, confirmLabel: "Xóa chương" }
+      );
     }
     async function handleDeleteLesson(chapterId, lessonId) {
-      if (!confirm("Xóa bài giảng này?")) return;
-      try { await api.delete(`/instructor/courses/${courseId}/chapters/${chapterId}/lessons/${lessonId}`); loadCourse(true); }
-      catch (e) { alert(e?.response?.data?.message || "Xóa thất bại"); }
+      showConfirm(
+        "Bài giảng và tài liệu đính kèm sẽ bị xóa.",
+        async () => {
+          try { await api.delete(`/instructor/courses/${courseId}/chapters/${chapterId}/lessons/${lessonId}`); loadCourse(true); }
+          catch (e) { showAlert(e?.response?.data?.message || "Xóa thất bại", { title: "Lỗi" }); }
+        },
+        { title: "Xóa bài giảng này?", danger: true, confirmLabel: "Xóa bài giảng" }
+      );
     }
     async function handleDeleteResource(lessonId, resourceId) {
-      if (!confirm("Xóa tài liệu này?")) return;
-      try { await api.delete(`/instructor/courses/${courseId}/lessons/${lessonId}/resources/${resourceId}`); loadCourse(true); }
-      catch (e) { alert(e?.response?.data?.message || "Xóa thất bại"); }
+      showConfirm(
+        "Tài liệu sẽ bị xóa khỏi bài giảng này.",
+        async () => {
+          try { await api.delete(`/instructor/courses/${courseId}/lessons/${lessonId}/resources/${resourceId}`); loadCourse(true); }
+          catch (e) { showAlert(e?.response?.data?.message || "Xóa thất bại", { title: "Lỗi" }); }
+        },
+        { title: "Xóa tài liệu này?", danger: true, confirmLabel: "Xóa" }
+      );
     }
     async function handleRenameResource(lessonId, resourceId, newTitle) {
       try { await api.patch(`/instructor/courses/${courseId}/lessons/${lessonId}/resources/${resourceId}`, { displayName: newTitle }); loadCourse(true); }
-      catch (e) { alert(e?.response?.data?.message || "Đổi tên thất bại"); }
+      catch (e) { showAlert(e?.response?.data?.message || "Đổi tên thất bại", { title: "Lỗi" }); }
     }
 
     /* guards */
@@ -816,11 +860,11 @@
                     <button className="btn btn-ghost btn-sm"
                       style={{ fontSize: 12, gap: 5, borderColor: "#fca5a5", color: "#dc2626" }}
                       disabled={deletingDraft === viewingVersion.id}
-                      onClick={async () => {
-                        if (!confirm("Xóa phiên bản này? Hành động không thể hoàn tác.")) return;
-                        await deleteVersion(viewingVersion.id);
-                        setViewingVersion(null);
-                      }}>
+                      onClick={() => showConfirm(
+                        "Hành động này không thể hoàn tác.",
+                        async () => { await deleteVersion(viewingVersion.id); setViewingVersion(null); },
+                        { title: "Xóa phiên bản này?", danger: true, confirmLabel: "Xóa" }
+                      )}>
                       <Ic n="x" size={13} />
                       {deletingDraft === viewingVersion.id ? "Đang xóa..." : "Xóa phiên bản"}
                     </button>
@@ -894,7 +938,7 @@
                                     const btnBase = { height: 24, borderRadius: 6, cursor: "pointer", flex: "none", display: "flex", alignItems: "center", justifyContent: "center", padding: "0 6px", gap: 3, fontSize: 11, fontWeight: 500, border: "1px solid" };
                                     return (<>
                                       <button title="Xem tài liệu" style={{ ...btnBase, borderColor: "#bae6fd", background: "#f0f9ff", color: "#0284c7" }}
-                                        onClick={async () => { try { window.open(await getViewUrl(), "_blank"); } catch (e) { alert(e.message || "Không thể xem tài liệu"); } }}>
+                                        onClick={async () => { try { window.open(await getViewUrl(), "_blank"); } catch (e) { showAlert(e.message || "Không thể xem tài liệu", { title: "Lỗi" }); } }}>
                                         <Ic n="eye" size={11} />Xem
                                       </button>
                                       <button title="Tải tài liệu" style={{ ...btnBase, borderColor: "#bbf7d0", background: "#f0fdf4", color: "#16a34a" }}
@@ -902,7 +946,7 @@
                                           try {
                                             const url = await getDownUrl();
                                             const a = document.createElement("a"); a.href = url; a.download = r.displayName || "tai-lieu"; a.target = "_blank"; a.click();
-                                          } catch (e) { alert(e.message || "Không thể tải tài liệu"); }
+                                          } catch (e) { showAlert(e.message || "Không thể tải tài liệu", { title: "Lỗi" }); }
                                         }}>
                                         <Ic n="download" size={11} />Tải
                                       </button>
@@ -1035,7 +1079,7 @@
                 onChange={e => {
                   const f = e.target.files?.[0];
                   if (!f) return;
-                  if (f.size > 4 * 1024 * 1024) { alert("Ảnh bìa vượt quá 4MB"); return; }
+                  if (f.size > 4 * 1024 * 1024) { showAlert("Ảnh bìa vượt quá 4MB", { title: "File quá lớn", type: "warning" }); return; }
                   setThumbModalFile(f);
                   setThumbModalPreview(URL.createObjectURL(f));
                   e.target.value = "";
@@ -1097,7 +1141,7 @@
                     await api.put(`/instructor/courses/${courseId}`, { thumbnailUrl: data.viewUrl });
                     setThumbModalOpen(false); setThumbModalFile(null); setThumbModalPreview(null);
                     loadCourse(true);
-                  } catch (e: any) { alert(e?.response?.data?.message || e?.message || "Upload thất bại"); }
+                  } catch (e: any) { showAlert(e?.response?.data?.message || e?.message || "Upload thất bại", { title: "Lỗi upload" }); }
                   finally { setThumbUploading(false); }
                 }}>
                 <Ic n="check" size={15} />{thumbUploading ? `Đang upload... ${thumbProgress}%` : "Xác nhận đổi ảnh"}
@@ -1254,6 +1298,23 @@
 
         {showPreview && React.createElement(window.PreviewPlayer, { onBack: () => setShowPreview(false) })}
 
+        <ConfirmModal
+          open={!!confirmState}
+          onClose={() => setConfirmState(null)}
+          onConfirm={confirmState?.onConfirm}
+          title={confirmState?.title}
+          message={confirmState?.message}
+          confirmLabel={confirmState?.confirmLabel}
+          danger={confirmState?.danger}
+        />
+        <AlertModal
+          open={!!alertState}
+          onClose={() => setAlertState(null)}
+          title={alertState?.title}
+          message={alertState?.message}
+          type={alertState?.type}
+        />
+
         {renameLessonState && (() => {
           const s = renameLessonState;
           let name = s.title;
@@ -1329,7 +1390,7 @@
                           loadCourse(true);
                           setTab("content");
                         } catch (e) {
-                          alert(e?.response?.data?.message || "Thao tác thất bại");
+                          showAlert(e?.response?.data?.message || "Thao tác thất bại", { title: "Lỗi" });
                         } finally {
                           setDeletingDraft(null);
                           setSavingDraft(false);
