@@ -2,7 +2,9 @@ import { httpClient } from '../lib';
 
 export type SourceReference = {
   chunkId: string;
-  sourceName: string;
+  courseId: string | null;
+  courseName: string | null;
+  sourceName: string | null;
   sectionTitle: string | null;
   excerpt: string;
   similarity: number;
@@ -63,7 +65,12 @@ export type AiSourceType = 'TEXT' | 'URL' | 'PDF' | 'DOC' | 'VIDEO';
 
 export type AiSource = {
   id: string;
-  courseId: string;
+  /** Null for system-wide documents not tied to any course. */
+  courseId: string | null;
+  /** Null for system-wide documents, or if the course lookup wasn't resolved. */
+  courseName: string | null;
+  /** Owning instructor of courseId's course. Null for system-wide documents. */
+  instructorId: string | null;
   sourceType: AiSourceType;
   sourceName: string;
   ingestStatus: AiIngestStatus;
@@ -71,6 +78,8 @@ export type AiSource = {
   errorMessage: string | null;
   createdAt: string;
   indexedAt: string | null;
+  /** Non-null when this document was added from an existing lesson resource, rather than uploaded standalone. */
+  resourceId: string | null;
 };
 
 export async function sendChatMessage(payload: {
@@ -95,13 +104,18 @@ export async function getConversationMessages(conversationId: string): Promise<A
   return response.data;
 }
 
-export async function listAiSources(courseId: string): Promise<AiSource[]> {
-  const response = await httpClient.get<AiSource[]>('/ai/sources', { params: { courseId } });
+/**
+ * Omit courseId to list every source the caller can manage: ADMIN gets everything in the system
+ * (system-wide docs + every course's docs); INSTRUCTOR gets every doc across the courses they own.
+ */
+export async function listAiSources(courseId?: string): Promise<AiSource[]> {
+  const response = await httpClient.get<AiSource[]>('/ai/sources', { params: courseId ? { courseId } : undefined });
   return response.data;
 }
 
 export async function presignAiSourceUpload(payload: {
-  courseId: string;
+  /** Null for a system-wide document not tied to any course (ADMIN only). */
+  courseId: string | null;
   originalFilename: string;
   mimeType: string;
 }): Promise<{ uploadUrl: string; s3Key: string }> {
@@ -110,7 +124,8 @@ export async function presignAiSourceUpload(payload: {
 }
 
 export async function createAiSource(payload: {
-  courseId: string;
+  /** Null for a system-wide document not tied to any course (ADMIN only). */
+  courseId: string | null;
   sourceType: AiSourceType;
   sourceName: string;
   metadata?: Record<string, unknown>;

@@ -15,7 +15,8 @@ import java.util.UUID;
  */
 public record SourceIngestRequest(
 
-        @NotNull UUID courseId,
+        /** Null for system-wide documents not tied to any course (ADMIN only). */
+        UUID courseId,
 
         /**
          * Ignored if sent by the client — the controller always overrides

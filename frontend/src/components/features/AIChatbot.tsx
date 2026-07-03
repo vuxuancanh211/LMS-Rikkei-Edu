@@ -145,7 +145,7 @@
         const courseId = window.__selectedCourseId || sessionStorage.getItem("selectedCourseId") || null;
         const res = await window.__aiService.sendChatMessage({ message: q, courseId, conversationId });
         setConversationId(res.conversationId);
-        setMsgs(m => [...m, { me: false, t: res.answer, structuredData: res.structuredData, uiRender: res.uiRender }]);
+        setMsgs(m => [...m, { me: false, t: res.answer, structuredData: res.structuredData, uiRender: res.uiRender, sources: res.sources }]);
       } catch (e) {
         setMsgs(m => [...m, { me: false, t: "Xin lỗi, mình đang gặp sự cố khi trả lời. Bạn thử lại sau nhé.", error: true }]);
       } finally {
@@ -168,6 +168,13 @@
                   <div style={{ padding: "10px 14px", borderRadius: 14, fontSize: 13.5, lineHeight: 1.55, background: m.me ? "var(--primary)" : "#fff", color: m.me ? "#fff" : "var(--text)", border: m.me ? "none" : "1px solid var(--border)", borderBottomRightRadius: m.me ? 4 : 14, borderBottomLeftRadius: m.me ? 14 : 4 }}>{m.t}</div>
                   {!m.me && m.structuredData?.type === "COURSE_LIST" && <CourseListTable items={m.structuredData.items} />}
                   {!m.me && <UiRenderWidget uiRender={m.uiRender} />}
+                  {!m.me && m.sources?.length > 0 && (
+                    <div className="t-xs dim" style={{ marginTop: 6 }}>
+                      Nguồn: {[...new Set(m.sources.map(s =>
+                        [s.courseName, s.sourceName].filter(Boolean).join(" — ")
+                      ).filter(Boolean))].join(" · ")}
+                    </div>
+                  )}
                   {!m.me && i > 0 && <div className="row gap-6" style={{ marginTop: 6 }}><button className="icon-btn" style={{ width: 28, height: 28, color: "var(--text-3)" }}><Ic n="thumbs_up" size={14} /></button><button className="icon-btn" style={{ width: 28, height: 28, color: "var(--text-3)" }}><Ic n="thumbs_down" size={14} /></button></div>}
                 </div>
               ))}

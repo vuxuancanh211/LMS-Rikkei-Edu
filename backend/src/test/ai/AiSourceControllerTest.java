@@ -72,8 +72,8 @@ class AiSourceControllerTest {
     }
 
     private SourceResponse sampleResponse() {
-        return new SourceResponse(sourceId, courseId, SourceType.TEXT, "Source",
-                IngestStatus.INDEXED, 5, null, OffsetDateTime.now(), OffsetDateTime.now());
+        return new SourceResponse(sourceId, courseId, "Course", instructorId, SourceType.TEXT, "Source",
+                IngestStatus.INDEXED, 5, null, OffsetDateTime.now(), OffsetDateTime.now(), null);
     }
 
     // ── POST /api/ai/sources ──────────────────────────────────────────────────
@@ -114,13 +114,32 @@ class AiSourceControllerTest {
         }
 
         @Test
-        void returns400_whenCourseIdNull() throws Exception {
+        void returns403_whenInstructorOmitsCourseId() throws Exception {
+            // courseId is nullable now (system-wide docs), but only ADMIN may create one.
             String body = "{\"uploadedBy\":\"" + UUID.randomUUID() + "\",\"sourceType\":\"TEXT\",\"message\":\"Hi\"}";
 
             mockMvc.perform(post("/api/ai/sources")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(body))
-                    .andExpect(status().isBadRequest());
+                    .andExpect(status().isForbidden());
+        }
+
+        @Test
+        void returns201_whenAdminCreatesSystemWideSource() throws Exception {
+            UserPrincipal admin = mock(UserPrincipal.class);
+            when(admin.getId()).thenReturn(UUID.randomUUID());
+            when(admin.getRole()).thenReturn(UserRole.ADMIN);
+            when(currentUserProvider.getCurrentUser()).thenReturn(Optional.of(admin));
+            SourceIngestRequest req = new SourceIngestRequest(
+                    null, null, SourceType.TEXT, "System doc", "Hello world", null, null);
+            when(sourceService.ingest(any())).thenReturn(sampleResponse());
+
+            mockMvc.perform(post("/api/ai/sources")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(req)))
+                    .andExpect(status().isCreated());
+
+            verify(sourceService).ingest(argThat(actual -> actual.courseId() == null));
         }
     }
 
@@ -148,6 +167,29 @@ class AiSourceControllerTest {
                     .andExpect(status().isForbidden());
 
             verify(sourceService, never()).listByCourse(any());
+        }
+
+        @Test
+        void returns200_withOwnCoursesDocs_whenInstructorOmitsCourseId() throws Exception {
+            when(sourceService.listByInstructor(instructorId)).thenReturn(List.of(sampleResponse()));
+
+            mockMvc.perform(get("/api/ai/sources"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$[0].id").value(sourceId.toString()));
+
+            verify(sourceService, never()).listAll();
+        }
+
+        @Test
+        void returns200_withAllSources_whenAdminOmitsCourseId() throws Exception {
+            UserPrincipal admin = mock(UserPrincipal.class);
+            when(admin.getRole()).thenReturn(UserRole.ADMIN);
+            when(currentUserProvider.getCurrentUser()).thenReturn(Optional.of(admin));
+            when(sourceService.listAll()).thenReturn(List.of(sampleResponse()));
+
+            mockMvc.perform(get("/api/ai/sources"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$[0].id").value(sourceId.toString()));
         }
     }
 

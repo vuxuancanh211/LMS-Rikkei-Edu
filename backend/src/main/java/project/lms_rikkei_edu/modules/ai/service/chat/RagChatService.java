@@ -15,6 +15,7 @@ import project.lms_rikkei_edu.modules.ai.service.context.UserContextService;
 import project.lms_rikkei_edu.modules.ai.dto.response.SourceReference;
 import project.lms_rikkei_edu.modules.ai.dto.response.StructuredData;
 import project.lms_rikkei_edu.modules.ai.entity.AiConversation;
+import project.lms_rikkei_edu.modules.ai.entity.AiSource;
 import project.lms_rikkei_edu.modules.ai.entity.AiMessage;
 import project.lms_rikkei_edu.modules.ai.entity.AiMessageDebug;
 import project.lms_rikkei_edu.modules.ai.entity.enums.ConversationStatus;
@@ -33,6 +34,8 @@ import project.lms_rikkei_edu.modules.ai.service.retrieval.VectorSearchService;
 
 import java.time.OffsetDateTime;
 import java.util.*;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Main RAG pipeline for course-aware Q&A.
@@ -80,12 +83,17 @@ public class RagChatService {
         List<AiMessage> history = loadHistory(conversation.getId());
         List<ChatMessage> llmHistory = toLlmHistory(history);
 
-        // 4. Retrieve relevant chunks — scope to requested course or first enrolled/owned course
+        // 4. Retrieve relevant chunks — course-scoped (if any) plus system-wide docs, merged by similarity
         float[] queryEmbedding = embeddingService.embed(req.message());
         UUID searchCourseId = resolveSearchCourse(req, userCtx);
-        List<ScoredChunk> chunks = (searchCourseId != null)
+        List<ScoredChunk> courseChunks = (searchCourseId != null)
                 ? vectorSearch.search(searchCourseId, queryEmbedding, props.getTopK(), props.getSimilarityThreshold())
                 : List.of();
+        List<ScoredChunk> systemChunks = vectorSearch.search(null, queryEmbedding, props.getTopK(), props.getSimilarityThreshold());
+        List<ScoredChunk> chunks = Stream.concat(courseChunks.stream(), systemChunks.stream())
+                .sorted(Comparator.comparingDouble(ScoredChunk::similarity).reversed())
+                .limit(props.getTopK())
+                .toList();
 
         log.debug("Retrieved {} chunks for courseId={} userId={}", chunks.size(), searchCourseId, req.userId());
 
@@ -110,7 +118,7 @@ public class RagChatService {
         saveDebug(assistantMsg.getId(), chunks, llmResp);
 
         // 10. Build response with source attributions
-        List<SourceReference> sources = buildSourceReferences(chunks);
+        List<SourceReference> sources = buildSourceReferences(chunks, userCtx);
         StructuredData structuredData = detectStructuredData(req.message(), userCtx);
 
         return new ChatResponse(
@@ -179,9 +187,23 @@ public class RagChatService {
         return conversationRepo.save(conv);
     }
 
-    /** Returns the course to scope vector search: explicit courseId > first enrolled/owned course > null. */
+    /**
+     * Returns the course to scope vector search: explicit courseId (if the user actually has
+     * access to it) > first enrolled/owned course > null.
+     *
+     * <p>If the client sends a courseId the user has no access to (not enrolled as student, not
+     * the owning instructor), we don't error out and don't silently substitute a different course
+     * of theirs — we just treat it as "no course scope", so no chunks are retrieved and the LLM
+     * falls back to general knowledge / role context only. ADMIN bypasses this check (same as
+     * {@code AiSourceController.verifyCourseOwnership}).
+     */
     private UUID resolveSearchCourse(ChatRequest req, UserContext ctx) {
-        if (req.courseId() != null) return req.courseId();
+        if (req.courseId() != null) {
+            if (ctx.role() == UserContext.UserRole.ADMIN) return req.courseId();
+            boolean hasAccess = ctx.courses().stream()
+                    .anyMatch(c -> c.courseId().equals(req.courseId()));
+            return hasAccess ? req.courseId() : null;
+        }
         if (!ctx.courses().isEmpty()) return ctx.courses().get(0).courseId();
         return null;
     }
@@ -492,11 +514,21 @@ public class RagChatService {
 
     // ── response mapping ──────────────────────────────────────────────────────
 
-    private List<SourceReference> buildSourceReferences(List<ScoredChunk> chunks) {
+    private List<SourceReference> buildSourceReferences(List<ScoredChunk> chunks, UserContext ctx) {
+        Map<UUID, String> sourceNames = sourceRepo.findAllById(
+                        chunks.stream().map(ScoredChunk::sourceId).collect(Collectors.toSet()))
+                .stream()
+                .collect(Collectors.toMap(AiSource::getId, AiSource::getSourceName));
+
+        Map<UUID, String> courseNames = ctx.courses().stream()
+                .collect(Collectors.toMap(UserContext.CourseInfo::courseId, UserContext.CourseInfo::title));
+
         return chunks.stream()
                 .map(c -> new SourceReference(
                         c.chunkId(),
-                        null, // source name loaded separately if needed
+                        c.courseId(),
+                        courseNames.get(c.courseId()), // null if e.g. ADMIN queried a course outside ctx.courses()
+                        sourceNames.get(c.sourceId()),
                         c.sectionTitle(),
                         truncate(c.chunkText(), 200),
                         c.similarity()

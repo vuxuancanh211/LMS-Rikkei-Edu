@@ -9,6 +9,7 @@ import project.lms_rikkei_edu.modules.ai.dto.response.ChatResponse;
 import project.lms_rikkei_edu.modules.ai.dto.response.UiRender;
 import project.lms_rikkei_edu.modules.ai.entity.AiConversation;
 import project.lms_rikkei_edu.modules.ai.entity.AiMessage;
+import project.lms_rikkei_edu.modules.ai.entity.AiSource;
 import project.lms_rikkei_edu.modules.ai.repository.AiConversationRepository;
 import project.lms_rikkei_edu.modules.ai.repository.AiMessageDebugRepository;
 import project.lms_rikkei_edu.modules.ai.repository.AiMessageRepository;
@@ -19,6 +20,7 @@ import project.lms_rikkei_edu.modules.ai.service.context.UserContextService;
 import project.lms_rikkei_edu.modules.ai.service.embedding.EmbeddingService;
 import project.lms_rikkei_edu.modules.ai.service.llm.LlmResponse;
 import project.lms_rikkei_edu.modules.ai.service.llm.LlmService;
+import project.lms_rikkei_edu.modules.ai.service.retrieval.ScoredChunk;
 import project.lms_rikkei_edu.modules.ai.service.retrieval.VectorSearchService;
 
 import java.time.OffsetDateTime;
@@ -30,7 +32,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class RagChatServiceTest {
@@ -46,7 +52,6 @@ class RagChatServiceTest {
     private RagChatService service;
 
     private final UUID userId = UUID.randomUUID();
-    private final UUID courseId = UUID.randomUUID();
 
     @BeforeEach
     void setUp() {
@@ -97,6 +102,14 @@ class RagChatServiceTest {
                 List.of());
     }
 
+    private UserContext adminContext() {
+        return new UserContext(userId, "Admin", UserContext.UserRole.ADMIN,
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                List.of(), List.of(), null,
+                List.of(), List.of(), List.of(), List.of(), List.of(),
+                List.of());
+    }
+
     @Test
     void instructorAskingAboutCourses_getsCourseListStructuredData() {
         List<UserContext.CourseInfo> courses = List.of(
@@ -104,7 +117,7 @@ class RagChatServiceTest {
                 new UserContext.CourseInfo(UUID.randomUUID(), "Docker & Kubernetes", "PUBLISHED", 3.0));
         when(userContextService.load(userId)).thenReturn(instructorContext(courses));
 
-        ChatResponse resp = service.chat(new ChatRequest(userId, courseId, null, null, "Tôi có bao nhiêu khóa học?"));
+        ChatResponse resp = service.chat(new ChatRequest(userId, null, null, null, "Tôi có bao nhiêu khóa học?"));
 
         assertThat(resp.structuredData()).isNotNull();
         assertThat(resp.structuredData().type()).isEqualTo("COURSE_LIST");
@@ -118,7 +131,7 @@ class RagChatServiceTest {
                 new UserContext.CourseInfo(UUID.randomUUID(), "Spring Boot Microservices", "DRAFT", 0.0));
         when(userContextService.load(userId)).thenReturn(instructorContext(courses));
 
-        ChatResponse resp = service.chat(new ChatRequest(userId, courseId, null, null, "Deadline bài tập sắp tới là khi nào?"));
+        ChatResponse resp = service.chat(new ChatRequest(userId, null, null, null, "Deadline bài tập sắp tới là khi nào?"));
 
         assertThat(resp.structuredData()).isNull();
     }
@@ -134,7 +147,7 @@ class RagChatServiceTest {
         when(userContextService.load(userId)).thenReturn(instructorContext(courses));
 
         ChatResponse resp = service.chat(new ChatRequest(
-                userId, courseId, null, null, "Khóa học DEVVVVVVVV đang có bao nhiêu chương?"));
+                userId, null, null, null, "Khóa học DEVVVVVVVV đang có bao nhiêu chương?"));
 
         assertThat(resp.structuredData()).isNull();
     }
@@ -145,7 +158,7 @@ class RagChatServiceTest {
                 new UserContext.CourseInfo(UUID.randomUUID(), "Spring Boot Microservices", "IN_PROGRESS", 45.0));
         when(userContextService.load(userId)).thenReturn(studentContext(courses));
 
-        ChatResponse resp = service.chat(new ChatRequest(userId, courseId, null, null, "Tôi có bao nhiêu khóa học?"));
+        ChatResponse resp = service.chat(new ChatRequest(userId, null, null, null, "Tôi có bao nhiêu khóa học?"));
 
         assertThat(resp.structuredData()).isNull();
     }
@@ -157,7 +170,7 @@ class RagChatServiceTest {
         when(llmService.complete(any(), any(), any()))
                 .thenReturn(new LlmResponse("Đây là bảng thống kê quiz", 10, 5, 15, 100, uiRender));
 
-        ChatResponse resp = service.chat(new ChatRequest(userId, courseId, null, null, "Quiz nào học viên làm kém nhất?"));
+        ChatResponse resp = service.chat(new ChatRequest(userId, null, null, null, "Quiz nào học viên làm kém nhất?"));
 
         assertThat(resp.uiRender()).isEqualTo(uiRender);
     }
@@ -166,8 +179,97 @@ class RagChatServiceTest {
     void noToolCallFromLlm_leavesUiRenderNull() {
         when(userContextService.load(userId)).thenReturn(instructorContext(List.of()));
 
-        ChatResponse resp = service.chat(new ChatRequest(userId, courseId, null, null, "Xin chào"));
+        ChatResponse resp = service.chat(new ChatRequest(userId, null, null, null, "Xin chào"));
 
         assertThat(resp.uiRender()).isNull();
+    }
+
+    // ── course access control ─────────────────────────────────────────────────
+
+    @Test
+    void courseIdOutsideUsersCourses_returnsAnswerWithoutDocuments() {
+        UUID ownCourseId = UUID.randomUUID();
+        UUID otherCourseId = UUID.randomUUID();
+        List<UserContext.CourseInfo> courses = List.of(
+                new UserContext.CourseInfo(ownCourseId, "Khóa của tôi", "IN_PROGRESS", 10.0));
+        when(userContextService.load(userId)).thenReturn(studentContext(courses));
+
+        ChatResponse resp = service.chat(new ChatRequest(
+                userId, otherCourseId, null, null, "Tài liệu nói gì về K-means?"));
+
+        // Never searches the course they don't belong to — but system-wide docs are still searched.
+        verify(vectorSearch, never()).search(eq(otherCourseId), any(), anyInt(), anyDouble());
+        verify(vectorSearch).search(isNull(), any(), anyInt(), anyDouble());
+        assertThat(resp).isNotNull();
+        assertThat(resp.sources()).isEmpty();
+    }
+
+    @Test
+    void adminCanQueryAnyCourse_bypassesAccessCheck() {
+        UUID anyCourseId = UUID.randomUUID();
+        when(userContextService.load(userId)).thenReturn(adminContext());
+
+        service.chat(new ChatRequest(userId, anyCourseId, null, null, "Khóa này có bao nhiêu học viên?"));
+
+        verify(vectorSearch).search(eq(anyCourseId), any(), anyInt(), anyDouble());
+    }
+
+    @Test
+    void sourceReferences_includeCourseNameAndSourceName() {
+        UUID ownCourseId = UUID.randomUUID();
+        UUID sourceId = UUID.randomUUID();
+        UUID chunkId = UUID.randomUUID();
+        List<UserContext.CourseInfo> courses = List.of(
+                new UserContext.CourseInfo(ownCourseId, "Khóa X", "IN_PROGRESS", 10.0));
+        when(userContextService.load(userId)).thenReturn(studentContext(courses));
+        when(vectorSearch.search(eq(ownCourseId), any(), anyInt(), anyDouble())).thenReturn(List.of(
+                new ScoredChunk(chunkId, sourceId, ownCourseId, 0, "Chương 1", "Nội dung...", 0.9)));
+        when(sourceRepo.findAllById(any())).thenReturn(List.of(
+                AiSource.builder().id(sourceId).sourceName("Slide.pdf").build()));
+
+        ChatResponse resp = service.chat(new ChatRequest(
+                userId, ownCourseId, null, null, "Chương 1 nói gì?"));
+
+        assertThat(resp.sources()).hasSize(1);
+        assertThat(resp.sources().get(0).sourceName()).isEqualTo("Slide.pdf");
+        assertThat(resp.sources().get(0).courseName()).isEqualTo("Khóa X");
+        assertThat(resp.sources().get(0).courseId()).isEqualTo(ownCourseId);
+    }
+
+    // ── system-wide documents ────────────────────────────────────────────────
+
+    @Test
+    void systemDocsAreMergedIntoAnswer_orderedBySimilarity() {
+        UUID ownCourseId = UUID.randomUUID();
+        UUID courseSourceId = UUID.randomUUID();
+        UUID systemSourceId = UUID.randomUUID();
+        List<UserContext.CourseInfo> courses = List.of(
+                new UserContext.CourseInfo(ownCourseId, "Khóa X", "IN_PROGRESS", 10.0));
+        when(userContextService.load(userId)).thenReturn(studentContext(courses));
+        when(vectorSearch.search(eq(ownCourseId), any(), anyInt(), anyDouble())).thenReturn(List.of(
+                new ScoredChunk(UUID.randomUUID(), courseSourceId, ownCourseId, 0, null, "Nội dung khóa học", 0.6)));
+        when(vectorSearch.search(isNull(), any(), anyInt(), anyDouble())).thenReturn(List.of(
+                new ScoredChunk(UUID.randomUUID(), systemSourceId, null, 0, null, "Quy chế hệ thống", 0.9)));
+        when(sourceRepo.findAllById(any())).thenReturn(List.of(
+                AiSource.builder().id(courseSourceId).sourceName("Course.pdf").build(),
+                AiSource.builder().id(systemSourceId).sourceName("System.pdf").build()));
+
+        ChatResponse resp = service.chat(new ChatRequest(
+                userId, ownCourseId, null, null, "Quy định chung là gì?"));
+
+        assertThat(resp.sources()).hasSize(2);
+        // Higher-similarity system doc (0.9) must come first.
+        assertThat(resp.sources().get(0).sourceName()).isEqualTo("System.pdf");
+        assertThat(resp.sources().get(0).courseName()).isNull();
+        assertThat(resp.sources().get(1).sourceName()).isEqualTo("Course.pdf");
+    }
+
+    @Test
+    void systemDocsAreSearched_evenWhenNoCourseScope() {
+        when(userContextService.load(userId)).thenReturn(instructorContext(List.of()));
+
+        service.chat(new ChatRequest(userId, null, null, null, "Chính sách nghỉ phép là gì?"));
+
+        verify(vectorSearch).search(isNull(), any(), anyInt(), anyDouble());
     }
 }

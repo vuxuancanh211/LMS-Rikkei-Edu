@@ -16,6 +16,8 @@ public interface CourseRepository extends JpaRepository<Course, UUID> {
 
     Page<Course> findAllByInstructorId(UUID instructorId, Pageable pageable);
 
+    List<Course> findAllByInstructorId(UUID instructorId);
+
     boolean existsByIdAndInstructorId(UUID id, UUID instructorId);
 
     boolean existsBySlug(String slug);

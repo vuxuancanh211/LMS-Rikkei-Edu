@@ -1,0 +1,297 @@
+// @ts-nocheck
+(function () {
+  const { useState, useEffect } = React;
+  const Ic = window.Icon;
+  const { Section, Empty, Modal, ModalHead, Search, Select } = window;
+  const api = window.httpClient;
+
+  const STATUS_CFG = {
+    PENDING:    { label: "Đang chờ xử lý", color: "#64748b", bg: "#f1f5f9" },
+    PROCESSING: { label: "Đang xử lý",     color: "#0284c7", bg: "#e0f2fe" },
+    INDEXED:    { label: "Đã index",       color: "#16a34a", bg: "#dcfce7" },
+    FAILED:     { label: "Lỗi",            color: "#dc2626", bg: "#fee2e2" },
+  };
+
+  function fmtDT(iso) {
+    if (!iso) return "—";
+    return new Date(iso).toLocaleString("vi-VN", { dateStyle: "short", timeStyle: "short" });
+  }
+
+  function Field({ label, children }) {
+    return (
+      <div>
+        <label className="t-label" style={{ display: "block", marginBottom: 7 }}>{label}</label>
+        {children}
+      </div>
+    );
+  }
+
+  /* Cùng pattern Dropzone dùng ở AddResourceModal (CourseModals.tsx) / AiDocsTab.tsx — bản copy cục bộ. */
+  function Dropzone({ icon, title, hint, file, onClick, onDrop }) {
+    const [over, setOver] = useState(false);
+    return (
+      <div
+        onDragOver={e => { e.preventDefault(); setOver(true); }}
+        onDragLeave={() => setOver(false)}
+        onDrop={e => { e.preventDefault(); setOver(false); onDrop(e.dataTransfer.files[0]); }}
+        onClick={onClick}
+        style={{
+          minHeight: 140, borderRadius: 10, border: `2px dashed ${over ? "var(--accent)" : "var(--border)"}`,
+          display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8,
+          cursor: "pointer", background: over ? "var(--surface-2)" : "transparent", transition: "all .15s", padding: "16px 0",
+        }}>
+        {file
+          ? <><Ic n="check" size={22} style={{ color: "var(--accent)" }} /><span style={{ fontSize: 13, color: "var(--text-2)", fontWeight: 500 }}>{file.name}</span></>
+          : <><Ic n={icon} size={22} style={{ color: "var(--text-3)" }} /><span style={{ fontSize: 13, color: "var(--text-3)", fontWeight: 500 }}>{title}</span><span style={{ fontSize: 11.5, color: "var(--text-3)" }}>{hint}</span></>
+        }
+      </div>
+    );
+  }
+
+  function AddInsDocModal({ courses, onClose, onAdded }) {
+    const [courseId, setCourseId] = useState(courses[0]?.id || "");
+    const [file, setFile] = useState(null);
+    const [name, setName] = useState("");
+    const [progress, setProgress] = useState(0);
+    const [saving, setSaving] = useState(false);
+    const [err, setErr] = useState("");
+    const fileRef = React.useRef();
+
+    function onFilePick(f) {
+      if (!f) return;
+      const ext = f.name.split(".").pop()?.toLowerCase() || "";
+      if (ext !== "pdf" && ext !== "doc" && ext !== "docx") { setErr("Chỉ hỗ trợ file .pdf, .doc, .docx"); return; }
+      setFile(f);
+      setName(prev => prev || f.name.replace(/\.[^.]+$/, ""));
+      setErr("");
+    }
+
+    async function submit() {
+      if (!courseId) { setErr("Vui lòng chọn khóa học"); return; }
+      if (!file) { setErr("Vui lòng chọn file tài liệu"); return; }
+      const ext = file.name.split(".").pop()?.toLowerCase() || "";
+      const sourceType = ext === "pdf" ? "PDF" : "DOC";
+
+      setSaving(true); setErr(""); setProgress(0);
+      try {
+        const { uploadUrl, s3Key } = await window.__aiService.presignAiSourceUpload({
+          courseId, originalFilename: file.name, mimeType: file.type || "application/octet-stream",
+        });
+        await new Promise((res, rej) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open("PUT", uploadUrl);
+          xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+          xhr.upload.onprogress = (e) => { if (e.lengthComputable) setProgress(Math.round(e.loaded / e.total * 100)); };
+          xhr.onload = () => xhr.status < 300 ? res(null) : rej(new Error("Upload thất bại"));
+          xhr.onerror = () => rej(new Error("Mất kết nối"));
+          xhr.send(file);
+        });
+        await window.__aiService.createAiSource({
+          courseId, sourceType, sourceName: name.trim() || file.name, metadata: { s3Key },
+        });
+        onAdded();
+        onClose();
+      } catch (e) {
+        setErr(e?.response?.data?.message || e?.message || "Thao tác thất bại");
+      } finally {
+        setSaving(false);
+      }
+    }
+
+    return (
+      <Modal open onClose={onClose} max={560}>
+        <ModalHead title="Thêm tài liệu AI" icon="sparkles" iconBg="#f5f0ff" iconColor="#7c3aed" onClose={onClose} />
+        <div className="modal-body" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <Field label="Khóa học">
+            <Select value={courseId} onChange={setCourseId} options={courses.map(c => ({ v: c.id, label: c.title }))} />
+          </Field>
+          <input ref={fileRef} type="file" accept=".pdf,.doc,.docx" style={{ display: "none" }}
+            onChange={e => onFilePick(e.target.files?.[0])} />
+          <Dropzone icon="upload" title="Kéo thả tài liệu vào đây" hint="PDF, DOCX · tối đa 200MB"
+            file={file} onClick={() => fileRef.current?.click()} onDrop={onFilePick} />
+          <Field label="Tên hiển thị">
+            <input className="input" value={name} onChange={e => setName(e.target.value)}
+              placeholder="VD: Giáo trình chương 1" autoFocus={!file} />
+          </Field>
+          {saving && (
+            <div>
+              <div style={{ height: 5, borderRadius: 999, background: "var(--border)", overflow: "hidden" }}>
+                <div style={{ width: progress + "%", height: "100%", background: "var(--accent)", transition: "width .2s" }} />
+              </div>
+              <div className="t-xs muted" style={{ marginTop: 4, textAlign: "center" }}>Đang xử lý... {progress}%</div>
+            </div>
+          )}
+          {err && <div className="t-xs" style={{ color: "var(--error)" }}>{err}</div>}
+        </div>
+        <div className="modal-foot">
+          <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Hủy</button>
+          <button className="btn btn-primary" onClick={submit} disabled={saving}>
+            <Ic n="plus" size={16} />{saving ? "Đang xử lý..." : "Thêm"}
+          </button>
+        </div>
+      </Modal>
+    );
+  }
+
+  function ConfirmDeleteModal({ source, onClose, onConfirm, busy }) {
+    return (
+      <Modal open onClose={onClose} max={460}>
+        <ModalHead title="Xác nhận xóa" sub="Tài liệu sẽ bị gỡ khỏi kho tri thức AI, trợ lý sẽ không còn dùng nội dung này để trả lời."
+          icon="warn" iconBg="#fff7ed" iconColor="#f97316" onClose={onClose} />
+        <div className="modal-body">
+          <div style={{ fontWeight: 600, fontSize: 14 }} className="truncate">{source.sourceName}</div>
+        </div>
+        <div className="modal-foot">
+          <button className="btn btn-ghost" onClick={onClose} disabled={busy}>Hủy</button>
+          <button className="btn btn-danger" onClick={onConfirm} disabled={busy}>{busy ? "Đang xóa..." : "Xóa"}</button>
+        </div>
+      </Modal>
+    );
+  }
+
+  /**
+   * Trang Instructor "Tài liệu AI" — xem/quản lý tài liệu AI trên TẤT CẢ khóa học đang dạy,
+   * không cần vào từng khóa học riêng lẻ (khác với tab AiDocsTab trong chi tiết 1 khóa học).
+   */
+  function InsAiDocs() {
+    const [sources, setSources] = useState([]);
+    const [myCourses, setMyCourses] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [showAdd, setShowAdd] = useState(false);
+    const [busyId, setBusyId] = useState(null);
+    const [search, setSearch] = useState("");
+    const [courseFilter, setCourseFilter] = useState("");
+    const [deleteTarget, setDeleteTarget] = useState(null);
+
+    const load = async () => {
+      setLoading(true);
+      try {
+        const [docs, coursesRes] = await Promise.all([
+          window.__aiService.listAiSources(),
+          api.get('/instructor/courses', { params: { page: 0, size: 200, sort: 'createdAt,desc' } }),
+        ]);
+        setSources(docs);
+        setMyCourses(coursesRes.data?.content || []);
+      } catch (e) {
+        console.error("Failed to load AI sources", e);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    useEffect(() => { load(); }, []);
+
+    async function handleReingest(id) {
+      setBusyId(id);
+      try { await window.__aiService.reingestAiSource(id); await load(); }
+      catch (e) { console.error(e); }
+      finally { setBusyId(null); }
+    }
+
+    async function confirmDelete() {
+      if (!deleteTarget) return;
+      setBusyId(deleteTarget.id);
+      try { await window.__aiService.deleteAiSource(deleteTarget.id); await load(); }
+      catch (e) { console.error(e); }
+      finally { setBusyId(null); setDeleteTarget(null); }
+    }
+
+    const filteredSources = sources.filter(s => {
+      if (courseFilter && s.courseId !== courseFilter) return false;
+      if (search.trim() && !s.sourceName.toLowerCase().includes(search.trim().toLowerCase())) return false;
+      return true;
+    });
+
+    return (
+      <div className="page fade-in">
+        <div className="page-head">
+          <h1 className="t-h1">Tài liệu AI</h1>
+          <p>Xem và quản lý tài liệu AI trên tất cả khóa học bạn đang dạy.</p>
+        </div>
+
+        <Section>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+            <h2 className="t-h2">Tài liệu AI</h2>
+            <button className="btn btn-primary btn-sm" style={{ gap: 6 }} disabled={myCourses.length === 0}
+              onClick={() => setShowAdd(true)}>
+              <Ic n="plus" size={14} />Thêm tài liệu
+            </button>
+          </div>
+          <p className="muted" style={{ fontSize: 12.5, marginBottom: 16 }}>
+            Tài liệu PDF/DOCX đưa vào đây sẽ được trợ lý AI dùng để trả lời câu hỏi của học viên trong khóa học tương ứng.
+          </p>
+
+          {!loading && sources.length > 0 && (
+            <div className="row gap-12" style={{ marginBottom: 16, flexWrap: "wrap" }}>
+              <Search placeholder="Tìm theo tên tài liệu..." value={search} onChange={setSearch} style={{ maxWidth: 280 }} />
+              <Select value={courseFilter} onChange={setCourseFilter} style={{ minWidth: 220 }} options={[
+                { v: "", label: "Tất cả khóa học" },
+                ...myCourses.map(c => ({ v: c.id, label: c.title })),
+              ]} />
+            </div>
+          )}
+
+          {loading && <div className="muted" style={{ fontSize: 13.5 }}>Đang tải...</div>}
+
+          {!loading && sources.length === 0 && (
+            <Empty icon="file" title="Chưa có tài liệu nào" sub="Thêm PDF hoặc DOCX để trợ lý AI có thể trả lời dựa trên nội dung khóa học." />
+          )}
+
+          {!loading && sources.length > 0 && filteredSources.length === 0 && (
+            <Empty icon="search" title="Không tìm thấy tài liệu phù hợp" sub="Thử từ khóa khác hoặc chọn lại bộ lọc." />
+          )}
+
+          {!loading && filteredSources.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {filteredSources.map(s => {
+                const cfg = STATUS_CFG[s.ingestStatus] || STATUS_CFG.PENDING;
+                return (
+                  <div key={s.id} className="row gap-12" style={{ padding: 12, border: "1px solid var(--border)", borderRadius: 12 }}>
+                    <div className="stat-ic" style={{ width: 44, height: 44, borderRadius: 11, background: cfg.bg, color: cfg.color }}>
+                      <Ic n="file" size={21} />
+                    </div>
+                    <div className="grow" style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, fontSize: 14 }} className="truncate">{s.sourceName}</div>
+                      <div className="row gap-6" style={{ marginTop: 4, flexWrap: "wrap" }}>
+                        <span className="t-xs muted">
+                          {s.sourceType} · {fmtDT(s.createdAt)}
+                          {s.ingestStatus === "INDEXED" && s.chunkCount != null ? ` · ${s.chunkCount} đoạn` : ""}
+                        </span>
+                        <span className="row gap-4" style={{ padding: "2px 8px", borderRadius: 999, fontSize: 10.5, fontWeight: 600, background: "#eaf1ff", color: "#185fa5", flex: "none" }}>
+                          <Ic n="book" size={11} />{s.courseName || "Không rõ khóa học"}
+                        </span>
+                      </div>
+                      {s.ingestStatus === "FAILED" && s.errorMessage && (
+                        <div className="t-xs" style={{ color: "var(--error)", marginTop: 3 }}>{s.errorMessage}</div>
+                      )}
+                    </div>
+                    <span style={{ padding: "3px 10px", borderRadius: 999, fontSize: 11.5, fontWeight: 700, background: cfg.color, color: "#fff", flex: "none" }}>
+                      {cfg.label}
+                    </span>
+                    <button className="btn btn-ghost btn-icon btn-sm" style={{ width: 32, height: 32 }} title="Xử lý lại"
+                      disabled={busyId === s.id} onClick={() => handleReingest(s.id)}>
+                      <Ic n="rotate_ccw" size={14} />
+                    </button>
+                    <button className="btn btn-ghost btn-icon btn-sm" style={{ width: 32, height: 32, color: "var(--error)" }} title="Xóa"
+                      disabled={busyId === s.id} onClick={() => setDeleteTarget(s)}>
+                      <Ic n="x" size={14} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {showAdd && (
+            <AddInsDocModal courses={myCourses} onClose={() => setShowAdd(false)} onAdded={load} />
+          )}
+          {deleteTarget && (
+            <ConfirmDeleteModal source={deleteTarget} onClose={() => setDeleteTarget(null)} onConfirm={confirmDelete} busy={busyId === deleteTarget.id} />
+          )}
+        </Section>
+      </div>
+    );
+  }
+
+  window.InsAiDocs = InsAiDocs;
+})();

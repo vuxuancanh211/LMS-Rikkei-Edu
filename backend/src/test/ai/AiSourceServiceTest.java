@@ -21,9 +21,11 @@ import project.lms_rikkei_edu.modules.ai.service.AiSourceService;
 import project.lms_rikkei_edu.modules.ai.service.ingestion.CourseEmbeddingService;
 import project.lms_rikkei_edu.modules.ai.service.ingestion.IngestionOrchestrator;
 import project.lms_rikkei_edu.modules.course.entity.Chapter;
+import project.lms_rikkei_edu.modules.course.entity.Course;
 import project.lms_rikkei_edu.modules.course.entity.Lesson;
 import project.lms_rikkei_edu.modules.course.entity.LessonResource;
 import project.lms_rikkei_edu.modules.course.enums.ResourceType;
+import project.lms_rikkei_edu.modules.course.repository.CourseRepository;
 import project.lms_rikkei_edu.modules.course.repository.LessonResourceRepository;
 
 import java.time.OffsetDateTime;
@@ -44,6 +46,7 @@ class AiSourceServiceTest {
     @Mock IngestionOrchestrator orchestrator;
     @Mock LessonResourceRepository lessonResourceRepo;
     @Mock CourseEmbeddingService courseEmbeddingService;
+    @Mock CourseRepository courseRepo;
 
     AiSourceService service;
 
@@ -53,7 +56,7 @@ class AiSourceServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new AiSourceService(sourceRepo, chunkRepo, orchestrator, lessonResourceRepo, courseEmbeddingService);
+        service = new AiSourceService(sourceRepo, chunkRepo, orchestrator, lessonResourceRepo, courseEmbeddingService, courseRepo);
     }
 
     private AiSource buildSource(UUID id) {
@@ -148,6 +151,79 @@ class AiSourceServiceTest {
             when(sourceRepo.findByCourseIdAndDeletedAtIsNull(courseId)).thenReturn(List.of());
 
             assertThat(service.listByCourse(courseId)).isEmpty();
+        }
+    }
+
+    // ── listAll ───────────────────────────────────────────────────────────────
+
+    @Nested
+    class ListAll {
+
+        @Test
+        void includesSystemAndCourseDocsWithCourseName() {
+            AiSource courseDoc = buildSource(UUID.randomUUID());
+            AiSource systemDoc = AiSource.builder()
+                    .id(UUID.randomUUID())
+                    .courseId(null)
+                    .uploadedBy(uploadedBy)
+                    .sourceType(SourceType.PDF)
+                    .sourceName("System Doc")
+                    .status("ACTIVE")
+                    .ingestStatus(IngestStatus.INDEXED)
+                    .createdAt(OffsetDateTime.now())
+                    .build();
+            when(sourceRepo.findByDeletedAtIsNull()).thenReturn(List.of(courseDoc, systemDoc));
+            when(courseRepo.findAllById(any())).thenReturn(List.of(
+                    Course.builder().id(courseId).title("Khóa X").build()));
+
+            List<SourceResponse> list = service.listAll();
+
+            assertThat(list).hasSize(2);
+            SourceResponse courseResp = list.stream().filter(r -> r.id().equals(courseDoc.getId())).findFirst().orElseThrow();
+            SourceResponse systemResp = list.stream().filter(r -> r.id().equals(systemDoc.getId())).findFirst().orElseThrow();
+            assertThat(courseResp.courseName()).isEqualTo("Khóa X");
+            assertThat(systemResp.courseId()).isNull();
+            assertThat(systemResp.courseName()).isNull();
+        }
+    }
+
+    // ── listByInstructor ─────────────────────────────────────────────────────
+
+    @Nested
+    class ListByInstructor {
+
+        @Test
+        void returnsDocsAcrossInstructorsCourses_withCourseNameAndInstructorId() {
+            UUID instructorId = UUID.randomUUID();
+            UUID otherCourseId = UUID.randomUUID();
+            AiSource doc1 = buildSource(UUID.randomUUID());
+            AiSource doc2 = AiSource.builder()
+                    .id(UUID.randomUUID()).courseId(otherCourseId).uploadedBy(uploadedBy)
+                    .sourceType(SourceType.PDF).sourceName("Doc2").status("ACTIVE")
+                    .ingestStatus(IngestStatus.INDEXED).createdAt(OffsetDateTime.now())
+                    .build();
+            when(courseRepo.findAllByInstructorId(instructorId)).thenReturn(List.of(
+                    Course.builder().id(courseId).instructorId(instructorId).title("Khóa X").build(),
+                    Course.builder().id(otherCourseId).instructorId(instructorId).title("Khóa Y").build()));
+            when(sourceRepo.findByCourseIdInAndDeletedAtIsNull(List.of(courseId, otherCourseId)))
+                    .thenReturn(List.of(buildSource(sourceId), doc2));
+            when(courseRepo.findAllById(any())).thenReturn(List.of(
+                    Course.builder().id(courseId).instructorId(instructorId).title("Khóa X").build(),
+                    Course.builder().id(otherCourseId).instructorId(instructorId).title("Khóa Y").build()));
+
+            List<SourceResponse> list = service.listByInstructor(instructorId);
+
+            assertThat(list).hasSize(2);
+            assertThat(list).allMatch(r -> instructorId.equals(r.instructorId()));
+        }
+
+        @Test
+        void returnsEmptyList_whenInstructorHasNoCourses() {
+            UUID instructorId = UUID.randomUUID();
+            when(courseRepo.findAllByInstructorId(instructorId)).thenReturn(List.of());
+
+            assertThat(service.listByInstructor(instructorId)).isEmpty();
+            verify(sourceRepo, never()).findByCourseIdInAndDeletedAtIsNull(any());
         }
     }
 

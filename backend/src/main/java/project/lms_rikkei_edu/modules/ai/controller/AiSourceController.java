@@ -49,7 +49,8 @@ public class AiSourceController {
     @PostMapping("/presign-upload")
     public ResponseEntity<SourcePresignResponse> presignUpload(@Valid @RequestBody SourcePresignRequest req) {
         verifyCourseOwnership(req.courseId(), currentUser());
-        String s3Key = "ai-sources/%s/%s-%s".formatted(req.courseId(), UUID.randomUUID(), req.originalFilename());
+        String scope = req.courseId() != null ? req.courseId().toString() : "system";
+        String s3Key = "ai-sources/%s/%s-%s".formatted(scope, UUID.randomUUID(), req.originalFilename());
         String uploadUrl = s3Service.generatePresignedPutUrl(s3Key, req.mimeType(), 3600).url().toString();
         return ResponseEntity.ok(new SourcePresignResponse(uploadUrl, s3Key));
     }
@@ -65,11 +66,23 @@ public class AiSourceController {
         return ResponseEntity.status(HttpStatus.CREATED).body(sourceService.ingest(safeReq));
     }
 
-    /** List all active sources for a course. */
+    /**
+     * List active sources for a course, or — when {@code courseId} is omitted — every source the
+     * caller can manage: ADMIN gets everything in the system (system-wide docs + every course's
+     * docs); INSTRUCTOR gets every doc across the courses they own (no system-wide docs, since
+     * those are ADMIN-only).
+     */
     @GetMapping
-    public ResponseEntity<List<SourceResponse>> list(@RequestParam UUID courseId) {
-        verifyCourseOwnership(courseId, currentUser());
-        return ResponseEntity.ok(sourceService.listByCourse(courseId));
+    public ResponseEntity<List<SourceResponse>> list(@RequestParam(required = false) UUID courseId) {
+        UserPrincipal user = currentUser();
+        if (courseId != null) {
+            verifyCourseOwnership(courseId, user);
+            return ResponseEntity.ok(sourceService.listByCourse(courseId));
+        }
+        if (user.getRole() == UserRole.ADMIN) {
+            return ResponseEntity.ok(sourceService.listAll());
+        }
+        return ResponseEntity.ok(sourceService.listByInstructor(user.getId()));
     }
 
     /** Get a single source by id. */

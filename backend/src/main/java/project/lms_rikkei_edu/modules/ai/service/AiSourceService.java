@@ -14,14 +14,17 @@ import project.lms_rikkei_edu.modules.ai.repository.DocumentChunkRepository;
 import project.lms_rikkei_edu.modules.ai.exception.AiSourceNotFoundException;
 import project.lms_rikkei_edu.modules.ai.service.ingestion.CourseEmbeddingService;
 import project.lms_rikkei_edu.modules.ai.service.ingestion.IngestionOrchestrator;
+import project.lms_rikkei_edu.modules.course.entity.Course;
 import project.lms_rikkei_edu.modules.course.entity.LessonResource;
 import project.lms_rikkei_edu.modules.course.enums.ResourceType;
+import project.lms_rikkei_edu.modules.course.repository.CourseRepository;
 import project.lms_rikkei_edu.modules.course.repository.LessonResourceRepository;
 
 import java.time.OffsetDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -34,6 +37,7 @@ public class AiSourceService {
     private final IngestionOrchestrator orchestrator;
     private final LessonResourceRepository lessonResourceRepo;
     private final CourseEmbeddingService courseEmbeddingService;
+    private final CourseRepository courseRepo;
 
     /** Register a new source and immediately start ingestion. */
     @Transactional
@@ -65,20 +69,52 @@ public class AiSourceService {
 
         // Reload to get the updated status after ingestion.
         source = sourceRepo.findById(source.getId()).orElseThrow();
-        return SourceResponse.from(source);
+        return SourceResponse.from(source, courseOf(source.getCourseId()));
     }
 
     public List<SourceResponse> listByCourse(UUID courseId) {
+        Course course = courseOf(courseId);
         return sourceRepo.findByCourseIdAndDeletedAtIsNull(courseId)
                 .stream()
-                .map(SourceResponse::from)
+                .map(s -> SourceResponse.from(s, course))
+                .toList();
+    }
+
+    /** List every source in the system — every course's docs plus system-wide (courseId=null) docs. */
+    public List<SourceResponse> listAll() {
+        List<AiSource> sources = sourceRepo.findByDeletedAtIsNull();
+        Map<UUID, Course> courses = coursesById(sources);
+        return sources.stream()
+                .map(s -> SourceResponse.from(s, courses.get(s.getCourseId())))
+                .toList();
+    }
+
+    /** List every source across the courses a given instructor owns (system-wide docs are ADMIN-only, excluded here). */
+    public List<SourceResponse> listByInstructor(UUID instructorId) {
+        List<UUID> courseIds = courseRepo.findAllByInstructorId(instructorId).stream().map(Course::getId).toList();
+        if (courseIds.isEmpty()) return List.of();
+        List<AiSource> sources = sourceRepo.findByCourseIdInAndDeletedAtIsNull(courseIds);
+        Map<UUID, Course> courses = coursesById(sources);
+        return sources.stream()
+                .map(s -> SourceResponse.from(s, courses.get(s.getCourseId())))
                 .toList();
     }
 
     public SourceResponse getById(UUID id) {
-        return sourceRepo.findById(id)
-                .map(SourceResponse::from)
+        AiSource source = sourceRepo.findById(id)
                 .orElseThrow(() -> new AiSourceNotFoundException(id));
+        return SourceResponse.from(source, courseOf(source.getCourseId()));
+    }
+
+    private Course courseOf(UUID courseId) {
+        return courseId == null ? null : courseRepo.findById(courseId).orElse(null);
+    }
+
+    private Map<UUID, Course> coursesById(List<AiSource> sources) {
+        return courseRepo.findAllById(
+                        sources.stream().map(AiSource::getCourseId).filter(Objects::nonNull).collect(Collectors.toSet()))
+                .stream()
+                .collect(Collectors.toMap(Course::getId, c -> c));
     }
 
     /** Soft-delete the source and remove its chunks. */
@@ -96,9 +132,8 @@ public class AiSourceService {
     @Transactional
     public SourceResponse reingest(UUID id) {
         orchestrator.reingest(id);
-        return sourceRepo.findById(id)
-                .map(SourceResponse::from)
-                .orElseThrow();
+        AiSource source = sourceRepo.findById(id).orElseThrow();
+        return SourceResponse.from(source, courseOf(source.getCourseId()));
     }
 
     /** List lesson resources (PDF/DOC) in a course that are eligible to be added to the AI knowledge base. */
@@ -141,6 +176,7 @@ public class AiSourceService {
     /** Add already-uploaded lesson resources to the AI knowledge base, reusing {@link CourseEmbeddingService}. */
     @Transactional
     public List<SourceResponse> ingestFromResources(UUID courseId, List<UUID> resourceIds) {
+        Course course = courseOf(courseId);
         List<SourceResponse> results = new java.util.ArrayList<>();
         for (UUID resourceId : resourceIds) {
             LessonResource resource = lessonResourceRepo.findById(resourceId)
@@ -159,7 +195,7 @@ public class AiSourceService {
             AiSource created = sourceRepo.findByResourceIdAndDeletedAtIsNull(resourceId).stream()
                     .findFirst()
                     .orElseThrow();
-            results.add(SourceResponse.from(created));
+            results.add(SourceResponse.from(created, course));
         }
         return results;
     }
