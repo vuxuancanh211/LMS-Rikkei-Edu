@@ -16,7 +16,9 @@ import project.lms_rikkei_edu.modules.ai.controller.AiSourceController;
 import project.lms_rikkei_edu.modules.ai.dto.request.AddFromResourcesRequest;
 import project.lms_rikkei_edu.modules.ai.dto.request.SourceIngestRequest;
 import project.lms_rikkei_edu.modules.ai.dto.response.AvailableResourceResponse;
+import project.lms_rikkei_edu.modules.ai.dto.response.ChunkResponse;
 import project.lms_rikkei_edu.modules.ai.dto.response.SourceResponse;
+import project.lms_rikkei_edu.modules.ai.dto.response.SourceViewResponse;
 import project.lms_rikkei_edu.modules.ai.entity.enums.IngestStatus;
 import project.lms_rikkei_edu.modules.ai.entity.enums.SourceType;
 import project.lms_rikkei_edu.modules.ai.exception.AiSourceNotFoundException;
@@ -286,6 +288,66 @@ class AiSourceControllerTest {
             mockMvc.perform(post("/api/ai/sources/{id}/reingest", sourceId))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.ingestStatus").value("INDEXED"));
+        }
+    }
+
+    // ── GET /api/ai/sources/{id}/view-url ─────────────────────────────────────
+
+    @Nested
+    class ViewUrl {
+
+        @Test
+        void returns200_withUrl() throws Exception {
+            when(sourceService.getById(sourceId)).thenReturn(sampleResponse());
+            when(sourceService.getViewUrl(sourceId)).thenReturn(new SourceViewResponse("https://s3.example.com/view"));
+
+            mockMvc.perform(get("/api/ai/sources/{id}/view-url", sourceId))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.url").value("https://s3.example.com/view"));
+        }
+
+        @Test
+        void returns403_whenInstructorDoesNotOwnCourse() throws Exception {
+            UUID otherCourseId = UUID.randomUUID();
+            when(sourceService.getById(sourceId)).thenReturn(new SourceResponse(sourceId, otherCourseId, "Other Course",
+                    UUID.randomUUID(), SourceType.PDF, "Source", IngestStatus.INDEXED, 5, null,
+                    OffsetDateTime.now(), OffsetDateTime.now(), null));
+
+            mockMvc.perform(get("/api/ai/sources/{id}/view-url", sourceId))
+                    .andExpect(status().isForbidden());
+
+            verify(sourceService, never()).getViewUrl(any());
+        }
+    }
+
+    // ── GET /api/ai/sources/{id}/chunks ───────────────────────────────────────
+
+    @Nested
+    class Chunks {
+
+        @Test
+        void returns200_withChunks() throws Exception {
+            when(sourceService.getById(sourceId)).thenReturn(sampleResponse());
+            when(sourceService.getChunks(sourceId)).thenReturn(List.of(
+                    new ChunkResponse(0, "Chương 1", "Nội dung 1")));
+
+            mockMvc.perform(get("/api/ai/sources/{id}/chunks", sourceId))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$[0].chunkText").value("Nội dung 1"))
+                    .andExpect(jsonPath("$[0].sectionTitle").value("Chương 1"));
+        }
+
+        @Test
+        void returns403_whenInstructorDoesNotOwnCourse() throws Exception {
+            UUID otherCourseId = UUID.randomUUID();
+            when(sourceService.getById(sourceId)).thenReturn(new SourceResponse(sourceId, otherCourseId, "Other Course",
+                    UUID.randomUUID(), SourceType.PDF, "Source", IngestStatus.INDEXED, 5, null,
+                    OffsetDateTime.now(), OffsetDateTime.now(), null));
+
+            mockMvc.perform(get("/api/ai/sources/{id}/chunks", sourceId))
+                    .andExpect(status().isForbidden());
+
+            verify(sourceService, never()).getChunks(any());
         }
     }
 

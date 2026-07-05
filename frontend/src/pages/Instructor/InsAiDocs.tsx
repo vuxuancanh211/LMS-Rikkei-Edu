@@ -2,7 +2,7 @@
 (function () {
   const { useState, useEffect } = React;
   const Ic = window.Icon;
-  const { Section, Empty, Modal, ModalHead, Search, Select } = window;
+  const { Section, Empty, Modal, ModalHead, Search, Select, Tabs } = window;
   const api = window.httpClient;
 
   const STATUS_CFG = {
@@ -133,6 +133,78 @@
     );
   }
 
+  /* Popup xem trước tài liệu AI — 2 tab: file gốc và nội dung AI đã đọc (chunks). */
+  function AiDocPreviewModal({ source, onClose }) {
+    const [tab, setTab] = useState("file");
+    const canViewFile = source.sourceType === "PDF" || source.sourceType === "DOC";
+    const [viewUrl, setViewUrl] = useState(null);
+    const [viewLoading, setViewLoading] = useState(false);
+    const [viewErr, setViewErr] = useState("");
+    const [chunks, setChunks] = useState(null);
+    const [chunksErr, setChunksErr] = useState("");
+
+    useEffect(() => {
+      if (tab !== "file" || !canViewFile || viewUrl) return;
+      setViewLoading(true); setViewErr("");
+      window.__aiService.getAiSourceViewUrl(source.id)
+        .then(r => setViewUrl(r.url))
+        .catch(e => setViewErr(e?.response?.data?.message || "Không thể tải file gốc"))
+        .finally(() => setViewLoading(false));
+    }, [tab]);
+
+    useEffect(() => {
+      if (tab !== "chunks" || chunks !== null) return;
+      setChunksErr("");
+      window.__aiService.getAiSourceChunks(source.id)
+        .then(setChunks)
+        .catch(e => { setChunksErr(e?.response?.data?.message || "Không thể tải nội dung"); setChunks([]); });
+    }, [tab]);
+
+    const loadingNode = <div style={{ padding: "60px 0", textAlign: "center", color: "var(--text-3)", fontSize: 13 }}>Đang tải...</div>;
+    const iframeH = "calc(100vh - 260px)";
+
+    return (
+      <Modal open onClose={onClose} max={720} maxHeight="calc(100vh - 48px)">
+        <ModalHead title={source.sourceName} icon="file" iconBg="#eaf1ff" iconColor="#2563eb" onClose={onClose} />
+        <div style={{ padding: "0 20px", borderBottom: "1px solid var(--border)" }}>
+          <Tabs value={tab} onChange={setTab} items={[
+            { v: "file", label: "File gốc" },
+            { v: "chunks", label: "Nội dung AI đã đọc" },
+          ]} />
+        </div>
+        <div className="modal-body" style={{ padding: 0, overflow: "auto" }}>
+          {tab === "file" && (
+            !canViewFile ? (
+              <Empty icon="file" title="Không có file gốc" sub="Tài liệu dạng văn bản/URL không có file gốc để xem." />
+            ) : viewLoading ? loadingNode
+              : viewErr ? <div style={{ padding: "60px 0", textAlign: "center", color: "var(--text-3)", fontSize: 13 }}>{viewErr}</div>
+              : viewUrl ? (
+                source.sourceType === "PDF"
+                  ? <iframe src={viewUrl} style={{ width: "100%", height: iframeH, border: "none", display: "block" }} title="preview" />
+                  : <iframe src={`https://docs.google.com/viewer?url=${encodeURIComponent(viewUrl)}&embedded=true`}
+                      style={{ width: "100%", height: iframeH, border: "none", display: "block" }} title="preview" />
+              ) : null
+          )}
+          {tab === "chunks" && (
+            chunks === null ? loadingNode
+              : chunksErr ? <div style={{ padding: "60px 0", textAlign: "center", color: "var(--text-3)", fontSize: 13 }}>{chunksErr}</div>
+              : chunks.length === 0 ? <Empty icon="file" title="Chưa có nội dung" sub="Tài liệu chưa được xử lý hoặc không trích xuất được nội dung." />
+              : (
+                <div style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: 14 }}>
+                  {chunks.map((c, i) => (
+                    <div key={i} style={{ paddingBottom: 14, borderBottom: i < chunks.length - 1 ? "1px solid var(--border)" : "none" }}>
+                      {c.sectionTitle && <div style={{ fontWeight: 700, fontSize: 12.5, marginBottom: 6, color: "var(--text-2)" }}>{c.sectionTitle}</div>}
+                      <div style={{ fontSize: 13, lineHeight: 1.6, whiteSpace: "pre-wrap", color: "var(--text-2)" }}>{c.chunkText}</div>
+                    </div>
+                  ))}
+                </div>
+              )
+          )}
+        </div>
+      </Modal>
+    );
+  }
+
   function ConfirmDeleteModal({ source, onClose, onConfirm, busy }) {
     return (
       <Modal open onClose={onClose} max={460}>
@@ -162,6 +234,7 @@
     const [search, setSearch] = useState("");
     const [courseFilter, setCourseFilter] = useState("");
     const [deleteTarget, setDeleteTarget] = useState(null);
+    const [previewTarget, setPreviewTarget] = useState(null);
 
     const load = async () => {
       setLoading(true);
@@ -268,6 +341,10 @@
                     <span style={{ padding: "3px 10px", borderRadius: 999, fontSize: 11.5, fontWeight: 700, background: cfg.color, color: "#fff", flex: "none" }}>
                       {cfg.label}
                     </span>
+                    <button className="btn btn-ghost btn-icon btn-sm" style={{ width: 32, height: 32 }} title="Xem trước"
+                      onClick={() => setPreviewTarget(s)}>
+                      <Ic n="eye" size={14} />
+                    </button>
                     <button className="btn btn-ghost btn-icon btn-sm" style={{ width: 32, height: 32 }} title="Xử lý lại"
                       disabled={busyId === s.id} onClick={() => handleReingest(s.id)}>
                       <Ic n="rotate_ccw" size={14} />
@@ -287,6 +364,9 @@
           )}
           {deleteTarget && (
             <ConfirmDeleteModal source={deleteTarget} onClose={() => setDeleteTarget(null)} onConfirm={confirmDelete} busy={busyId === deleteTarget.id} />
+          )}
+          {previewTarget && (
+            <AiDocPreviewModal source={previewTarget} onClose={() => setPreviewTarget(null)} />
           )}
         </Section>
       </div>

@@ -163,3 +163,21 @@ export async function addResourcesToAi(courseId: string, resourceIds: string[]):
   const response = await httpClient.post<AiSource[]>('/ai/sources/from-resources', { courseId, resourceIds });
   return response.data;
 }
+
+/** Presigned, inline-viewable URL for a source's original uploaded file. PDF/DOC only. */
+export async function getAiSourceViewUrl(id: string): Promise<{ url: string }> {
+  const response = await httpClient.get<{ url: string }>(`/ai/sources/${id}/view-url`);
+  return response.data;
+}
+
+export type AiChunk = {
+  chunkIndex: number;
+  sectionTitle: string | null;
+  chunkText: string;
+};
+
+/** The text chunks actually extracted and embedded for a source — what the AI "read" from it. */
+export async function getAiSourceChunks(id: string): Promise<AiChunk[]> {
+  const response = await httpClient.get<AiChunk[]>(`/ai/sources/${id}/chunks`);
+  return response.data;
+}

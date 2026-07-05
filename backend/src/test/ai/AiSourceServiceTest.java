@@ -8,10 +8,13 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import project.lms_rikkei_edu.infrastructure.s3.S3Service;
 import project.lms_rikkei_edu.modules.ai.dto.request.SourceIngestRequest;
 import project.lms_rikkei_edu.modules.ai.dto.response.AvailableResourceResponse;
+import project.lms_rikkei_edu.modules.ai.dto.response.ChunkResponse;
 import project.lms_rikkei_edu.modules.ai.dto.response.SourceResponse;
 import project.lms_rikkei_edu.modules.ai.entity.AiSource;
+import project.lms_rikkei_edu.modules.ai.entity.DocumentChunk;
 import project.lms_rikkei_edu.modules.ai.entity.enums.IngestStatus;
 import project.lms_rikkei_edu.modules.ai.entity.enums.SourceType;
 import project.lms_rikkei_edu.modules.ai.exception.AiSourceNotFoundException;
@@ -35,6 +38,8 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -47,6 +52,7 @@ class AiSourceServiceTest {
     @Mock LessonResourceRepository lessonResourceRepo;
     @Mock CourseEmbeddingService courseEmbeddingService;
     @Mock CourseRepository courseRepo;
+    @Mock S3Service s3Service;
 
     AiSourceService service;
 
@@ -56,7 +62,7 @@ class AiSourceServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new AiSourceService(sourceRepo, chunkRepo, orchestrator, lessonResourceRepo, courseEmbeddingService, courseRepo);
+        service = new AiSourceService(sourceRepo, chunkRepo, orchestrator, lessonResourceRepo, courseEmbeddingService, courseRepo, s3Service);
     }
 
     private AiSource buildSource(UUID id) {
@@ -224,6 +230,72 @@ class AiSourceServiceTest {
 
             assertThat(service.listByInstructor(instructorId)).isEmpty();
             verify(sourceRepo, never()).findByCourseIdInAndDeletedAtIsNull(any());
+        }
+    }
+
+    // ── getViewUrl ────────────────────────────────────────────────────────────
+
+    @Nested
+    class GetViewUrl {
+
+        @Test
+        void returnsPresignedInlineUrl_forFileBackedSource() throws Exception {
+            AiSource source = buildSource(sourceId);
+            source.setExternalId("courses/doc.pdf");
+            when(sourceRepo.findById(sourceId)).thenReturn(Optional.of(source));
+            software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest presigned =
+                    mock(software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest.class);
+            when(presigned.url()).thenReturn(new java.net.URL("https://s3.example.com/view"));
+            when(s3Service.generatePresignedInlineUrl(eq("courses/doc.pdf"), anyLong())).thenReturn(presigned);
+
+            var resp = service.getViewUrl(sourceId);
+
+            assertThat(resp.url()).isEqualTo("https://s3.example.com/view");
+        }
+
+        @Test
+        void throws_whenSourceHasNoOriginalFile() {
+            AiSource source = buildSource(sourceId);
+            source.setExternalId(null);
+            when(sourceRepo.findById(sourceId)).thenReturn(Optional.of(source));
+
+            assertThatThrownBy(() -> service.getViewUrl(sourceId))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+
+        @Test
+        void throws_whenSourceNotFound() {
+            when(sourceRepo.findById(sourceId)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> service.getViewUrl(sourceId))
+                    .isInstanceOf(AiSourceNotFoundException.class);
+        }
+    }
+
+    // ── getChunks ─────────────────────────────────────────────────────────────
+
+    @Nested
+    class GetChunks {
+
+        @Test
+        void returnsChunksOrderedByIndex() {
+            when(chunkRepo.findBySourceIdOrderByChunkIndex(sourceId)).thenReturn(List.of(
+                    DocumentChunk.builder().sourceId(sourceId).chunkIndex(0).sectionTitle("Chương 1").chunkText("Nội dung 1").build(),
+                    DocumentChunk.builder().sourceId(sourceId).chunkIndex(1).sectionTitle(null).chunkText("Nội dung 2").build()));
+
+            List<ChunkResponse> chunks = service.getChunks(sourceId);
+
+            assertThat(chunks).hasSize(2);
+            assertThat(chunks.get(0).chunkText()).isEqualTo("Nội dung 1");
+            assertThat(chunks.get(0).sectionTitle()).isEqualTo("Chương 1");
+            assertThat(chunks.get(1).sectionTitle()).isNull();
+        }
+
+        @Test
+        void returnsEmptyList_whenNoChunks() {
+            when(chunkRepo.findBySourceIdOrderByChunkIndex(sourceId)).thenReturn(List.of());
+
+            assertThat(service.getChunks(sourceId)).isEmpty();
         }
     }
 

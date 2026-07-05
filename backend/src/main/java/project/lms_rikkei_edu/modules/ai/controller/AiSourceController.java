@@ -13,8 +13,10 @@ import project.lms_rikkei_edu.modules.ai.dto.request.AddFromResourcesRequest;
 import project.lms_rikkei_edu.modules.ai.dto.request.SourceIngestRequest;
 import project.lms_rikkei_edu.modules.ai.dto.request.SourcePresignRequest;
 import project.lms_rikkei_edu.modules.ai.dto.response.AvailableResourceResponse;
+import project.lms_rikkei_edu.modules.ai.dto.response.ChunkResponse;
 import project.lms_rikkei_edu.modules.ai.dto.response.SourcePresignResponse;
 import project.lms_rikkei_edu.modules.ai.dto.response.SourceResponse;
+import project.lms_rikkei_edu.modules.ai.dto.response.SourceViewResponse;
 import project.lms_rikkei_edu.modules.ai.service.AiSourceService;
 import project.lms_rikkei_edu.modules.course.repository.CourseRepository;
 import project.lms_rikkei_edu.modules.user.enums.UserRole;
@@ -108,6 +110,22 @@ public class AiSourceController {
         SourceResponse source = sourceService.getById(id);
         verifyCourseOwnership(source.courseId(), currentUser());
         return ResponseEntity.ok(sourceService.reingest(id));
+    }
+
+    /** Presigned, inline-viewable URL for a source's original uploaded file. PDF/DOC only. */
+    @GetMapping("/{id}/view-url")
+    public ResponseEntity<SourceViewResponse> viewUrl(@PathVariable UUID id) {
+        SourceResponse source = sourceService.getById(id);
+        verifyCourseOwnership(source.courseId(), currentUser());
+        return ResponseEntity.ok(sourceService.getViewUrl(id));
+    }
+
+    /** The text chunks actually extracted and embedded for a source — what the AI "read" from it. */
+    @GetMapping("/{id}/chunks")
+    public ResponseEntity<List<ChunkResponse>> chunks(@PathVariable UUID id) {
+        SourceResponse source = sourceService.getById(id);
+        verifyCourseOwnership(source.courseId(), currentUser());
+        return ResponseEntity.ok(sourceService.getChunks(id));
     }
 
     /** List lesson resources (PDF/DOC) in the course eligible to be added to the AI knowledge base. */

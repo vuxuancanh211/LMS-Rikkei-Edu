@@ -3,9 +3,12 @@ package project.lms_rikkei_edu.modules.ai.service;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import project.lms_rikkei_edu.infrastructure.s3.S3Service;
 import project.lms_rikkei_edu.modules.ai.dto.request.SourceIngestRequest;
 import project.lms_rikkei_edu.modules.ai.dto.response.AvailableResourceResponse;
+import project.lms_rikkei_edu.modules.ai.dto.response.ChunkResponse;
 import project.lms_rikkei_edu.modules.ai.dto.response.SourceResponse;
+import project.lms_rikkei_edu.modules.ai.dto.response.SourceViewResponse;
 import project.lms_rikkei_edu.modules.ai.entity.AiSource;
 import project.lms_rikkei_edu.modules.ai.entity.enums.IngestStatus;
 import project.lms_rikkei_edu.modules.ai.entity.enums.SourceType;
@@ -38,6 +41,7 @@ public class AiSourceService {
     private final LessonResourceRepository lessonResourceRepo;
     private final CourseEmbeddingService courseEmbeddingService;
     private final CourseRepository courseRepo;
+    private final S3Service s3Service;
 
     /** Register a new source and immediately start ingestion. */
     @Transactional
@@ -108,6 +112,24 @@ public class AiSourceService {
 
     private Course courseOf(UUID courseId) {
         return courseId == null ? null : courseRepo.findById(courseId).orElse(null);
+    }
+
+    /** Presigned, inline-viewable URL for a source's original uploaded file. PDF/DOC only. */
+    public SourceViewResponse getViewUrl(UUID id) {
+        AiSource source = sourceRepo.findById(id)
+                .orElseThrow(() -> new AiSourceNotFoundException(id));
+        if (source.getExternalId() == null) {
+            throw new IllegalArgumentException("Tài liệu này không có file gốc để xem");
+        }
+        String url = s3Service.generatePresignedInlineUrl(source.getExternalId(), 3600).url().toString();
+        return new SourceViewResponse(url);
+    }
+
+    /** The text chunks actually extracted and embedded for a source — what the AI "read" from it. */
+    public List<ChunkResponse> getChunks(UUID id) {
+        return chunkRepo.findBySourceIdOrderByChunkIndex(id).stream()
+                .map(c -> new ChunkResponse(c.getChunkIndex(), c.getSectionTitle(), c.getChunkText()))
+                .toList();
     }
 
     private Map<UUID, Course> coursesById(List<AiSource> sources) {
