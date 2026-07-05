@@ -119,10 +119,10 @@ function Tabs({ items, value, onChange }) {
 }
 
 /* ---------- Select ---------- */
-function Select({ value, onChange, options, style }) {
+function Select({ value, onChange, options, style, name }) {
   return (
     <div style={{ position: "relative", ...style }}>
-      <select className="select" value={value} onChange={(e) => onChange(e.target.value)} style={{ appearance: "none", paddingRight: 38, cursor: "pointer" }}>
+      <select className="select" name={name} value={value} onChange={(e) => onChange(e.target.value)} style={{ appearance: "none", paddingRight: 38, cursor: "pointer" }}>
         {options.map((o) => <option key={o.v ?? o} value={o.v ?? o}>{o.label ?? o}</option>)}
       </select>
       <I n="chevron_down" size={18} style={{ position: "absolute", right: 13, top: "50%", transform: "translateY(-50%)", color: "var(--text-3)", pointerEvents: "none" }} />
@@ -276,4 +276,45 @@ function Donut({ value, size = 132, color = "#10b981", track = "#e6ecf4", label 
   );
 }
 
-Object.assign(window, { Avatar, Status, STATUS, Progress, StatCard, CourseCard, Search, Tabs, Select, Section, Pager, PageBar, usePaged, Modal, ModalHead, Empty, LineChart, BarChart, Donut });
+/* ---------- ConfirmModal ---------- */
+function ConfirmModal({ open, onClose, onConfirm, title, message, confirmLabel = "Xác nhận", cancelLabel = "Hủy", danger = false }) {
+  if (!open) return null;
+  return (
+    <Modal open={open} onClose={onClose} max={420}>
+      <ModalHead title={title || "Xác nhận"} icon={danger ? "warn" : "help"} iconBg={danger ? "#fee2e2" : "#fef9c3"} iconColor={danger ? "#dc2626" : "#d97706"} onClose={onClose} />
+      <div className="modal-body">
+        <p style={{ fontSize: 14.5, lineHeight: 1.6, color: "var(--text)", whiteSpace: "pre-wrap", margin: 0 }}>{message}</p>
+      </div>
+      <div className="modal-foot">
+        <button className="btn btn-ghost" onClick={onClose}>{cancelLabel}</button>
+        <button className={`btn ${danger ? "btn-danger" : "btn-primary"}`} onClick={() => { onConfirm?.(); onClose(); }}>
+          {confirmLabel}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+/* ---------- AlertModal ---------- */
+function AlertModal({ open, onClose, title, message, type = "error" }) {
+  if (!open) return null;
+  const cfg = {
+    error:   { icon: "warn",  iconBg: "#fee2e2", iconColor: "#dc2626" },
+    warning: { icon: "warn",  iconBg: "#fef9c3", iconColor: "#d97706" },
+    success: { icon: "check_circle",   iconBg: "#dcfce7", iconColor: "#16a34a" },
+    info:    { icon: "info",           iconBg: "#eaf1ff", iconColor: "#2563eb" },
+  }[type] || { icon: "info", iconBg: "#eaf1ff", iconColor: "#2563eb" };
+  return (
+    <Modal open={open} onClose={onClose} max={400}>
+      <ModalHead title={title || "Thông báo"} icon={cfg.icon} iconBg={cfg.iconBg} iconColor={cfg.iconColor} onClose={onClose} />
+      <div className="modal-body">
+        <p style={{ fontSize: 14.5, lineHeight: 1.6, color: "var(--text)", whiteSpace: "pre-wrap", margin: 0 }}>{message}</p>
+      </div>
+      <div className="modal-foot">
+        <button className="btn btn-primary" onClick={onClose}>Đã hiểu</button>
+      </div>
+    </Modal>
+  );
+}
+
+Object.assign(window, { Avatar, Status, STATUS, Progress, StatCard, CourseCard, Search, Tabs, Select, Section, Pager, PageBar, usePaged, Modal, ModalHead, ConfirmModal, AlertModal, Empty, LineChart, BarChart, Donut });

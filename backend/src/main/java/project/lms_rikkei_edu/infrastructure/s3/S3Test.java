@@ -15,6 +15,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 
+@Profile("dev")
 @RestController
 @RequestMapping("/api/test/s3")
 @RequiredArgsConstructor

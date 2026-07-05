@@ -13,6 +13,8 @@ const roleRoutes = {
     forum: '/student/forum',
     chat: '/student/chat',
     certs: '/student/certs',
+    groups: '/student/groups',
+    groupDetail: '/student/groups/detail',
     settings: '/settings',
     notifications: '/notifications',
   },
@@ -106,18 +108,23 @@ function RoutedShell({ role, route }: { role: keyof typeof roleRoutes; route: st
     }
   };
 
+  const params = Object.fromEntries(new URLSearchParams(location.search));
+
   return (
     <AppShell
       key={`${role}:${route}:${location.pathname}`}
       role0={role}
       route0={route}
       authUser={authUser}
+      routeParams={params}
       onLogout={handleLogout}
       onExit={() => navigate('/gallery')}
       onBare={(key: keyof typeof playerRoutes) => navigate(playerRoutes[key] || '/player/lecture')}
-      onNavigate={(nextRole: keyof typeof roleRoutes, nextRoute: string) => {
+      onNavigate={(nextRole: keyof typeof roleRoutes, nextRoute: string, extra?: Record<string, string>) => {
         const path = roleRoutes[nextRole]?.[nextRoute as keyof (typeof roleRoutes)[typeof nextRole]];
-        navigate(path || '/gallery');
+        if (!path) { navigate('/gallery'); return; }
+        const search = extra ? '?' + new URLSearchParams(extra).toString() : '';
+        navigate(path + search);
       }}
     />
   );
@@ -200,6 +207,8 @@ export const router = createBrowserRouter([
   { path: '/student/forum', element: <RequireAuth><RoutedShell role="student" route="forum" /></RequireAuth> },
   { path: '/student/chat', element: <RequireAuth><RoutedShell role="student" route="chat" /></RequireAuth> },
   { path: '/student/certs', element: <RequireAuth><RoutedShell role="student" route="certs" /></RequireAuth> },
+  { path: '/student/groups', element: <RequireAuth><RoutedShell role="student" route="groups" /></RequireAuth> },
+  { path: '/student/groups/detail', element: <RequireAuth><RoutedShell role="student" route="groupDetail" /></RequireAuth> },
   { path: '/instructor/dashboard', element: <RequireAuth><RoutedShell role="instructor" route="dashboard" /></RequireAuth> },
   { path: '/instructor/courses', element: <RequireAuth><RoutedShell role="instructor" route="courses" /></RequireAuth> },
   { path: '/instructor/courses/detail', element: <RequireAuth><RoutedShell role="instructor" route="courseDetail" /></RequireAuth> },
