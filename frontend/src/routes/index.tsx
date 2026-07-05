@@ -13,6 +13,8 @@ const roleRoutes = {
     forum: '/student/forum',
     chat: '/student/chat',
     certs: '/student/certs',
+    groups: '/student/groups',
+    groupDetail: '/student/groups/detail',
     settings: '/settings',
     notifications: '/notifications',
   },
@@ -27,6 +29,7 @@ const roleRoutes = {
     students: '/instructor/students',
     forum: '/instructor/forum',
     chat: '/instructor/chat',
+    aiDocs: '/instructor/ai-docs',
     settings: '/settings',
     notifications: '/notifications',
   },
@@ -37,6 +40,7 @@ const roleRoutes = {
     approval: '/admin/approval',
     reports: '/admin/reports',
     logs: '/admin/logs',
+    aiDocs: '/admin/ai-docs',
     settings: '/settings',
     notifications: '/notifications',
   },
@@ -46,6 +50,7 @@ const playerRoutes = {
   player: '/player/lecture',
   quiz: '/player/quiz',
   result: '/player/quiz-result',
+  preview: '/player/preview',
 };
 
 function dashboardForRole(role: keyof typeof roleRoutes | null) {
@@ -103,20 +108,23 @@ function RoutedShell({ role, route }: { role: keyof typeof roleRoutes; route: st
     }
   };
 
+  const params = Object.fromEntries(new URLSearchParams(location.search));
+
   return (
     <AppShell
       key={`${role}:${route}:${location.pathname}`}
       role0={role}
       route0={route}
       authUser={authUser}
+      routeParams={params}
       onLogout={handleLogout}
       onExit={() => navigate('/gallery')}
-      onBare={(key: keyof typeof playerRoutes, state?: Record<string, string>) =>
-        navigate(playerRoutes[key] || '/player/lecture', state ? { state } : undefined)
-      }
-      onNavigate={(nextRole: keyof typeof roleRoutes, nextRoute: string) => {
+      onBare={(key: keyof typeof playerRoutes) => navigate(playerRoutes[key] || '/player/lecture')}
+      onNavigate={(nextRole: keyof typeof roleRoutes, nextRoute: string, extra?: Record<string, string>) => {
         const path = roleRoutes[nextRole]?.[nextRoute as keyof (typeof roleRoutes)[typeof nextRole]];
-        navigate(path || '/gallery');
+        if (!path) { navigate('/gallery'); return; }
+        const search = extra ? '?' + new URLSearchParams(extra).toString() : '';
+        navigate(path + search);
       }}
     />
   );
@@ -211,6 +219,8 @@ export const router = createBrowserRouter([
   { path: '/student/forum', element: <RequireAuth><RoutedShell role="student" route="forum" /></RequireAuth> },
   { path: '/student/chat', element: <RequireAuth><RoutedShell role="student" route="chat" /></RequireAuth> },
   { path: '/student/certs', element: <RequireAuth><RoutedShell role="student" route="certs" /></RequireAuth> },
+  { path: '/student/groups', element: <RequireAuth><RoutedShell role="student" route="groups" /></RequireAuth> },
+  { path: '/student/groups/detail', element: <RequireAuth><RoutedShell role="student" route="groupDetail" /></RequireAuth> },
   { path: '/instructor/dashboard', element: <RequireAuth><RoutedShell role="instructor" route="dashboard" /></RequireAuth> },
   { path: '/instructor/courses', element: <RequireAuth><RoutedShell role="instructor" route="courses" /></RequireAuth> },
   { path: '/instructor/courses/detail', element: <RequireAuth><RoutedShell role="instructor" route="courseDetail" /></RequireAuth> },
@@ -221,6 +231,7 @@ export const router = createBrowserRouter([
   { path: '/instructor/students', element: <RequireAuth><RoutedShell role="instructor" route="students" /></RequireAuth> },
   { path: '/instructor/forum', element: <RequireAuth><RoutedShell role="instructor" route="forum" /></RequireAuth> },
   { path: '/instructor/chat', element: <RequireAuth><RoutedShell role="instructor" route="chat" /></RequireAuth> },
+  { path: '/instructor/ai-docs', element: <RequireAuth><RoutedShell role="instructor" route="aiDocs" /></RequireAuth> },
   { path: '/notifications', element: <RequireAuth><NotificationsRoute /></RequireAuth> },
   { path: '/admin/dashboard', element: <RequireAuth><RoutedShell role="admin" route="dashboard" /></RequireAuth> },
   { path: '/admin/users', element: <RequireAuth><RoutedShell role="admin" route="users" /></RequireAuth> },
@@ -228,8 +239,10 @@ export const router = createBrowserRouter([
   { path: '/admin/approval', element: <RequireAuth><RoutedShell role="admin" route="approval" /></RequireAuth> },
   { path: '/admin/reports', element: <RequireAuth><RoutedShell role="admin" route="reports" /></RequireAuth> },
   { path: '/admin/logs', element: <RequireAuth><RoutedShell role="admin" route="logs" /></RequireAuth> },
+  { path: '/admin/ai-docs', element: <RequireAuth><RoutedShell role="admin" route="aiDocs" /></RequireAuth> },
   { path: '/player/lecture', element: <RequireAuth><PlayerRoute name="LecturePlayer" /></RequireAuth> },
   { path: '/player/quiz', element: <RequireAuth><PlayerRoute name="QuizPlayer" /></RequireAuth> },
   { path: '/player/quiz-result', element: <RequireAuth><PlayerRoute name="QuizResult" /></RequireAuth> },
+  { path: '/player/preview', element: <RequireAuth><PlayerRoute name="PreviewPlayer" /></RequireAuth> },
   { path: '*', element: <Navigate to="/login" replace /> },
 ]);

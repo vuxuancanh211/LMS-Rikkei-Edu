@@ -28,6 +28,7 @@ function registerGalleryPage() {
     student: [
       { k: "dashboard", l: "Tổng quan", ic: "grid" },
       { k: "courses", l: "Khóa học của tôi", ic: "cap" },
+      { k: "groups", l: "Nhóm học", ic: "layers" },
       { k: "tasks", l: "Bài tập & Quiz", ic: "clipboard" },
       { k: "forum", l: "Diễn đàn", ic: "message" },
       { k: "chat", l: "Chat nhóm", ic: "chat" },
@@ -43,6 +44,7 @@ function registerGalleryPage() {
       { k: "students", l: "Học viên", ic: "users" },
       { k: "forum", l: "Diễn đàn", ic: "message" },
       { k: "chat", l: "Chat nhóm", ic: "chat" },
+      { k: "aiDocs", l: "Tài liệu AI", ic: "sparkles" },
       { k: "settings", l: "Cài đặt", ic: "settings" },
     ],
     admin: [
@@ -52,15 +54,16 @@ function registerGalleryPage() {
       { k: "approval", l: "Phê duyệt", ic: "check_circle" },
       { k: "reports", l: "Báo cáo", ic: "chart" },
       { k: "logs", l: "Nhật ký hệ thống", ic: "file" },
+      { k: "aiDocs", l: "Quản lý Tài liệu AI", ic: "sparkles" },
       { k: "settings", l: "Cài đặt", ic: "settings" },
     ],
   };
   const SCREENS = {
     student: { dashboard: "StuDashboard", courses: "StuCourses", tasks: "StuTasks", forum: "ForumPage", chat: "ChatScreen", certs: "StuCerts", settings: "Settings", notifications: "NotificationsPage" },
-    instructor: { dashboard: "InsDashboard", courses: "InsCourses", courseDetail: "InsCourseDetail", groups: "InsGroups", groupDetail: "InsGroupDetail", assess: "InsAssess", grading: "InsGrading", students: "InsStudents", forum: "ForumPage", chat: "ChatScreen", settings: "Settings", notifications: "NotificationsPage" },
-    admin: { dashboard: "AdminDashboard", users: "AdminUsers", courses: "AdminCourses", approval: "AdminApproval", reports: "AdminReports", logs: "AdminLogs", settings: "Settings", notifications: "NotificationsPage" },
+    instructor: { dashboard: "InsDashboard", courses: "InsCourses", courseDetail: "InsCourseDetail", groups: "InsGroups", groupDetail: "InsGroupDetail", assess: "InsAssess", grading: "InsGrading", students: "InsStudents", forum: "ForumPage", chat: "ChatScreen", aiDocs: "InsAiDocs", settings: "Settings", notifications: "NotificationsPage" },
+    admin: { dashboard: "AdminDashboard", users: "AdminUsers", courses: "AdminCourses", approval: "AdminApproval", reports: "AdminReports", logs: "AdminLogs", aiDocs: "AdminAiDocs", settings: "Settings", notifications: "NotificationsPage" },
   };
-  const FULLBARE = { player: "LecturePlayer", quiz: "QuizPlayer", result: "QuizResult" };
+  const FULLBARE = { player: "LecturePlayer", quiz: "QuizPlayer", result: "QuizResult", preview: "PreviewPlayer" };
   const ROLES = [["student", "Học viên"], ["instructor", "Giảng viên"], ["admin", "Quản trị"]];
   const ALIAS = { groupDetail: "groups", courseDetail: "courses" };
 
@@ -94,7 +97,7 @@ function registerGalleryPage() {
   }
 
   /* ---------- App shell used inside the gallery (one role, full nav) ---------- */
-  function Shell({ role0, route0, demo0, authUser, onExit, onBare, onNavigate, onLogout }) {
+  function Shell({ role0, route0, demo0, authUser, onExit, onBare, onNavigate, onLogout, routeParams: routeParamsProp }) {
     const [role, setRole] = useState(role0);
     const basePersona = PERSONA[role];
     const persona = authUser ? {
@@ -104,6 +107,8 @@ function registerGalleryPage() {
     } : basePersona;
     const [route, setRoute] = useState(route0 || "dashboard");
     const [demo, setDemo] = useState(demo0 || null);
+    const [routeParams, setRouteParams] = useState(routeParamsProp || {});
+    useEffect(() => { setRouteParams(routeParamsProp || {}); }, [routeParamsProp]);
     const [back, setBack] = useState("dashboard");
     const [drawer, setDrawer] = useState(false);
     const [notif, setNotif] = useState(false);
@@ -166,10 +171,10 @@ function registerGalleryPage() {
       return () => window.removeEventListener("click", close);
     }, []);
 
-    const go = (k, state) => {
+    const go = (k, params) => {
       setDemo(null);
-      if (FULLBARE[k]) { if (onBare) { onBare(k, state); return; } setBack(SCREENS[role][route] ? route : "dashboard"); setRoute(k); setDrawer(false); const m = document.querySelector(".main"); if (m) m.scrollTop = 0; return; }
-      if (SCREENS[role][k]) { if (onNavigate) { onNavigate(role, k); return; } setRoute(k); setDrawer(false); const m = document.querySelector(".main"); if (m) m.scrollTop = 0; }
+      if (FULLBARE[k]) { if (onBare) { onBare(k); return; } setBack(SCREENS[role][route] ? route : "dashboard"); setRoute(k); setDrawer(false); const m = document.querySelector(".main"); if (m) m.scrollTop = 0; return; }
+      if (SCREENS[role][k]) { if (onNavigate) { onNavigate(role, k, params); return; } setRouteParams(params); setRoute(k); setDrawer(false); const m = document.querySelector(".main"); if (m) m.scrollTop = 0; }
     };
     const switchRole = (r) => {
       setDemo(null);
@@ -265,7 +270,7 @@ function registerGalleryPage() {
               )}
             </div>
           </header>
-          <main style={{ flex: 1 }}><Comp nav={go} persona={persona} demo={demo} /></main>
+          <main style={{ flex: 1 }}><Comp nav={go} persona={persona} demo={demo} groupId={routeParams.groupId} /></main>
         </div>
         {(role === "student" || role === "instructor") && <window.AIChatbot />}
       </div>
@@ -302,6 +307,8 @@ function registerGalleryPage() {
       { kind: "screen", role: "student", route: "courses", ic: "cap", label: "Khóa học của tôi", desc: "Lưới thẻ + phân trang" },
       { kind: "screen", role: "student", route: "tasks", ic: "clipboard", label: "Bài tập & Quiz", desc: "Danh sách + nộp bài" },
       { kind: "screen", role: "student", route: "certs", ic: "award", label: "Chứng chỉ", desc: "Bộ sưu tập chứng chỉ" },
+      { kind: "screen", role: "student", route: "groups", ic: "layers", label: "Nhóm học của tôi", desc: "Danh sách nhóm đã tham gia" },
+      { kind: "screen", role: "student", route: "groupDetail", ic: "users", label: "Chi tiết Nhóm (HV)", desc: "Thông tin nhóm + thành viên" },
       { kind: "screen", role: "student", route: "settings", ic: "settings", label: "Cài đặt tài khoản", desc: "Hồ sơ · Bảo mật · Thông báo" },
     ]},
     { group: "Giảng viên", color: "#7c3aed", items: [
