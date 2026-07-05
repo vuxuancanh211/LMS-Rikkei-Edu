@@ -12,6 +12,11 @@ import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
+import org.springframework.web.servlet.NoHandlerFoundException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
+import project.lms_rikkei_edu.modules.ai.exception.AiSourceNotFoundException;
+import project.lms_rikkei_edu.modules.ai.exception.ConversationNotFoundException;
 import project.lms_rikkei_edu.modules.course.exception.*;
 
 import java.util.Set;
@@ -139,6 +144,46 @@ class GlobalExceptionHandlerTest {
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.message").value("Dữ liệu nhập không hợp lệ"));
         }
+
+        @Test
+        void noHandlerFound_returns404() throws Exception {
+            mvc.perform(get("/fake/no-handler"))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.message").value("Endpoint not found"));
+        }
+
+        @Test
+        void noResourceFound_returns404() throws Exception {
+            mvc.perform(get("/fake/no-resource"))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.message").value("Resource not found"));
+        }
+    }
+
+    @Nested
+    class AiExceptions {
+
+        @Test
+        void aiSourceNotFound_returns404() throws Exception {
+            mvc.perform(get("/fake/ai-source-not-found"))
+                    .andExpect(status().isNotFound());
+        }
+
+        @Test
+        void conversationNotFound_returns404() throws Exception {
+            mvc.perform(get("/fake/conversation-not-found"))
+                    .andExpect(status().isNotFound());
+        }
+    }
+
+    @Nested
+    class AsyncExceptions {
+
+        @Test
+        void asyncRequestTimeout_isSwallowedSilently() throws Exception {
+            mvc.perform(get("/fake/async-timeout"))
+                    .andExpect(status().isOk());
+        }
     }
 
     // ── Fake controller that throws each exception type ───────────────────────
@@ -191,6 +236,27 @@ class GlobalExceptionHandlerTest {
         void constraintViolation() {
             ConstraintViolation<?> violation = mockViolation("field1", "must not be null");
             throw new ConstraintViolationException(Set.of(violation));
+        }
+
+        @GetMapping("/no-handler")
+        void noHandler() throws NoHandlerFoundException {
+            throw new NoHandlerFoundException("GET", "/unknown", org.springframework.http.HttpHeaders.EMPTY);
+        }
+
+        @GetMapping("/no-resource")
+        void noResource() throws NoResourceFoundException {
+            throw new NoResourceFoundException(org.springframework.http.HttpMethod.GET, "/static/missing.js", "Resource not found");
+        }
+
+        @GetMapping("/ai-source-not-found")
+        void aiSourceNotFound() { throw new AiSourceNotFoundException(UUID.randomUUID()); }
+
+        @GetMapping("/conversation-not-found")
+        void conversationNotFound() { throw new ConversationNotFoundException(UUID.randomUUID()); }
+
+        @GetMapping("/async-timeout")
+        void asyncTimeout() throws AsyncRequestTimeoutException {
+            throw new AsyncRequestTimeoutException();
         }
 
         private static ConstraintViolation<?> mockViolation(String field, String message) {

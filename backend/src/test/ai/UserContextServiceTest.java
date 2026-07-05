@@ -153,6 +153,123 @@ class UserContextServiceTest {
             assertThat(s.score()).isEqualTo(92.0);
             assertThat(s.maxScore()).isEqualTo(100.0);
         }
+
+        @Test
+        void mapsCourses_fromEnrollmentsQuery() throws Exception {
+            UUID courseId = UUID.randomUUID();
+            ResultSet rs = mock(ResultSet.class);
+            when(rs.getObject("id", UUID.class)).thenReturn(courseId);
+            when(rs.getString("title")).thenReturn("ReactJS Nâng cao");
+            when(rs.getString("progress_status")).thenReturn("IN_PROGRESS");
+            when(rs.getDouble("progress_pct")).thenReturn(45.0);
+
+            when(jdbc.query(argThat(sql -> sql.contains("NOT_STARTED")), any(RowMapper.class), any()))
+                    .thenAnswer(inv -> List.of(((RowMapper<?>) inv.getArgument(1)).mapRow(rs, 0)));
+
+            UserContext ctx = service.load(studentId);
+
+            assertThat(ctx.courses()).hasSize(1);
+            var c = ctx.courses().get(0);
+            assertThat(c.courseId()).isEqualTo(courseId);
+            assertThat(c.title()).isEqualTo("ReactJS Nâng cao");
+            assertThat(c.progressPct()).isEqualTo(45.0);
+        }
+
+        @Test
+        void mapsDeadlines_fromAssignmentsQuery() throws Exception {
+            ResultSet rs = mock(ResultSet.class);
+            when(rs.getString("title")).thenReturn("Bài tập 5");
+            when(rs.getString("course_name")).thenReturn("ReactJS Nâng cao");
+            when(rs.getString("deadline")).thenReturn("10/07/2026 23:59");
+            when(rs.getBoolean("is_late")).thenReturn(true);
+
+            when(jdbc.query(argThat(sql -> sql.contains("NOW() - INTERVAL '1 day'")), any(RowMapper.class), any()))
+                    .thenAnswer(inv -> List.of(((RowMapper<?>) inv.getArgument(1)).mapRow(rs, 0)));
+
+            UserContext ctx = service.load(studentId);
+
+            assertThat(ctx.upcomingDeadlines()).hasSize(1);
+            var d = ctx.upcomingDeadlines().get(0);
+            assertThat(d.assignmentTitle()).isEqualTo("Bài tập 5");
+            assertThat(d.isLate()).isTrue();
+        }
+
+        @Test
+        void mapsGroups_fromGroupMembersQuery() throws Exception {
+            UUID groupId = UUID.randomUUID();
+            ResultSet rs = mock(ResultSet.class);
+            when(rs.getObject("id", UUID.class)).thenReturn(groupId);
+            when(rs.getString("name")).thenReturn("Nhóm A1");
+            when(rs.getString("course_name")).thenReturn("ReactJS Nâng cao");
+
+            when(jdbc.query(argThat(sql -> sql.contains("gm.joined_at DESC")), any(RowMapper.class), any()))
+                    .thenAnswer(inv -> List.of(((RowMapper<?>) inv.getArgument(1)).mapRow(rs, 0)));
+
+            UserContext ctx = service.load(studentId);
+
+            assertThat(ctx.groups()).hasSize(1);
+            assertThat(ctx.groups().get(0).groupId()).isEqualTo(groupId);
+            assertThat(ctx.groups().get(0).groupName()).isEqualTo("Nhóm A1");
+        }
+
+        @Test
+        void mapsRecentLessons_fromLessonProgressQuery() throws Exception {
+            ResultSet rs = mock(ResultSet.class);
+            when(rs.getString("lesson_title")).thenReturn("Bài 1: Hooks");
+            when(rs.getString("chapter_title")).thenReturn("Chương 1");
+            when(rs.getString("course_name")).thenReturn("ReactJS Nâng cao");
+            when(rs.getString("status")).thenReturn("COMPLETED");
+            when(rs.getString("last_accessed_at")).thenReturn("01/07/2026 10:00");
+
+            when(jdbc.query(argThat(sql -> sql.contains("lesson_progress lp")), any(RowMapper.class), any()))
+                    .thenAnswer(inv -> List.of(((RowMapper<?>) inv.getArgument(1)).mapRow(rs, 0)));
+
+            UserContext ctx = service.load(studentId);
+
+            assertThat(ctx.recentLessons()).hasSize(1);
+            assertThat(ctx.recentLessons().get(0).lessonTitle()).isEqualTo("Bài 1: Hooks");
+            assertThat(ctx.recentLessons().get(0).status()).isEqualTo("COMPLETED");
+        }
+
+        @Test
+        void mapsRecentQuizResults_fromQuizAttemptsQuery() throws Exception {
+            ResultSet rs = mock(ResultSet.class);
+            when(rs.getString("quiz_title")).thenReturn("Quiz Chương 1");
+            when(rs.getString("course_name")).thenReturn("ReactJS Nâng cao");
+            when(rs.getDouble("score")).thenReturn(8.0);
+            when(rs.getDouble("max_score")).thenReturn(10.0);
+            when(rs.getBoolean("is_passed")).thenReturn(true);
+            when(rs.getString("submitted_at")).thenReturn("01/07/2026 11:00");
+
+            when(jdbc.query(argThat(sql -> sql.contains("qa.submitted_at IS NOT NULL")), any(RowMapper.class), any()))
+                    .thenAnswer(inv -> List.of(((RowMapper<?>) inv.getArgument(1)).mapRow(rs, 0)));
+
+            UserContext ctx = service.load(studentId);
+
+            assertThat(ctx.recentQuizResults()).hasSize(1);
+            var q = ctx.recentQuizResults().get(0);
+            assertThat(q.quizTitle()).isEqualTo("Quiz Chương 1");
+            assertThat(q.isPassed()).isTrue();
+        }
+
+        @Test
+        void mapsUnsubmittedAssignments_fromNotExistsQuery() throws Exception {
+            ResultSet rs = mock(ResultSet.class);
+            when(rs.getString("title")).thenReturn("Bài tập 6");
+            when(rs.getString("course_name")).thenReturn("ReactJS Nâng cao");
+            when(rs.getString("deadline")).thenReturn("20/07/2026 23:59");
+            when(rs.getBoolean("is_overdue")).thenReturn(false);
+
+            when(jdbc.query(argThat(sql -> sql.contains("NOT EXISTS")), any(RowMapper.class), any(), any()))
+                    .thenAnswer(inv -> List.of(((RowMapper<?>) inv.getArgument(1)).mapRow(rs, 0)));
+
+            UserContext ctx = service.load(studentId);
+
+            assertThat(ctx.unsubmittedAssignments()).hasSize(1);
+            var a = ctx.unsubmittedAssignments().get(0);
+            assertThat(a.assignmentTitle()).isEqualTo("Bài tập 6");
+            assertThat(a.isOverdue()).isFalse();
+        }
     }
 
     // ── load: INSTRUCTOR role ─────────────────────────────────────────────────
@@ -266,6 +383,100 @@ class UserContextServiceTest {
             assertThat(c.status()).isEqualTo("REJECTED");
             assertThat(c.rejectionReason()).isEqualTo("Thiếu nội dung thực hành");
         }
+
+        @Test
+        void mapsCourses_fromOwnedCoursesQuery() throws Exception {
+            UUID courseId = UUID.randomUUID();
+            ResultSet rs = mock(ResultSet.class);
+            when(rs.getObject("id", UUID.class)).thenReturn(courseId);
+            when(rs.getString("title")).thenReturn("Spring Boot Microservices");
+            when(rs.getString("progress_status")).thenReturn("PUBLISHED");
+            when(rs.getDouble("enrollment_count")).thenReturn(120.0);
+
+            when(jdbc.query(argThat(sql -> sql.contains("enrollment_count")), any(RowMapper.class), any()))
+                    .thenAnswer(inv -> List.of(((RowMapper<?>) inv.getArgument(1)).mapRow(rs, 0)));
+
+            UserContext ctx = service.load(instructorId);
+
+            assertThat(ctx.courses()).hasSize(1);
+            var c = ctx.courses().get(0);
+            assertThat(c.courseId()).isEqualTo(courseId);
+            assertThat(c.progressPct()).isEqualTo(120.0);
+        }
+
+        @Test
+        void mapsDeadlines_fromInstructorAssignmentsQuery() throws Exception {
+            ResultSet rs = mock(ResultSet.class);
+            when(rs.getString("title")).thenReturn("Bài tập chấm gấp");
+            when(rs.getString("course_name")).thenReturn("Spring Boot Microservices");
+            when(rs.getString("deadline")).thenReturn("12/07/2026 23:59");
+            when(rs.getBoolean("is_late")).thenReturn(false);
+
+            when(jdbc.query(argThat(sql -> sql.contains("NOW() - INTERVAL '3 days'")), any(RowMapper.class), any()))
+                    .thenAnswer(inv -> List.of(((RowMapper<?>) inv.getArgument(1)).mapRow(rs, 0)));
+
+            UserContext ctx = service.load(instructorId);
+
+            assertThat(ctx.upcomingDeadlines()).hasSize(1);
+            assertThat(ctx.upcomingDeadlines().get(0).assignmentTitle()).isEqualTo("Bài tập chấm gấp");
+        }
+
+        @Test
+        void mapsGroups_fromManagedGroupsQuery() throws Exception {
+            UUID groupId = UUID.randomUUID();
+            ResultSet rs = mock(ResultSet.class);
+            when(rs.getObject("id", UUID.class)).thenReturn(groupId);
+            when(rs.getString("name")).thenReturn("Nhóm B1");
+            when(rs.getString("course_name")).thenReturn("Spring Boot Microservices");
+
+            when(jdbc.query(argThat(sql -> sql.contains("sg.created_at DESC")), any(RowMapper.class), any()))
+                    .thenAnswer(inv -> List.of(((RowMapper<?>) inv.getArgument(1)).mapRow(rs, 0)));
+
+            UserContext ctx = service.load(instructorId);
+
+            assertThat(ctx.groups()).hasSize(1);
+            assertThat(ctx.groups().get(0).groupName()).isEqualTo("Nhóm B1");
+        }
+
+        @Test
+        void mapsSubmissionGaps_fromAssignmentsSubmissionQuery() throws Exception {
+            ResultSet rs = mock(ResultSet.class);
+            when(rs.getString("assignment_title")).thenReturn("Bài tập 1");
+            when(rs.getString("course_name")).thenReturn("Spring Boot Microservices");
+            when(rs.getString("deadline")).thenReturn("15/07/2026 23:59");
+            when(rs.getInt("total_enrolled")).thenReturn(30);
+            when(rs.getInt("submitted")).thenReturn(20);
+
+            when(jdbc.query(argThat(sql -> sql.contains("total_enrolled")), any(RowMapper.class), any()))
+                    .thenAnswer(inv -> List.of(((RowMapper<?>) inv.getArgument(1)).mapRow(rs, 0)));
+
+            UserContext ctx = service.load(instructorId);
+
+            assertThat(ctx.submissionGaps()).hasSize(1);
+            var s = ctx.submissionGaps().get(0);
+            assertThat(s.totalEnrolled()).isEqualTo(30);
+            assertThat(s.submitted()).isEqualTo(20);
+            assertThat(s.notSubmitted()).isEqualTo(10);
+        }
+
+        @Test
+        void mapsAtRiskStudents_fromLowProgressQuery() throws Exception {
+            ResultSet rs = mock(ResultSet.class);
+            when(rs.getString("student_name")).thenReturn("Lê Văn C");
+            when(rs.getString("course_name")).thenReturn("Spring Boot Microservices");
+            when(rs.getDouble("progress_pct")).thenReturn(10.0);
+            when(rs.getInt("days_enrolled")).thenReturn(15);
+
+            when(jdbc.query(argThat(sql -> sql.contains("days_enrolled")), any(RowMapper.class), any()))
+                    .thenAnswer(inv -> List.of(((RowMapper<?>) inv.getArgument(1)).mapRow(rs, 0)));
+
+            UserContext ctx = service.load(instructorId);
+
+            assertThat(ctx.atRiskStudents()).hasSize(1);
+            var a = ctx.atRiskStudents().get(0);
+            assertThat(a.studentName()).isEqualTo("Lê Văn C");
+            assertThat(a.daysEnrolled()).isEqualTo(15);
+        }
     }
 
     // ── load: ADMIN role ──────────────────────────────────────────────────────
@@ -326,6 +537,26 @@ class UserContextServiceTest {
             UserContext ctx = service.load(adminId);
 
             assertThat(ctx.adminStats().totalUsers()).isZero();
+        }
+
+        @Test
+        void toLong_coercesNonLongNumberTypes() {
+            // Some JDBC drivers may return plain Integer for COUNT(*) instead of Long.
+            Map<String, Object> stats = new java.util.HashMap<>();
+            stats.put("total_users", 42);
+            stats.put("total_students", 30);
+            stats.put("total_instructors", 12);
+            stats.put("total_courses", 8);
+            stats.put("published_courses", 5);
+            stats.put("total_enrollments", 200L);
+            stats.put("active_conversations", null);
+            when(jdbc.queryForMap(anyString())).thenReturn(stats);
+
+            UserContext ctx = service.load(adminId);
+
+            assertThat(ctx.adminStats().totalUsers()).isEqualTo(42L);
+            assertThat(ctx.adminStats().totalEnrollments()).isEqualTo(200L);
+            assertThat(ctx.adminStats().activeConversations()).isZero();
         }
     }
 }

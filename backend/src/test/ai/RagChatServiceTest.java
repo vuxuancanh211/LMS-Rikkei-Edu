@@ -28,10 +28,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import org.mockito.ArgumentCaptor;
+import project.lms_rikkei_edu.modules.ai.exception.ConversationNotFoundException;
+
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
@@ -271,5 +276,173 @@ class RagChatServiceTest {
         service.chat(new ChatRequest(userId, null, null, null, "Chính sách nghỉ phép là gì?"));
 
         verify(vectorSearch).search(isNull(), any(), anyInt(), anyDouble());
+    }
+
+    // ── resolveConversation ───────────────────────────────────────────────────
+
+    @Test
+    void existingConversationId_reusesConversation_doesNotCreateNew() {
+        UUID conversationId = UUID.randomUUID();
+        AiConversation existing = AiConversation.builder().id(conversationId).studentId(userId)
+                .messageCount(4).createdAt(OffsetDateTime.now()).lastMessageAt(OffsetDateTime.now()).build();
+        when(userContextService.load(userId)).thenReturn(studentContext(List.of()));
+        when(conversationRepo.findById(conversationId)).thenReturn(java.util.Optional.of(existing));
+
+        ChatResponse resp = service.chat(new ChatRequest(userId, null, conversationId, null, "Tiếp tục câu hỏi"));
+
+        assertThat(resp.conversationId()).isEqualTo(conversationId);
+        verify(conversationRepo, never()).save(argThat(c -> c.getId() == null));
+    }
+
+    @Test
+    void unknownConversationId_throwsConversationNotFoundException() {
+        UUID conversationId = UUID.randomUUID();
+        when(userContextService.load(userId)).thenReturn(studentContext(List.of()));
+        when(conversationRepo.findById(conversationId)).thenReturn(java.util.Optional.empty());
+
+        assertThatThrownBy(() -> service.chat(new ChatRequest(userId, null, conversationId, null, "Xin chào")))
+                .isInstanceOf(ConversationNotFoundException.class);
+    }
+
+    @Test
+    void existingHistory_isMappedIntoLlmHistory() {
+        when(userContextService.load(userId)).thenReturn(studentContext(List.of()));
+        AiMessage prior = AiMessage.builder().id(UUID.randomUUID()).role(
+                        project.lms_rikkei_edu.modules.ai.entity.enums.MessageRole.USER)
+                .content("Câu hỏi trước").createdAt(OffsetDateTime.now()).build();
+        when(messageRepo.findByConversationIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of(prior));
+
+        service.chat(new ChatRequest(userId, null, null, null, "Câu hỏi mới"));
+
+        ArgumentCaptor<List> historyCaptor = ArgumentCaptor.forClass(List.class);
+        verify(llmService).complete(any(), historyCaptor.capture(), any());
+        assertThat(historyCaptor.getValue()).hasSize(1);
+    }
+
+    // ── buildSystemPrompt — student sections ────────────────────────────────
+
+    private UserContext fullStudentContext() {
+        UUID courseId = UUID.randomUUID();
+        return new UserContext(userId, "Nguyễn Thị Lan", UserContext.UserRole.STUDENT,
+                List.of(new UserContext.CourseInfo(courseId, "ReactJS Nâng cao", "IN_PROGRESS", 45.0)),
+                List.of(new UserContext.DeadlineInfo("Bài tập 1", "ReactJS Nâng cao", "10/07/2026 23:59", true),
+                        new UserContext.DeadlineInfo("Bài tập 2", "ReactJS Nâng cao", "15/07/2026 23:59", false)),
+                List.of(new UserContext.GroupInfo(UUID.randomUUID(), "Nhóm A1", "ReactJS Nâng cao")),
+                List.of(new UserContext.RecentLessonInfo("Bài 1: Hooks", "Chương 1", "ReactJS Nâng cao", "COMPLETED", "01/07/2026 10:00")),
+                List.of(new UserContext.QuizResultInfo("Quiz 1", "ReactJS Nâng cao", 8.0, 10.0, true, "01/07/2026 11:00"),
+                        new UserContext.QuizResultInfo("Quiz 2", "ReactJS Nâng cao", 4.0, 10.0, false, "02/07/2026 11:00")),
+                List.of(new UserContext.UnsubmittedAssignmentInfo("Bài tập 3", "ReactJS Nâng cao", "20/07/2026 23:59", true),
+                        new UserContext.UnsubmittedAssignmentInfo("Bài tập 4", "ReactJS Nâng cao", "25/07/2026 23:59", false)),
+                List.of(), List.of(), null,
+                List.of(new UserContext.ChapterProgressInfo("ReactJS Nâng cao", "Chương 1", 3, 5)),
+                List.of(new UserContext.AssignmentScoreInfo("Bài tập 1", "ReactJS Nâng cao", 9.0, 10.0, "01/07/2026 12:00")),
+                List.of(), List.of(), List.of(),
+                List.of(new UserContext.CourseStructureInfo("ReactJS Nâng cao", 4, 12)));
+    }
+
+    @Test
+    void studentWithFullContext_includesAllSectionsInSystemPrompt() {
+        when(userContextService.load(userId)).thenReturn(fullStudentContext());
+
+        service.chat(new ChatRequest(userId, null, null, null, "Tình hình học tập của tôi thế nào?"));
+
+        ArgumentCaptor<String> promptCaptor = ArgumentCaptor.forClass(String.class);
+        verify(llmService).complete(promptCaptor.capture(), any(), any());
+        String prompt = promptCaptor.getValue();
+        assertThat(prompt).contains("KHÓA HỌC ĐANG HỌC:");
+        assertThat(prompt).contains("BÀI HỌC GẦN NHẤT:");
+        assertThat(prompt).contains("KẾT QUẢ QUIZ GẦN NHẤT:");
+        assertThat(prompt).contains("✓ ĐẠT");
+        assertThat(prompt).contains("✗ CHƯA ĐẠT");
+        assertThat(prompt).contains("BÀI TẬP CHƯA NỘP:");
+        assertThat(prompt).contains("⚠️ ĐÃ QUÁ HẠN");
+        assertThat(prompt).contains("TIẾN ĐỘ THEO CHƯƠNG:");
+        assertThat(prompt).contains("ĐIỂM BÀI TẬP ĐÃ CHẤM:");
+        assertThat(prompt).contains("NHÓM HỌC:");
+        assertThat(prompt).contains("DEADLINE SẮP ĐẾN:");
+        assertThat(prompt).contains("CẤU TRÚC KHÓA HỌC");
+    }
+
+    // ── buildSystemPrompt — instructor sections ─────────────────────────────
+
+    private UserContext fullInstructorContext() {
+        UUID courseId = UUID.randomUUID();
+        return new UserContext(userId, "Trần Văn Bình", UserContext.UserRole.INSTRUCTOR,
+                List.of(new UserContext.CourseInfo(courseId, "Spring Boot Microservices", "PUBLISHED", 30.0)),
+                List.of(new UserContext.DeadlineInfo("Bài tập 1", "Spring Boot Microservices", "10/07/2026 23:59", true)),
+                List.of(new UserContext.GroupInfo(UUID.randomUUID(), "Nhóm B1", "Spring Boot Microservices")),
+                List.of(), List.of(), List.of(),
+                List.of(new UserContext.SubmissionGapInfo("Bài tập 1", "Spring Boot Microservices", "10/07/2026 23:59", 30, 20, 10)),
+                List.of(new UserContext.AtRiskStudentInfo("Lê Văn C", "Spring Boot Microservices", 10.0, 15)),
+                null,
+                List.of(), List.of(),
+                List.of(new UserContext.QuizStatsInfo("Quiz 1", "Spring Boot Microservices", 7.5, 80.0, 25)),
+                List.of(new UserContext.TopStudentInfo("Phạm Thị D", "Spring Boot Microservices", 95.0)),
+                List.of(new UserContext.CourseApprovalInfo("Spring Boot Microservices", "REJECTED", "Thiếu nội dung"),
+                        new UserContext.CourseApprovalInfo("Docker Cơ Bản", "PENDING", null)),
+                List.of(new UserContext.CourseStructureInfo("Spring Boot Microservices", 6, 24)));
+    }
+
+    @Test
+    void instructorWithFullContext_includesAllSectionsInSystemPrompt() {
+        when(userContextService.load(userId)).thenReturn(fullInstructorContext());
+
+        service.chat(new ChatRequest(userId, null, null, null, "Tình hình lớp học thế nào?"));
+
+        ArgumentCaptor<String> promptCaptor = ArgumentCaptor.forClass(String.class);
+        verify(llmService).complete(promptCaptor.capture(), any(), any());
+        String prompt = promptCaptor.getValue();
+        assertThat(prompt).contains("KHÓA HỌC ĐANG QUẢN LÝ:");
+        assertThat(prompt).contains("NHÓM ĐANG QUẢN LÝ:");
+        assertThat(prompt).contains("BÀI TẬP SẮP ĐẾN HẠN:");
+        assertThat(prompt).contains("TỈNH TRẠNG NỘP BÀI:");
+        assertThat(prompt).contains("HỌC VIÊN CÓ TIẾN ĐỘ THẤP");
+        assertThat(prompt).contains("THỐNG KÊ QUIZ:");
+        assertThat(prompt).contains("HỌC VIÊN XUẤT SẮC");
+        assertThat(prompt).contains("TRẠNG THÁI DUYỆT KHÓA HỌC:");
+        assertThat(prompt).contains("lý do từ chối: Thiếu nội dung");
+        assertThat(prompt).contains("CẤU TRÚC KHÓA HỌC");
+    }
+
+    // ── buildSystemPrompt — admin section ────────────────────────────────────
+
+    @Test
+    void adminWithStats_includesSystemStatsInSystemPrompt() {
+        UserContext ctx = new UserContext(userId, "Admin Root", UserContext.UserRole.ADMIN,
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                List.of(), List.of(),
+                new UserContext.AdminStats(100, 80, 15, 20, 12, 300, 5),
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of());
+        when(userContextService.load(userId)).thenReturn(ctx);
+
+        service.chat(new ChatRequest(userId, null, null, null, "Thống kê hệ thống thế nào?"));
+
+        ArgumentCaptor<String> promptCaptor = ArgumentCaptor.forClass(String.class);
+        verify(llmService).complete(promptCaptor.capture(), any(), any());
+        assertThat(promptCaptor.getValue()).contains("THỐNG KÊ HỆ THỐNG:");
+        assertThat(promptCaptor.getValue()).contains("Tổng người dùng: 100");
+    }
+
+    // ── buildSystemPrompt — RAG document context ─────────────────────────────
+
+    @Test
+    void chunksWithAndWithoutSectionTitle_areBothRenderedInPrompt() {
+        UUID ownCourseId = UUID.randomUUID();
+        List<UserContext.CourseInfo> courses = List.of(
+                new UserContext.CourseInfo(ownCourseId, "Khóa Y", "IN_PROGRESS", 20.0));
+        when(userContextService.load(userId)).thenReturn(studentContext(courses));
+        when(vectorSearch.search(eq(ownCourseId), any(), anyInt(), anyDouble())).thenReturn(List.of(
+                new ScoredChunk(UUID.randomUUID(), UUID.randomUUID(), ownCourseId, 0, "Chương mở đầu", "Nội dung A", 0.8),
+                new ScoredChunk(UUID.randomUUID(), UUID.randomUUID(), ownCourseId, 1, null, "Nội dung B", 0.7)));
+
+        service.chat(new ChatRequest(userId, ownCourseId, null, null, "Tóm tắt tài liệu"));
+
+        ArgumentCaptor<String> promptCaptor = ArgumentCaptor.forClass(String.class);
+        verify(llmService).complete(promptCaptor.capture(), any(), any());
+        String prompt = promptCaptor.getValue();
+        assertThat(prompt).contains("=== TÀI LIỆU KHÓA HỌC ===");
+        assertThat(prompt).contains("Chương mở đầu");
+        assertThat(prompt).contains("Nội dung A");
+        assertThat(prompt).contains("Nội dung B");
     }
 }
