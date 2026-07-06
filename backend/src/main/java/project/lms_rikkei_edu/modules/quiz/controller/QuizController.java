@@ -6,6 +6,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import project.lms_rikkei_edu.common.exception.BusinessException;
+import project.lms_rikkei_edu.common.security.CourseOwnershipGuard;
 import project.lms_rikkei_edu.common.security.CurrentUserProvider;
 import project.lms_rikkei_edu.modules.quiz.dto.request.*;
 import project.lms_rikkei_edu.modules.quiz.dto.response.*;
@@ -21,6 +22,7 @@ public class QuizController {
 
     private final QuizService quizService;
     private final CurrentUserProvider currentUserProvider;
+    private final CourseOwnershipGuard ownershipGuard;
 
     @GetMapping
     @PreAuthorize("hasAnyRole('INSTRUCTOR', 'ADMIN', 'STUDENT')")
@@ -40,6 +42,7 @@ public class QuizController {
     public ResponseEntity<QuizSummaryResponse> create(
             @PathVariable UUID courseId,
             @Valid @RequestBody QuizMetadataRequest request) {
+        ownershipGuard.requireOwnership(courseId);
         UUID instructorId = resolveCurrentUser();
         return ResponseEntity.ok(quizService.create(courseId, instructorId, request));
     }
@@ -50,6 +53,7 @@ public class QuizController {
             @PathVariable UUID courseId,
             @PathVariable UUID quizId,
             @Valid @RequestBody QuizMetadataRequest request) {
+        ownershipGuard.requireOwnership(courseId);
         return ResponseEntity.ok(quizService.updateMetadata(courseId, quizId, request));
     }
 
@@ -57,6 +61,7 @@ public class QuizController {
     @PreAuthorize("hasAnyRole('INSTRUCTOR', 'ADMIN')")
     public ResponseEntity<Void> delete(
             @PathVariable UUID courseId, @PathVariable UUID quizId) {
+        ownershipGuard.requireOwnership(courseId);
         quizService.delete(courseId, quizId);
         return ResponseEntity.noContent().build();
     }
@@ -67,6 +72,7 @@ public class QuizController {
             @PathVariable UUID courseId,
             @PathVariable UUID quizId,
             @Valid @RequestBody QuizAddBankQuestionsRequest request) {
+        ownershipGuard.requireOwnership(courseId);
         return ResponseEntity.ok(quizService.addBankQuestions(courseId, quizId, request));
     }
 
@@ -76,6 +82,7 @@ public class QuizController {
             @PathVariable UUID courseId,
             @PathVariable UUID quizId,
             @Valid @RequestBody QuizManualQuestionRequest request) {
+        ownershipGuard.requireOwnership(courseId);
         UUID instructorId = resolveCurrentUser();
         return ResponseEntity.ok(quizService.addManualQuestion(courseId, quizId, instructorId, request));
     }
@@ -86,6 +93,7 @@ public class QuizController {
             @PathVariable UUID courseId,
             @PathVariable UUID quizId,
             @PathVariable UUID questionId) {
+        ownershipGuard.requireOwnership(courseId);
         quizService.removeQuestion(courseId, quizId, questionId);
         return ResponseEntity.noContent().build();
     }
@@ -96,6 +104,7 @@ public class QuizController {
             @PathVariable UUID courseId,
             @PathVariable UUID quizId,
             @Valid @RequestBody QuizRandomConfigRequest request) {
+        ownershipGuard.requireOwnership(courseId);
         return ResponseEntity.ok(quizService.configureRandomDraw(courseId, quizId, request));
     }
 
@@ -103,6 +112,7 @@ public class QuizController {
     @PreAuthorize("hasAnyRole('INSTRUCTOR', 'ADMIN')")
     public ResponseEntity<QuizSummaryResponse> publish(
             @PathVariable UUID courseId, @PathVariable UUID quizId) {
+        ownershipGuard.requireOwnership(courseId);
         return ResponseEntity.ok(quizService.publish(courseId, quizId));
     }
 
@@ -110,6 +120,7 @@ public class QuizController {
     @PreAuthorize("hasAnyRole('INSTRUCTOR', 'ADMIN')")
     public ResponseEntity<QuizSummaryResponse> archive(
             @PathVariable UUID courseId, @PathVariable UUID quizId) {
+        ownershipGuard.requireOwnership(courseId);
         return ResponseEntity.ok(quizService.archive(courseId, quizId));
     }
 
@@ -117,6 +128,7 @@ public class QuizController {
     @PreAuthorize("hasAnyRole('INSTRUCTOR', 'ADMIN')")
     public ResponseEntity<QuizSummaryResponse> unarchive(
             @PathVariable UUID courseId, @PathVariable UUID quizId) {
+        ownershipGuard.requireOwnership(courseId);
         return ResponseEntity.ok(quizService.unarchive(courseId, quizId));
     }
 
@@ -124,6 +136,7 @@ public class QuizController {
     @PreAuthorize("hasAnyRole('INSTRUCTOR', 'ADMIN')")
     public ResponseEntity<DryRunResponse> dryRun(
             @PathVariable UUID courseId, @PathVariable UUID quizId) {
+        ownershipGuard.requireOwnership(courseId);
         return ResponseEntity.ok(quizService.dryRun(courseId, quizId));
     }
 

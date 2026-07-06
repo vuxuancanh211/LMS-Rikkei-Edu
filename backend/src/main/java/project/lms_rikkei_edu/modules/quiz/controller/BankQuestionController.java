@@ -9,6 +9,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import project.lms_rikkei_edu.common.exception.BusinessException;
+import project.lms_rikkei_edu.common.security.CourseOwnershipGuard;
 import project.lms_rikkei_edu.common.security.CurrentUserProvider;
 import project.lms_rikkei_edu.modules.quiz.dto.request.BankQuestionImportConfirmRequest;
 import project.lms_rikkei_edu.modules.quiz.dto.request.BankQuestionRequest;
@@ -27,6 +28,7 @@ public class BankQuestionController {
 
     private final BankQuestionService bankQuestionService;
     private final CurrentUserProvider currentUserProvider;
+    private final CourseOwnershipGuard ownershipGuard;
 
     @GetMapping
     @PreAuthorize("hasAnyRole('INSTRUCTOR', 'ADMIN')")
@@ -35,6 +37,7 @@ public class BankQuestionController {
             @RequestParam(required = false) QuestionStatus status,
             @RequestParam(required = false) QuestionDifficulty difficulty,
             @RequestParam(required = false) String subjectTag) {
+        ownershipGuard.requireOwnership(courseId);
         return ResponseEntity.ok(bankQuestionService.list(courseId, status, difficulty, subjectTag));
     }
 
@@ -42,6 +45,7 @@ public class BankQuestionController {
     @PreAuthorize("hasAnyRole('INSTRUCTOR', 'ADMIN')")
     public ResponseEntity<BankQuestionResponse> getById(
             @PathVariable UUID courseId, @PathVariable UUID questionId) {
+        ownershipGuard.requireOwnership(courseId);
         return ResponseEntity.ok(bankQuestionService.getById(courseId, questionId));
     }
 
@@ -50,6 +54,7 @@ public class BankQuestionController {
     public ResponseEntity<BankQuestionResponse> create(
             @PathVariable UUID courseId,
             @Valid @RequestBody BankQuestionRequest request) {
+        ownershipGuard.requireOwnership(courseId);
         UUID instructorId = currentUserProvider.getCurrentUserId()
                 .orElseThrow(() -> new BusinessException("Không xác định được người dùng"));
         return ResponseEntity.ok(bankQuestionService.create(courseId, instructorId, request));
@@ -61,6 +66,7 @@ public class BankQuestionController {
             @PathVariable UUID courseId,
             @PathVariable UUID questionId,
             @Valid @RequestBody BankQuestionRequest request) {
+        ownershipGuard.requireOwnership(courseId);
         return ResponseEntity.ok(bankQuestionService.update(courseId, questionId, request));
     }
 
@@ -68,6 +74,7 @@ public class BankQuestionController {
     @PreAuthorize("hasAnyRole('INSTRUCTOR', 'ADMIN')")
     public ResponseEntity<Void> delete(
             @PathVariable UUID courseId, @PathVariable UUID questionId) {
+        ownershipGuard.requireOwnership(courseId);
         bankQuestionService.delete(courseId, questionId);
         return ResponseEntity.noContent().build();
     }
@@ -76,6 +83,7 @@ public class BankQuestionController {
     @PreAuthorize("hasAnyRole('INSTRUCTOR', 'ADMIN')")
     public ResponseEntity<Void> toggleStatus(
             @PathVariable UUID courseId, @PathVariable UUID questionId) {
+        ownershipGuard.requireOwnership(courseId);
         bankQuestionService.toggleStatus(courseId, questionId);
         return ResponseEntity.noContent().build();
     }
@@ -85,6 +93,7 @@ public class BankQuestionController {
     public ResponseEntity<BankQuestionImportPreviewResponse> importPreview(
             @PathVariable UUID courseId,
             @RequestParam("file") MultipartFile file) {
+        ownershipGuard.requireOwnership(courseId);
         return ResponseEntity.ok(bankQuestionService.importPreview(courseId, file));
     }
 
@@ -93,6 +102,7 @@ public class BankQuestionController {
     public ResponseEntity<BankQuestionImportConfirmResponse> importConfirm(
             @PathVariable UUID courseId,
             @Valid @RequestBody BankQuestionImportConfirmRequest request) {
+        ownershipGuard.requireOwnership(courseId);
         UUID instructorId = currentUserProvider.getCurrentUserId()
                 .orElseThrow(() -> new BusinessException("Không xác định được người dùng"));
         return ResponseEntity.ok(bankQuestionService.importConfirm(courseId, instructorId, request));
@@ -103,6 +113,7 @@ public class BankQuestionController {
     public ResponseEntity<byte[]> export(
             @PathVariable UUID courseId,
             @RequestParam(defaultValue = "xlsx") String format) {
+        ownershipGuard.requireOwnership(courseId);
         byte[] data = bankQuestionService.export(courseId, format);
         boolean isCsv = "csv".equalsIgnoreCase(format);
         return ResponseEntity.ok()

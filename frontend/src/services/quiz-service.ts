@@ -297,3 +297,55 @@ export async function getStudentCourseProgress(courseId: string) {
   );
   return res.data;
 }
+
+// ─── AI Question Generation ────────────────────────────────────────────────────
+
+export interface AiGenerateRequest {
+  topic: string;
+  questionType: string;
+  difficulty: string;
+  subjectTag?: string;
+  count: number;
+  duplicateThreshold?: number;
+}
+
+export interface AiGeneratedOption {
+  text: string;
+  correct: boolean;
+  explanation: string;
+}
+
+export interface AiGeneratedQuestion {
+  questionText: string;
+  questionType: string;
+  difficulty: string;
+  options: AiGeneratedOption[];
+  duplicate: boolean;
+  duplicateOfId: string | null;
+  similarityScore: number;
+}
+
+export interface AiGenerateResponse {
+  questions: AiGeneratedQuestion[];
+  totalGenerated: number;
+  duplicateCount: number;
+  newCount: number;
+}
+
+export async function aiGenerateQuestions(courseId: string, req: AiGenerateRequest) {
+  const res = await httpClient.post<AiGenerateResponse>(
+    `/courses/${courseId}/bank-questions/ai/generate`,
+    req,
+    { timeout: 120_000 },
+  );
+  return res.data;
+}
+
+export async function aiSaveQuestions(courseId: string, questions: BankQuestionRequest[]) {
+  const res = await httpClient.post<BankQuestionResponse[]>(
+    `/courses/${courseId}/bank-questions/ai/save`,
+    questions,
+    { timeout: 60_000 },
+  );
+  return res.data;
+}

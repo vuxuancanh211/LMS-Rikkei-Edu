@@ -5,6 +5,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import project.lms_rikkei_edu.common.exception.BusinessException;
+import project.lms_rikkei_edu.common.security.CourseOwnershipGuard;
 import project.lms_rikkei_edu.common.security.CurrentUserProvider;
 import project.lms_rikkei_edu.modules.quiz.dto.response.AttemptHistoryEntry;
 import project.lms_rikkei_edu.modules.quiz.dto.response.QuizStatsResponse;
@@ -20,6 +21,7 @@ public class QuizStatsController {
 
     private final QuizStatsService statsService;
     private final CurrentUserProvider currentUserProvider;
+    private final CourseOwnershipGuard ownershipGuard;
 
     // Instructor: thống kê tổng quan quiz
     @GetMapping("/api/courses/{courseId}/quizzes/{quizId}/stats")
@@ -27,6 +29,7 @@ public class QuizStatsController {
     public ResponseEntity<QuizStatsResponse> getQuizStats(
             @PathVariable UUID courseId,
             @PathVariable UUID quizId) {
+        ownershipGuard.requireOwnership(courseId);
         return ResponseEntity.ok(statsService.getQuizStats(courseId, quizId));
     }
 
@@ -36,6 +39,7 @@ public class QuizStatsController {
     public ResponseEntity<List<AttemptHistoryEntry>> getAllAttempts(
             @PathVariable UUID courseId,
             @PathVariable UUID quizId) {
+        ownershipGuard.requireOwnership(courseId);
         return ResponseEntity.ok(statsService.getAllAttemptsForQuiz(courseId, quizId));
     }
 

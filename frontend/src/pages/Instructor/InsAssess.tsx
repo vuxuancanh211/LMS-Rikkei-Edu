@@ -12,12 +12,10 @@
     listBankQuestions, createBankQuestion, updateBankQuestion, deleteBankQuestion,
     toggleBankQuestionStatus, previewBankImport, confirmBankImport, exportBankQuestions,
     getQuizStats, getAllAttemptsForQuiz,
+    aiGenerateQuestions, aiSaveQuestions,
   } = window.__quizService;
 
-  // Lấy danh sách khóa học từ mock data (sẽ swap sang API khi có course-service)
-  function getInstructorCourses() {
-    try { return (window.DATA?.courses || []).slice(0, 20); } catch { return []; }
-  }
+  const { getMyCourses } = window.__courseService;
 
   const DIFF_LABEL = { EASY: 'Dễ', MEDIUM: 'Trung bình', HARD: 'Khó' };
   const DIFF_CHIP  = { EASY: 'success', MEDIUM: 'warning', HARD: 'error' };
@@ -38,10 +36,23 @@
 
   /* ─── Main Component ──────────────────────────────────────── */
   function InsAssess({ courseId, demo }) {
-    const courses = getInstructorCourses();
-    // courseId có thể truyền từ ngoài; nếu không thì chọn từ dropdown
-    const [selectedCourseId, setSelectedCourseId] = useState(courseId || (courses[0]?.id || null));
+    const [courses, setCourses] = useState([]);
+    const [coursesLoading, setCoursesLoading] = useState(true);
+    const [selectedCourseId, setSelectedCourseId] = useState(courseId || null);
     const activeCourseId = selectedCourseId;
+
+    useEffect(() => {
+      getMyCourses()
+        .then(page => {
+          const list = page.content || [];
+          setCourses(list);
+          if (!selectedCourseId && list.length > 0) {
+            setSelectedCourseId(list[0].id);
+          }
+        })
+        .catch(() => {})
+        .finally(() => setCoursesLoading(false));
+    }, []);
 
     const [tab, setTab] = useState('quiz');
     const [q, setQ] = useState('');
@@ -55,6 +66,7 @@
     const [bankList, setBankList] = useState([]);
     const [bankLoading, setBankLoading] = useState(false);
     const [bankFilter, setBankFilter] = useState('ALL');
+    const [bankStatusFilter, setBankStatusFilter] = useState('ALL');
 
     // Modal states
     const [createQuizOpen, setCreateQuizOpen] = useState(false);
@@ -64,8 +76,11 @@
     const [submitting, setSubmitting] = useState(false);
 
     // Stats modal state
-    const [statsQuiz, setStatsQuiz] = useState(null);   // quiz object được chọn để xem stats
+    const [statsQuiz, setStatsQuiz] = useState(null);
     const [statsOpen, setStatsOpen] = useState(false);
+
+    // AI generate modal state
+    const [aiOpen, setAiOpen] = useState(false);
 
     // Create quiz form
     const [qzTitle, setQzTitle] = useState('');
@@ -118,7 +133,9 @@
       if (!activeCourseId) return;
       setBankLoading(true);
       try {
-        const params = bankFilter !== 'ALL' ? { difficulty: bankFilter } : {};
+        const params = {};
+        if (bankFilter !== 'ALL') params.difficulty = bankFilter;
+        if (bankStatusFilter !== 'ALL') params.status = bankStatusFilter;
         const data = await listBankQuestions(activeCourseId, params);
         setBankList(data);
       } catch (err) {
@@ -126,7 +143,7 @@
       } finally {
         setBankLoading(false);
       }
-    }, [activeCourseId, bankFilter, showToast]);
+    }, [activeCourseId, bankFilter, bankStatusFilter, showToast]);
 
     useEffect(() => { fetchQuizzes(); }, [fetchQuizzes]);
     useEffect(() => { if (tab === 'bank') fetchBank(); }, [tab, fetchBank]);
@@ -237,16 +254,18 @@
       }
     }, [activeCourseId, bqText, bqType, bqDiff, bqTag, bqPoints, bqOpts, editBankItem, fetchBank, showToast]);
 
-    /* ── Toggle bank question status ── */
-    const handleToggleStatus = useCallback(async (q) => {
+    /* ── Toggle bank question status (optimistic — no reload flash) ── */
+    const handleToggleStatus = useCallback(async (item) => {
+      const newStatus = item.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
+      setBankList(prev => prev.map(x => x.id === item.id ? { ...x, status: newStatus } : x));
       try {
-        await toggleBankQuestionStatus(activeCourseId, q.id);
-        showToast(q.status === 'ACTIVE' ? 'Đã vô hiệu hóa câu hỏi' : 'Đã kích hoạt câu hỏi');
-        fetchBank();
+        await toggleBankQuestionStatus(activeCourseId, item.id);
+        showToast(newStatus === 'INACTIVE' ? 'Đã vô hiệu hóa câu hỏi' : 'Đã kích hoạt câu hỏi');
       } catch (err) {
+        setBankList(prev => prev.map(x => x.id === item.id ? { ...x, status: item.status } : x));
         showToast(extractError(err), 'error');
       }
-    }, [activeCourseId, fetchBank, showToast]);
+    }, [activeCourseId, showToast]);
 
     /* ── Delete bank question ── */
     const handleDeleteBank = useCallback(async (item) => {
@@ -310,12 +329,18 @@
             <h1 className="t-h1">Bài tập & Trắc nghiệm</h1>
             <div className="row gap-8" style={{ marginTop: 6 }}>
               <span className="muted" style={{ fontSize: 13 }}>Khóa học:</span>
-              <Select
-                value={selectedCourseId || ''}
-                onChange={v => { setSelectedCourseId(v); setQuizzes([]); setBankList([]); }}
-                options={courses.map(c => ({ v: c.id, label: c.title }))}
-                style={{ width: 280, flex: 'none' }}
-              />
+              {coursesLoading ? (
+                <span className="muted" style={{ fontSize: 13 }}>Đang tải khóa học...</span>
+              ) : courses.length === 0 ? (
+                <span className="muted" style={{ fontSize: 13 }}>Bạn chưa có khóa học nào</span>
+              ) : (
+                <Select
+                  value={selectedCourseId || ''}
+                  onChange={v => { setSelectedCourseId(v); setQuizzes([]); setBankList([]); setBankFilter('ALL'); setBankStatusFilter('ALL'); }}
+                  options={courses.map(c => ({ v: c.id, label: c.title }))}
+                  style={{ width: 280, flex: 'none' }}
+                />
+              )}
             </div>
           </div>
           <div className="row gap-10">
@@ -335,6 +360,10 @@
                 </button>
                 <button className="btn btn-ghost" onClick={() => { setImportStep('pick'); setImportFile(null); setImportPreview(null); setImportOpen(true); }}>
                   <Ic n="upload" size={16} />Import CSV
+                </button>
+                <button className="btn btn-ghost" style={{ color: 'var(--accent)', borderColor: 'var(--accent)' }}
+                  onClick={() => setAiOpen(true)}>
+                  <Ic n="sparkles" size={17} />Tạo bằng AI
                 </button>
                 <button className="btn btn-primary" onClick={() => {
                   resetBankForm(); setEditBankItem(null); setAddBankOpen(true);
@@ -357,17 +386,29 @@
           />
           <div className="grow" />
           {tab === 'bank' && (
-            <Select
-              value={bankFilter}
-              onChange={setBankFilter}
-              options={[
-                { v: 'ALL', label: 'Tất cả độ khó' },
-                { v: 'EASY', label: 'Dễ' },
-                { v: 'MEDIUM', label: 'Trung bình' },
-                { v: 'HARD', label: 'Khó' },
-              ]}
-              style={{ width: 180, flex: 'none' }}
-            />
+            <>
+              <Select
+                value={bankStatusFilter}
+                onChange={setBankStatusFilter}
+                options={[
+                  { v: 'ALL', label: 'Tất cả trạng thái' },
+                  { v: 'ACTIVE', label: 'Hoạt động' },
+                  { v: 'INACTIVE', label: 'Vô hiệu' },
+                ]}
+                style={{ width: 170, flex: 'none' }}
+              />
+              <Select
+                value={bankFilter}
+                onChange={setBankFilter}
+                options={[
+                  { v: 'ALL', label: 'Tất cả độ khó' },
+                  { v: 'EASY', label: 'Dễ' },
+                  { v: 'MEDIUM', label: 'Trung bình' },
+                  { v: 'HARD', label: 'Khó' },
+                ]}
+                style={{ width: 160, flex: 'none' }}
+              />
+            </>
           )}
           <Search placeholder="Tìm theo tên..." value={q} onChange={setQ} style={{ width: 240, flex: 'none' }} />
         </div>
@@ -683,6 +724,14 @@
           </div>
         </Modal>
 
+        {/* ═══ Modal: AI tạo câu hỏi ═══ */}
+        <AiGenerateModal
+          open={aiOpen}
+          onClose={() => setAiOpen(false)}
+          courseId={activeCourseId}
+          onSaved={() => { setAiOpen(false); fetchBank(); }}
+        />
+
         {/* ═══ Modal: Thống kê quiz ═══ */}
         <QuizStatsModal
           open={statsOpen}
@@ -754,6 +803,365 @@
           </div>
         </Modal>
       </div>
+    );
+  }
+
+  /* ═══ AiGenerateModal ══════════════════════════════════════ */
+  function AiGenerateModal({ open, onClose, courseId, onSaved }) {
+    const STEPS = { form: 'form', loading: 'loading', preview: 'preview', saving: 'saving' };
+    const [step, setStep] = useState(STEPS.form);
+    const [error, setError] = useState('');
+
+    // Form state
+    const [topic, setTopic] = useState('');
+    const [qType, setQType] = useState('SINGLE_CHOICE');
+    const [diff, setDiff] = useState('MEDIUM');
+    const [tag, setTag] = useState('');
+    const [count, setCount] = useState(5);
+    const [threshold, setThreshold] = useState(0.88);
+
+    // Preview state
+    const [result, setResult] = useState(null);
+    const [selected, setSelected] = useState([]);
+
+    // Inline edit state
+    const [editingIdx, setEditingIdx] = useState(null);
+    const [draft, setDraft] = useState(null); // { questionText, questionType, difficulty, options: [{text, correct}] }
+
+    function reset() {
+      setStep(STEPS.form); setError(''); setResult(null); setSelected([]);
+      setTopic(''); setTag(''); setCount(5); setThreshold(0.88);
+      setQType('SINGLE_CHOICE'); setDiff('MEDIUM');
+      setEditingIdx(null); setDraft(null);
+    }
+
+    function openEdit(i) {
+      const q = result.questions[i];
+      setDraft({
+        questionText: q.questionText,
+        questionType: q.questionType,
+        difficulty: q.difficulty,
+        options: q.options.map(o => ({ text: o.text, correct: o.correct })),
+      });
+      setEditingIdx(i);
+    }
+
+    function cancelEdit() { setEditingIdx(null); setDraft(null); }
+
+    function saveEdit(i) {
+      if (!draft.questionText.trim()) return;
+      const updated = { ...result.questions[i], ...draft };
+      const newQuestions = result.questions.map((q, idx) => idx === i ? updated : q);
+      setResult({ ...result, questions: newQuestions });
+      setEditingIdx(null);
+      setDraft(null);
+      // Khi edit xong → tự động chọn câu đó
+      setSelected(prev => prev.map((v, idx) => idx === i ? true : v));
+    }
+
+    function draftToggleCorrect(j) {
+      const isSingle = draft.questionType === 'SINGLE_CHOICE';
+      setDraft(prev => ({
+        ...prev,
+        options: prev.options.map((o, k) => ({
+          ...o,
+          correct: isSingle ? k === j : (k === j ? !o.correct : o.correct),
+        })),
+      }));
+    }
+
+    async function handleGenerate() {
+      if (!topic.trim()) { setError('Vui lòng nhập chủ đề.'); return; }
+      setError(''); setStep(STEPS.loading);
+      try {
+        const data = await aiGenerateQuestions(courseId, {
+          topic, questionType: qType, difficulty: diff,
+          subjectTag: tag || undefined, count, duplicateThreshold: threshold,
+        });
+        setResult(data);
+        setSelected(data.questions.map(q => !q.duplicate));
+        setStep(STEPS.preview);
+      } catch (err) {
+        setError(err?.response?.data?.message || err?.message || 'Lỗi kết nối dịch vụ AI.');
+        setStep(STEPS.form);
+      }
+    }
+
+    async function handleSave() {
+      const toSave = result.questions.filter((_, i) => selected[i]);
+      if (toSave.length === 0) { setError('Chưa chọn câu nào để lưu.'); return; }
+      setStep(STEPS.saving);
+      try {
+        const payload = toSave.map(q => ({
+          questionText: q.questionText,
+          questionType: q.questionType,
+          difficulty: q.difficulty,
+          subjectTag: tag || null,
+          points: 1,
+          options: q.options.map(o => ({ optionText: o.text, isCorrect: o.correct, orderIndex: 0 })),
+        }));
+        await aiSaveQuestions(courseId, payload);
+        onSaved();
+        reset();
+      } catch (err) {
+        setError(err?.response?.data?.message || 'Lưu thất bại. Vui lòng thử lại.');
+        setStep(STEPS.preview);
+      }
+    }
+
+    function toggleSelect(i) {
+      setSelected(prev => prev.map((v, idx) => idx === i ? !v : v));
+    }
+
+    if (!open) return null;
+
+    const DIFF_LBL = { EASY: 'Dễ', MEDIUM: 'Trung bình', HARD: 'Khó' };
+    const DIFF_OPTS = [{ v: 'EASY', label: 'Dễ' }, { v: 'MEDIUM', label: 'Trung bình' }, { v: 'HARD', label: 'Khó' }];
+    const TYPE_LBL  = { SINGLE_CHOICE: 'Một đáp án', MULTIPLE_CHOICE: 'Nhiều đáp án' };
+    const TYPE_OPTS = [{ v: 'SINGLE_CHOICE', label: 'Một đáp án đúng' }, { v: 'MULTIPLE_CHOICE', label: 'Nhiều đáp án đúng' }];
+    const selectedCount = selected.filter(Boolean).length;
+
+    return (
+      <Modal open={open} onClose={() => { if (step !== STEPS.loading && step !== STEPS.saving) { reset(); onClose(); } }} max={760}>
+        <ModalHead
+          title="Tạo câu hỏi bằng AI"
+          sub={step === STEPS.preview
+            ? `${result?.totalGenerated} câu sinh được · ${result?.duplicateCount} trùng · ${result?.newCount} mới`
+            : 'AI sẽ sinh câu hỏi và kiểm tra trùng lặp với ngân hàng hiện có'}
+          icon="sparkles" iconBg="#f3edff" iconColor="#7c3aed"
+          onClose={() => { if (step !== STEPS.loading && step !== STEPS.saving) { reset(); onClose(); } }}
+        />
+
+        {/* ── Step 1: Form ── */}
+        {step === STEPS.form && (
+          <>
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {error && <div style={{ padding: '10px 14px', background: 'var(--chip-error-bg)', color: 'var(--error)', borderRadius: 10, fontSize: 13 }}>{error}</div>}
+              <div>
+                <div className="t-label" style={{ marginBottom: 6 }}>Chủ đề / Nội dung cần ra đề <span style={{ color: 'var(--error)' }}>*</span></div>
+                <textarea className="input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'inherit' }}
+                  placeholder="Ví dụ: Vòng lặp trong Java, Chuẩn hóa cơ sở dữ liệu 3NF, Spring Security JWT..."
+                  value={topic} onChange={e => setTopic(e.target.value)} />
+              </div>
+              <div className="grid grid-2" style={{ gap: 12 }}>
+                <div>
+                  <div className="t-label" style={{ marginBottom: 6 }}>Loại câu hỏi</div>
+                  <Select value={qType} onChange={setQType} options={TYPE_OPTS} />
+                </div>
+                <div>
+                  <div className="t-label" style={{ marginBottom: 6 }}>Độ khó</div>
+                  <Select value={diff} onChange={setDiff} options={DIFF_OPTS} />
+                </div>
+              </div>
+              <div className="grid grid-2" style={{ gap: 12 }}>
+                <div>
+                  <div className="t-label" style={{ marginBottom: 6 }}>Số câu muốn sinh</div>
+                  <input className="input" type="number" min={1} max={20} style={{ width: '100%' }} value={count}
+                    onChange={e => setCount(Math.max(1, Math.min(20, Number(e.target.value))))} />
+                </div>
+                <div>
+                  <div className="t-label" style={{ marginBottom: 6 }}>Chuyên đề / Tag (tuỳ chọn)</div>
+                  <input className="input" style={{ width: '100%' }} placeholder="VD: OOP, SQL, Security..."
+                    value={tag} onChange={e => setTag(e.target.value)} />
+                </div>
+              </div>
+              <div>
+                <div className="between" style={{ marginBottom: 4 }}>
+                  <div className="t-label">Ngưỡng phát hiện trùng</div>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)' }}>{Math.round(threshold * 100)}%</span>
+                </div>
+                <input type="range" min={0.5} max={1} step={0.01} style={{ width: '100%', accentColor: 'var(--accent)' }}
+                  value={threshold} onChange={e => setThreshold(Number(e.target.value))} />
+                <div className="between muted" style={{ fontSize: 11, marginTop: 2 }}>
+                  <span>Ít nghiêm ngặt hơn</span><span>Chặt hơn (100% = exact match)</span>
+                </div>
+              </div>
+            </div>
+            <div className="modal-foot">
+              <button className="btn btn-ghost" onClick={() => { reset(); onClose(); }}>Huỷ</button>
+              <button className="btn btn-primary" onClick={handleGenerate} disabled={!topic.trim()}>
+                <Ic n="sparkles" size={16} />Sinh câu hỏi
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* ── Step 2: Loading ── */}
+        {step === STEPS.loading && (
+          <div className="modal-body" style={{ textAlign: 'center', padding: '48px 24px' }}>
+            <div style={{ width: 56, height: 56, borderRadius: 999, background: '#f3edff', display: 'grid', placeItems: 'center', margin: '0 auto 16px', animation: 'spin 1.2s linear infinite' }}>
+              <Ic n="sparkles" size={26} style={{ color: '#7c3aed' }} />
+            </div>
+            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6 }}>AI đang sinh câu hỏi...</div>
+            <div className="muted t-sm">Đang phân tích chủ đề và kiểm tra trùng lặp với ngân hàng</div>
+          </div>
+        )}
+
+        {/* ── Step 3: Preview + Edit ── */}
+        {step === STEPS.preview && result && (
+          <>
+            <div className="modal-body" style={{ padding: 0 }}>
+              {error && <div style={{ padding: '10px 16px', background: 'var(--chip-error-bg)', color: 'var(--error)', fontSize: 13 }}>{error}</div>}
+
+              {/* Summary bar */}
+              <div className="row gap-16" style={{ padding: '12px 20px', background: 'var(--surface-2)', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
+                <span className="row gap-6 muted t-sm"><Ic n="clipboard" size={14} />{result.totalGenerated} câu sinh được</span>
+                <span className="row gap-6 t-sm" style={{ color: 'var(--success)' }}><Ic n="check_circle" size={14} />{result.newCount} câu mới</span>
+                {result.duplicateCount > 0 && (
+                  <span className="row gap-6 t-sm" style={{ color: 'var(--warning)' }}><Ic n="warn" size={14} />{result.duplicateCount} câu trùng</span>
+                )}
+                <span className="row gap-6 t-sm muted" style={{ marginLeft: 'auto' }}>
+                  Đã chọn: <b style={{ color: 'var(--accent)' }}>{selectedCount}</b>
+                  <span style={{ color: 'var(--text-3)', marginLeft: 8, fontSize: 11 }}>· Nhấn ✏️ để chỉnh sửa trước khi lưu</span>
+                </span>
+              </div>
+
+              {/* Question list */}
+              <div style={{ maxHeight: 460, overflowY: 'auto' }}>
+                {result.questions.map((q, i) => {
+                  const isEditing = editingIdx === i;
+                  return (
+                    <div key={i} style={{
+                      borderBottom: '1px solid var(--border)',
+                      background: isEditing ? 'var(--surface-2)' : q.duplicate ? 'rgba(245,158,11,.04)' : selected[i] ? 'rgba(37,99,235,.03)' : 'transparent',
+                    }}>
+                      {/* ── View mode ── */}
+                      {!isEditing && (
+                        <div style={{ padding: '14px 20px', opacity: q.duplicate && !selected[i] ? 0.65 : 1 }}>
+                          <div className="row gap-12" style={{ alignItems: 'flex-start' }}>
+                            <input type="checkbox" style={{ marginTop: 3, flex: 'none', accentColor: 'var(--accent)', width: 16, height: 16 }}
+                              checked={!!selected[i]} onChange={() => toggleSelect(i)} />
+                            <div className="grow" style={{ minWidth: 0 }}>
+                              <div className="row gap-8" style={{ marginBottom: 6, flexWrap: 'wrap' }}>
+                                <span style={{ fontWeight: 600, fontSize: 13 }}>Câu {i + 1}</span>
+                                <span className={`chip chip-${q.difficulty === 'EASY' ? 'success' : q.difficulty === 'MEDIUM' ? 'warning' : 'error'}`} style={{ fontSize: 10 }}>
+                                  {DIFF_LBL[q.difficulty] || q.difficulty}
+                                </span>
+                                <span className="chip chip-neutral" style={{ fontSize: 10 }}>{TYPE_LBL[q.questionType] || q.questionType}</span>
+                                {q.duplicate && (
+                                  <span className="chip chip-warning" style={{ fontSize: 10 }}>
+                                    <Ic n="warn" size={10} />Trùng {Math.round(q.similarityScore * 100)}%
+                                  </span>
+                                )}
+                                <button className="icon-btn" style={{ marginLeft: 'auto', width: 28, height: 28, color: 'var(--accent)' }}
+                                  title="Chỉnh sửa câu hỏi" onClick={() => openEdit(i)}>
+                                  <Ic n="edit" size={14} />
+                                </button>
+                              </div>
+                              <div style={{ fontSize: 13.5, fontWeight: 500, marginBottom: 10, lineHeight: 1.6 }}>{q.questionText}</div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                                {q.options.map((o, j) => (
+                                  <div key={j} style={{
+                                    padding: '6px 10px', borderRadius: 8, fontSize: 12.5,
+                                    background: o.correct ? 'var(--chip-success-bg)' : 'var(--surface-2)',
+                                    color: o.correct ? 'var(--success)' : 'var(--text)',
+                                    display: 'flex', gap: 8, alignItems: 'flex-start',
+                                  }}>
+                                    <span style={{ flex: 'none', fontWeight: 700 }}>{String.fromCharCode(65 + j)}.</span>
+                                    <span className="grow">{o.text}</span>
+                                    {o.correct && <Ic n="check" size={13} style={{ flex: 'none', marginTop: 1 }} />}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* ── Edit mode ── */}
+                      {isEditing && draft && (
+                        <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                          <div className="row gap-8" style={{ marginBottom: 2 }}>
+                            <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--accent)' }}>✏️ Chỉnh sửa câu {i + 1}</span>
+                          </div>
+
+                          {/* Loại + Độ khó */}
+                          <div className="grid grid-2" style={{ gap: 10 }}>
+                            <div>
+                              <div className="t-label" style={{ marginBottom: 4, fontSize: 11 }}>Loại câu hỏi</div>
+                              <Select value={draft.questionType} onChange={v => setDraft(d => ({ ...d, questionType: v }))} options={TYPE_OPTS} />
+                            </div>
+                            <div>
+                              <div className="t-label" style={{ marginBottom: 4, fontSize: 11 }}>Độ khó</div>
+                              <Select value={draft.difficulty} onChange={v => setDraft(d => ({ ...d, difficulty: v }))} options={DIFF_OPTS} />
+                            </div>
+                          </div>
+
+                          {/* Nội dung câu hỏi */}
+                          <div>
+                            <div className="t-label" style={{ marginBottom: 4, fontSize: 11 }}>Nội dung câu hỏi *</div>
+                            <textarea className="input" rows={2}
+                              style={{ width: '100%', resize: 'vertical', fontFamily: 'inherit', fontSize: 13 }}
+                              value={draft.questionText}
+                              onChange={e => setDraft(d => ({ ...d, questionText: e.target.value }))} />
+                          </div>
+
+                          {/* Đáp án */}
+                          <div>
+                            <div className="t-label" style={{ marginBottom: 6, fontSize: 11 }}>
+                              Đáp án — {draft.questionType === 'MULTIPLE_CHOICE' ? 'click để bật/tắt đúng' : 'click để chọn đáp án đúng'}
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                              {draft.options.map((o, j) => (
+                                <div key={j} className="row gap-8" style={{
+                                  padding: '8px 12px', borderRadius: 9,
+                                  border: `1.5px solid ${o.correct ? 'var(--success)' : 'var(--border)'}`,
+                                  background: o.correct ? 'var(--chip-success-bg)' : '#fff',
+                                  cursor: 'pointer',
+                                }} onClick={() => draftToggleCorrect(j)}>
+                                  <span style={{
+                                    width: 20, height: 20, borderRadius: draft.questionType === 'MULTIPLE_CHOICE' ? 4 : 999,
+                                    flex: 'none', border: `2px solid ${o.correct ? 'var(--success)' : 'var(--border-input)'}`,
+                                    display: 'grid', placeItems: 'center',
+                                  }}>
+                                    {o.correct && <span style={{ width: 10, height: 10, borderRadius: draft.questionType === 'MULTIPLE_CHOICE' ? 2 : 999, background: 'var(--success)' }} />}
+                                  </span>
+                                  <span style={{ fontWeight: 700, color: 'var(--text-3)', width: 16, fontSize: 12 }}>{String.fromCharCode(65 + j)}</span>
+                                  <input className="input" style={{ height: 32, border: 'none', background: 'transparent', padding: 0, flex: 1, fontSize: 12.5 }}
+                                    value={o.text}
+                                    onClick={e => e.stopPropagation()}
+                                    onChange={e => {
+                                      const val = e.target.value;
+                                      setDraft(d => ({ ...d, options: d.options.map((op, k) => k === j ? { ...op, text: val } : op) }));
+                                    }} />
+                                  {o.correct && <span className="chip chip-success" style={{ flex: 'none', fontSize: 10 }}>Đúng</span>}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Actions */}
+                          <div className="row gap-8" style={{ justifyContent: 'flex-end' }}>
+                            <button className="btn btn-ghost btn-sm" style={{ fontSize: 12 }} onClick={cancelEdit}>Hủy</button>
+                            <button className="btn btn-success btn-sm" style={{ fontSize: 12 }}
+                              disabled={!draft.questionText.trim() || !draft.options.some(o => o.correct)}
+                              onClick={() => saveEdit(i)}>
+                              <Ic n="check" size={13} />Lưu chỉnh sửa
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="modal-foot">
+              <button className="btn btn-ghost" onClick={() => { cancelEdit(); setStep(STEPS.form); }}>← Thay đổi yêu cầu</button>
+              <button className="btn btn-primary" onClick={handleSave} disabled={selectedCount === 0 || editingIdx !== null}>
+                <Ic n="check" size={16} />Lưu {selectedCount} câu vào ngân hàng
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* ── Step 4: Saving ── */}
+        {step === STEPS.saving && (
+          <div className="modal-body" style={{ textAlign: 'center', padding: '48px 24px' }}>
+            <div className="muted t-sm">Đang lưu {selectedCount} câu hỏi vào ngân hàng...</div>
+          </div>
+        )}
+      </Modal>
     );
   }
 

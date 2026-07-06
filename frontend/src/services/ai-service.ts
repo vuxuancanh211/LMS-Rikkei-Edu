@@ -130,7 +130,7 @@ export async function createAiSource(payload: {
   sourceName: string;
   metadata?: Record<string, unknown>;
 }): Promise<AiSource> {
-  const response = await httpClient.post<AiSource>('/ai/sources', payload);
+  const response = await httpClient.post<AiSource>('/ai/sources', payload, { timeout: 120_000 });
   return response.data;
 }
 
@@ -139,7 +139,7 @@ export async function deleteAiSource(id: string): Promise<void> {
 }
 
 export async function reingestAiSource(id: string): Promise<AiSource> {
-  const response = await httpClient.post<AiSource>(`/ai/sources/${id}/reingest`);
+  const response = await httpClient.post<AiSource>(`/ai/sources/${id}/reingest`, undefined, { timeout: 120_000 });
   return response.data;
 }
 
@@ -160,7 +160,7 @@ export async function listAvailableResources(courseId: string): Promise<Availabl
 }
 
 export async function addResourcesToAi(courseId: string, resourceIds: string[]): Promise<AiSource[]> {
-  const response = await httpClient.post<AiSource[]>('/ai/sources/from-resources', { courseId, resourceIds });
+  const response = await httpClient.post<AiSource[]>('/ai/sources/from-resources', { courseId, resourceIds }, { timeout: 120_000 });
   return response.data;
 }
 

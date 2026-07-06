@@ -169,6 +169,25 @@ public class OpenAiLlmService implements LlmService {
         return new LlmResponse(content, usage[0], usage[1], usage[2], elapsed, uiRender);
     }
 
+    @Override
+    @SuppressWarnings("unchecked")
+    public String completeForJson(String systemPrompt, String userMessage) {
+        List<Map<String, Object>> messages = List.of(
+                Map.of("role", "system", "content", systemPrompt),
+                Map.of("role", "user",   "content", userMessage)
+        );
+        Map<String, Object> body = new HashMap<>();
+        body.put("model",           props.getChatModel());
+        body.put("messages",        messages);
+        body.put("temperature",     props.getTemperature());
+        body.put("max_tokens",      props.getMaxTokens());
+        body.put("response_format", Map.of("type", "json_object"));
+        Map<String, Object> response = restClient.post()
+                .uri("/chat/completions").body(body).retrieve()
+                .body(Map.class);
+        return (String) firstMessage(response).get("content");
+    }
+
     @SuppressWarnings("unchecked")
     private Map<String, Object> callChatCompletions(List<Map<String, Object>> messages, boolean includeTools) {
         Map<String, Object> body = new HashMap<>();

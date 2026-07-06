@@ -189,6 +189,12 @@ public class GlobalExceptionHandler {
         // SSE emitter timeout — already handled by onTimeout callback
     }
 
+    @ExceptionHandler(AsyncRequestNotUsableException.class)
+    public void handleAsyncRequestNotUsableException(AsyncRequestNotUsableException ex) {
+        // SSE client disconnected — benign, no response to write
+        log.debug("SSE client disconnected: {}", ex.getMessage());
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleUnhandledException(
             Exception exception,

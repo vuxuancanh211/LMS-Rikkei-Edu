@@ -15,13 +15,13 @@ ALTER TABLE quizzes
     DROP COLUMN IF EXISTS total_points;
 
 ALTER TABLE quizzes
-    ADD COLUMN quiz_type          varchar(20),
-    ADD COLUMN random_mode        varchar(20),
-    ADD COLUMN difficulty_config  jsonb,
-    ADD COLUMN subject_tag_filter varchar(100),
-    ADD COLUMN cooldown_minutes   int DEFAULT 20,
-    ADD COLUMN end_date           timestamptz,
-    ADD COLUMN archived_at        timestamptz;
+    ADD COLUMN IF NOT EXISTS quiz_type          varchar(20),
+    ADD COLUMN IF NOT EXISTS random_mode        varchar(20),
+    ADD COLUMN IF NOT EXISTS difficulty_config  jsonb,
+    ADD COLUMN IF NOT EXISTS subject_tag_filter varchar(100),
+    ADD COLUMN IF NOT EXISTS cooldown_minutes   int DEFAULT 20,
+    ADD COLUMN IF NOT EXISTS end_date           timestamptz,
+    ADD COLUMN IF NOT EXISTS archived_at        timestamptz;
 
 COMMENT ON COLUMN quizzes.quiz_type         IS 'STATIC | SHUFFLED_POOL | RANDOM_DRAW';
 COMMENT ON COLUMN quizzes.random_mode       IS 'FULLY_RANDOM | BY_DIFFICULTY — chỉ dùng khi quiz_type = RANDOM_DRAW';
