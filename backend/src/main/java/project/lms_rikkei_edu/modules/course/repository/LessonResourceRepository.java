@@ -11,9 +11,9 @@ public interface LessonResourceRepository extends JpaRepository<LessonResource, 
 
     List<LessonResource> findAllByLessonIdAndDeletedAtIsNullOrderByOrderIndexAsc(UUID lessonId);
 
-    /** Dùng cho picker "Tài liệu AI" — toàn bộ resource của khóa học, kèm sẵn lesson + chapter để lấy title. */
+    /** Dùng cho picker "Tài liệu AI" — toàn bộ resource chưa xóa của khóa học, kèm sẵn lesson + chapter để lấy title. */
     @Query("SELECT r FROM LessonResource r JOIN FETCH r.lesson l JOIN FETCH l.chapter c " +
-           "WHERE r.courseId = :courseId ORDER BY c.orderIndex, l.orderIndex, r.orderIndex")
+           "WHERE l.courseId = :courseId AND r.deletedAt IS NULL ORDER BY c.orderIndex, l.orderIndex, r.orderIndex")
     List<LessonResource> findAllByCourseIdWithLessonAndChapter(UUID courseId);
 
     /** Dùng cho instructor list — ẩn những resource đang chờ xóa */
