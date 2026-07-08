@@ -19,6 +19,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.hamcrest.Matchers.hasSize;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -135,11 +136,14 @@ class ChatRoomControllerTest {
     void markAsReadReturns404WhenNotFound() throws Exception {
         mockAuth();
         UUID roomId = UUID.randomUUID();
+        MarkAsReadRequest request = new MarkAsReadRequest(UUID.randomUUID());
 
-        when(chatRoomService.getRoomDetail(roomId, USER_ID))
-                .thenThrow(new ChatRoomNotFoundException(roomId));
+        doThrow(new ChatRoomNotFoundException(roomId))
+                .when(chatRoomService).markAsRead(roomId, request.getMessageId(), USER_ID);
 
-        mockMvc.perform(get("/api/chat/rooms/{roomId}", roomId))
+        mockMvc.perform(post("/api/chat/rooms/{roomId}/read", roomId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isNotFound());
     }
 }

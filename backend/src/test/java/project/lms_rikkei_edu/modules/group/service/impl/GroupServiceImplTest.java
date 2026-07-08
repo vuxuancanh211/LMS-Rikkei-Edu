@@ -247,15 +247,15 @@ class GroupServiceImplTest {
         groupService.deleteGroup(groupId);
 
         verify(notificationService).createNotification(
-                eq(studentId),
-                eq(NotificationType.GROUP_DELETED.name()),
-                eq("Nhóm học đã bị xoá"),
-                eq("Nhóm \"Group A\" của khóa học \"React Basics\" đã bị xoá."),
-                eq("GROUP"),
-                eq(groupId),
-                eq(instructorId),
-                eq("instructor@example.com"),
-                eq("group-deleted:" + groupId + ":" + studentId)
+                studentId,
+                NotificationType.GROUP_DELETED.name(),
+                "Nhóm học đã bị xoá",
+                "Nhóm \"Group A\" của khóa học \"React Basics\" đã bị xoá.",
+                "GROUP",
+                groupId,
+                instructorId,
+                "instructor@example.com",
+                "group-deleted:" + groupId + ":" + studentId
         );
     }
 
@@ -279,17 +279,17 @@ class GroupServiceImplTest {
         List<GroupMemberResponse> result = groupService.addMembers(groupId, request);
 
         verify(groupMemberRepository).saveAll(anyList());
-        verify(chatRoomService).addMember(eq(groupId), eq(student), eq(ChatRoomMemberEntity.MemberRole.MEMBER));
+        verify(chatRoomService).addMember(groupId, student, ChatRoomMemberEntity.MemberRole.MEMBER);
         verify(notificationService).createNotification(
-                eq(studentId),
-                eq(NotificationType.GROUP_MEMBER_ADDED.name()),
-                eq("Bạn đã được thêm vào nhóm học"),
-                eq("Bạn đã được thêm vào nhóm \"Group A\" của khóa học \"React Basics\"."),
-                eq("GROUP"),
-                eq(groupId),
-                eq(instructorId),
-                eq("instructor@example.com"),
-                eq("group-member-added:" + groupId + ":" + studentId)
+                studentId,
+                NotificationType.GROUP_MEMBER_ADDED.name(),
+                "Bạn đã được thêm vào nhóm học",
+                "Bạn đã được thêm vào nhóm \"Group A\" của khóa học \"React Basics\".",
+                "GROUP",
+                groupId,
+                instructorId,
+                "instructor@example.com",
+                "group-member-added:" + groupId + ":" + studentId
         );
         assertThat(result).hasSize(1);
         assertThat(result.getFirst().getStudentEmail()).isEqualTo("student@example.com");
@@ -314,7 +314,7 @@ class GroupServiceImplTest {
         groupService.addMembers(groupId, request);
 
         verify(groupMemberRepository).saveAll(anyList());
-        verify(chatRoomService).addMember(eq(groupId), eq(student), eq(ChatRoomMemberEntity.MemberRole.MEMBER));
+        verify(chatRoomService).addMember(groupId, student, ChatRoomMemberEntity.MemberRole.MEMBER);
         verify(notificationService, never()).createNotification(any(), any(), any(), any(), any(), any(), any(), any(), any());
     }
 
@@ -405,15 +405,15 @@ class GroupServiceImplTest {
         groupService.removeMember(groupId, studentId);
 
         verify(notificationService).createNotification(
-                eq(studentId),
-                eq(NotificationType.GROUP_MEMBER_REMOVED.name()),
-                eq("Bạn đã được xoá khỏi nhóm học"),
-                eq("Bạn đã được xoá khỏi nhóm \"Group A\" của khóa học \"React Basics\"."),
-                eq("GROUP"),
-                eq(groupId),
-                eq(instructorId),
-                eq("instructor@example.com"),
-                eq("group-member-removed:" + groupId + ":" + studentId)
+                studentId,
+                NotificationType.GROUP_MEMBER_REMOVED.name(),
+                "Bạn đã được xoá khỏi nhóm học",
+                "Bạn đã được xoá khỏi nhóm \"Group A\" của khóa học \"React Basics\".",
+                "GROUP",
+                groupId,
+                instructorId,
+                "instructor@example.com",
+                "group-member-removed:" + groupId + ":" + studentId
         );
         verify(groupMemberRepository).deleteByGroupIdAndStudentId(groupId, studentId);
         verify(chatRoomService).removeMember(groupId, studentId);

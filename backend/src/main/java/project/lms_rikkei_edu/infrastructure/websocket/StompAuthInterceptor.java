@@ -30,7 +30,8 @@ public class StompAuthInterceptor implements ChannelInterceptor {
     private final RedisService redisService;
 
     @Override
-    public @Nullable Message<?> preSend(Message<?> message, MessageChannel channel) {
+    @Nullable
+    public Message<?> preSend(Message<?> message, MessageChannel channel) {
         StompHeaderAccessor accessor =
                 MessageHeaderAccessor.getAccessor(message, StompHeaderAccessor.class); // ← đổi chỗ này
 

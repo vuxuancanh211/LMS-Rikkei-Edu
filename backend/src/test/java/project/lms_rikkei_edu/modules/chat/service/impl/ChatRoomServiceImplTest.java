@@ -181,17 +181,19 @@ class ChatRoomServiceImplTest {
         when(roomRepo.findById(room.getId())).thenReturn(Optional.of(room));
         when(memberRepo.existsByRoomIdAndUserId(room.getId(), userId)).thenReturn(false);
 
+        UUID roomId = room.getId();
         assertThrows(ChatAccessDeniedException.class,
-                () -> service.getRoomDetail(room.getId(), userId));
+                () -> service.getRoomDetail(roomId, userId));
     }
 
     @Test
     void shouldThrowWhenGetRoomDetailNotFound() {
         UUID roomId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
         when(roomRepo.findById(roomId)).thenReturn(Optional.empty());
 
         assertThrows(ChatRoomNotFoundException.class,
-                () -> service.getRoomDetail(roomId, UUID.randomUUID()));
+                () -> service.getRoomDetail(roomId, userId));
     }
 
     // ── createRoomForGroup ────────────────────────────────
@@ -222,8 +224,43 @@ class ChatRoomServiceImplTest {
 
         when(roomRepo.existsByGroupId(group.getId())).thenReturn(true);
 
+        UserEntity instructor = user(UUID.randomUUID());
         assertThrows(BusinessException.class,
-                () -> service.createRoomForGroup(group, user(UUID.randomUUID())));
+                () -> service.createRoomForGroup(group, instructor));
+    }
+
+    @Test
+    void shouldGetOrCreateRoomForGroupWhenMissing() {
+        StudyGroupEntity group = new StudyGroupEntity();
+        group.setId(UUID.randomUUID());
+        group.setName("Group A");
+        UserEntity instructor = user(UUID.randomUUID());
+        ChatRoomEntity saved = room(UUID.randomUUID());
+
+        when(roomRepo.findByGroupId(group.getId())).thenReturn(Optional.empty());
+        when(roomRepo.save(any(ChatRoomEntity.class))).thenReturn(saved);
+        when(memberRepo.existsByRoomIdAndUserId(saved.getId(), instructor.getId())).thenReturn(false);
+
+        ChatRoomEntity result = service.getOrCreateRoomForGroup(group, instructor);
+
+        assertThat(result).isSameAs(saved);
+        verify(memberRepo).save(any(ChatRoomMemberEntity.class));
+    }
+
+    @Test
+    void shouldGetOrCreateRoomForGroupWhenExistingMemberExists() {
+        StudyGroupEntity group = new StudyGroupEntity();
+        group.setId(UUID.randomUUID());
+        UserEntity instructor = user(UUID.randomUUID());
+        ChatRoomEntity room = room(UUID.randomUUID());
+
+        when(roomRepo.findByGroupId(group.getId())).thenReturn(Optional.of(room));
+        when(memberRepo.existsByRoomIdAndUserId(room.getId(), instructor.getId())).thenReturn(true);
+
+        ChatRoomEntity result = service.getOrCreateRoomForGroup(group, instructor);
+
+        assertThat(result).isSameAs(room);
+        verify(memberRepo, never()).save(any());
     }
 
     // ── addMember ─────────────────────────────────────────
@@ -283,8 +320,9 @@ class ChatRoomServiceImplTest {
 
         when(memberRepo.findByRoomIdAndUserId(roomId, userId)).thenReturn(Optional.empty());
 
+        UUID messageId = UUID.randomUUID();
         assertThrows(ChatRoomNotFoundException.class,
-                () -> service.markAsRead(roomId, UUID.randomUUID(), userId));
+                () -> service.markAsRead(roomId, messageId, userId));
     }
 
     @Test
@@ -302,8 +340,10 @@ class ChatRoomServiceImplTest {
         when(memberRepo.findByRoomIdAndUserId(room.getId(), user.getId())).thenReturn(Optional.of(member));
         when(messageRepo.findById(messageId)).thenReturn(Optional.empty());
 
+        UUID roomId = room.getId();
+        UUID userId = user.getId();
         assertThrows(ChatMessageNotFoundException.class,
-                () -> service.markAsRead(room.getId(), messageId, user.getId()));
+                () -> service.markAsRead(roomId, messageId, userId));
     }
 
     // ── validateMember ────────────────────────────────────

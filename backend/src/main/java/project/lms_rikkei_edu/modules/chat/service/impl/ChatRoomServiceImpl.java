@@ -66,34 +66,16 @@ public class ChatRoomServiceImpl implements ChatRoomService {
             throw new BusinessException("Chat room đã tồn tại cho nhóm này");
         }
 
-        ChatRoomEntity room = ChatRoomEntity.builder()
-                .name(group.getName())
-                .group(group)
-                .createdBy(instructor)
-                .active(true)
-                .build();
-
-        return roomRepo.save(room);
+        return roomRepo.save(newRoom(group, instructor));
     }
 
     @Override
     @Transactional
     public ChatRoomEntity getOrCreateRoomForGroup(StudyGroupEntity group, UserEntity instructor) {
         ChatRoomEntity room = roomRepo.findByGroupId(group.getId())
-                .orElseGet(() -> roomRepo.save(ChatRoomEntity.builder()
-                        .name(group.getName())
-                        .group(group)
-                        .createdBy(instructor)
-                        .active(true)
-                        .build()));
+                .orElseGet(() -> roomRepo.save(newRoom(group, instructor)));
 
-        if (!memberRepo.existsByRoomIdAndUserId(room.getId(), instructor.getId())) {
-            memberRepo.save(ChatRoomMemberEntity.builder()
-                    .room(room)
-                    .user(instructor)
-                    .role(ChatRoomMemberEntity.MemberRole.MODERATOR)
-                    .build());
-        }
+        saveMemberIfMissing(room, instructor, ChatRoomMemberEntity.MemberRole.MODERATOR);
         return room;
     }
 
@@ -103,6 +85,21 @@ public class ChatRoomServiceImpl implements ChatRoomService {
                           ChatRoomMemberEntity.MemberRole role) {
         ChatRoomEntity room = findRoomById(roomId);
 
+        saveMemberIfMissing(room, user, role);
+    }
+
+    private ChatRoomEntity newRoom(StudyGroupEntity group, UserEntity instructor) {
+        return ChatRoomEntity.builder()
+                .name(group.getName())
+                .group(group)
+                .createdBy(instructor)
+                .active(true)
+                .build();
+    }
+
+    private void saveMemberIfMissing(ChatRoomEntity room, UserEntity user,
+                                     ChatRoomMemberEntity.MemberRole role) {
+        UUID roomId = room.getId();
         if (memberRepo.existsByRoomIdAndUserId(roomId, user.getId())) {
             return;
         }

@@ -205,8 +205,9 @@ class ChatMessageServiceImplTest {
         when(roomRepo.findById(room.getId())).thenReturn(Optional.of(room));
         when(memberRepo.existsByRoomIdAndUserId(room.getId(), sender.getId())).thenReturn(true);
 
+        UUID roomId = room.getId();
         BusinessException ex = assertThrows(BusinessException.class,
-                () -> service.sendMessage(room.getId(), request, sender));
+                () -> service.sendMessage(roomId, request, sender));
 
         assertThat(ex.getMessage()).contains("Nội dung không được để trống");
     }
@@ -223,8 +224,9 @@ class ChatMessageServiceImplTest {
         when(roomRepo.findById(room.getId())).thenReturn(Optional.of(room));
         when(memberRepo.existsByRoomIdAndUserId(room.getId(), sender.getId())).thenReturn(true);
 
+        UUID roomId = room.getId();
         BusinessException ex = assertThrows(BusinessException.class,
-                () -> service.sendMessage(room.getId(), request, sender));
+                () -> service.sendMessage(roomId, request, sender));
 
         assertThat(ex.getMessage()).contains("File không được để trống");
     }
@@ -241,8 +243,9 @@ class ChatMessageServiceImplTest {
         when(roomRepo.findById(room.getId())).thenReturn(Optional.of(room));
         when(memberRepo.existsByRoomIdAndUserId(room.getId(), sender.getId())).thenReturn(false);
 
+        UUID roomId = room.getId();
         assertThrows(ChatAccessDeniedException.class,
-                () -> service.sendMessage(room.getId(), request, sender));
+                () -> service.sendMessage(roomId, request, sender));
     }
 
     @Test
@@ -301,17 +304,20 @@ class ChatMessageServiceImplTest {
 
         when(messageRepo.findById(msg.getId())).thenReturn(Optional.of(msg));
 
+        UUID messageId = msg.getId();
         assertThrows(ChatAccessDeniedException.class,
-                () -> service.editMessage(msg.getId(), request, otherId));
+                () -> service.editMessage(messageId, request, otherId));
     }
 
     @Test
     void shouldThrowWhenEditMessageNotFound() {
         UUID messageId = UUID.randomUUID();
+        EditMessageRequest request = new EditMessageRequest("x");
+        UUID userId = UUID.randomUUID();
         when(messageRepo.findById(messageId)).thenReturn(Optional.empty());
 
         assertThrows(ChatMessageNotFoundException.class,
-                () -> service.editMessage(messageId, new EditMessageRequest("x"), UUID.randomUUID()));
+                () -> service.editMessage(messageId, request, userId));
     }
 
     // ── deleteMessage ─────────────────────────────────────
@@ -350,8 +356,9 @@ class ChatMessageServiceImplTest {
 
         when(messageRepo.findById(msg.getId())).thenReturn(Optional.of(msg));
 
+        UUID messageId = msg.getId();
         assertThrows(ChatAccessDeniedException.class,
-                () -> service.deleteMessage(msg.getId(), otherId));
+                () -> service.deleteMessage(messageId, otherId));
     }
 
     // ── addReaction ───────────────────────────────────────
@@ -408,8 +415,10 @@ class ChatMessageServiceImplTest {
         when(messageRepo.findById(msg.getId())).thenReturn(Optional.of(msg));
         when(memberRepo.existsByRoomIdAndUserId(room.getId(), userId)).thenReturn(false);
 
+        UUID messageId = msg.getId();
+        ReactMessageRequest request = new ReactMessageRequest("👍");
         assertThrows(ChatAccessDeniedException.class,
-                () -> service.addReaction(msg.getId(), new ReactMessageRequest("👍"), user));
+                () -> service.addReaction(messageId, request, user));
     }
 
     // ── getMessages ───────────────────────────────────────
@@ -447,8 +456,9 @@ class ChatMessageServiceImplTest {
 
         when(memberRepo.existsByRoomIdAndUserId(roomId, userId)).thenReturn(false);
 
+        Pageable pageable = Pageable.unpaged();
         assertThrows(ChatAccessDeniedException.class,
-                () -> service.getMessages(roomId, userId, Pageable.unpaged()));
+                () -> service.getMessages(roomId, userId, pageable));
     }
 
     // ── broadcast payload verification ────────────────────
