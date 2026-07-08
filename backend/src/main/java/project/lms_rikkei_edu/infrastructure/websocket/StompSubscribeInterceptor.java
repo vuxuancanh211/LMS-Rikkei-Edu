@@ -2,6 +2,7 @@ package project.lms_rikkei_edu.infrastructure.websocket;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.lang.Nullable;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.simp.stomp.StompCommand;
@@ -25,7 +26,7 @@ public class StompSubscribeInterceptor implements ChannelInterceptor {
     private final ChatRoomMemberRepository memberRepo;
 
     @Override
-    public Message<?> preSend(Message<?> message, MessageChannel channel) {
+    public @Nullable Message<?> preSend(Message<?> message, MessageChannel channel) {
         StompHeaderAccessor accessor =
                 MessageHeaderAccessor.getAccessor(message, StompHeaderAccessor.class); // ← đổi chỗ này
 
