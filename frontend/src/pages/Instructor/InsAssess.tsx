@@ -3,11 +3,9 @@
    RIKKEI EDU — Giảng viên · Bài tập & Trắc nghiệm (+ popup thêm câu hỏi / tạo đề)
    ============================================================ */
 (function () {
-  const { useState } = React;
-  const Ic = window.Icon, D = window.DATA;
+  const { useState, useEffect } = React;
+  const Ic = window.Icon, D = window.DATA, api = window.httpClient;
   const { Avatar, Status, Progress, StatCard, CourseCard, Search, Tabs, Select, Section, Pager, Modal, ModalHead, Empty, LineChart, BarChart, Donut } = window;
-
-  const myCourses = D.courses.filter(c => ["Nguyễn Văn An", "Trần Thị Bình", "Lê Văn Cường", "Phạm Thị Dung"].includes(c.instructor)).slice(0, 9);
 
   /* ---------------- Assessments (Bài tập & Quiz) ---------------- */
   function InsAssess({ demo }) {
@@ -18,16 +16,27 @@
     const [q, setQ] = useState("");
     const [bankCourse, setBankCourse] = useState("all");
     const [correct, setCorrect] = useState(0);
-    const assigns = D.assignments.map((a, i) => ({ ...a, group: D.groups[i % D.groups.length].name, submitted: Math.floor(Math.random() * 18) + 2 }));
+
+    const [assignments, setAssignments] = useState([]);
+    const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+      setLoading(true);
+      api.get("/instructor/assignments").then(res => {
+        const data = res.data || res;
+        setAssignments(Array.isArray(data) ? data : []);
+      }).catch(() => {}).finally(() => setLoading(false));
+    }, []);
 
     const DIFF = { easy:{label:"Dễ",c:"success"}, medium:{label:"Trung bình",c:"warning"}, hard:{label:"Khó",c:"error"} };
     const courseOpts = D.courses.map(c => ({ v: c.title, label: c.title }));
 
     // ----- ASSIGN tab list -----
-    let assignList = assigns.filter(a => a.type === "assignment");
+    let assignList = assignments;
     if (q) assignList = assignList.filter(a => a.title.toLowerCase().includes(q.toLowerCase()));
     // ----- QUIZ tab = published quizzes -----
-    let quizList = assigns.filter(a => a.type === "quiz");
+    const mockQuizzes = D.assignments.filter(a => a.type === "quiz").map((a, i) => ({ ...a, group: D.groups[i % D.groups.length].name, submitted: Math.floor(Math.random() * 18) + 2 }));
+    let quizList = mockQuizzes;
     if (q) quizList = quizList.filter(a => a.title.toLowerCase().includes(q.toLowerCase()));
     // ----- BANK list -----
     let bankList = D.questionBank;
@@ -54,23 +63,46 @@
           {tab !== "bank" && <Search placeholder="Tìm theo tên..." value={q} onChange={setQ} style={{ width: 260, flex: "none" }} />}
         </div>
 
-        {/* ASSIGN + QUIZ share the same table shape */}
+        {/* ASSIGN + QUIZ tables */}
         {tab !== "bank" ? (
           <>
             <Section pad={false}>
               <div style={{ overflowX: "auto" }}><table className="tbl">
-                <thead><tr><th>Tên bài</th><th>Nhóm áp dụng</th><th>Hạn nộp</th><th>Đã nộp</th><th>Giám sát</th><th>Trạng thái</th><th></th></tr></thead>
-                <tbody>{(tab === "assign" ? pgAssign : pgQuiz).slice.map(a => (
-                  <tr key={a.id}>
-                    <td><div className="row gap-10"><div className="stat-ic" style={{ width: 36, height: 36, borderRadius: 10, background: "var(--surface-3)", color: "var(--text-2)" }}><Ic n={a.type === "quiz" ? "clipboard" : "file"} size={17} /></div><b style={{ fontSize: 13.5, maxWidth: 220 }} className="truncate">{a.title}</b></div></td>
-                    <td className="muted truncate" style={{ maxWidth: 150 }}>{a.group}</td>
-                    <td className="muted">{a.deadline}</td>
-                    <td><b>{a.submitted}</b> <span className="muted">/ 20</span></td>
-                    <td>{a.proctored ? <span className="chip chip-error"><Ic n="shield" size={12} />Bật</span> : <span className="chip chip-neutral">Tắt</span>}</td>
-                    <td><Status s={a.id.charCodeAt(2) % 2 ? "published" : "draft"} /></td>
-                    <td><div className="row gap-6"><button className="icon-btn" style={{ width: 34, height: 34 }}><Ic n="edit" size={16} /></button><button className="icon-btn" style={{ width: 34, height: 34 }}><Ic n="eye" size={16} /></button></div></td>
-                  </tr>
-                ))}</tbody>
+                {tab === "assign" ? (
+                  <>
+                    <thead><tr><th>Tên bài tập</th><th>Khóa học</th><th>Nhóm áp dụng</th><th>Hạn nộp</th><th>Đã nộp</th><th>Trạng thái</th><th></th></tr></thead>
+                    <tbody>{loading ? (
+                      <tr><td colSpan={7} style={{ textAlign: "center", padding: 32, color: "#94a3b8", fontSize: 13 }}>Đang tải...</td></tr>
+                    ) : pgAssign.slice.length === 0 ? (
+                      <tr><td colSpan={7} style={{ textAlign: "center", padding: 32, color: "#94a3b8", fontSize: 13 }}>Chưa có bài tập nào</td></tr>
+                    ) : pgAssign.slice.map(a => (
+                      <tr key={a.id}>
+                        <td><div className="row gap-10"><div className="stat-ic" style={{ width: 36, height: 36, borderRadius: 10, background: "var(--surface-3)", color: "var(--text-2)" }}><Ic n="file" size={17} /></div><b style={{ fontSize: 13.5, maxWidth: 180 }} className="truncate">{a.title}</b></div></td>
+                        <td className="muted truncate" style={{ maxWidth: 150 }}>{a.courseTitle || a.courseId}</td>
+                        <td className="muted truncate" style={{ maxWidth: 130 }}>{a.scope === "SPECIFIC_GROUPS" ? "Nhóm cụ thể" : "Tất cả"}</td>
+                        <td className="muted">{a.deadline ? new Date(a.deadline).toLocaleDateString("vi-VN") : "—"}</td>
+                        <td><b>—</b> <span className="muted">/ —</span></td>
+                        <td><Status s={a.status === "PUBLISHED" ? "published" : a.status === "CLOSED" ? "closed" : "draft"} /></td>
+                        <td><div className="row gap-6"><button className="icon-btn" style={{ width: 34, height: 34 }}><Ic n="edit" size={16} /></button><button className="icon-btn" style={{ width: 34, height: 34 }}><Ic n="eye" size={16} /></button></div></td>
+                      </tr>
+                    ))}</tbody>
+                  </>
+                ) : (
+                  <>
+                    <thead><tr><th>Tên bài</th><th>Nhóm áp dụng</th><th>Hạn nộp</th><th>Đã nộp</th><th>Giám sát</th><th>Trạng thái</th><th></th></tr></thead>
+                    <tbody>{pgQuiz.slice.map(a => (
+                      <tr key={a.id}>
+                        <td><div className="row gap-10"><div className="stat-ic" style={{ width: 36, height: 36, borderRadius: 10, background: "var(--surface-3)", color: "var(--text-2)" }}><Ic n="clipboard" size={17} /></div><b style={{ fontSize: 13.5, maxWidth: 220 }} className="truncate">{a.title}</b></div></td>
+                        <td className="muted truncate" style={{ maxWidth: 150 }}>{a.group}</td>
+                        <td className="muted">{a.deadline}</td>
+                        <td><b>{a.submitted}</b> <span className="muted">/ 20</span></td>
+                        <td>{a.proctored ? <span className="chip chip-error"><Ic n="shield" size={12} />Bật</span> : <span className="chip chip-neutral">Tắt</span>}</td>
+                        <td><Status s={a.id.charCodeAt(2) % 2 ? "published" : "draft"} /></td>
+                        <td><div className="row gap-6"><button className="icon-btn" style={{ width: 34, height: 34 }}><Ic n="edit" size={16} /></button><button className="icon-btn" style={{ width: 34, height: 34 }}><Ic n="eye" size={16} /></button></div></td>
+                      </tr>
+                    ))}</tbody>
+                  </>
+                )}
               </table></div>
             </Section>
             <window.PageBar pg={tab === "assign" ? pgAssign : pgQuiz} unit={tab === "assign" ? "bài tập" : "đề"} />
@@ -97,19 +129,10 @@
         )}
 
         {/* ---- Modal 1: create essay assignment ---- */}
-        <Modal open={add} onClose={() => setAdd(false)} max={600}>
-          <ModalHead title="Tạo bài tập mới" sub="Bài tập tự luận / nộp file" icon="file" iconBg="#eaf1ff" iconColor="#2563eb" onClose={() => setAdd(false)} />
-          <div className="modal-body" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            <div><label className="t-label" style={{ display: "block", marginBottom: 7 }}>Tiêu đề</label><input className="input" placeholder="VD: Bài tập 6 - State Management" /></div>
-            <div><label className="t-label" style={{ display: "block", marginBottom: 7 }}>Mô tả / Yêu cầu</label><textarea className="input" style={{ height: 84, padding: 12, resize: "none" }} placeholder="Yêu cầu chi tiết của bài..." /></div>
-            <div className="grid grid-2" style={{ gap: 14 }}>
-              <div><label className="t-label" style={{ display: "block", marginBottom: 7 }}>Nhóm áp dụng</label><Select value="g1" onChange={()=>{}} options={D.groups.map(g=>({v:g.id,label:g.name}))} /></div>
-              <div><label className="t-label" style={{ display: "block", marginBottom: 7 }}>Hạn nộp</label><input className="input" type="date" /></div>
-            </div>
-            <div style={{ border: "2px dashed var(--border-strong)", borderRadius: 12, padding: 24, textAlign: "center", color: "var(--text-3)" }}><Ic n="upload" size={26} style={{ marginBottom: 8 }} /><div className="t-sm">Kéo thả file đề bài đính kèm vào đây</div></div>
-          </div>
-          <div className="modal-foot"><button className="btn btn-ghost" onClick={() => setAdd(false)}>Hủy</button><button className="btn btn-primary" onClick={() => setAdd(false)}>Lưu & xuất bản</button></div>
-        </Modal>
+        {add && window.CreateAssignmentModal && React.createElement(window.CreateAssignmentModal, {
+          role: "instructor",
+          onClose: (refreshed) => { setAdd(false); if (refreshed) { window.location.reload(); } },
+        })}
 
         {/* ---- Modal 2: add question to bank ---- */}
         <Modal open={bank} onClose={() => setBank(false)} max={620}>
