@@ -18,6 +18,9 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
 import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
+import project.lms_rikkei_edu.modules.chat.exception.ChatAccessDeniedException;
+import project.lms_rikkei_edu.modules.chat.exception.ChatMessageNotFoundException;
+import project.lms_rikkei_edu.modules.chat.exception.ChatRoomNotFoundException;
 import project.lms_rikkei_edu.modules.ai.exception.AiSourceNotFoundException;
 import project.lms_rikkei_edu.modules.ai.exception.ConversationNotFoundException;
 import project.lms_rikkei_edu.modules.course.exception.*;
@@ -38,7 +41,6 @@ public class GlobalExceptionHandler {
             HttpServletRequest request) {
         return buildResponse(exception.getStatus(), exception.getMessage(), request.getRequestURI(), null);
     }
-
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ErrorResponse> handleIllegalArgumentException(
             IllegalArgumentException exception,
@@ -93,7 +95,7 @@ public class GlobalExceptionHandler {
 
     // ── AI module exceptions ──────────────────────────────────────────────────
 
-    @ExceptionHandler({ AiSourceNotFoundException.class, ConversationNotFoundException.class })
+    @ExceptionHandler({AiSourceNotFoundException.class, ConversationNotFoundException.class})
     public ResponseEntity<ErrorResponse> handleAiNotFound(
             RuntimeException ex,
             HttpServletRequest request) {
@@ -189,12 +191,33 @@ public class GlobalExceptionHandler {
         // SSE emitter timeout — already handled by onTimeout callback
     }
 
+    @ExceptionHandler(AsyncRequestNotUsableException.class)
+    public void handleAsyncRequestNotUsableException() {
+        // Client disconnected from SSE; emitter cleanup handles stale connections.
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleUnhandledException(
             Exception exception,
             HttpServletRequest request) {
         log.error("Unhandled exception", exception);
         return buildResponse(HttpStatus.INTERNAL_SERVER_ERROR, "Internal server error", request.getRequestURI(), null);
+    }
+
+    // ── Chat exceptions ───────────────────────────────────────────────────────
+
+    @ExceptionHandler({ ChatRoomNotFoundException.class, ChatMessageNotFoundException.class })
+    public ResponseEntity<ErrorResponse> handleChatNotFound(
+            RuntimeException ex,
+            HttpServletRequest request) {
+        return buildResponse(HttpStatus.NOT_FOUND, ex.getMessage(), request.getRequestURI(), null);
+    }
+
+    @ExceptionHandler(ChatAccessDeniedException.class)
+    public ResponseEntity<ErrorResponse> handleChatAccessDenied(
+            ChatAccessDeniedException ex,
+            HttpServletRequest request) {
+        return buildResponse(HttpStatus.FORBIDDEN, ex.getMessage(), request.getRequestURI(), null);
     }
 
     // ── helper ────────────────────────────────────────────────────────────────
