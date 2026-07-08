@@ -87,8 +87,8 @@ public record UserContext(
     public record QuizResultInfo(
             String quizTitle,
             String courseName,
-            Double score,
-            Double maxScore,
+            Double score,            // số câu trả lời đúng
+            Integer totalQuestions,
             boolean isPassed,
             String submittedAt       // formatted dd/MM/yyyy HH:mm
     ) {}

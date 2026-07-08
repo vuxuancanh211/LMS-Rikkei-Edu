@@ -6,7 +6,6 @@ import lombok.Setter;
 import project.lms_rikkei_edu.modules.quiz.enums.QuestionDifficulty;
 import project.lms_rikkei_edu.modules.quiz.enums.QuestionType;
 
-import java.math.BigDecimal;
 import java.util.UUID;
 
 @Getter
@@ -39,9 +38,6 @@ public class QuizQuestionEntity {
 
     @Column(name = "subject_tag", length = 100)
     private String subjectTag;
-
-    @Column(precision = 5, scale = 2)
-    private BigDecimal points;
 
     @Column(name = "order_index")
     private Integer orderIndex;

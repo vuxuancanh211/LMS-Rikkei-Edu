@@ -114,7 +114,6 @@ public class QuizServiceImpl implements QuizService {
         qq.setQuestionType(request.getQuestionType());
         qq.setDifficulty(request.getDifficulty());
         qq.setSubjectTag(request.getSubjectTag());
-        qq.setPoints(request.getPoints());
         qq.setExplanation(request.getExplanation());
         qq.setOrderIndex(order);
 
@@ -277,19 +276,16 @@ public class QuizServiceImpl implements QuizService {
         Map<UUID, List<UUID>> answers = request.getAnswers() != null ? request.getAnswers() : Map.of();
         boolean isRandomDraw = quiz.getQuizType() == QuizType.RANDOM_DRAW;
 
-        BigDecimal totalScore = BigDecimal.ZERO;
-        BigDecimal maxScore = BigDecimal.ZERO;
-        int correctCount = 0, incorrectCount = 0, unansweredCount = 0;
+        // Mọi câu hỏi cùng trọng số — điểm chỉ còn là % số câu trả lời đúng / tổng số câu.
+        int correctCount = 0, incorrectCount = 0, unansweredCount = 0, gradedCount = 0;
         List<DryRunAnswerResult> results = new ArrayList<>();
 
         for (UUID questionId : questionIds) {
-            BigDecimal points;
             Set<UUID> correctOptionIds;
 
             if (isRandomDraw) {
                 BankQuestionEntity bq = bankQuestionRepository.findById(questionId).orElse(null);
                 if (bq == null) continue;
-                points = bq.getPoints() != null ? bq.getPoints() : BigDecimal.ONE;
                 correctOptionIds = bankOptionRepository.findByBankQuestionIdOrderByOrderIndex(questionId).stream()
                         .filter(o -> Boolean.TRUE.equals(o.getIsCorrect()))
                         .map(BankOptionEntity::getId)
@@ -297,7 +293,6 @@ public class QuizServiceImpl implements QuizService {
             } else {
                 QuizQuestionEntity qq = quizQuestionRepository.findById(questionId).orElse(null);
                 if (qq == null) continue;
-                points = qq.getPoints() != null ? qq.getPoints() : BigDecimal.ONE;
                 correctOptionIds = quizOptionRepository.findByQuestionIdOrderByOrderIndex(questionId).stream()
                         .filter(o -> Boolean.TRUE.equals(o.getIsCorrect()))
                         .map(QuizOptionEntity::getId)
@@ -307,39 +302,36 @@ public class QuizServiceImpl implements QuizService {
             List<UUID> selected = answers.getOrDefault(questionId, List.of());
             boolean answered = !selected.isEmpty();
             boolean isCorrect = answered && new HashSet<>(selected).equals(correctOptionIds);
-            BigDecimal earned = isCorrect ? points : BigDecimal.ZERO;
 
+            gradedCount++;
             if (!answered) unansweredCount++;
             else if (isCorrect) correctCount++;
             else incorrectCount++;
-
-            totalScore = totalScore.add(earned);
-            maxScore = maxScore.add(points);
 
             results.add(DryRunAnswerResult.builder()
                     .questionId(questionId)
                     .answered(answered)
                     .isCorrect(isCorrect)
-                    .pointsEarned(earned)
                     .correctOptionIds(new ArrayList<>(correctOptionIds))
                     .build());
         }
 
-        BigDecimal pct = maxScore.compareTo(BigDecimal.ZERO) > 0
-                ? totalScore.divide(maxScore, 4, RoundingMode.HALF_UP)
+        BigDecimal pct = gradedCount > 0
+                ? BigDecimal.valueOf(correctCount)
+                        .divide(BigDecimal.valueOf(gradedCount), 4, RoundingMode.HALF_UP)
                         .multiply(BigDecimal.valueOf(100)).setScale(2, RoundingMode.HALF_UP)
                 : BigDecimal.ZERO;
         boolean passed = quiz.getPassScore() != null && pct.compareTo(quiz.getPassScore()) >= 0;
 
         return DryRunGradeResponse.builder()
-                .score(totalScore)
-                .maxScore(maxScore)
+                .score(BigDecimal.valueOf(correctCount))
+                .maxScore(BigDecimal.valueOf(gradedCount))
                 .scorePercentage(pct)
                 .isPassed(passed)
                 .correctCount(correctCount)
                 .incorrectCount(incorrectCount)
                 .unansweredCount(unansweredCount)
-                .totalQuestions(questionIds.size())
+                .totalQuestions(gradedCount)
                 .answers(results)
                 .build();
     }
@@ -448,7 +440,6 @@ public class QuizServiceImpl implements QuizService {
         qq.setQuestionType(bank.getQuestionType());
         qq.setDifficulty(bank.getDifficulty());
         qq.setSubjectTag(bank.getSubjectTag());
-        qq.setPoints(bank.getPoints());
         qq.setOrderIndex(order);
         return qq;
     }
@@ -486,7 +477,6 @@ public class QuizServiceImpl implements QuizService {
         bank.setQuestionType(request.getQuestionType());
         bank.setDifficulty(request.getDifficulty());
         bank.setSubjectTag(request.getSubjectTag());
-        bank.setPoints(request.getPoints());
         bankQuestionRepository.save(bank);
 
         request.getOptions().forEach(opt -> {
@@ -539,7 +529,6 @@ public class QuizServiceImpl implements QuizService {
                     .questionType(bq.getQuestionType())
                     .difficulty(bq.getDifficulty())
                     .subjectTag(bq.getSubjectTag())
-                    .points(bq.getPoints())
                     .options(opts)
                     .build();
         }).toList();
@@ -562,7 +551,6 @@ public class QuizServiceImpl implements QuizService {
                 .questionType(qq.getQuestionType())
                 .difficulty(qq.getDifficulty())
                 .subjectTag(qq.getSubjectTag())
-                .points(qq.getPoints())
                 .orderIndex(qq.getOrderIndex())
                 .explanation(qq.getExplanation())
                 .options(options)

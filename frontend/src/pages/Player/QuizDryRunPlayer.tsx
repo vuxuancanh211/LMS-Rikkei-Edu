@@ -239,14 +239,13 @@
                     {passed ? 'Đạt yêu cầu — bản xem thử' : 'Chưa đạt yêu cầu — bản xem thử'}
                   </div>
                 </div>
-                <div className="grid" style={{ gridTemplateColumns: 'repeat(4,1fr)', padding: '18px 20px', gap: 0 }}>
+                <div className="grid" style={{ gridTemplateColumns: 'repeat(3,1fr)', padding: '18px 20px', gap: 0 }}>
                   {[
-                    { l: 'Điểm số', v: `${Number(gradeResult.score ?? 0)}/${Number(gradeResult.maxScore ?? 0)}` },
                     { l: 'Tỉ lệ đúng', v: `${Number(gradeResult.scorePercentage ?? 0)}%` },
                     { l: 'Câu đúng', v: `${gradeResult.correctCount}/${gradeResult.totalQuestions}` },
                     { l: 'Bỏ qua', v: gradeResult.unansweredCount },
                   ].map((s, i) => (
-                    <div key={i} style={{ textAlign: 'center', padding: '0 8px', borderRight: i < 3 ? '1px solid var(--border)' : 'none' }}>
+                    <div key={i} style={{ textAlign: 'center', padding: '0 8px', borderRight: i < 2 ? '1px solid var(--border)' : 'none' }}>
                       <div style={{ fontSize: 22, fontWeight: 800 }}>{s.v}</div>
                       <div className="t-xs muted" style={{ marginTop: 3 }}>{s.l}</div>
                     </div>
@@ -281,9 +280,6 @@
                     }}>
                       <div className="row gap-8" style={{ marginBottom: 10, flexWrap: 'wrap' }}>
                         <span className="muted" style={{ fontSize: 12.5, fontWeight: 600 }}>Câu {i + 1}</span>
-                        <span className="t-xs muted">
-                          {r ? `${Number(r.pointsEarned ?? 0)}/${qq.points} điểm` : `${qq.points} điểm`}
-                        </span>
                         {statusChip}
                       </div>
                       <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 10, lineHeight: 1.6 }}>{qq.questionText}</div>
@@ -380,7 +376,7 @@
 
             <h1 className="t-h1" style={{ margin: '0 0 8px', fontSize: 20 }}>{currentQ.questionText}</h1>
             <p className="muted" style={{ margin: '0 0 22px', fontSize: 13 }}>
-              {isMultiple ? 'Chọn tất cả đáp án đúng' : 'Chọn một đáp án'} · {currentQ.points} điểm
+              {isMultiple ? 'Chọn tất cả đáp án đúng' : 'Chọn một đáp án'}
             </p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>

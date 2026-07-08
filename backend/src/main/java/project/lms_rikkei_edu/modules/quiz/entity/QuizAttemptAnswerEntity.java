@@ -6,7 +6,6 @@ import lombok.Setter;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
-import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -35,9 +34,6 @@ public class QuizAttemptAnswerEntity {
     // Tính lúc chấm điểm, lưu luôn vào DB — không tính lại sau
     @Column(name = "is_correct")
     private Boolean isCorrect;
-
-    @Column(name = "points_earned", precision = 5, scale = 2)
-    private BigDecimal pointsEarned;
 
     @Column(name = "time_spent_seconds")
     private Integer timeSpentSeconds;

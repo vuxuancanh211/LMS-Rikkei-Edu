@@ -106,14 +106,13 @@
             </div>
 
             {/* Stats row */}
-            <div className="grid" style={{ gridTemplateColumns: 'repeat(4,1fr)', padding: '20px 24px', gap: 0 }}>
+            <div className="grid" style={{ gridTemplateColumns: 'repeat(3,1fr)', padding: '20px 24px', gap: 0 }}>
               {[
-                { l: 'Điểm số', v: Number(result.score ?? 0).toFixed(2), c: passed ? 'var(--success)' : 'var(--error)' },
-                { l: 'Tỉ lệ đúng', v: `${pct}%`, c: 'var(--text)' },
+                { l: 'Tỉ lệ đúng', v: `${pct}%`, c: passed ? 'var(--success)' : 'var(--error)' },
                 { l: 'Câu đúng', v: `${result.correctCount}/${result.totalQuestions}`, c: 'var(--text)' },
                 { l: 'Thời gian', v: fmtTime(result.timeSpentSeconds), c: 'var(--text)' },
               ].map((s, i) => (
-                <div key={i} style={{ textAlign: 'center', padding: '0 10px', borderRight: i < 3 ? '1px solid var(--border)' : 'none' }}>
+                <div key={i} style={{ textAlign: 'center', padding: '0 10px', borderRight: i < 2 ? '1px solid var(--border)' : 'none' }}>
                   <div style={{ fontSize: 28, fontWeight: 800, color: s.c }}>{s.v}</div>
                   <div className="t-sm muted" style={{ marginTop: 4 }}>{s.l}</div>
                 </div>
@@ -191,10 +190,10 @@
                         {ans.questionText}
                       </div>
 
-                      {/* Points */}
+                      {/* Status */}
                       <div className="row gap-8" style={{ marginBottom: 8, flexWrap: 'wrap' }}>
                         <span className={`chip chip-${ans.isCorrect ? 'success' : ans.selectedOptionIds.length === 0 ? 'neutral' : 'error'}`} style={{ fontSize: 11 }}>
-                          {ans.isCorrect ? `+${Number(ans.pointsEarned).toFixed(2)} điểm` : ans.selectedOptionIds.length === 0 ? 'Bỏ qua' : '0 điểm'}
+                          {ans.isCorrect ? 'Đúng' : ans.selectedOptionIds.length === 0 ? 'Bỏ qua' : 'Sai'}
                         </span>
                       </div>
                     </div>

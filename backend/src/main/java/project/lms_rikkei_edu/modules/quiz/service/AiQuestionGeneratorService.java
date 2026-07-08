@@ -62,6 +62,16 @@ public class AiQuestionGeneratorService {
     private final AiQuestionGenerationJobRepository jobRepo;
 
     /**
+     * Số câu tối đa sinh trong 1 lượt gọi LLM. Model reasoning (GPT-5 family) có nguy cơ
+     * tiêu hết toàn bộ ngân sách token vào reasoning ẩn thay vì viết output khi yêu cầu 1 lượt
+     * lớn (đã xác nhận qua log thực tế: yêu cầu 20 câu → completion_tokens = reasoning_tokens =
+     * đúng giới hạn, content rỗng, finish_reason=length) — 5 câu/lượt đã xác nhận hoạt động ổn
+     * định. Yêu cầu lớn hơn được chia thành nhiều lượt gọi tuần tự rồi gộp kết quả
+     * (xem {@link #generateAllQuestions}), chấp nhận đánh đổi độ trễ vì luồng đã chạy nền.
+     */
+    private static final int MAX_QUESTIONS_PER_LLM_CALL = 5;
+
+    /**
      * Tạo job (step=RETRIEVING_CONTEXT) và trả về ngay — KHÔNG chạy pipeline ở đây.
      * Caller (controller) phải gọi {@link #generateAsync} riêng sau đó — cross-bean call
      * để {@code @Async} có hiệu lực (gọi ngay trong method này sẽ là self-invocation, bỏ qua proxy).
@@ -87,23 +97,13 @@ public class AiQuestionGeneratorService {
             // 1. Tìm tài liệu khóa học liên quan đến chủ đề (RAG) — không chặn luồng nếu lỗi
             List<ScoredChunk> chunks = retrieveRelevantChunks(courseId, req);
 
-            // 2. Sinh câu hỏi từ LLM, có kèm tài liệu tìm được (nếu có) — bước chậm nhất
+            // 2. Sinh câu hỏi từ LLM, có kèm tài liệu tìm được (nếu có) — bước chậm nhất.
+            // Chia thành nhiều lượt gọi nhỏ nếu count > MAX_QUESTIONS_PER_LLM_CALL (xem lý do
+            // ở khai báo hằng số) — mỗi lượt cập nhật lại job để FE thấy vẫn đang GENERATING.
             job.setStep(GenerationStep.GENERATING);
             jobRepo.save(job);
 
-            String systemPrompt = buildSystemPrompt(req, chunks);
-            String userMessage  = buildUserMessage(req);
-
-            String raw;
-            try {
-                raw = llmService.completeForJson(systemPrompt, userMessage);
-            } catch (Exception ex) {
-                log.warn("LLM call failed for courseId={}: {}", courseId, ex.getMessage());
-                throw new BusinessException("Không thể kết nối dịch vụ AI. Vui lòng thử lại sau.");
-            }
-
-            // 3. Parse JSON
-            List<AiGeneratedQuestion> questions = parseQuestions(raw, req.getQuestionType(), req.getDifficulty());
+            List<AiGeneratedQuestion> questions = generateAllQuestions(courseId, req, chunks);
             if (questions.isEmpty()) {
                 throw new BusinessException("AI không sinh được câu hỏi hợp lệ. Hãy thử mô tả chủ đề cụ thể hơn.");
             }
@@ -158,16 +158,70 @@ public class AiQuestionGeneratorService {
                 .build();
     }
 
+    // ── LLM generation (chia lượt) ───────────────────────────────────────────
+
+    /**
+     * Gọi LLM sinh đủ {@code req.getCount()} câu hỏi — chia thành nhiều lượt gọi tuần tự,
+     * mỗi lượt tối đa {@link #MAX_QUESTIONS_PER_LLM_CALL} câu, rồi gộp kết quả lại.
+     *
+     * <p>Loại trùng lặp NGUYÊN VĂN giữa các lượt (model không biết các lượt khác đã sinh
+     * gì nên có thể lặp lại câu hỏi) bằng cách so khớp questionText đã chuẩn hoá — đây chỉ là
+     * lưới an toàn ở mức text, việc phát hiện trùng NGỮ NGHĨA với ngân hàng câu hỏi vẫn do
+     * {@link #checkDuplicates} đảm nhiệm ở bước sau như cũ.
+     */
+    private List<AiGeneratedQuestion> generateAllQuestions(UUID courseId, AiGenerateQuestionsRequest req, List<ScoredChunk> chunks) {
+        List<AiGeneratedQuestion> all = new ArrayList<>();
+        Set<String> seenText = new HashSet<>();
+        int remaining = req.getCount();
+        int batchNo = 0;
+
+        while (remaining > 0) {
+            int batchCount = Math.min(remaining, MAX_QUESTIONS_PER_LLM_CALL);
+            batchNo++;
+
+            String systemPrompt = buildSystemPrompt(req, chunks);
+            String userMessage = buildUserMessage(req, batchCount);
+
+            String raw;
+            try {
+                raw = llmService.completeForJson(systemPrompt, userMessage);
+            } catch (Exception ex) {
+                log.warn("LLM call failed for courseId={} (batch {}, {} câu): {}", courseId, batchNo, batchCount, ex.getMessage());
+                throw new BusinessException("Không thể kết nối dịch vụ AI. Vui lòng thử lại sau.");
+            }
+
+            List<AiGeneratedQuestion> batch = parseQuestions(raw, req.getQuestionType(), req.getDifficulty());
+            log.info("generateAllQuestions: batch {} yêu cầu {} câu, model trả về {} câu hợp lệ", batchNo, batchCount, batch.size());
+            for (AiGeneratedQuestion q : batch) {
+                if (seenText.add(q.getQuestionText().trim().toLowerCase())) {
+                    all.add(q);
+                }
+            }
+
+            remaining -= batchCount;
+        }
+        return all;
+    }
+
     // ── RAG retrieval ─────────────────────────────────────────────────────────
 
     /**
      * Tìm các đoạn tài liệu AI của khóa học liên quan nhất đến chủ đề cần ra đề.
      * Dùng chung ngưỡng/topK với chatbot RAG ({@link OpenAiProperties}) để nhất quán.
      *
+     * <p>Instructor không chọn tài liệu nào (sourceIds rỗng) → BỎ QUA RAG hoàn toàn,
+     * sinh câu hỏi chỉ dựa theo chủ đề (topic) đã nhập — đây là lựa chọn nhanh nhất
+     * (không tốn round-trip embed + vector search). Muốn tham khảo tài liệu thì phải
+     * chủ động chọn (kể cả chọn hết trong popup) — không còn mặc định quét toàn bộ
+     * tài liệu khóa học như trước, vì đó chính là trường hợp chậm nhất.
+     *
      * <p>Không throw — nếu embed/search lỗi (VD: chưa có tài liệu nào được index),
      * trả về danh sách rỗng và việc sinh câu hỏi vẫn tiếp tục bằng kiến thức chung của LLM.
      */
     private List<ScoredChunk> retrieveRelevantChunks(UUID courseId, AiGenerateQuestionsRequest req) {
+        if (req.getSourceIds() == null || req.getSourceIds().isEmpty()) {
+            return List.of();
+        }
         try {
             String query = req.getTopic()
                     + (req.getSubjectTag() != null && !req.getSubjectTag().isBlank() ? " " + req.getSubjectTag() : "");
@@ -205,19 +259,23 @@ public class AiQuestionGeneratorService {
                 - Không lặp lại câu hỏi giống nhau.
                 - Câu hỏi phải rõ ràng, không mơ hồ, không có lỗi chính tả.
                 - Trả về JSON THUẦN TÚY, không kèm markdown fence (```).
+                - Bắt buộc trả về 1 JSON OBJECT ở cấp cao nhất (không phải mảng) với đúng 1 khoá
+                  "questions", giá trị là mảng câu hỏi theo định dạng bên dưới.
 
                 Định dạng JSON trả về:
-                [
-                  {
-                    "questionText": "Nội dung câu hỏi?",
-                    "options": [
-                      { "text": "Đáp án A", "correct": true,  "explanation": "Vì..." },
-                      { "text": "Đáp án B", "correct": false, "explanation": "Sai vì..." },
-                      { "text": "Đáp án C", "correct": false, "explanation": "Sai vì..." },
-                      { "text": "Đáp án D", "correct": false, "explanation": "Sai vì..." }
-                    ]
-                  }
-                ]
+                {
+                  "questions": [
+                    {
+                      "questionText": "Nội dung câu hỏi?",
+                      "options": [
+                        { "text": "Đáp án A", "correct": true,  "explanation": "Vì..." },
+                        { "text": "Đáp án B", "correct": false, "explanation": "Sai vì..." },
+                        { "text": "Đáp án C", "correct": false, "explanation": "Sai vì..." },
+                        { "text": "Đáp án D", "correct": false, "explanation": "Sai vì..." }
+                      ]
+                    }
+                  ]
+                }
                 """.formatted(typeGuide, diffGuide);
 
         if (chunks.isEmpty()) {
@@ -243,12 +301,12 @@ public class AiQuestionGeneratorService {
         return sb.toString();
     }
 
-    private String buildUserMessage(AiGenerateQuestionsRequest req) {
+    private String buildUserMessage(AiGenerateQuestionsRequest req, int count) {
         String tagPart = (req.getSubjectTag() != null && !req.getSubjectTag().isBlank())
                 ? " (chuyên đề: " + req.getSubjectTag() + ")"
                 : "";
         return "Hãy sinh %d câu hỏi trắc nghiệm về chủ đề: %s%s."
-                .formatted(req.getCount(), req.getTopic(), tagPart);
+                .formatted(count, req.getTopic(), tagPart);
     }
 
     // ── Parse LLM output ────────────────────────────────────────────────────

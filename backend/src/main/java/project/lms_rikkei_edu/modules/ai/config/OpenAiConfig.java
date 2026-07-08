@@ -15,14 +15,16 @@ public class OpenAiConfig {
 
     @Bean("openAiRestClient")
     public RestClient openAiRestClient(OpenAiProperties props) {
-        // Không có timeout thì 1 request treo (mạng lag, OpenAI chậm) sẽ chặn vô thời hạn —
-        // đặc biệt rủi ro từ khi sinh câu hỏi AI gọi thêm 1 lượt embedding (RAG) TRƯỚC lượt
-        // gọi LLM chính, cộng dồn có thể vượt timeout 120s phía frontend.
+        // Không có timeout thì 1 request treo (mạng lag, OpenAI chậm) sẽ chặn vô thời hạn.
+        // readTimeout 120s (không còn 45s như trước): sinh câu hỏi AI giờ chạy nền hoàn toàn
+        // (job + polling, xem AiQuestionGeneratorService/generateAsync), không còn bị ràng buộc
+        // bởi timeout HTTP phía frontend nữa — nên có thể chờ model reasoning (GPT-5 family)
+        // sinh xong 1 lô lớn câu hỏi (VD 20 câu) mà không bị hủy request giữa chừng.
         HttpClient httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
                 .build();
         JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(httpClient);
-        requestFactory.setReadTimeout(Duration.ofSeconds(45));
+        requestFactory.setReadTimeout(Duration.ofSeconds(120));
 
         return RestClient.builder()
                 .baseUrl(props.getBaseUrl())

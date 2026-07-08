@@ -57,7 +57,6 @@ public class BankQuestionServiceImpl implements BankQuestionService {
         question.setQuestionType(request.getQuestionType());
         question.setDifficulty(request.getDifficulty());
         question.setSubjectTag(request.getSubjectTag());
-        question.setPoints(request.getPoints());
         bankQuestionRepository.save(question);
 
         saveOptions(question.getId(), request.getOptions());
@@ -74,7 +73,6 @@ public class BankQuestionServiceImpl implements BankQuestionService {
         question.setQuestionType(request.getQuestionType());
         question.setDifficulty(request.getDifficulty());
         question.setSubjectTag(request.getSubjectTag());
-        question.setPoints(request.getPoints());
         bankQuestionRepository.save(question);
 
         bankOptionRepository.deleteByBankQuestionId(questionId);
@@ -288,7 +286,6 @@ public class BankQuestionServiceImpl implements BankQuestionService {
                 .questionType(q.getQuestionType())
                 .difficulty(q.getDifficulty())
                 .subjectTag(q.getSubjectTag())
-                .points(q.getPoints())
                 .status(q.getStatus())
                 .options(options)
                 .quizUsageCount(usageCount)

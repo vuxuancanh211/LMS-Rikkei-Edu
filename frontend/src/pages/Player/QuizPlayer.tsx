@@ -278,8 +278,6 @@
             <h1 className="t-h1" style={{ margin: '0 0 8px', fontSize: 20 }}>{currentQ.questionText}</h1>
             <p className="muted" style={{ margin: '0 0 22px', fontSize: 13 }}>
               {isMultiple ? 'Chọn tất cả đáp án đúng' : 'Chọn một đáp án'}
-              {' · '}
-              {currentQ.points} điểm
             </p>
 
             {/* Options */}

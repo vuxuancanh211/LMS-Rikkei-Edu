@@ -7,7 +7,6 @@ import project.lms_rikkei_edu.modules.quiz.enums.QuestionDifficulty;
 import project.lms_rikkei_edu.modules.quiz.enums.QuestionStatus;
 import project.lms_rikkei_edu.modules.quiz.enums.QuestionType;
 
-import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
@@ -39,9 +38,6 @@ public class BankQuestionEntity {
     @Enumerated(EnumType.STRING)
     @Column(length = 10)
     private QuestionDifficulty difficulty;
-
-    @Column(precision = 5, scale = 2)
-    private BigDecimal points;
 
     @Enumerated(EnumType.STRING)
     @Column(length = 20)

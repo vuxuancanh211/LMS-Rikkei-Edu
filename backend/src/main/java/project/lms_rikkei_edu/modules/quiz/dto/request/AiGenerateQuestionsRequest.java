@@ -35,8 +35,8 @@ public class AiGenerateQuestionsRequest {
      */
     private List<UUID> sourceIds;
 
-    /** Số câu muốn sinh (1–20) */
-    @Min(1) @Max(20)
+    /** Số câu muốn sinh (1–40) */
+    @Min(1) @Max(40)
     private int count = 5;
 
     /**

@@ -9,7 +9,6 @@ import lombok.Setter;
 import project.lms_rikkei_edu.modules.quiz.enums.QuestionDifficulty;
 import project.lms_rikkei_edu.modules.quiz.enums.QuestionType;
 
-import java.math.BigDecimal;
 import java.util.List;
 
 @Getter
@@ -26,8 +25,6 @@ public class QuizManualQuestionRequest {
     private QuestionDifficulty difficulty;
 
     private String subjectTag;
-
-    private BigDecimal points;
 
     private String explanation;
 

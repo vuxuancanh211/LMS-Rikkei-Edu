@@ -26,6 +26,9 @@
   const STATUS_CHIP  = { DRAFT: 'neutral', PUBLISHED: 'success', ARCHIVED: 'muted' };
   const TYPE_LABEL = { STATIC: 'Cố định', SHUFFLED_POOL: 'Xáo câu', RANDOM_DRAW: 'Ngẫu nhiên' };
 
+  // Số câu tối đa sinh được trong 1 lần gọi AI — khớp @Max(40) ở AiGenerateQuestionsRequest phía BE
+  const AI_MAX_QUESTIONS_PER_GEN = 40;
+
   // Thứ tự các bước sinh câu hỏi AI — dùng để hiện tiến trình + chấm tròn highlight bước đang chạy
   const GEN_STEP_ORDER = ['RETRIEVING_CONTEXT', 'GENERATING', 'CHECKING_DUPLICATES'];
   const GEN_STEP_LABEL = {
@@ -121,7 +124,6 @@
     const [bqDiff, setBqDiff] = useState('EASY');
     const [bqType, setBqType] = useState('SINGLE_CHOICE');
     const [bqTag, setBqTag] = useState('');
-    const [bqPoints, setBqPoints] = useState(1);
     const [bqOpts, setBqOpts] = useState([
       { optionText: '', isCorrect: true },
       { optionText: '', isCorrect: false },
@@ -260,7 +262,7 @@
     /* ── Save bank question ── */
     const resetBankForm = () => {
       setBqText(''); setBqDiff('EASY'); setBqType('SINGLE_CHOICE');
-      setBqTag(''); setBqPoints(1);
+      setBqTag('');
       setBqOpts([
         { optionText: '', isCorrect: true },
         { optionText: '', isCorrect: false },
@@ -281,7 +283,6 @@
           questionType: bqType,
           difficulty: bqDiff,
           subjectTag: bqTag.trim() || undefined,
-          points: Number(bqPoints),
           options: filledOpts.map((o, i) => ({ optionText: o.optionText.trim(), isCorrect: o.isCorrect, orderIndex: i })),
         };
         if (editBankItem) {
@@ -300,7 +301,7 @@
       } finally {
         setSubmitting(false);
       }
-    }, [activeCourseId, bqText, bqType, bqDiff, bqTag, bqPoints, bqOpts, editBankItem, fetchBank, showToast]);
+    }, [activeCourseId, bqText, bqType, bqDiff, bqTag, bqOpts, editBankItem, fetchBank, showToast]);
 
     /* ── Toggle bank question status (optimistic — no reload flash) ── */
     const handleToggleStatus = useCallback(async (item) => {
@@ -563,7 +564,7 @@
               <div style={{ overflowX: 'auto' }}>
                 <table className="tbl">
                   <thead>
-                    <tr><th>Câu hỏi</th><th>Độ khó</th><th>Điểm</th><th>Dùng trong</th><th>Trạng thái</th><th></th></tr>
+                    <tr><th>Câu hỏi</th><th>Độ khó</th><th>Dùng trong</th><th>Trạng thái</th><th></th></tr>
                   </thead>
                   <tbody>
                     {filteredBank.map(item => (
@@ -579,7 +580,6 @@
                             {DIFF_LABEL[item.difficulty] || item.difficulty}
                           </span>
                         </td>
-                        <td className="muted">{item.points} điểm</td>
                         <td className="muted">{item.quizUsageCount} quiz</td>
                         <td>
                           <span className={`chip chip-${item.status === 'ACTIVE' ? 'success' : 'neutral'}`}>
@@ -594,7 +594,6 @@
                               setBqDiff(item.difficulty);
                               setBqType(item.questionType);
                               setBqTag(item.subjectTag || '');
-                              setBqPoints(item.points);
                               setBqOpts(item.options.length >= 2 ? item.options.map(o => ({
                                 optionText: o.optionText, isCorrect: o.isCorrect
                               })) : [
@@ -736,15 +735,9 @@
                 ]} />
               </div>
             </div>
-            <div className="grid grid-2" style={{ gap: 12 }}>
-              <div>
-                <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Chủ đề (tag)</label>
-                <input className="input" placeholder="VD: React Hooks" value={bqTag} onChange={e => setBqTag(e.target.value)} />
-              </div>
-              <div>
-                <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Điểm</label>
-                <input className="input" type="number" min={0.1} step={0.1} value={bqPoints} onChange={e => setBqPoints(e.target.value)} />
-              </div>
+            <div>
+              <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Chủ đề (tag)</label>
+              <input className="input" placeholder="VD: React Hooks" value={bqTag} onChange={e => setBqTag(e.target.value)} />
             </div>
             <div>
               <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Nội dung câu hỏi *</label>
@@ -1047,7 +1040,6 @@
           questionType: q.questionType,
           difficulty: q.difficulty,
           subjectTag: tag || null,
-          points: 1,
           options: q.options.map(o => ({ optionText: o.text, isCorrect: o.correct, orderIndex: 0 })),
         }));
         await aiSaveQuestions(courseId, payload);
@@ -1105,9 +1097,9 @@
               </div>
               <div className="grid grid-2" style={{ gap: 12 }}>
                 <div>
-                  <div className="t-label" style={{ marginBottom: 6 }}>Số câu muốn sinh</div>
-                  <input className="input" type="number" min={1} max={20} style={{ width: '100%' }} value={count}
-                    onChange={e => setCount(Math.max(1, Math.min(20, Number(e.target.value))))} />
+                  <div className="t-label" style={{ marginBottom: 6 }}>Số câu muốn sinh (tối đa {AI_MAX_QUESTIONS_PER_GEN})</div>
+                  <input className="input" type="number" min={1} max={AI_MAX_QUESTIONS_PER_GEN} style={{ width: '100%' }} value={count}
+                    onChange={e => setCount(Math.max(1, Math.min(AI_MAX_QUESTIONS_PER_GEN, Number(e.target.value))))} />
                 </div>
                 <div>
                   <div className="t-label" style={{ marginBottom: 6 }}>Chuyên đề / Tag <span style={{ color: 'var(--error)' }}>*</span></div>
@@ -1123,7 +1115,7 @@
                 <div>
                   <div className="t-label" style={{ marginBottom: 4 }}>Tài liệu tham khảo (tuỳ chọn)</div>
                   <div className="muted t-xs" style={{ marginBottom: 8 }}>
-                    Không chọn = AI tìm trên toàn bộ tài liệu đã index. Chọn riêng vài tài liệu giúp sinh câu hỏi nhanh hơn.
+                    Không chọn = AI chỉ dựa theo chủ đề đã nhập (nhanh nhất, không đọc tài liệu). Chọn tài liệu để AI tham khảo thêm nội dung khóa học.
                   </div>
                   <button type="button" className="input" style={{
                     width: '100%', textAlign: 'left', cursor: 'pointer',
@@ -1131,7 +1123,7 @@
                   }} onClick={() => setDocPickerOpen(true)}>
                     <span style={{ color: sourceIds.length > 0 ? 'var(--accent)' : undefined }}>
                       {sourceIds.length === 0
-                        ? 'Không giới hạn — dùng toàn bộ tài liệu đã index'
+                        ? 'Không dùng tài liệu — chỉ dựa theo chủ đề'
                         : `Đã chọn ${sourceIds.length}/${aiSources.length} tài liệu`}
                     </span>
                     <Ic n="chevron_down" size={16} style={{ flex: 'none', color: 'var(--text-3)' }} />
@@ -1528,20 +1520,9 @@
 
               {/* Score stats */}
               <div style={{ padding: '16px 18px', background: 'var(--surface-2)', borderRadius: 12 }}>
-                <div className="t-label" style={{ marginBottom: 12 }}>Điểm số</div>
-                <div className="grid grid-2" style={{ gap: 16 }}>
-                  <div>
-                    <div className="muted t-sm" style={{ marginBottom: 4 }}>Điểm trung bình</div>
-                    <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--text)' }}>
-                      {Number(stats.avgScore ?? 0).toFixed(2)}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="muted t-sm" style={{ marginBottom: 4 }}>TB % đúng</div>
-                    <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--text)' }}>
-                      {Number(stats.avgScorePercentage ?? 0).toFixed(1)}%
-                    </div>
-                  </div>
+                <div className="t-label" style={{ marginBottom: 4 }}>TB % đúng</div>
+                <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--text)' }}>
+                  {Number(stats.avgScorePercentage ?? 0).toFixed(1)}%
                 </div>
 
                 {/* Pass rate bar */}
@@ -1613,7 +1594,6 @@
                       <tr>
                         <th>#</th>
                         <th>Lần thi</th>
-                        <th>Điểm</th>
                         <th>%</th>
                         <th>Đúng</th>
                         <th>Thời gian</th>
@@ -1636,7 +1616,6 @@
                               )}
                             </div>
                           </td>
-                          <td style={{ fontWeight: 700 }}>{Number(a.score ?? 0).toFixed(2)}</td>
                           <td style={{ fontWeight: 700, color: a.isPassed ? 'var(--success)' : 'var(--error)' }}>
                             {Number(a.scorePercentage ?? 0).toFixed(1)}%
                           </td>
@@ -1860,7 +1839,6 @@
                             <span className={`chip chip-${DIFF_CHIP[qq.difficulty] || 'neutral'}`} style={{ fontSize: 10 }}>
                               {DIFF_LABEL[qq.difficulty] || qq.difficulty}
                             </span>
-                            <span className="t-xs muted">{qq.points} điểm</span>
                           </div>
                         </div>
                         {isDraft && (
@@ -2139,7 +2117,6 @@
                         {DIFF_LABEL[item.difficulty] || item.difficulty}
                       </span>
                       {item.subjectTag && <span className="chip chip-neutral" style={{ fontSize: 10 }}>{item.subjectTag}</span>}
-                      <span className="t-xs muted">{item.points} điểm</span>
                     </div>
                   </div>
                 </label>
@@ -2163,7 +2140,6 @@
     const [type, setType] = useState('SINGLE_CHOICE');
     const [diff, setDiff] = useState('EASY');
     const [tag, setTag] = useState('');
-    const [points, setPoints] = useState(1);
     const [saveToBank, setSaveToBank] = useState(true);
     const [opts, setOpts] = useState([
       { optionText: '', isCorrect: true },
@@ -2186,7 +2162,6 @@
           questionType: type,
           difficulty: diff,
           subjectTag: tag.trim() || undefined,
-          points: Number(points),
           saveToBank,
           options: filled.map((o, i) => ({ optionText: o.optionText.trim(), isCorrect: o.isCorrect, orderIndex: i })),
         });
@@ -2218,15 +2193,9 @@
               ]} />
             </div>
           </div>
-          <div className="grid grid-2" style={{ gap: 12 }}>
-            <div>
-              <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Chủ đề (tag)</label>
-              <input className="input" placeholder="VD: React Hooks" value={tag} onChange={e => setTag(e.target.value)} />
-            </div>
-            <div>
-              <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Điểm</label>
-              <input className="input" type="number" min={0.1} step={0.1} value={points} onChange={e => setPoints(e.target.value)} />
-            </div>
+          <div>
+            <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Chủ đề (tag)</label>
+            <input className="input" placeholder="VD: React Hooks" value={tag} onChange={e => setTag(e.target.value)} />
           </div>
           <div>
             <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Nội dung câu hỏi *</label>

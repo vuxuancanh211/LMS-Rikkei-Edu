@@ -22,7 +22,6 @@ export type BankQuestionRequest = {
   questionType: QuestionType;
   difficulty: QuestionDifficulty;
   subjectTag?: string;
-  points?: number;
   explanation?: string;
   options: BankOptionRequest[];
 };
@@ -41,7 +40,6 @@ export type BankQuestionResponse = {
   questionType: QuestionType;
   difficulty: QuestionDifficulty;
   subjectTag?: string | null;
-  points: number;
   explanation?: string | null;
   status: QuestionStatus;
   options: BankOptionResponse[];
@@ -104,7 +102,6 @@ export type QuizManualQuestionRequest = {
   questionType: QuestionType;
   difficulty: QuestionDifficulty;
   subjectTag?: string;
-  points?: number;
   explanation?: string;
   saveToBank?: boolean;
   options: BankOptionRequest[];
@@ -130,7 +127,6 @@ export type QuizQuestionResponse = {
   questionType: QuestionType;
   difficulty: QuestionDifficulty;
   subjectTag?: string | null;
-  points: number;
   orderIndex: number;
   explanation?: string | null;
   options: QuizOptionResponse[];
@@ -180,7 +176,6 @@ export type DryRunAnswerResult = {
   questionId: string;
   answered: boolean;
   isCorrect: boolean;
-  pointsEarned: number;
   correctOptionIds: string[];
 };
 
@@ -222,7 +217,6 @@ export type AttemptAnswerResult = {
   questionText: string;
   selectedOptionIds: string[];
   isCorrect: boolean;
-  pointsEarned: number;
 };
 
 export type AttemptResultResponse = {

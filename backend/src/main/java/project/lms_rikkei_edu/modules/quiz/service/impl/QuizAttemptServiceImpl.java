@@ -233,7 +233,6 @@ public class QuizAttemptServiceImpl implements QuizAttemptService {
         qq.setQuestionType(bq.getQuestionType());
         qq.setDifficulty(bq.getDifficulty());
         qq.setSubjectTag(bq.getSubjectTag());
-        qq.setPoints(bq.getPoints());
         return qq;
     }
 
@@ -256,7 +255,6 @@ public class QuizAttemptServiceImpl implements QuizAttemptService {
                     .questionType(qq.getQuestionType())
                     .difficulty(qq.getDifficulty())
                     .subjectTag(qq.getSubjectTag())
-                    .points(qq.getPoints())
                     .options(options)
                     .build();
         }).filter(Objects::nonNull).toList();
@@ -323,11 +321,9 @@ public class QuizAttemptServiceImpl implements QuizAttemptService {
         // Load correct options per question
         Map<UUID, Set<UUID>> correctOptionsMap = buildCorrectOptionsMap(questions, attempt);
 
+        // Mọi câu hỏi cùng trọng số — điểm chỉ còn là % số câu trả lời đúng / tổng số câu,
+        // không còn khái niệm "points" theo từng câu nữa.
         int correctCount = 0, incorrectCount = 0, unansweredCount = 0;
-        BigDecimal totalScore = BigDecimal.ZERO;
-        BigDecimal maxScore = questions.stream()
-                .map(q -> q.getPoints() != null ? q.getPoints() : BigDecimal.ONE)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         List<QuizAttemptAnswerEntity> answerEntities = new ArrayList<>();
         for (QuizQuestionEntity q : questions) {
@@ -335,30 +331,27 @@ public class QuizAttemptServiceImpl implements QuizAttemptService {
             Set<UUID> correct = correctOptionsMap.getOrDefault(q.getId(), Set.of());
 
             boolean isCorrect = !selected.isEmpty() && new HashSet<>(selected).equals(correct);
-            BigDecimal points = q.getPoints() != null ? q.getPoints() : BigDecimal.ONE;
-            BigDecimal earned = isCorrect ? points : BigDecimal.ZERO;
 
             if (selected.isEmpty()) unansweredCount++;
             else if (isCorrect) correctCount++;
             else incorrectCount++;
-
-            totalScore = totalScore.add(earned);
 
             QuizAttemptAnswerEntity ans = new QuizAttemptAnswerEntity();
             ans.setAttemptId(attemptId);
             ans.setQuestionId(q.getId());
             ans.setSelectedOptionIds(selected.isEmpty() ? null : selected);
             ans.setIsCorrect(isCorrect);
-            ans.setPointsEarned(earned);
             ans.setAnsweredAt(OffsetDateTime.now());
             answerEntities.add(ans);
         }
 
         answerRepository.saveAll(answerEntities);
 
-        // Tính score percentage
-        BigDecimal pct = maxScore.compareTo(BigDecimal.ZERO) > 0
-                ? totalScore.divide(maxScore, 4, RoundingMode.HALF_UP)
+        // Tính score percentage — số câu đúng / tổng số câu
+        int totalQuestions = questions.size();
+        BigDecimal pct = totalQuestions > 0
+                ? BigDecimal.valueOf(correctCount)
+                        .divide(BigDecimal.valueOf(totalQuestions), 4, RoundingMode.HALF_UP)
                         .multiply(BigDecimal.valueOf(100)).setScale(2, RoundingMode.HALF_UP)
                 : BigDecimal.ZERO;
 
@@ -370,7 +363,7 @@ public class QuizAttemptServiceImpl implements QuizAttemptService {
 
         // Cập nhật attempt
         attempt.setStatus(AttemptStatus.GRADED);
-        attempt.setScore(totalScore);
+        attempt.setScore(BigDecimal.valueOf(correctCount));
         attempt.setScorePercentage(pct);
         attempt.setIsPassed(passed);
         attempt.setCorrectCount(correctCount);
@@ -447,7 +440,6 @@ public class QuizAttemptServiceImpl implements QuizAttemptService {
                 .questionText(q != null ? q.getQuestionText() : null)
                 .selectedOptionIds(a.getSelectedOptionIds())
                 .isCorrect(Boolean.TRUE.equals(a.getIsCorrect()))
-                .pointsEarned(a.getPointsEarned())
                 .build();
     }
 

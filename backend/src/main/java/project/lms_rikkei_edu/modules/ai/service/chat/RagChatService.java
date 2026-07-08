@@ -278,7 +278,8 @@ public class RagChatService {
                 for (var q : ctx.recentQuizResults()) {
                     sb.append("  - ").append(q.quizTitle())
                       .append(" [").append(q.courseName()).append("]")
-                      .append(" — ").append(q.score()).append("/").append(q.maxScore())
+                      .append(" — ").append(q.score().intValue()).append("/").append(q.totalQuestions())
+                      .append(" câu đúng")
                       .append(q.isPassed() ? " ✓ ĐẠT" : " ✗ CHƯA ĐẠT")
                       .append(" — ").append(q.submittedAt()).append("\n");
                 }

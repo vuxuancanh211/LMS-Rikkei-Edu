@@ -3,7 +3,6 @@ package project.lms_rikkei_edu.modules.quiz.dto.response;
 import lombok.Builder;
 import lombok.Getter;
 
-import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 
@@ -18,7 +17,6 @@ public class DryRunAnswerResult {
      * thành {@code "correct"} thay vì {@code "isCorrect"} khiến FE luôn đọc ra undefined.
      */
     private Boolean isCorrect;
-    private BigDecimal pointsEarned;
     /** Chỉ dùng trong dry-run (giảng viên xem thử) — không áp dụng cho học viên làm bài thật. */
     private List<UUID> correctOptionIds;
 }
