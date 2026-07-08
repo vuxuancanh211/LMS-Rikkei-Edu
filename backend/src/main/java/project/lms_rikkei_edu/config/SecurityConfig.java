@@ -63,6 +63,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/forum/attachments/*/content").permitAll()
                         .requestMatchers("/actuator/**").hasRole("ADMIN")
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                        .requestMatchers("/api/ai/sources/**").hasAnyRole("ADMIN", "INSTRUCTOR")
                         .requestMatchers("/api/instructor/**").hasAnyRole("ADMIN", "INSTRUCTOR")
                         .requestMatchers("/api/student/**").hasAnyRole("ADMIN", "STUDENT")
                         .anyRequest().authenticated()
