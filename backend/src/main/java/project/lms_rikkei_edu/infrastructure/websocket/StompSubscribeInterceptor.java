@@ -26,8 +26,7 @@ public class StompSubscribeInterceptor implements ChannelInterceptor {
     private final ChatRoomMemberRepository memberRepo;
 
     @Override
-    @Nullable
-    public Message<?> preSend(Message<?> message, MessageChannel channel) {
+    public @Nullable Message<?> preSend(Message<?> message, MessageChannel channel) {
         StompHeaderAccessor accessor =
                 MessageHeaderAccessor.getAccessor(message, StompHeaderAccessor.class); // ← đổi chỗ này
 
