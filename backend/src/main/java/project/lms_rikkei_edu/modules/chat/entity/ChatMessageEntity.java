@@ -4,8 +4,8 @@ import jakarta.persistence.*;
 import lombok.*;
 import project.lms_rikkei_edu.modules.user.entity.UserEntity;
 
-import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -17,6 +17,8 @@ import java.util.UUID;
 @AllArgsConstructor
 @Builder
 public class ChatMessageEntity {
+
+    private static final ZoneOffset APP_ZONE = ZoneOffset.UTC;
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
@@ -70,7 +72,7 @@ public class ChatMessageEntity {
 
     @PrePersist
     void prePersist() {
-        createdAt = OffsetDateTime.now();
+        createdAt = OffsetDateTime.now(APP_ZONE);
     }
 
     public enum MessageType {

@@ -4,8 +4,8 @@ import jakarta.persistence.*;
 import lombok.*;
 import project.lms_rikkei_edu.modules.user.entity.UserEntity;
 
-import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.UUID;
 
 @Entity
@@ -16,6 +16,8 @@ import java.util.UUID;
 @AllArgsConstructor
 @Builder
 public class ChatRoomMemberEntity {
+
+    private static final ZoneOffset APP_ZONE = ZoneOffset.UTC;
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
@@ -48,7 +50,7 @@ public class ChatRoomMemberEntity {
 
     @PrePersist
     void prePersist() {
-        joinedAt = OffsetDateTime.now();
+        joinedAt = OffsetDateTime.now(APP_ZONE);
     }
 
     public enum MemberRole {

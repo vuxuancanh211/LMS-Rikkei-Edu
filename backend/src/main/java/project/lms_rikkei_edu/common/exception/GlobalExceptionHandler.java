@@ -95,7 +95,7 @@ public class GlobalExceptionHandler {
 
     // ── AI module exceptions ──────────────────────────────────────────────────
 
-    @ExceptionHandler({ AiSourceNotFoundException.class, ConversationNotFoundException.class })
+    @ExceptionHandler({AiSourceNotFoundException.class, ConversationNotFoundException.class})
     public ResponseEntity<ErrorResponse> handleAiNotFound(
             RuntimeException ex,
             HttpServletRequest request) {

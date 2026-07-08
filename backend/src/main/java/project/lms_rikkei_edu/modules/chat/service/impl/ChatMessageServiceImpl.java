@@ -29,6 +29,7 @@ import project.lms_rikkei_edu.modules.chat.service.ChatMessageService;
 import project.lms_rikkei_edu.modules.user.entity.UserEntity;
 
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -38,6 +39,8 @@ import java.util.stream.Collectors;
 @Slf4j
 @Transactional(readOnly = true)
 public class ChatMessageServiceImpl implements ChatMessageService {
+
+    private static final ZoneOffset APP_ZONE = ZoneOffset.UTC;
 
     private final ChatMessageRepository messageRepo;
     private final ChatMessageReactionRepository reactionRepo;
@@ -100,7 +103,7 @@ public class ChatMessageServiceImpl implements ChatMessageService {
                 .event("CHAT_MESSAGE")
                 .roomId(roomId)
                 .message(response)
-                .timestamp(OffsetDateTime.now())
+                .timestamp(OffsetDateTime.now(APP_ZONE))
                 .build());
 
         return response;
@@ -116,7 +119,7 @@ public class ChatMessageServiceImpl implements ChatMessageService {
 
         message.setContent(request.getContent());
         message.setEdited(true);
-        message.setEditedAt(OffsetDateTime.now());
+        message.setEditedAt(OffsetDateTime.now(APP_ZONE));
         messageRepo.save(message);
 
         ChatMessageResponse response = buildMessageResponse(message);
@@ -125,7 +128,7 @@ public class ChatMessageServiceImpl implements ChatMessageService {
                 .event("MESSAGE_EDITED")
                 .roomId(message.getRoom().getId())
                 .message(response)
-                .timestamp(OffsetDateTime.now())
+                .timestamp(OffsetDateTime.now(APP_ZONE))
                 .build());
 
         return response;
@@ -138,14 +141,14 @@ public class ChatMessageServiceImpl implements ChatMessageService {
         validateOwner(message, userId);
 
         message.setDeleted(true);
-        message.setDeletedAt(OffsetDateTime.now());
+        message.setDeletedAt(OffsetDateTime.now(APP_ZONE));
         messageRepo.save(message);
 
         broadcast(message.getRoom().getId(), StompPayload.builder()
                 .event("MESSAGE_DELETED")
                 .roomId(message.getRoom().getId())
                 .message(buildMessageResponse(message))
-                .timestamp(OffsetDateTime.now())
+                .timestamp(OffsetDateTime.now(APP_ZONE))
                 .build());
     }
 
@@ -171,7 +174,7 @@ public class ChatMessageServiceImpl implements ChatMessageService {
                 .messageId(messageId)
                 .emoji(request.getEmoji())
                 .reactions(reactions)
-                .timestamp(OffsetDateTime.now())
+                .timestamp(OffsetDateTime.now(APP_ZONE))
                 .build());
 
         return reactions;
@@ -193,7 +196,7 @@ public class ChatMessageServiceImpl implements ChatMessageService {
                 .messageId(messageId)
                 .emoji(emoji)
                 .reactions(reactions)
-                .timestamp(OffsetDateTime.now())
+                .timestamp(OffsetDateTime.now(APP_ZONE))
                 .build());
 
         return reactions;

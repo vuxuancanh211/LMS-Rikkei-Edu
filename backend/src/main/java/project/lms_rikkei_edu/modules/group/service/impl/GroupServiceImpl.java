@@ -50,6 +50,7 @@ import java.util.UUID;
 public class GroupServiceImpl implements GroupService {
 
     private static final String GROUP_REFERENCE_TYPE = "GROUP";
+    private static final String COURSE_TITLE_SEPARATOR = "\" của khóa học \"";
 
     private final StudyGroupRepository studyGroupRepository;
     private final GroupMemberRepository groupMemberRepository;
@@ -243,7 +244,7 @@ public class GroupServiceImpl implements GroupService {
     private void notifyAddedMembers(StudyGroupEntity group, List<GroupMemberEntity> members, UserPrincipal actor) {
         String title = "Bạn đã được thêm vào nhóm học";
         String body = "Bạn đã được thêm vào nhóm \"" + group.getName()
-                + "\" của khóa học \"" + group.getCourse().getTitle() + "\".";
+                + COURSE_TITLE_SEPARATOR + group.getCourse().getTitle() + "\".";
         notifyMembers(group, members, NotificationType.GROUP_MEMBER_ADDED, title, body,
                 "group-member-added", actor);
     }
@@ -260,7 +261,7 @@ public class GroupServiceImpl implements GroupService {
 
     private void notifyGroupDeleted(StudyGroupEntity group, List<GroupMemberEntity> members, UserPrincipal actor) {
         String title = "Nhóm học đã bị xoá";
-        String body = "Nhóm \"" + group.getName() + "\" của khóa học \""
+        String body = "Nhóm \"" + group.getName() + COURSE_TITLE_SEPARATOR
                 + group.getCourse().getTitle() + "\" đã bị xoá.";
         notifyMembers(group, members, NotificationType.GROUP_DELETED, title, body,
                 "group-deleted", actor);
@@ -304,7 +305,7 @@ public class GroupServiceImpl implements GroupService {
     private void notifyMemberRemoved(StudyGroupEntity group, GroupMemberEntity member, UserPrincipal actor) {
         String title = "Bạn đã được xoá khỏi nhóm học";
         String body = "Bạn đã được xoá khỏi nhóm \"" + group.getName()
-                + "\" của khóa học \"" + group.getCourse().getTitle() + "\".";
+                + COURSE_TITLE_SEPARATOR + group.getCourse().getTitle() + "\".";
         notifyStudent(group, member.getStudent().getId(), NotificationType.GROUP_MEMBER_REMOVED, title, body,
                 "group-member-removed:" + group.getId() + ":" + member.getStudent().getId(), actor);
     }

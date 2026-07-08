@@ -40,6 +40,5 @@ public class ChatMessageResponse {
     private boolean deleted;
     private OffsetDateTime createdAt;
 
-    // Reactions gộp theo emoji: {"👍": 3, "❤️": 1}
     private Map<String, Long> reactions;
 }

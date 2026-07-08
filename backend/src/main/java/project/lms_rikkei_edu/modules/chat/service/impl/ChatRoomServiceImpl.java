@@ -80,8 +80,20 @@ public class ChatRoomServiceImpl implements ChatRoomService {
     @Transactional
     public ChatRoomEntity getOrCreateRoomForGroup(StudyGroupEntity group, UserEntity instructor) {
         ChatRoomEntity room = roomRepo.findByGroupId(group.getId())
-                .orElseGet(() -> createRoomForGroup(group, instructor));
-        addMember(room.getId(), instructor, ChatRoomMemberEntity.MemberRole.MODERATOR);
+                .orElseGet(() -> roomRepo.save(ChatRoomEntity.builder()
+                        .name(group.getName())
+                        .group(group)
+                        .createdBy(instructor)
+                        .active(true)
+                        .build()));
+
+        if (!memberRepo.existsByRoomIdAndUserId(room.getId(), instructor.getId())) {
+            memberRepo.save(ChatRoomMemberEntity.builder()
+                    .room(room)
+                    .user(instructor)
+                    .role(ChatRoomMemberEntity.MemberRole.MODERATOR)
+                    .build());
+        }
         return room;
     }
 
