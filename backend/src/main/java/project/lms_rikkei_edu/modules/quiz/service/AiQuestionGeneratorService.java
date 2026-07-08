@@ -4,26 +4,44 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+import project.lms_rikkei_edu.common.exception.BusinessException;
+import project.lms_rikkei_edu.modules.ai.config.OpenAiProperties;
 import project.lms_rikkei_edu.modules.ai.service.embedding.EmbeddingService;
 import project.lms_rikkei_edu.modules.ai.service.llm.LlmService;
+import project.lms_rikkei_edu.modules.ai.service.retrieval.ScoredChunk;
+import project.lms_rikkei_edu.modules.ai.service.retrieval.VectorSearchService;
 import project.lms_rikkei_edu.modules.quiz.dto.request.AiGenerateQuestionsRequest;
 import project.lms_rikkei_edu.modules.quiz.dto.response.AiGeneratedQuestion;
 import project.lms_rikkei_edu.modules.quiz.dto.response.AiGeneratedQuestion.AiGeneratedOption;
 import project.lms_rikkei_edu.modules.quiz.dto.response.AiGenerateQuestionsResponse;
+import project.lms_rikkei_edu.modules.quiz.dto.response.AiGenerationJobStatusResponse;
+import project.lms_rikkei_edu.modules.quiz.entity.AiQuestionGenerationJob;
+import project.lms_rikkei_edu.modules.quiz.enums.GenerationStep;
 import project.lms_rikkei_edu.modules.quiz.enums.QuestionDifficulty;
 import project.lms_rikkei_edu.modules.quiz.enums.QuestionType;
+import project.lms_rikkei_edu.modules.quiz.repository.AiQuestionGenerationJobRepository;
 
 import java.util.*;
 
 /**
- * Sinh câu hỏi trắc nghiệm bằng LLM, sau đó kiểm tra trùng lặp
- * với ngân hàng câu hỏi hiện có của khóa học bằng cosine similarity (pgvector).
+ * Sinh câu hỏi trắc nghiệm bằng LLM, có tham khảo tài liệu AI (RAG) của khóa học
+ * nếu có, sau đó kiểm tra trùng lặp với ngân hàng câu hỏi hiện có bằng cosine
+ * similarity (pgvector).
+ *
+ * <p>Chạy nền theo từng bước (không block request thread — bước "gọi LLM" có thể mất
+ * 30-90s tuỳ số câu yêu cầu): {@code startGenerate} tạo job và trả về ngay, pipeline
+ * thật chạy trong {@code generateAsync} (dispatch qua {@link Async}, phải được gọi từ
+ * bean khác — xem controller — vì self-invocation trong cùng class sẽ bỏ qua {@code @Async}).
+ * FE poll {@code getJobStatus} để biết đang ở bước nào.
  *
  * <p>Luồng:
  * <ol>
- *   <li>Gọi LLM với structured prompt → JSON danh sách câu hỏi</li>
+ *   <li>Embed chủ đề → tìm các đoạn tài liệu liên quan nhất trong {@code document_chunks} của khóa học</li>
+ *   <li>Gọi LLM với structured prompt (kèm tài liệu nếu có) → JSON danh sách câu hỏi</li>
  *   <li>Parse JSON → List&lt;AiGeneratedQuestion&gt;</li>
  *   <li>Embed từng questionText → float[]</li>
  *   <li>So sánh với embedding của câu hỏi trong bank (pgvector cosine distance)</li>
@@ -37,43 +55,133 @@ public class AiQuestionGeneratorService {
 
     private final LlmService llmService;
     private final EmbeddingService embeddingService;
+    private final VectorSearchService vectorSearch;
+    private final OpenAiProperties props;
     private final ObjectMapper objectMapper;
     private final JdbcTemplate jdbc;
+    private final AiQuestionGenerationJobRepository jobRepo;
 
-    public AiGenerateQuestionsResponse generate(UUID courseId, AiGenerateQuestionsRequest req) {
-        // 1. Sinh câu hỏi từ LLM
-        String systemPrompt = buildSystemPrompt(req);
-        String userMessage  = buildUserMessage(req);
+    /**
+     * Tạo job (step=RETRIEVING_CONTEXT) và trả về ngay — KHÔNG chạy pipeline ở đây.
+     * Caller (controller) phải gọi {@link #generateAsync} riêng sau đó — cross-bean call
+     * để {@code @Async} có hiệu lực (gọi ngay trong method này sẽ là self-invocation, bỏ qua proxy).
+     *
+     * <p>Không {@code @Transactional}: nếu bọc transaction ở đây, thread nền của
+     * {@code generateAsync} có thể query job trước khi transaction này commit → not found.
+     * {@code jobRepo.save(job)} tự commit ngay (transaction riêng theo mặc định Spring Data JPA).
+     */
+    public UUID startGenerate(UUID courseId, AiGenerateQuestionsRequest req, UUID requestedBy) {
+        AiQuestionGenerationJob job = new AiQuestionGenerationJob();
+        job.setCourseId(courseId);
+        job.setRequestedBy(requestedBy);
+        job.setStep(GenerationStep.RETRIEVING_CONTEXT);
+        job = jobRepo.save(job);
+        return job.getId();
+    }
 
-        String raw;
+    /** Chạy nền — pipeline thật, cập nhật {@code job.step} trước mỗi giai đoạn để FE poll thấy tiến trình. */
+    @Async
+    public void generateAsync(UUID jobId, UUID courseId, AiGenerateQuestionsRequest req) {
+        AiQuestionGenerationJob job = jobRepo.findById(jobId).orElseThrow();
         try {
-            raw = llmService.completeForJson(systemPrompt, userMessage);
+            // 1. Tìm tài liệu khóa học liên quan đến chủ đề (RAG) — không chặn luồng nếu lỗi
+            List<ScoredChunk> chunks = retrieveRelevantChunks(courseId, req);
+
+            // 2. Sinh câu hỏi từ LLM, có kèm tài liệu tìm được (nếu có) — bước chậm nhất
+            job.setStep(GenerationStep.GENERATING);
+            jobRepo.save(job);
+
+            String systemPrompt = buildSystemPrompt(req, chunks);
+            String userMessage  = buildUserMessage(req);
+
+            String raw;
+            try {
+                raw = llmService.completeForJson(systemPrompt, userMessage);
+            } catch (Exception ex) {
+                log.warn("LLM call failed for courseId={}: {}", courseId, ex.getMessage());
+                throw new BusinessException("Không thể kết nối dịch vụ AI. Vui lòng thử lại sau.");
+            }
+
+            // 3. Parse JSON
+            List<AiGeneratedQuestion> questions = parseQuestions(raw, req.getQuestionType(), req.getDifficulty());
+            if (questions.isEmpty()) {
+                throw new BusinessException("AI không sinh được câu hỏi hợp lệ. Hãy thử mô tả chủ đề cụ thể hơn.");
+            }
+
+            // 4. Kiểm tra trùng với bank của CHÍNH khóa học này (theo courseId)
+            job.setStep(GenerationStep.CHECKING_DUPLICATES);
+            jobRepo.save(job);
+            checkDuplicates(courseId, questions, req.getDuplicateThreshold());
+
+            long dupCount = questions.stream().filter(AiGeneratedQuestion::isDuplicate).count();
+            AiGenerateQuestionsResponse response = new AiGenerateQuestionsResponse(
+                    questions,
+                    questions.size(),
+                    (int) dupCount,
+                    (int) (questions.size() - dupCount)
+            );
+
+            job.setResultJson(objectMapper.writeValueAsString(response));
+            job.setStep(GenerationStep.DONE);
+            jobRepo.save(job);
+
         } catch (Exception ex) {
-            log.error("LLM call failed for courseId={}: {}", courseId, ex.getMessage(), ex);
-            throw new RuntimeException("Không thể kết nối dịch vụ AI. Vui lòng thử lại sau.", ex);
+            log.error("Question generation failed for jobId={}: {}", jobId, ex.getMessage(), ex);
+            job.setStep(GenerationStep.FAILED);
+            job.setErrorMessage(ex.getMessage());
+            jobRepo.save(job);
+        }
+    }
+
+    /** FE poll endpoint này để biết job đang ở bước nào; khi DONE thì kèm luôn kết quả. */
+    public AiGenerationJobStatusResponse getJobStatus(UUID jobId) {
+        AiQuestionGenerationJob job = jobRepo.findById(jobId)
+                .orElseThrow(() -> new BusinessException("Không tìm thấy tiến trình sinh câu hỏi", HttpStatus.NOT_FOUND));
+
+        AiGenerateQuestionsResponse result = null;
+        if (job.getStep() == GenerationStep.DONE && job.getResultJson() != null) {
+            try {
+                result = objectMapper.readValue(job.getResultJson(), AiGenerateQuestionsResponse.class);
+            } catch (Exception ex) {
+                log.error("Failed to deserialize job result for jobId={}: {}", jobId, ex.getMessage());
+                return AiGenerationJobStatusResponse.builder()
+                        .step(GenerationStep.FAILED)
+                        .errorMessage("Lỗi đọc kết quả đã lưu")
+                        .build();
+            }
         }
 
-        // 2. Parse JSON
-        List<AiGeneratedQuestion> questions = parseQuestions(raw, req.getQuestionType(), req.getDifficulty());
-        if (questions.isEmpty()) {
-            throw new RuntimeException("AI không sinh được câu hỏi hợp lệ. Hãy thử mô tả chủ đề cụ thể hơn.");
+        return AiGenerationJobStatusResponse.builder()
+                .step(job.getStep())
+                .result(result)
+                .errorMessage(job.getErrorMessage())
+                .build();
+    }
+
+    // ── RAG retrieval ─────────────────────────────────────────────────────────
+
+    /**
+     * Tìm các đoạn tài liệu AI của khóa học liên quan nhất đến chủ đề cần ra đề.
+     * Dùng chung ngưỡng/topK với chatbot RAG ({@link OpenAiProperties}) để nhất quán.
+     *
+     * <p>Không throw — nếu embed/search lỗi (VD: chưa có tài liệu nào được index),
+     * trả về danh sách rỗng và việc sinh câu hỏi vẫn tiếp tục bằng kiến thức chung của LLM.
+     */
+    private List<ScoredChunk> retrieveRelevantChunks(UUID courseId, AiGenerateQuestionsRequest req) {
+        try {
+            String query = req.getTopic()
+                    + (req.getSubjectTag() != null && !req.getSubjectTag().isBlank() ? " " + req.getSubjectTag() : "");
+            float[] queryEmbedding = embeddingService.embed(query);
+            return vectorSearch.search(courseId, req.getSourceIds(), queryEmbedding, props.getTopK(), props.getSimilarityThreshold());
+        } catch (Exception ex) {
+            log.debug("RAG retrieval unavailable for courseId={}: {}", courseId, ex.getMessage());
+            return List.of();
         }
-
-        // 3. Kiểm tra trùng với bank của CHÍNH khóa học này (theo courseId)
-        checkDuplicates(courseId, questions, req.getDuplicateThreshold());
-
-        long dupCount = questions.stream().filter(AiGeneratedQuestion::isDuplicate).count();
-        return new AiGenerateQuestionsResponse(
-                questions,
-                questions.size(),
-                (int) dupCount,
-                (int) (questions.size() - dupCount)
-        );
     }
 
     // ── Prompt engineering ──────────────────────────────────────────────────
 
-    private String buildSystemPrompt(AiGenerateQuestionsRequest req) {
+    private String buildSystemPrompt(AiGenerateQuestionsRequest req, List<ScoredChunk> chunks) {
         String typeGuide = switch (req.getQuestionType()) {
             case SINGLE_CHOICE -> "Mỗi câu có đúng 1 đáp án đúng, các đáp án còn lại sai. Có 4 đáp án.";
             case MULTIPLE_CHOICE -> "Mỗi câu có từ 2 đến 3 đáp án đúng trong tổng số 4-5 đáp án.";
@@ -86,7 +194,7 @@ public class AiQuestionGeneratorService {
             case HARD -> "Mức độ: KHÓ — tổng hợp, đánh giá, so sánh chuyên sâu.";
         };
 
-        return """
+        String base = """
                 Bạn là chuyên gia ra đề thi trắc nghiệm cho hệ thống LMS giáo dục đại học Việt Nam.
                 Nhiệm vụ: sinh câu hỏi trắc nghiệm chất lượng cao bằng tiếng Việt.
 
@@ -111,6 +219,28 @@ public class AiQuestionGeneratorService {
                   }
                 ]
                 """.formatted(typeGuide, diffGuide);
+
+        if (chunks.isEmpty()) {
+            return base;
+        }
+
+        StringBuilder sb = new StringBuilder(base);
+        sb.append("\n=== TÀI LIỆU KHÓA HỌC (căn cứ nội dung để ra đề) ===\n");
+        for (int i = 0; i < chunks.size(); i++) {
+            ScoredChunk c = chunks.get(i);
+            sb.append("\n[").append(i + 1).append("]");
+            if (c.sectionTitle() != null) sb.append(" ").append(c.sectionTitle());
+            sb.append("\n").append(c.chunkText()).append("\n");
+        }
+        sb.append("""
+                === HẾT TÀI LIỆU ===
+
+                Ưu tiên bám sát thuật ngữ, định nghĩa, ví dụ trong tài liệu trên khi ra câu hỏi —
+                đây là nội dung giảng viên đã dạy trong khóa học này. Nếu tài liệu không đủ để
+                sinh đủ số câu yêu cầu hoặc không liên quan đến chủ đề, dùng kiến thức chuyên môn
+                chung để bổ sung, miễn đúng chủ đề và độ khó yêu cầu.
+                """);
+        return sb.toString();
     }
 
     private String buildUserMessage(AiGenerateQuestionsRequest req) {
@@ -170,17 +300,27 @@ public class AiQuestionGeneratorService {
     // ── Duplicate detection ──────────────────────────────────────────────────
 
     /**
-     * Với mỗi câu hỏi mới sinh, embed questionText rồi tìm câu gần nhất
-     * trong bank của courseId bằng pgvector cosine distance.
+     * Với mỗi câu hỏi mới sinh, tìm câu gần nhất trong bank của courseId bằng pgvector cosine
+     * distance. Embed TẤT CẢ câu hỏi trong 1 lệnh gọi batch duy nhất (thay vì N lệnh tuần tự —
+     * đây từng là nguồn trễ chính khiến sinh N câu hỏi cần tới N+1 round-trip OpenAI).
      *
      * <p>Nếu không có embedding trong bank (chưa embed) thì fallback sang
      * exact-text match (existsByCourseIdAndQuestionText).
      */
     private void checkDuplicates(UUID courseId, List<AiGeneratedQuestion> questions, double threshold) {
-        for (AiGeneratedQuestion q : questions) {
+        List<float[]> embeddings;
+        try {
+            embeddings = embeddingService.embedBatch(questions.stream().map(AiGeneratedQuestion::getQuestionText).toList());
+        } catch (Exception ex) {
+            log.debug("Batch embedding unavailable, falling back to exact match for all questions: {}", ex.getMessage());
+            questions.forEach(q -> checkExactDuplicate(courseId, q));
+            return;
+        }
+
+        for (int i = 0; i < questions.size(); i++) {
+            AiGeneratedQuestion q = questions.get(i);
             try {
-                float[] embedding = embeddingService.embed(q.getQuestionText());
-                String vecStr = toVectorString(embedding);
+                String vecStr = toVectorString(embeddings.get(i));
 
                 // Tìm câu hỏi gần nhất trong bank của courseId này
                 List<Map<String, Object>> rows = jdbc.queryForList(

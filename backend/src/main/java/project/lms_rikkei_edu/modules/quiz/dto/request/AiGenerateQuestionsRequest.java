@@ -9,6 +9,9 @@ import lombok.Setter;
 import project.lms_rikkei_edu.modules.quiz.enums.QuestionDifficulty;
 import project.lms_rikkei_edu.modules.quiz.enums.QuestionType;
 
+import java.util.List;
+import java.util.UUID;
+
 @Getter
 @Setter
 public class AiGenerateQuestionsRequest {
@@ -24,6 +27,13 @@ public class AiGenerateQuestionsRequest {
     private QuestionDifficulty difficulty;
 
     private String subjectTag;
+
+    /**
+     * Giới hạn RAG retrieval vào các tài liệu AI này (ai_sources.id) thay vì toàn bộ
+     * tài liệu đã index của khóa học — giúp sinh câu hỏi nhanh hơn khi khóa học có nhiều
+     * tài liệu. Để trống/null = tìm trên toàn bộ tài liệu (hành vi mặc định trước đây).
+     */
+    private List<UUID> sourceIds;
 
     /** Số câu muốn sinh (1–20) */
     @Min(1) @Max(20)

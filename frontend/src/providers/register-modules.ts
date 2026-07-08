@@ -49,5 +49,6 @@ import '../pages/Notification/NotificationsPage';
 import '../pages/Player/LecturePlayer';
 import '../pages/Player/QuizPlayer';
 import '../pages/Player/QuizResult';
+import '../pages/Player/QuizDryRunPlayer';
 import '../pages/Player/PreviewPlayer';
 import '../pages/Gallery/GalleryPage';

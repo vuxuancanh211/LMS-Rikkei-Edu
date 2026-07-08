@@ -168,6 +168,32 @@ export type DryRunResponse = {
   questions: QuizQuestionResponse[];
   totalQuestions: number;
   note?: string | null;
+  durationMinutes?: number | null;
+};
+
+export type DryRunGradeRequest = {
+  questionIds: string[];
+  answers: Record<string, string[]>;
+};
+
+export type DryRunAnswerResult = {
+  questionId: string;
+  answered: boolean;
+  isCorrect: boolean;
+  pointsEarned: number;
+  correctOptionIds: string[];
+};
+
+export type DryRunGradeResponse = {
+  score: number;
+  maxScore: number;
+  scorePercentage: number;
+  isPassed: boolean;
+  correctCount: number;
+  incorrectCount: number;
+  unansweredCount: number;
+  totalQuestions: number;
+  answers: DryRunAnswerResult[];
 };
 
 // ─── Take Quiz (Attempt) ───────────────────────────────────────────────────────

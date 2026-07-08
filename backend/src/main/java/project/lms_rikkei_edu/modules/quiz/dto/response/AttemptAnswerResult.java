@@ -13,6 +13,8 @@ public class AttemptAnswerResult {
     private UUID questionId;
     private String questionText;
     private List<UUID> selectedOptionIds;
-    private boolean isCorrect;
+    // Boolean (wrapper) — primitive boolean sẽ khiến Jackson serialize field "isCorrect" thành
+    // "correct" (bỏ tiền tố "is" theo JavaBean convention), làm FE luôn đọc undefined.
+    private Boolean isCorrect;
     private BigDecimal pointsEarned;
 }

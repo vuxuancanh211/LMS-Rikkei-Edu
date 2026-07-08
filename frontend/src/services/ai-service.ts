@@ -88,7 +88,9 @@ export async function sendChatMessage(payload: {
   conversationId?: string | null;
   lessonId?: string | null;
 }): Promise<ChatResponse> {
-  const response = await httpClient.post<ChatResponse>('/ai/chat', payload);
+  // Backend chain (embed query + vector search + LLM completion) can take up to ~45s per
+  // OpenAI call under the configured client timeout — default 15s axios timeout is too short.
+  const response = await httpClient.post<ChatResponse>('/ai/chat', payload, { timeout: 60_000 });
   return response.data;
 }
 
@@ -130,7 +132,9 @@ export async function createAiSource(payload: {
   sourceName: string;
   metadata?: Record<string, unknown>;
 }): Promise<AiSource> {
-  const response = await httpClient.post<AiSource>('/ai/sources', payload, { timeout: 120_000 });
+  // Ingestion now runs on the backend's async task executor — this call just persists the
+  // PENDING record and returns; no longer needs a long override for the full embed pipeline.
+  const response = await httpClient.post<AiSource>('/ai/sources', payload);
   return response.data;
 }
 
@@ -139,7 +143,7 @@ export async function deleteAiSource(id: string): Promise<void> {
 }
 
 export async function reingestAiSource(id: string): Promise<AiSource> {
-  const response = await httpClient.post<AiSource>(`/ai/sources/${id}/reingest`, undefined, { timeout: 120_000 });
+  const response = await httpClient.post<AiSource>(`/ai/sources/${id}/reingest`);
   return response.data;
 }
 
@@ -160,7 +164,8 @@ export async function listAvailableResources(courseId: string): Promise<Availabl
 }
 
 export async function addResourcesToAi(courseId: string, resourceIds: string[]): Promise<AiSource[]> {
-  const response = await httpClient.post<AiSource[]>('/ai/sources/from-resources', { courseId, resourceIds }, { timeout: 120_000 });
+  // Same as createAiSource — ingestion now runs async, this just upserts records and returns.
+  const response = await httpClient.post<AiSource[]>('/ai/sources/from-resources', { courseId, resourceIds });
   return response.data;
 }
 

@@ -10,7 +10,8 @@ import project.lms_rikkei_edu.common.security.CourseOwnershipGuard;
 import project.lms_rikkei_edu.common.security.CurrentUserProvider;
 import project.lms_rikkei_edu.modules.quiz.dto.request.AiGenerateQuestionsRequest;
 import project.lms_rikkei_edu.modules.quiz.dto.request.BankQuestionRequest;
-import project.lms_rikkei_edu.modules.quiz.dto.response.AiGenerateQuestionsResponse;
+import project.lms_rikkei_edu.modules.quiz.dto.response.AiGenerationJobStartResponse;
+import project.lms_rikkei_edu.modules.quiz.dto.response.AiGenerationJobStatusResponse;
 import project.lms_rikkei_edu.modules.quiz.dto.response.BankQuestionResponse;
 import project.lms_rikkei_edu.modules.quiz.service.AiQuestionGeneratorService;
 import project.lms_rikkei_edu.modules.quiz.service.BankQuestionService;
@@ -40,17 +41,32 @@ public class AiQuestionController {
     private final CourseOwnershipGuard ownershipGuard;
 
     /**
-     * Sinh câu hỏi bằng AI và kiểm tra trùng lặp với bank hiện có.
-     * Không lưu vào DB — chỉ trả về preview để instructor xem xét.
+     * Bắt đầu sinh câu hỏi bằng AI — trả về jobId ngay, pipeline thật (RAG + gọi LLM +
+     * kiểm tra trùng lặp) chạy nền vì có thể mất 30-90s tuỳ số câu yêu cầu.
+     * FE poll {@code GET /generate/{jobId}} để biết tiến trình và lấy kết quả khi xong.
      */
     @PostMapping("/generate")
-    public ResponseEntity<AiGenerateQuestionsResponse> generate(
+    public ResponseEntity<AiGenerationJobStartResponse> generate(
             @PathVariable UUID courseId,
             @Valid @RequestBody AiGenerateQuestionsRequest request
     ) {
         ownershipGuard.requireOwnership(courseId);
-        AiGenerateQuestionsResponse response = aiGeneratorService.generate(courseId, request);
-        return ResponseEntity.ok(response);
+        UUID instructorId = currentUserProvider.getCurrentUserId()
+                .orElseThrow(() -> new AccessDeniedException("Chưa xác thực"));
+        UUID jobId = aiGeneratorService.startGenerate(courseId, request, instructorId);
+        // Cross-bean call (controller → service) — bắt buộc để @Async trên generateAsync có hiệu lực.
+        aiGeneratorService.generateAsync(jobId, courseId, request);
+        return ResponseEntity.ok(new AiGenerationJobStartResponse(jobId));
+    }
+
+    /** Poll tiến trình 1 job sinh câu hỏi AI — trả kèm kết quả khi step=DONE. */
+    @GetMapping("/generate/{jobId}")
+    public ResponseEntity<AiGenerationJobStatusResponse> generateStatus(
+            @PathVariable UUID courseId,
+            @PathVariable UUID jobId
+    ) {
+        ownershipGuard.requireOwnership(courseId);
+        return ResponseEntity.ok(aiGeneratorService.getJobStatus(jobId));
     }
 
     /**

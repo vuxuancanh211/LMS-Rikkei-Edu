@@ -51,6 +51,7 @@ const playerRoutes = {
   quiz: '/player/quiz',
   result: '/player/quiz-result',
   preview: '/player/preview',
+  dryRun: '/player/quiz-dry-run',
 };
 
 function dashboardForRole(role: keyof typeof roleRoutes | null) {
@@ -119,7 +120,8 @@ function RoutedShell({ role, route }: { role: keyof typeof roleRoutes; route: st
       routeParams={params}
       onLogout={handleLogout}
       onExit={() => navigate('/gallery')}
-      onBare={(key: keyof typeof playerRoutes) => navigate(playerRoutes[key] || '/player/lecture')}
+      onBare={(key: keyof typeof playerRoutes, params?: Record<string, string>) =>
+        navigate(playerRoutes[key] || '/player/lecture', params ? { state: params } : undefined)}
       onNavigate={(nextRole: keyof typeof roleRoutes, nextRoute: string, extra?: Record<string, string>) => {
         const path = roleRoutes[nextRole]?.[nextRoute as keyof (typeof roleRoutes)[typeof nextRole]];
         if (!path) { navigate('/gallery'); return; }
@@ -244,5 +246,6 @@ export const router = createBrowserRouter([
   { path: '/player/quiz', element: <RequireAuth><PlayerRoute name="QuizPlayer" /></RequireAuth> },
   { path: '/player/quiz-result', element: <RequireAuth><PlayerRoute name="QuizResult" /></RequireAuth> },
   { path: '/player/preview', element: <RequireAuth><PlayerRoute name="PreviewPlayer" /></RequireAuth> },
+  { path: '/player/quiz-dry-run', element: <RequireAuth><PlayerRoute name="QuizDryRunPlayer" /></RequireAuth> },
   { path: '*', element: <Navigate to="/login" replace /> },
 ]);

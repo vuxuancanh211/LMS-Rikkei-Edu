@@ -13,8 +13,11 @@ import project.lms_rikkei_edu.modules.quiz.enums.*;
 import project.lms_rikkei_edu.modules.quiz.repository.*;
 import project.lms_rikkei_edu.modules.quiz.service.QuizService;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.OffsetDateTime;
 import java.util.*;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 @Slf4j
@@ -233,15 +236,111 @@ public class QuizServiceImpl implements QuizService {
             questions = loadQuestions(quizId);
         }
 
-        if (quiz.getQuizType() == QuizType.SHUFFLED_POOL || quiz.getQuizType() == QuizType.RANDOM_DRAW) {
+        // Xáo thứ tự câu hỏi — cùng điều kiện với lúc học viên start attempt thật
+        // (xem QuizAttemptServiceImpl#startAttempt): shuffleQuestions=true HOẶC quizType != STATIC
+        if (Boolean.TRUE.equals(quiz.getShuffleQuestions()) || quiz.getQuizType() != QuizType.STATIC) {
             questions = new ArrayList<>(questions);
             Collections.shuffle(questions);
+        }
+
+        // Xáo thứ tự đáp án — độc lập với xáo câu hỏi, chỉ theo cờ shuffleOptions,
+        // giống hệt logic học viên thật (QuizAttemptServiceImpl#loadOptionsForStudent)
+        if (Boolean.TRUE.equals(quiz.getShuffleOptions())) {
+            questions = questions.stream().map(q -> {
+                List<QuizOptionResponse> opts = new ArrayList<>(q.getOptions());
+                Collections.shuffle(opts);
+                return q.toBuilder().options(opts).build();
+            }).toList();
         }
 
         return DryRunResponse.builder()
                 .questions(questions)
                 .totalQuestions(questions.size())
                 .note("Đây là bản xem thử — không lưu kết quả vào hệ thống")
+                .durationMinutes(quiz.getDurationMinutes())
+                .build();
+    }
+
+    /**
+     * Chấm điểm bản xem thử — tính đúng/sai + điểm dựa trên dữ liệu gốc
+     * (bank_options cho RANDOM_DRAW, quiz_options cho STATIC/SHUFFLED_POOL).
+     * Không ghi bất kỳ bảng nào, không ảnh hưởng thống kê thật của quiz.
+     */
+    @Override
+    public DryRunGradeResponse gradeDryRun(UUID courseId, UUID quizId, DryRunGradeRequest request) {
+        QuizEntity quiz = findQuiz(courseId, quizId);
+
+        if (quiz.getStatus() != QuizStatus.DRAFT)
+            throw new BusinessException("Chấm thử chỉ khả dụng khi quiz đang DRAFT");
+
+        List<UUID> questionIds = request.getQuestionIds() != null ? request.getQuestionIds() : List.of();
+        Map<UUID, List<UUID>> answers = request.getAnswers() != null ? request.getAnswers() : Map.of();
+        boolean isRandomDraw = quiz.getQuizType() == QuizType.RANDOM_DRAW;
+
+        BigDecimal totalScore = BigDecimal.ZERO;
+        BigDecimal maxScore = BigDecimal.ZERO;
+        int correctCount = 0, incorrectCount = 0, unansweredCount = 0;
+        List<DryRunAnswerResult> results = new ArrayList<>();
+
+        for (UUID questionId : questionIds) {
+            BigDecimal points;
+            Set<UUID> correctOptionIds;
+
+            if (isRandomDraw) {
+                BankQuestionEntity bq = bankQuestionRepository.findById(questionId).orElse(null);
+                if (bq == null) continue;
+                points = bq.getPoints() != null ? bq.getPoints() : BigDecimal.ONE;
+                correctOptionIds = bankOptionRepository.findByBankQuestionIdOrderByOrderIndex(questionId).stream()
+                        .filter(o -> Boolean.TRUE.equals(o.getIsCorrect()))
+                        .map(BankOptionEntity::getId)
+                        .collect(Collectors.toSet());
+            } else {
+                QuizQuestionEntity qq = quizQuestionRepository.findById(questionId).orElse(null);
+                if (qq == null) continue;
+                points = qq.getPoints() != null ? qq.getPoints() : BigDecimal.ONE;
+                correctOptionIds = quizOptionRepository.findByQuestionIdOrderByOrderIndex(questionId).stream()
+                        .filter(o -> Boolean.TRUE.equals(o.getIsCorrect()))
+                        .map(QuizOptionEntity::getId)
+                        .collect(Collectors.toSet());
+            }
+
+            List<UUID> selected = answers.getOrDefault(questionId, List.of());
+            boolean answered = !selected.isEmpty();
+            boolean isCorrect = answered && new HashSet<>(selected).equals(correctOptionIds);
+            BigDecimal earned = isCorrect ? points : BigDecimal.ZERO;
+
+            if (!answered) unansweredCount++;
+            else if (isCorrect) correctCount++;
+            else incorrectCount++;
+
+            totalScore = totalScore.add(earned);
+            maxScore = maxScore.add(points);
+
+            results.add(DryRunAnswerResult.builder()
+                    .questionId(questionId)
+                    .answered(answered)
+                    .isCorrect(isCorrect)
+                    .pointsEarned(earned)
+                    .correctOptionIds(new ArrayList<>(correctOptionIds))
+                    .build());
+        }
+
+        BigDecimal pct = maxScore.compareTo(BigDecimal.ZERO) > 0
+                ? totalScore.divide(maxScore, 4, RoundingMode.HALF_UP)
+                        .multiply(BigDecimal.valueOf(100)).setScale(2, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO;
+        boolean passed = quiz.getPassScore() != null && pct.compareTo(quiz.getPassScore()) >= 0;
+
+        return DryRunGradeResponse.builder()
+                .score(totalScore)
+                .maxScore(maxScore)
+                .scorePercentage(pct)
+                .isPassed(passed)
+                .correctCount(correctCount)
+                .incorrectCount(incorrectCount)
+                .unansweredCount(unansweredCount)
+                .totalQuestions(questionIds.size())
+                .answers(results)
                 .build();
     }
 

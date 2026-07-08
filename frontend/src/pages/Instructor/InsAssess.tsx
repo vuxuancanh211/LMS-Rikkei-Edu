@@ -8,14 +8,17 @@
   const { Avatar, Status, Search, Tabs, Select, Section, Modal, ModalHead, Empty } = window;
 
   const {
-    listQuizzes, createQuiz, publishQuiz, archiveQuiz, deleteQuiz,
+    listQuizzes, createQuiz, updateQuiz, publishQuiz, archiveQuiz, deleteQuiz,
     listBankQuestions, createBankQuestion, updateBankQuestion, deleteBankQuestion,
     toggleBankQuestionStatus, previewBankImport, confirmBankImport, exportBankQuestions,
     getQuizStats, getAllAttemptsForQuiz,
-    aiGenerateQuestions, aiSaveQuestions,
+    startAiGenerateQuestions, getAiGenerateJobStatus, aiSaveQuestions,
+    getQuizDetail, addBankQuestionsToQuiz, addManualQuestionToQuiz,
+    removeQuestionFromQuiz, configureRandomDraw,
   } = window.__quizService;
 
   const { getMyCourses } = window.__courseService;
+  const { listAiSources } = window.__aiService;
 
   const DIFF_LABEL = { EASY: 'Dễ', MEDIUM: 'Trung bình', HARD: 'Khó' };
   const DIFF_CHIP  = { EASY: 'success', MEDIUM: 'warning', HARD: 'error' };
@@ -23,9 +26,24 @@
   const STATUS_CHIP  = { DRAFT: 'neutral', PUBLISHED: 'success', ARCHIVED: 'muted' };
   const TYPE_LABEL = { STATIC: 'Cố định', SHUFFLED_POOL: 'Xáo câu', RANDOM_DRAW: 'Ngẫu nhiên' };
 
+  // Thứ tự các bước sinh câu hỏi AI — dùng để hiện tiến trình + chấm tròn highlight bước đang chạy
+  const GEN_STEP_ORDER = ['RETRIEVING_CONTEXT', 'GENERATING', 'CHECKING_DUPLICATES'];
+  const GEN_STEP_LABEL = {
+    RETRIEVING_CONTEXT: { title: 'Đang tìm tài liệu liên quan...', sub: 'Tìm đoạn tài liệu AI phù hợp nhất với chủ đề trong khóa học' },
+    GENERATING:          { title: 'Đang gọi AI sinh câu hỏi...', sub: 'Có thể mất 30–90 giây tuỳ số câu yêu cầu' },
+    CHECKING_DUPLICATES: { title: 'Đang kiểm tra trùng lặp...', sub: 'So sánh với ngân hàng câu hỏi hiện có của khóa học' },
+  };
+
   function formatDate(d) {
     if (!d) return '—';
     return new Date(d).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  }
+
+  function toDatetimeLocalValue(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
   }
 
   function extractError(err) {
@@ -35,7 +53,7 @@
   }
 
   /* ─── Main Component ──────────────────────────────────────── */
-  function InsAssess({ courseId, demo }) {
+  function InsAssess({ courseId, demo, nav }) {
     const [courses, setCourses] = useState([]);
     const [coursesLoading, setCoursesLoading] = useState(true);
     const [selectedCourseId, setSelectedCourseId] = useState(courseId || null);
@@ -79,16 +97,23 @@
     const [statsQuiz, setStatsQuiz] = useState(null);
     const [statsOpen, setStatsOpen] = useState(false);
 
+    // Quiz detail modal state
+    const [detailQuiz, setDetailQuiz] = useState(null);
+    const [detailOpen, setDetailOpen] = useState(false);
+
     // AI generate modal state
     const [aiOpen, setAiOpen] = useState(false);
 
-    // Create quiz form
+    // Create / Edit quiz form
+    const [editQuizItem, setEditQuizItem] = useState(null);
     const [qzTitle, setQzTitle] = useState('');
     const [qzType, setQzType] = useState('STATIC');
     const [qzDuration, setQzDuration] = useState(45);
     const [qzMax, setQzMax] = useState(3);
     const [qzPass, setQzPass] = useState(50);
     const [qzProctoring, setQzProctoring] = useState(false);
+    const [qzShuffleQuestions, setQzShuffleQuestions] = useState(false);
+    const [qzShuffleOptions, setQzShuffleOptions] = useState(false);
     const [qzEndDate, setQzEndDate] = useState('');
 
     // Bank question form
@@ -156,30 +181,53 @@
       !q || x.questionText.toLowerCase().includes(q.toLowerCase())
     );
 
-    /* ── Create quiz ── */
+    /* ── Create / Edit quiz ── */
+    function openEditQuiz(q) {
+      setEditQuizItem(q);
+      setQzTitle(q.title);
+      setQzType(q.quizType);
+      setQzDuration(q.durationMinutes || 45);
+      setQzMax(q.maxAttempts || 3);
+      setQzPass(q.passScore ?? 50);
+      setQzProctoring(!!q.proctoringEnabled);
+      setQzShuffleQuestions(!!q.shuffleQuestions);
+      setQzShuffleOptions(!!q.shuffleOptions);
+      setQzEndDate(toDatetimeLocalValue(q.endDate));
+      setCreateQuizOpen(true);
+    }
+
     const handleCreateQuiz = useCallback(async () => {
       if (!qzTitle.trim()) { showToast('Vui lòng nhập tên quiz', 'error'); return; }
       if (!activeCourseId) { showToast('Chưa chọn khóa học', 'error'); return; }
       setSubmitting(true);
       try {
-        await createQuiz(activeCourseId, {
+        const payload = {
           title: qzTitle.trim(),
           quizType: qzType,
           durationMinutes: Number(qzDuration),
           maxAttempts: Number(qzMax),
           passScore: Number(qzPass),
           proctoringEnabled: qzProctoring,
+          shuffleQuestions: qzShuffleQuestions,
+          shuffleOptions: qzShuffleOptions,
           endDate: qzEndDate ? new Date(qzEndDate).toISOString() : undefined,
-        });
+        };
+        if (editQuizItem) {
+          await updateQuiz(activeCourseId, editQuizItem.id, payload);
+          showToast('Đã cập nhật quiz');
+        } else {
+          await createQuiz(activeCourseId, payload);
+          showToast('Tạo quiz thành công');
+        }
         setCreateQuizOpen(false);
-        showToast('Tạo quiz thành công');
+        setEditQuizItem(null);
         fetchQuizzes();
       } catch (err) {
         showToast(extractError(err), 'error');
       } finally {
         setSubmitting(false);
       }
-    }, [activeCourseId, qzTitle, qzType, qzDuration, qzMax, qzPass, qzProctoring, qzEndDate, fetchQuizzes, showToast]);
+    }, [activeCourseId, qzTitle, qzType, qzDuration, qzMax, qzPass, qzProctoring, qzShuffleQuestions, qzShuffleOptions, qzEndDate, editQuizItem, fetchQuizzes, showToast]);
 
     /* ── Publish / Archive quiz ── */
     const handlePublish = useCallback(async (quiz) => {
@@ -347,7 +395,8 @@
             {tab === 'quiz' && (
               <button className="btn btn-primary" onClick={() => {
                 setQzTitle(''); setQzType('STATIC'); setQzDuration(45);
-                setQzMax(3); setQzPass(50); setQzProctoring(false); setQzEndDate('');
+                setQzMax(3); setQzPass(50); setQzProctoring(false);
+                setQzShuffleQuestions(false); setQzShuffleOptions(false); setQzEndDate('');
                 setCreateQuizOpen(true);
               }}>
                 <Ic n="plus" size={17} />Tạo quiz
@@ -440,7 +489,8 @@
                   </thead>
                   <tbody>
                     {filteredQuizzes.map(quiz => (
-                      <tr key={quiz.id}>
+                      <tr key={quiz.id} style={{ cursor: 'pointer' }}
+                        onClick={() => { setDetailQuiz(quiz); setDetailOpen(true); }}>
                         <td>
                           <div className="row gap-10">
                             <div className="stat-ic" style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--surface-3)', color: 'var(--text-2)' }}>
@@ -466,7 +516,7 @@
                             {STATUS_LABEL[quiz.status] || quiz.status}
                           </span>
                         </td>
-                        <td>
+                        <td onClick={e => e.stopPropagation()}>
                           <div className="row gap-6">
                             <button
                               className="icon-btn" style={{ width: 34, height: 34 }}
@@ -577,9 +627,14 @@
           </Section>
         )}
 
-        {/* ═══ Modal: Tạo quiz ═══ */}
-        <Modal open={createQuizOpen} onClose={() => setCreateQuizOpen(false)} max={560}>
-          <ModalHead title="Tạo quiz mới" sub="Bạn có thể thêm câu hỏi và xuất bản sau" icon="clipboard" iconBg="#eaf1ff" iconColor="#2563eb" onClose={() => setCreateQuizOpen(false)} />
+        {/* ═══ Modal: Tạo / Sửa quiz ═══ */}
+        <Modal open={createQuizOpen} onClose={() => { setCreateQuizOpen(false); setEditQuizItem(null); }} max={560}>
+          <ModalHead
+            title={editQuizItem ? 'Sửa quiz' : 'Tạo quiz mới'}
+            sub={editQuizItem ? 'Chỉ áp dụng được khi quiz đang ở trạng thái Nháp' : 'Bạn có thể thêm câu hỏi và xuất bản sau'}
+            icon="clipboard" iconBg="#eaf1ff" iconColor="#2563eb"
+            onClose={() => { setCreateQuizOpen(false); setEditQuizItem(null); }}
+          />
           <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div>
               <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Tên quiz *</label>
@@ -588,11 +643,17 @@
             <div className="grid grid-2" style={{ gap: 12 }}>
               <div>
                 <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Loại quiz</label>
-                <Select value={qzType} onChange={setQzType} options={[
-                  { v: 'STATIC', label: 'Cố định' },
-                  { v: 'SHUFFLED_POOL', label: 'Xáo câu' },
-                  { v: 'RANDOM_DRAW', label: 'Ngẫu nhiên (bank)' },
-                ]} />
+                {editQuizItem ? (
+                  <div className="input" style={{ display: 'flex', alignItems: 'center', color: 'var(--text-2)', background: 'var(--surface-2)' }}>
+                    {TYPE_LABEL[qzType] || qzType}
+                  </div>
+                ) : (
+                  <Select value={qzType} onChange={setQzType} options={[
+                    { v: 'STATIC', label: 'Cố định' },
+                    { v: 'SHUFFLED_POOL', label: 'Xáo câu' },
+                    { v: 'RANDOM_DRAW', label: 'Ngẫu nhiên (bank)' },
+                  ]} />
+                )}
               </div>
               <div>
                 <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Thời gian (phút)</label>
@@ -613,18 +674,38 @@
               <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Hạn nộp bài</label>
               <input className="input" type="datetime-local" value={qzEndDate} onChange={e => setQzEndDate(e.target.value)} />
             </div>
+            <div className="grid grid-2" style={{ gap: 12 }}>
+              <label className="row gap-10" style={{ padding: '11px 14px', background: 'var(--surface-2)', borderRadius: 10, cursor: 'pointer' }}>
+                <input type="checkbox" checked={qzShuffleQuestions} onChange={e => setQzShuffleQuestions(e.target.checked)} style={{ width: 17, height: 17 }} />
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 13.5 }}>Xáo thứ tự câu hỏi</div>
+                  <div className="t-xs muted">Đổi thứ tự câu mỗi lần thi</div>
+                </div>
+              </label>
+              <label className="row gap-10" style={{ padding: '11px 14px', background: 'var(--surface-2)', borderRadius: 10, cursor: 'pointer' }}>
+                <input type="checkbox" checked={qzShuffleOptions} onChange={e => setQzShuffleOptions(e.target.checked)} style={{ width: 17, height: 17 }} />
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 13.5 }}>Xáo thứ tự đáp án</div>
+                  <div className="t-xs muted">Đổi thứ tự A/B/C/D mỗi lần thi</div>
+                </div>
+              </label>
+            </div>
             <label className="row gap-10" style={{ padding: '11px 14px', background: 'var(--chip-error-bg)', borderRadius: 10, cursor: 'pointer' }}>
               <input type="checkbox" checked={qzProctoring} onChange={e => setQzProctoring(e.target.checked)} style={{ width: 17, height: 17 }} />
               <div>
                 <div style={{ fontWeight: 600, fontSize: 13.5, color: 'var(--chip-error-fg)' }}>Bật chế độ giám sát</div>
-                <div className="t-xs" style={{ color: 'var(--chip-error-fg)', opacity: 0.8 }}>Phát hiện chuyển tab khi làm bài</div>
+                <div className="t-xs" style={{ color: 'var(--chip-error-fg)', opacity: 0.8 }}>
+                  Phát hiện chuyển tab / mất focus cửa sổ khi làm bài. Vi phạm lần 1-2: cảnh báo, lần 3: tự động nộp bài.
+                </div>
               </div>
             </label>
           </div>
           <div className="modal-foot">
-            <button className="btn btn-ghost" onClick={() => setCreateQuizOpen(false)}>Hủy</button>
+            <button className="btn btn-ghost" onClick={() => { setCreateQuizOpen(false); setEditQuizItem(null); }}>Hủy</button>
             <button className="btn btn-primary" onClick={handleCreateQuiz} disabled={submitting}>
-              {submitting ? 'Đang tạo...' : <><Ic n="plus" size={16} />Tạo quiz</>}
+              {submitting
+                ? (editQuizItem ? 'Đang lưu...' : 'Đang tạo...')
+                : <><Ic n={editQuizItem ? 'check' : 'plus'} size={16} />{editQuizItem ? 'Lưu thay đổi' : 'Tạo quiz'}</>}
             </button>
           </div>
         </Modal>
@@ -740,6 +821,17 @@
           quiz={statsQuiz}
         />
 
+        {/* ═══ Modal: Chi tiết quiz — quản lý câu hỏi ═══ */}
+        <QuizDetailModal
+          open={detailOpen}
+          onClose={() => { setDetailOpen(false); setDetailQuiz(null); fetchQuizzes(); }}
+          courseId={activeCourseId}
+          quiz={detailQuiz}
+          showToast={showToast}
+          nav={nav}
+          onEdit={(q) => { setDetailOpen(false); setDetailQuiz(null); openEditQuiz(q); }}
+        />
+
         {/* ═══ Modal: Import CSV ═══ */}
         <Modal open={importOpen} onClose={() => setImportOpen(false)} max={560}>
           <ModalHead title="Import câu hỏi từ CSV" sub="File CSV theo mẫu chuẩn của hệ thống" icon="upload" iconBg="#f0fdf4" iconColor="#059669" onClose={() => setImportOpen(false)} />
@@ -808,7 +900,7 @@
 
   /* ═══ AiGenerateModal ══════════════════════════════════════ */
   function AiGenerateModal({ open, onClose, courseId, onSaved }) {
-    const STEPS = { form: 'form', loading: 'loading', preview: 'preview', saving: 'saving' };
+    const STEPS = { form: 'form', progress: 'progress', preview: 'preview', saving: 'saving' };
     const [step, setStep] = useState(STEPS.form);
     const [error, setError] = useState('');
 
@@ -816,9 +908,20 @@
     const [topic, setTopic] = useState('');
     const [qType, setQType] = useState('SINGLE_CHOICE');
     const [diff, setDiff] = useState('MEDIUM');
-    const [tag, setTag] = useState('');
+    const [tag, setTag] = useState(''); // gõ trực tiếp hoặc chọn từ datalist các tag có sẵn
+    const [bankTags, setBankTags] = useState([]); // tag đã dùng trong ngân hàng câu hỏi của khóa học
     const [count, setCount] = useState(5);
     const [threshold, setThreshold] = useState(0.88);
+
+    // Giới hạn tài liệu AI tham khảo — chọn riêng vài tài liệu giúp sinh câu hỏi nhanh hơn
+    // thay vì AI phải đọc toàn bộ tài liệu đã index của khóa học
+    const [aiSources, setAiSources] = useState([]);
+    const [sourceIds, setSourceIds] = useState([]); // rỗng = không giới hạn, dùng toàn bộ tài liệu
+    const [docPickerOpen, setDocPickerOpen] = useState(false);
+
+    // Progress state (chạy nền — poll jobId để biết đang ở bước nào)
+    const [jobId, setJobId] = useState(null);
+    const [jobStep, setJobStep] = useState(null);
 
     // Preview state
     const [result, setResult] = useState(null);
@@ -831,8 +934,28 @@
     function reset() {
       setStep(STEPS.form); setError(''); setResult(null); setSelected([]);
       setTopic(''); setTag(''); setCount(5); setThreshold(0.88);
-      setQType('SINGLE_CHOICE'); setDiff('MEDIUM');
+      setQType('SINGLE_CHOICE'); setDiff('MEDIUM'); setSourceIds([]); setDocPickerOpen(false);
       setEditingIdx(null); setDraft(null);
+      setJobId(null); setJobStep(null);
+    }
+
+    // Nạp danh sách tag hiện có (từ ngân hàng câu hỏi) + tài liệu AI đã index của khóa học mỗi khi mở modal
+    useEffect(() => {
+      if (!open || !courseId) return;
+      listBankQuestions(courseId, { status: 'ACTIVE' })
+        .then(data => {
+          const tagSet = new Set();
+          (data || []).forEach(q => { if (q.subjectTag) tagSet.add(q.subjectTag); });
+          setBankTags(Array.from(tagSet).sort());
+        })
+        .catch(() => setBankTags([]));
+      listAiSources(courseId)
+        .then(data => setAiSources((data || []).filter(s => s.ingestStatus === 'INDEXED')))
+        .catch(() => setAiSources([]));
+    }, [open, courseId]);
+
+    function toggleSource(id) {
+      setSourceIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
     }
 
     function openEdit(i) {
@@ -872,20 +995,47 @@
 
     async function handleGenerate() {
       if (!topic.trim()) { setError('Vui lòng nhập chủ đề.'); return; }
-      setError(''); setStep(STEPS.loading);
+      if (!tag.trim()) { setError('Vui lòng chọn hoặc nhập chuyên đề / tag.'); return; }
+      setError(''); setStep(STEPS.progress); setJobStep('RETRIEVING_CONTEXT');
       try {
-        const data = await aiGenerateQuestions(courseId, {
+        const { jobId: newJobId } = await startAiGenerateQuestions(courseId, {
           topic, questionType: qType, difficulty: diff,
-          subjectTag: tag || undefined, count, duplicateThreshold: threshold,
+          subjectTag: tag.trim(),
+          sourceIds: sourceIds.length > 0 ? sourceIds : undefined,
+          count, duplicateThreshold: threshold,
         });
-        setResult(data);
-        setSelected(data.questions.map(q => !q.duplicate));
-        setStep(STEPS.preview);
+        setJobId(newJobId);
       } catch (err) {
         setError(err?.response?.data?.message || err?.message || 'Lỗi kết nối dịch vụ AI.');
         setStep(STEPS.form);
       }
     }
+
+    // Poll tiến trình job sinh câu hỏi mỗi 1.5s, tự dừng khi DONE/FAILED
+    useEffect(() => {
+      if (!jobId || step !== STEPS.progress) return;
+      let cancelled = false;
+      const interval = setInterval(async () => {
+        try {
+          const status = await getAiGenerateJobStatus(courseId, jobId);
+          if (cancelled) return;
+          setJobStep(status.step);
+          if (status.step === 'DONE') {
+            clearInterval(interval);
+            setResult(status.result);
+            setSelected(status.result.questions.map(q => !q.duplicate));
+            setStep(STEPS.preview);
+          } else if (status.step === 'FAILED') {
+            clearInterval(interval);
+            setError(status.errorMessage || 'Sinh câu hỏi thất bại. Vui lòng thử lại.');
+            setStep(STEPS.form);
+          }
+        } catch {
+          // Lỗi mạng tạm thời lúc poll — bỏ qua, thử lại ở lượt kế tiếp
+        }
+      }, 1500);
+      return () => { cancelled = true; clearInterval(interval); };
+    }, [jobId, step, courseId]);
 
     async function handleSave() {
       const toSave = result.questions.filter((_, i) => selected[i]);
@@ -922,14 +1072,14 @@
     const selectedCount = selected.filter(Boolean).length;
 
     return (
-      <Modal open={open} onClose={() => { if (step !== STEPS.loading && step !== STEPS.saving) { reset(); onClose(); } }} max={760}>
+      <Modal open={open} onClose={() => { if (step !== STEPS.progress && step !== STEPS.saving) { reset(); onClose(); } }} max={760}>
         <ModalHead
           title="Tạo câu hỏi bằng AI"
           sub={step === STEPS.preview
             ? `${result?.totalGenerated} câu sinh được · ${result?.duplicateCount} trùng · ${result?.newCount} mới`
             : 'AI sẽ sinh câu hỏi và kiểm tra trùng lặp với ngân hàng hiện có'}
           icon="sparkles" iconBg="#f3edff" iconColor="#7c3aed"
-          onClose={() => { if (step !== STEPS.loading && step !== STEPS.saving) { reset(); onClose(); } }}
+          onClose={() => { if (step !== STEPS.progress && step !== STEPS.saving) { reset(); onClose(); } }}
         />
 
         {/* ── Step 1: Form ── */}
@@ -960,11 +1110,34 @@
                     onChange={e => setCount(Math.max(1, Math.min(20, Number(e.target.value))))} />
                 </div>
                 <div>
-                  <div className="t-label" style={{ marginBottom: 6 }}>Chuyên đề / Tag (tuỳ chọn)</div>
-                  <input className="input" style={{ width: '100%' }} placeholder="VD: OOP, SQL, Security..."
+                  <div className="t-label" style={{ marginBottom: 6 }}>Chuyên đề / Tag <span style={{ color: 'var(--error)' }}>*</span></div>
+                  <input className="input" style={{ width: '100%' }} list="ai-gen-tag-options"
+                    placeholder="Chọn tag có sẵn hoặc gõ tag mới..."
                     value={tag} onChange={e => setTag(e.target.value)} />
+                  <datalist id="ai-gen-tag-options">
+                    {bankTags.map(t => <option key={t} value={t} />)}
+                  </datalist>
                 </div>
               </div>
+              {aiSources.length > 0 && (
+                <div>
+                  <div className="t-label" style={{ marginBottom: 4 }}>Tài liệu tham khảo (tuỳ chọn)</div>
+                  <div className="muted t-xs" style={{ marginBottom: 8 }}>
+                    Không chọn = AI tìm trên toàn bộ tài liệu đã index. Chọn riêng vài tài liệu giúp sinh câu hỏi nhanh hơn.
+                  </div>
+                  <button type="button" className="input" style={{
+                    width: '100%', textAlign: 'left', cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+                  }} onClick={() => setDocPickerOpen(true)}>
+                    <span style={{ color: sourceIds.length > 0 ? 'var(--accent)' : undefined }}>
+                      {sourceIds.length === 0
+                        ? 'Không giới hạn — dùng toàn bộ tài liệu đã index'
+                        : `Đã chọn ${sourceIds.length}/${aiSources.length} tài liệu`}
+                    </span>
+                    <Ic n="chevron_down" size={16} style={{ flex: 'none', color: 'var(--text-3)' }} />
+                  </button>
+                </div>
+              )}
               <div>
                 <div className="between" style={{ marginBottom: 4 }}>
                   <div className="t-label">Ngưỡng phát hiện trùng</div>
@@ -979,21 +1152,38 @@
             </div>
             <div className="modal-foot">
               <button className="btn btn-ghost" onClick={() => { reset(); onClose(); }}>Huỷ</button>
-              <button className="btn btn-primary" onClick={handleGenerate} disabled={!topic.trim()}>
+              <button className="btn btn-primary" onClick={handleGenerate} disabled={!topic.trim() || !tag.trim()}>
                 <Ic n="sparkles" size={16} />Sinh câu hỏi
               </button>
             </div>
           </>
         )}
 
-        {/* ── Step 2: Loading ── */}
-        {step === STEPS.loading && (
+        {/* ── Step 2: Progress ── */}
+        {step === STEPS.progress && (
           <div className="modal-body" style={{ textAlign: 'center', padding: '48px 24px' }}>
             <div style={{ width: 56, height: 56, borderRadius: 999, background: '#f3edff', display: 'grid', placeItems: 'center', margin: '0 auto 16px', animation: 'spin 1.2s linear infinite' }}>
               <Ic n="sparkles" size={26} style={{ color: '#7c3aed' }} />
             </div>
-            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6 }}>AI đang sinh câu hỏi...</div>
-            <div className="muted t-sm">Đang phân tích chủ đề và kiểm tra trùng lặp với ngân hàng</div>
+            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6 }}>
+              {GEN_STEP_LABEL[jobStep]?.title || 'AI đang sinh câu hỏi...'}
+            </div>
+            <div className="muted t-sm">{GEN_STEP_LABEL[jobStep]?.sub || 'Vui lòng chờ trong giây lát'}</div>
+            <div className="row" style={{ gap: 8, justifyContent: 'center', marginTop: 20 }}>
+              {GEN_STEP_ORDER.map(s => {
+                const curIdx = GEN_STEP_ORDER.indexOf(jobStep);
+                const sIdx = GEN_STEP_ORDER.indexOf(s);
+                const done = curIdx > sIdx;
+                const active = s === jobStep;
+                return (
+                  <div key={s} style={{
+                    width: active ? 22 : 8, height: 8, borderRadius: 999,
+                    background: done || active ? '#7c3aed' : 'var(--border)',
+                    transition: 'all .25s ease',
+                  }} />
+                );
+              })}
+            </div>
           </div>
         )}
 
@@ -1161,6 +1351,76 @@
             <div className="muted t-sm">Đang lưu {selectedCount} câu hỏi vào ngân hàng...</div>
           </div>
         )}
+
+        {docPickerOpen && (
+          <AiSourcePickerModal
+            sources={aiSources}
+            sourceIds={sourceIds}
+            onToggle={toggleSource}
+            onSetAll={setSourceIds}
+            onClose={() => setDocPickerOpen(false)}
+          />
+        )}
+      </Modal>
+    );
+  }
+
+  /* ═══ AiSourcePickerModal — chọn 1 hoặc nhiều tài liệu AI để giới hạn phạm vi tham khảo ═══ */
+  function AiSourcePickerModal({ sources, sourceIds, onToggle, onSetAll, onClose }) {
+    const [search, setSearch] = useState('');
+    const filtered = sources.filter(s =>
+      !search.trim() || s.sourceName.toLowerCase().includes(search.trim().toLowerCase()));
+    const visibleSelectedCount = filtered.filter(s => sourceIds.includes(s.id)).length;
+    const allVisibleSelected = filtered.length > 0 && visibleSelectedCount === filtered.length;
+
+    function toggleAllVisible() {
+      const visibleIds = filtered.map(s => s.id);
+      onSetAll(allVisibleSelected
+        ? sourceIds.filter(id => !visibleIds.includes(id))
+        : Array.from(new Set([...sourceIds, ...visibleIds])));
+    }
+
+    return (
+      <Modal open onClose={onClose} max={560}>
+        <ModalHead title="Chọn tài liệu tham khảo" sub={`${sources.length} tài liệu đã index · Đã chọn ${sourceIds.length}`}
+          icon="file_text" iconBg="#f3edff" iconColor="#7c3aed" onClose={onClose} />
+        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: 0 }}>
+          <div style={{ padding: '16px 20px 0' }}>
+            <Search placeholder="Tìm theo tên tài liệu..." value={search} onChange={setSearch} style={{ width: '100%' }} />
+            {filtered.length > 0 && (
+              <div className="between" style={{ marginTop: 10, marginBottom: 4 }}>
+                <span className="t-xs muted">Hiển thị {filtered.length} / {sources.length} tài liệu</span>
+                <button className="btn btn-ghost btn-sm" style={{ fontSize: 12, padding: '3px 10px' }} onClick={toggleAllVisible}>
+                  {allVisibleSelected ? 'Bỏ chọn tất cả' : 'Chọn tất cả (đang hiển thị)'}
+                </button>
+              </div>
+            )}
+          </div>
+          {filtered.length === 0 && (
+            <div style={{ padding: '0 20px' }}>
+              <Empty icon="search" title="Không tìm thấy tài liệu phù hợp" sub="Thử từ khóa khác." />
+            </div>
+          )}
+          {filtered.length > 0 && (
+            <div style={{ maxHeight: 380, overflowY: 'auto', padding: '0 20px 4px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {filtered.map(s => (
+                <label key={s.id} className="row gap-10" style={{
+                  padding: '10px 12px', borderRadius: 10, cursor: 'pointer',
+                  border: `1px solid ${sourceIds.includes(s.id) ? 'var(--accent)' : 'var(--border)'}`,
+                  background: sourceIds.includes(s.id) ? 'rgba(37,99,235,.04)' : 'transparent',
+                }}>
+                  <input type="checkbox" checked={sourceIds.includes(s.id)} onChange={() => onToggle(s.id)} />
+                  <span className="grow" style={{ fontSize: 13.5 }}>{s.sourceName}</span>
+                  {s.chunkCount != null && <span className="t-xs muted">{s.chunkCount} đoạn</span>}
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="modal-foot">
+          <button className="btn btn-ghost" onClick={() => onSetAll([])} disabled={sourceIds.length === 0}>Bỏ chọn hết</button>
+          <button className="btn btn-primary" onClick={onClose}>Xong ({sourceIds.length})</button>
+        </div>
       </Modal>
     );
   }
@@ -1400,6 +1660,634 @@
 
         <div className="modal-foot">
           <button className="btn btn-ghost" onClick={onClose}>Đóng</button>
+        </div>
+      </Modal>
+    );
+  }
+
+  /* ═══ QuizDetailModal — quản lý câu hỏi / cấu hình random ═══ */
+  function QuizDetailModal({ open, onClose, courseId, quiz, showToast, nav, onEdit }) {
+    const [detail, setDetail] = useState(null);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+    const [tab, setTab] = useState('questions');
+    const [removingId, setRemovingId] = useState(null);
+
+    const [pickOpen, setPickOpen] = useState(false);
+    const [manualOpen, setManualOpen] = useState(false);
+
+    // Random draw config form
+    const [randomMode, setRandomMode] = useState('FULLY_RANDOM');
+    const [totalCount, setTotalCount] = useState(10);
+    const [easyCount, setEasyCount] = useState(0);
+    const [mediumCount, setMediumCount] = useState(0);
+    const [hardCount, setHardCount] = useState(0);
+    const [subjectTagFilter, setSubjectTagFilter] = useState('');
+    const [randomSaving, setRandomSaving] = useState(false);
+    const [randomError, setRandomError] = useState('');
+
+    // Tóm tắt ngân hàng ACTIVE (dùng cho tab cấu hình ngẫu nhiên)
+    const [bankSummary, setBankSummary] = useState({ total: 0, counts: { EASY: 0, MEDIUM: 0, HARD: 0 }, tags: [] });
+
+    useEffect(() => {
+      if (!open || !courseId) return;
+      listBankQuestions(courseId, { status: 'ACTIVE' })
+        .then(data => {
+          const counts = { EASY: 0, MEDIUM: 0, HARD: 0 };
+          const tagSet = new Set();
+          data.forEach(q => {
+            counts[q.difficulty] = (counts[q.difficulty] || 0) + 1;
+            if (q.subjectTag) tagSet.add(q.subjectTag);
+          });
+          setBankSummary({ total: data.length, counts, tags: Array.from(tagSet).sort() });
+        })
+        .catch(() => {});
+    }, [open, courseId]);
+
+    const load = useCallback(async () => {
+      if (!courseId || !quiz) return;
+      setLoading(true); setError('');
+      try {
+        const data = await getQuizDetail(courseId, quiz.id);
+        setDetail(data);
+        setRandomMode(data.randomMode || 'FULLY_RANDOM');
+        setTotalCount(data.randomTotalCount || 10);
+        setEasyCount(data.difficultyConfig?.EASY || 0);
+        setMediumCount(data.difficultyConfig?.MEDIUM || 0);
+        setHardCount(data.difficultyConfig?.HARD || 0);
+        setSubjectTagFilter(data.subjectTagFilter || '');
+      } catch (err) {
+        setError(extractError(err));
+      } finally {
+        setLoading(false);
+      }
+    }, [courseId, quiz]);
+
+    useEffect(() => {
+      if (!open || !quiz) return;
+      setTab(quiz.quizType === 'RANDOM_DRAW' ? 'random' : 'questions');
+      setRandomError('');
+      load();
+    }, [open, quiz?.id]);
+
+    if (!open || !quiz) return null;
+
+    const isDraft = (detail?.status || quiz.status) === 'DRAFT';
+    const isRandom = quiz.quizType === 'RANDOM_DRAW';
+    const byDifficultyTotal = Number(easyCount || 0) + Number(mediumCount || 0) + Number(hardCount || 0);
+
+    function handleDryRun() {
+      const proctoringEnabled = !!(detail || quiz).proctoringEnabled;
+      nav?.('dryRun', { courseId, quizId: quiz.id, quizTitle: quiz.title, proctoringEnabled });
+    }
+
+    async function handleRemoveQuestion(qId) {
+      if (!confirm('Xóa câu hỏi này khỏi quiz?')) return;
+      setRemovingId(qId);
+      try {
+        await removeQuestionFromQuiz(courseId, quiz.id, qId);
+        showToast('Đã xóa câu hỏi khỏi quiz');
+        load();
+      } catch (err) {
+        showToast(extractError(err), 'error');
+      } finally {
+        setRemovingId(null);
+      }
+    }
+
+    async function handleAddBank(bankQuestionIds) {
+      try {
+        await addBankQuestionsToQuiz(courseId, quiz.id, { bankQuestionIds });
+        showToast(`Đã thêm ${bankQuestionIds.length} câu vào quiz`);
+        setPickOpen(false);
+        load();
+      } catch (err) {
+        showToast(extractError(err), 'error');
+      }
+    }
+
+    async function handleAddManual(payload) {
+      try {
+        await addManualQuestionToQuiz(courseId, quiz.id, payload);
+        showToast('Đã thêm câu hỏi vào quiz');
+        setManualOpen(false);
+        load();
+      } catch (err) {
+        showToast(extractError(err), 'error');
+      }
+    }
+
+    async function handleSaveRandomConfig() {
+      setRandomSaving(true); setRandomError('');
+      try {
+        const payload = { randomMode, subjectTagFilter: subjectTagFilter.trim() || undefined };
+        if (randomMode === 'FULLY_RANDOM') {
+          payload.totalCount = Number(totalCount);
+        } else {
+          payload.difficultyConfig = { EASY: Number(easyCount), MEDIUM: Number(mediumCount), HARD: Number(hardCount) };
+        }
+        await configureRandomDraw(courseId, quiz.id, payload);
+        showToast('Đã lưu cấu hình random draw');
+        load();
+      } catch (err) {
+        setRandomError(extractError(err));
+      } finally {
+        setRandomSaving(false);
+      }
+    }
+
+    const tabItems = isRandom
+      ? [{ v: 'random', label: 'Cấu hình ngẫu nhiên' }]
+      : [{ v: 'questions', label: 'Câu hỏi', count: detail?.questions?.length || 0 }];
+
+    return (
+      <Modal open={open} onClose={onClose} max={820}>
+        <ModalHead
+          title={quiz.title}
+          sub={`${TYPE_LABEL[quiz.quizType] || quiz.quizType} · ${STATUS_LABEL[quiz.status] || quiz.status}`}
+          icon="clipboard" iconBg="#eaf1ff" iconColor="#2563eb"
+          onClose={onClose}
+        />
+
+        <div className="row gap-8" style={{ padding: '0 24px', borderBottom: '1px solid var(--border)', alignItems: 'center' }}>
+          <div className="grow"><Tabs items={tabItems} value={tab} onChange={setTab} /></div>
+          {isDraft && (
+            <>
+              <button className="btn btn-ghost btn-sm" style={{ flex: 'none', marginBottom: 8 }} onClick={() => onEdit?.(detail || quiz)}>
+                <Ic n="edit" size={14} />Sửa quiz
+              </button>
+              <button className="btn btn-ghost btn-sm" style={{ flex: 'none', marginBottom: 8 }} onClick={handleDryRun}>
+                <Ic n="play" size={14} />Làm thử
+              </button>
+            </>
+          )}
+        </div>
+
+        <div className="modal-body" style={{ minHeight: 320 }}>
+          {loading && <div style={{ padding: 48, textAlign: 'center', color: 'var(--text-2)' }}>Đang tải...</div>}
+          {error && <div style={{ padding: 32, textAlign: 'center', color: 'var(--error)' }}>{error}</div>}
+
+          {/* ── Tab Câu hỏi (STATIC / SHUFFLED_POOL) ── */}
+          {!loading && !error && detail && tab === 'questions' && !isRandom && (
+            <div>
+              <div className="row gap-8" style={{ marginBottom: 14, flexWrap: 'wrap' }}>
+                {!isDraft && (
+                  <span className="t-xs muted">Quiz đã xuất bản — không thể sửa câu hỏi. Chuyển về Nháp để chỉnh sửa.</span>
+                )}
+                {isDraft && (
+                  <>
+                    <button className="btn btn-ghost btn-sm" onClick={() => setPickOpen(true)}>
+                      <Ic n="layers" size={14} />Thêm từ ngân hàng
+                    </button>
+                    <button className="btn btn-ghost btn-sm" onClick={() => setManualOpen(true)}>
+                      <Ic n="plus" size={14} />Thêm thủ công
+                    </button>
+                  </>
+                )}
+              </div>
+
+              {detail.questions.length === 0 ? (
+                <Empty icon="clipboard" title="Chưa có câu hỏi nào" sub="Thêm câu hỏi từ ngân hàng hoặc nhập thủ công." />
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {detail.questions.map((qq, i) => (
+                    <div key={qq.id} style={{ padding: 12, border: '1px solid var(--border)', borderRadius: 12 }}>
+                      <div className="row gap-8" style={{ alignItems: 'flex-start' }}>
+                        <span className="muted" style={{ fontSize: 12, flex: 'none', marginTop: 2 }}>#{i + 1}</span>
+                        <div className="grow" style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: 13.5, fontWeight: 500 }}>{qq.questionText}</div>
+                          <div className="row gap-6" style={{ marginTop: 6 }}>
+                            <span className={`chip chip-${DIFF_CHIP[qq.difficulty] || 'neutral'}`} style={{ fontSize: 10 }}>
+                              {DIFF_LABEL[qq.difficulty] || qq.difficulty}
+                            </span>
+                            <span className="t-xs muted">{qq.points} điểm</span>
+                          </div>
+                        </div>
+                        {isDraft && (
+                          <button className="icon-btn" style={{ width: 30, height: 30, color: 'var(--error)', flex: 'none' }}
+                            disabled={removingId === qq.id}
+                            onClick={() => handleRemoveQuestion(qq.id)}>
+                            <Ic n="x" size={14} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Tab Cấu hình ngẫu nhiên (RANDOM_DRAW) ── */}
+          {!loading && !error && detail && tab === 'random' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 18, maxWidth: 540 }}>
+
+              {/* Thông tin ngân hàng ACTIVE hiện có */}
+              <div style={{ padding: '12px 16px', background: 'var(--surface-2)', borderRadius: 12 }}>
+                <div className="t-xs muted" style={{ marginBottom: 8 }}>Ngân hàng câu hỏi đang hoạt động của khóa học</div>
+                <div className="row gap-16" style={{ flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 13 }}><b>{bankSummary.total}</b> tổng số câu</span>
+                  <span className="row gap-6" style={{ fontSize: 13 }}>
+                    <span className="chip chip-success" style={{ fontSize: 10 }}>Dễ</span> {bankSummary.counts.EASY || 0}
+                  </span>
+                  <span className="row gap-6" style={{ fontSize: 13 }}>
+                    <span className="chip chip-warning" style={{ fontSize: 10 }}>TB</span> {bankSummary.counts.MEDIUM || 0}
+                  </span>
+                  <span className="row gap-6" style={{ fontSize: 13 }}>
+                    <span className="chip chip-error" style={{ fontSize: 10 }}>Khó</span> {bankSummary.counts.HARD || 0}
+                  </span>
+                </div>
+              </div>
+
+              {!isDraft ? (
+                /* ── Read-only summary khi quiz đã publish ── */
+                <div style={{ padding: '14px 16px', border: '1px solid var(--border)', borderRadius: 12 }}>
+                  <div className="t-xs muted" style={{ marginBottom: 10 }}>
+                    Quiz đã xuất bản — chuyển về Nháp để đổi cấu hình. Cấu hình hiện tại:
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13.5 }}>
+                    <div>Chế độ: <b>{randomMode === 'FULLY_RANDOM' ? 'Ngẫu nhiên hoàn toàn' : 'Theo tỉ lệ độ khó'}</b></div>
+                    {randomMode === 'FULLY_RANDOM'
+                      ? <div>Tổng số câu rút: <b>{totalCount}</b></div>
+                      : <div>Tỉ lệ: <b>{easyCount} Dễ · {mediumCount} Trung bình · {hardCount} Khó</b> (tổng {byDifficultyTotal})</div>}
+                    <div>Chủ đề lọc: <b>{subjectTagFilter || 'Không lọc — toàn bộ ngân hàng'}</b></div>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {randomError && <div style={{ padding: '10px 14px', background: 'var(--chip-error-bg)', color: 'var(--error)', borderRadius: 10, fontSize: 13 }}>{randomError}</div>}
+
+                  <div>
+                    <div className="t-label" style={{ marginBottom: 8 }}>Chế độ rút câu</div>
+                    <div className="row gap-16">
+                      <label className="row gap-6" style={{ cursor: 'pointer' }}>
+                        <input type="radio" checked={randomMode === 'FULLY_RANDOM'} onChange={() => setRandomMode('FULLY_RANDOM')} />
+                        Ngẫu nhiên hoàn toàn
+                      </label>
+                      <label className="row gap-6" style={{ cursor: 'pointer' }}>
+                        <input type="radio" checked={randomMode === 'BY_DIFFICULTY'} onChange={() => setRandomMode('BY_DIFFICULTY')} />
+                        Theo tỉ lệ độ khó
+                      </label>
+                    </div>
+                  </div>
+
+                  {randomMode === 'FULLY_RANDOM' ? (
+                    <div>
+                      <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>
+                        Tổng số câu <span className="muted" style={{ fontWeight: 400 }}>(tối đa {bankSummary.total} câu khả dụng)</span>
+                      </label>
+                      <input className="input" type="number" min={1} value={totalCount}
+                        style={Number(totalCount) > bankSummary.total ? { borderColor: 'var(--error)' } : undefined}
+                        onChange={e => setTotalCount(e.target.value)} />
+                      {Number(totalCount) > bankSummary.total && (
+                        <div className="t-xs" style={{ color: 'var(--error)', marginTop: 4 }}>
+                          Vượt quá số câu hiện có trong ngân hàng ({bankSummary.total}).
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div>
+                      <div className="grid grid-3" style={{ gap: 10 }}>
+                        {[
+                          { key: 'EASY', label: 'Dễ', value: easyCount, set: setEasyCount },
+                          { key: 'MEDIUM', label: 'Trung bình', value: mediumCount, set: setMediumCount },
+                          { key: 'HARD', label: 'Khó', value: hardCount, set: setHardCount },
+                        ].map(f => {
+                          const max = bankSummary.counts[f.key] || 0;
+                          const over = Number(f.value || 0) > max;
+                          return (
+                            <div key={f.key}>
+                              <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>
+                                {f.label} <span className="muted" style={{ fontWeight: 400 }}>(tối đa {max})</span>
+                              </label>
+                              <input className="input" type="number" min={0} value={f.value}
+                                style={over ? { borderColor: 'var(--error)' } : undefined}
+                                onChange={e => f.set(e.target.value)} />
+                              {over && <div className="t-xs" style={{ color: 'var(--error)', marginTop: 4 }}>Chỉ có {max} câu</div>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className="t-xs muted" style={{ marginTop: 8 }}>Tổng cộng: {byDifficultyTotal} câu</div>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Lọc theo chủ đề (tuỳ chọn)</label>
+                    <Select
+                      value={subjectTagFilter || ''}
+                      onChange={setSubjectTagFilter}
+                      options={[
+                        { v: '', label: 'Không lọc — rút từ toàn bộ ngân hàng' },
+                        ...bankSummary.tags.map(t => ({ v: t, label: t })),
+                      ]}
+                    />
+                    <div className="t-xs muted" style={{ marginTop: 6, lineHeight: 1.5 }}>
+                      Khi chọn 1 chủ đề, hệ thống chỉ rút câu hỏi có gắn tag đó khi học viên bắt đầu làm bài — dùng
+                      khi ngân hàng có nhiều chủ đề khác nhau và bạn muốn quiz này chỉ kiểm tra riêng một mảng kiến
+                      thức (VD: chỉ "Hooks" thay vì toàn bộ ReactJS). Để trống nếu muốn rút từ toàn bộ câu hỏi.
+                    </div>
+                  </div>
+
+                  <div>
+                    <button className="btn btn-primary" onClick={handleSaveRandomConfig} disabled={randomSaving}>
+                      {randomSaving ? 'Đang lưu...' : <><Ic n="check" size={16} />Lưu cấu hình</>}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+        </div>
+
+        <div className="modal-foot">
+          <button className="btn btn-ghost" onClick={onClose}>Đóng</button>
+        </div>
+
+        {pickOpen && (
+          <PickBankQuestionsModal
+            courseId={courseId}
+            existingBankIds={(detail?.questions || []).map(q => q.bankQuestionId).filter(Boolean)}
+            onClose={() => setPickOpen(false)}
+            onConfirm={handleAddBank}
+          />
+        )}
+        {manualOpen && (
+          <ManualQuizQuestionModal
+            onClose={() => setManualOpen(false)}
+            onConfirm={handleAddManual}
+          />
+        )}
+      </Modal>
+    );
+  }
+
+  /* ═══ PickBankQuestionsModal — chọn nhiều câu từ ngân hàng để thêm vào quiz ═══ */
+  function PickBankQuestionsModal({ courseId, existingBankIds, onClose, onConfirm }) {
+    const [items, setItems] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+    const [selected, setSelected] = useState({});
+    const [saving, setSaving] = useState(false);
+
+    const [search, setSearch] = useState('');
+    const [diffFilter, setDiffFilter] = useState('ALL');
+    const [tagFilter, setTagFilter] = useState('ALL');
+
+    useEffect(() => {
+      setLoading(true);
+      listBankQuestions(courseId, { status: 'ACTIVE' })
+        .then(data => setItems(data))
+        .catch(err => setError(extractError(err)))
+        .finally(() => setLoading(false));
+    }, [courseId]);
+
+    const existingSet = new Set(existingBankIds);
+    const available = items.filter(it => !existingSet.has(it.id));
+
+    const tagOptions = Array.from(new Set(available.map(it => it.subjectTag).filter(Boolean))).sort();
+
+    const filtered = available.filter(it => {
+      if (diffFilter !== 'ALL' && it.difficulty !== diffFilter) return false;
+      if (tagFilter !== 'ALL' && it.subjectTag !== tagFilter) return false;
+      if (search.trim() && !it.questionText.toLowerCase().includes(search.trim().toLowerCase())) return false;
+      return true;
+    });
+
+    const selectedCount = Object.values(selected).filter(Boolean).length;
+    const visibleSelectedCount = filtered.filter(it => selected[it.id]).length;
+    const allVisibleSelected = filtered.length > 0 && visibleSelectedCount === filtered.length;
+
+    function toggle(id) {
+      setSelected(prev => ({ ...prev, [id]: !prev[id] }));
+    }
+
+    function toggleAllVisible() {
+      setSelected(prev => {
+        const next = { ...prev };
+        filtered.forEach(it => { next[it.id] = !allVisibleSelected; });
+        return next;
+      });
+    }
+
+    async function submit() {
+      const ids = Object.keys(selected).filter(id => selected[id]);
+      if (ids.length === 0) return;
+      setSaving(true);
+      await onConfirm(ids);
+      setSaving(false);
+    }
+
+    return (
+      <Modal open onClose={onClose} max={640}>
+        <ModalHead title="Thêm câu hỏi từ ngân hàng" sub={`${available.length} câu khả dụng · Đã chọn ${selectedCount}`}
+          icon="layers" iconBg="#f3edff" iconColor="#7c3aed" onClose={onClose} />
+        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 0 }}>
+          <div style={{ padding: '16px 20px 0' }}>
+            <div className="row gap-8" style={{ flexWrap: 'wrap', marginBottom: 10 }}>
+              <input className="input" style={{ flex: '1 1 200px', minWidth: 180 }}
+                placeholder="Tìm theo nội dung câu hỏi..." value={search} onChange={e => setSearch(e.target.value)} />
+              <Select value={diffFilter} onChange={setDiffFilter} style={{ width: 150, flex: 'none' }} options={[
+                { v: 'ALL', label: 'Tất cả độ khó' },
+                { v: 'EASY', label: 'Dễ' },
+                { v: 'MEDIUM', label: 'Trung bình' },
+                { v: 'HARD', label: 'Khó' },
+              ]} />
+              {tagOptions.length > 0 && (
+                <Select value={tagFilter} onChange={setTagFilter} style={{ width: 160, flex: 'none' }} options={[
+                  { v: 'ALL', label: 'Tất cả chủ đề' },
+                  ...tagOptions.map(t => ({ v: t, label: t })),
+                ]} />
+              )}
+            </div>
+            {!loading && !error && filtered.length > 0 && (
+              <div className="between" style={{ marginBottom: 4 }}>
+                <span className="t-xs muted">Hiển thị {filtered.length} / {available.length} câu</span>
+                <button className="btn btn-ghost btn-sm" style={{ fontSize: 12, padding: '3px 10px' }} onClick={toggleAllVisible}>
+                  {allVisibleSelected ? 'Bỏ chọn tất cả' : 'Chọn tất cả (đang hiển thị)'}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {loading && <div className="muted" style={{ fontSize: 13.5, padding: '0 20px' }}>Đang tải...</div>}
+          {error && <div style={{ color: 'var(--error)', fontSize: 13, padding: '0 20px' }}>{error}</div>}
+          {!loading && !error && available.length === 0 && (
+            <div style={{ padding: '0 20px' }}>
+              <Empty icon="layers" title="Không có câu hỏi khả dụng" sub="Ngân hàng trống hoặc tất cả câu đã có trong quiz này." />
+            </div>
+          )}
+          {!loading && !error && available.length > 0 && filtered.length === 0 && (
+            <div style={{ padding: '0 20px' }}>
+              <Empty icon="search" title="Không tìm thấy câu hỏi phù hợp" sub="Thử từ khóa khác hoặc bỏ bớt bộ lọc." />
+            </div>
+          )}
+          {!loading && !error && filtered.length > 0 && (
+            <div style={{ maxHeight: 400, overflowY: 'auto', padding: '0 20px 4px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {filtered.map(item => (
+                <label key={item.id} className="row gap-10" style={{
+                  padding: '10px 12px', borderRadius: 10, cursor: 'pointer', alignItems: 'flex-start',
+                  border: `1px solid ${selected[item.id] ? 'var(--accent)' : 'var(--border)'}`,
+                  background: selected[item.id] ? 'rgba(37,99,235,.04)' : 'transparent',
+                }}>
+                  <input type="checkbox" style={{ marginTop: 3 }} checked={!!selected[item.id]} onChange={() => toggle(item.id)} />
+                  <div className="grow" style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 13, lineHeight: 1.5 }}>{item.questionText}</div>
+                    <div className="row gap-6" style={{ marginTop: 6, flexWrap: 'wrap' }}>
+                      <span className={`chip chip-${DIFF_CHIP[item.difficulty] || 'neutral'}`} style={{ fontSize: 10 }}>
+                        {DIFF_LABEL[item.difficulty] || item.difficulty}
+                      </span>
+                      {item.subjectTag && <span className="chip chip-neutral" style={{ fontSize: 10 }}>{item.subjectTag}</span>}
+                      <span className="t-xs muted">{item.points} điểm</span>
+                    </div>
+                  </div>
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="modal-foot">
+          <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Hủy</button>
+          <button className="btn btn-primary" onClick={submit} disabled={saving || selectedCount === 0}>
+            {saving ? 'Đang thêm...' : `Thêm (${selectedCount})`}
+          </button>
+        </div>
+      </Modal>
+    );
+  }
+
+  /* ═══ ManualQuizQuestionModal — thêm câu hỏi thủ công trực tiếp vào quiz ═══ */
+  function ManualQuizQuestionModal({ onClose, onConfirm }) {
+    const [text, setText] = useState('');
+    const [type, setType] = useState('SINGLE_CHOICE');
+    const [diff, setDiff] = useState('EASY');
+    const [tag, setTag] = useState('');
+    const [points, setPoints] = useState(1);
+    const [saveToBank, setSaveToBank] = useState(true);
+    const [opts, setOpts] = useState([
+      { optionText: '', isCorrect: true },
+      { optionText: '', isCorrect: false },
+      { optionText: '', isCorrect: false },
+      { optionText: '', isCorrect: false },
+    ]);
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState('');
+
+    async function submit() {
+      if (!text.trim()) { setError('Vui lòng nhập nội dung câu hỏi'); return; }
+      const filled = opts.filter(o => o.optionText.trim());
+      if (filled.length < 2) { setError('Cần ít nhất 2 đáp án'); return; }
+      if (!filled.some(o => o.isCorrect)) { setError('Cần chọn ít nhất 1 đáp án đúng'); return; }
+      setSaving(true); setError('');
+      try {
+        await onConfirm({
+          questionText: text.trim(),
+          questionType: type,
+          difficulty: diff,
+          subjectTag: tag.trim() || undefined,
+          points: Number(points),
+          saveToBank,
+          options: filled.map((o, i) => ({ optionText: o.optionText.trim(), isCorrect: o.isCorrect, orderIndex: i })),
+        });
+      } finally {
+        setSaving(false);
+      }
+    }
+
+    return (
+      <Modal open onClose={onClose} max={640}>
+        <ModalHead title="Thêm câu hỏi thủ công" sub="Câu hỏi được thêm trực tiếp vào quiz"
+          icon="edit" iconBg="#eaf1ff" iconColor="#2563eb" onClose={onClose} />
+        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {error && <div style={{ padding: '10px 14px', background: 'var(--chip-error-bg)', color: 'var(--error)', borderRadius: 10, fontSize: 13 }}>{error}</div>}
+          <div className="grid grid-2" style={{ gap: 12 }}>
+            <div>
+              <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Loại câu hỏi</label>
+              <Select value={type} onChange={setType} options={[
+                { v: 'SINGLE_CHOICE', label: 'Một đáp án' },
+                { v: 'MULTIPLE_CHOICE', label: 'Nhiều đáp án' },
+              ]} />
+            </div>
+            <div>
+              <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Độ khó</label>
+              <Select value={diff} onChange={setDiff} options={[
+                { v: 'EASY', label: 'Dễ' },
+                { v: 'MEDIUM', label: 'Trung bình' },
+                { v: 'HARD', label: 'Khó' },
+              ]} />
+            </div>
+          </div>
+          <div className="grid grid-2" style={{ gap: 12 }}>
+            <div>
+              <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Chủ đề (tag)</label>
+              <input className="input" placeholder="VD: React Hooks" value={tag} onChange={e => setTag(e.target.value)} />
+            </div>
+            <div>
+              <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Điểm</label>
+              <input className="input" type="number" min={0.1} step={0.1} value={points} onChange={e => setPoints(e.target.value)} />
+            </div>
+          </div>
+          <div>
+            <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Nội dung câu hỏi *</label>
+            <textarea className="input" style={{ height: 80, padding: 12, resize: 'vertical' }}
+              placeholder="Nhập nội dung câu hỏi..." value={text} onChange={e => setText(e.target.value)} />
+          </div>
+          <div>
+            <label className="t-label" style={{ display: 'block', marginBottom: 8 }}>
+              Đáp án — {type === 'MULTIPLE_CHOICE' ? 'chọn nhiều đáp án đúng' : 'chọn 1 đáp án đúng'}
+            </label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+              {opts.map((opt, i) => (
+                <div key={i} className="row gap-10" style={{
+                  padding: '8px 12px', borderRadius: 10,
+                  border: `1.5px solid ${opt.isCorrect ? 'var(--success)' : 'var(--border)'}`,
+                  background: opt.isCorrect ? 'var(--chip-success-bg)' : '#fff',
+                }}>
+                  <span
+                    onClick={() => {
+                      const next = opts.map((o, j) => ({
+                        ...o,
+                        isCorrect: type === 'SINGLE_CHOICE' ? j === i : (j === i ? !o.isCorrect : o.isCorrect),
+                      }));
+                      setOpts(next);
+                    }}
+                    style={{
+                      width: 22, height: 22, borderRadius: type === 'MULTIPLE_CHOICE' ? 5 : 999,
+                      flex: 'none', cursor: 'pointer',
+                      border: `2px solid ${opt.isCorrect ? 'var(--success)' : 'var(--border-input)'}`,
+                      display: 'grid', placeItems: 'center',
+                    }}
+                  >
+                    {opt.isCorrect && <span style={{
+                      width: 11, height: 11,
+                      borderRadius: type === 'MULTIPLE_CHOICE' ? 3 : 999,
+                      background: 'var(--success)',
+                    }} />}
+                  </span>
+                  <span style={{ fontWeight: 700, color: 'var(--text-3)', width: 18 }}>{String.fromCharCode(65 + i)}</span>
+                  <input
+                    className="input"
+                    style={{ height: 36, border: 'none', background: 'transparent', padding: 0, flex: 1 }}
+                    placeholder={`Đáp án ${String.fromCharCode(65 + i)}`}
+                    value={opt.optionText}
+                    onChange={e => setOpts(opts.map((o, j) => j === i ? { ...o, optionText: e.target.value } : o))}
+                  />
+                  {opt.isCorrect && <span className="chip chip-success" style={{ flex: 'none' }}>Đúng</span>}
+                </div>
+              ))}
+            </div>
+          </div>
+          <label className="row gap-10" style={{ cursor: 'pointer' }}>
+            <input type="checkbox" checked={saveToBank} onChange={e => setSaveToBank(e.target.checked)} />
+            <span style={{ fontSize: 13 }}>Đồng thời lưu vào ngân hàng câu hỏi</span>
+          </label>
+        </div>
+        <div className="modal-foot">
+          <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Hủy</button>
+          <button className="btn btn-success" onClick={submit} disabled={saving}>
+            {saving ? 'Đang lưu...' : <><Ic n="check" size={16} />Thêm vào quiz</>}
+          </button>
         </div>
       </Modal>
     );

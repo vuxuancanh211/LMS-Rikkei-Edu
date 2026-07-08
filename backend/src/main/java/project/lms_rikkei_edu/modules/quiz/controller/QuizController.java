@@ -140,6 +140,15 @@ public class QuizController {
         return ResponseEntity.ok(quizService.dryRun(courseId, quizId));
     }
 
+    @PostMapping("/{quizId}/dry-run/grade")
+    @PreAuthorize("hasAnyRole('INSTRUCTOR', 'ADMIN')")
+    public ResponseEntity<DryRunGradeResponse> gradeDryRun(
+            @PathVariable UUID courseId, @PathVariable UUID quizId,
+            @Valid @RequestBody DryRunGradeRequest request) {
+        ownershipGuard.requireOwnership(courseId);
+        return ResponseEntity.ok(quizService.gradeDryRun(courseId, quizId, request));
+    }
+
     private UUID resolveCurrentUser() {
         return currentUserProvider.getCurrentUserId()
                 .orElseThrow(() -> new BusinessException("Không xác định được người dùng"));

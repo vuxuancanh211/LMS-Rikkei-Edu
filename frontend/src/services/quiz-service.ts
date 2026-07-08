@@ -14,6 +14,8 @@ import type {
   QuizSummaryResponse,
   QuizDetailResponse,
   DryRunResponse,
+  DryRunGradeRequest,
+  DryRunGradeResponse,
   // Attempt
   AutosaveRequest,
   SubmitAttemptRequest,
@@ -156,6 +158,14 @@ export async function unarchiveQuiz(courseId: string, quizId: string) {
 export async function dryRunQuiz(courseId: string, quizId: string) {
   const res = await httpClient.get<DryRunResponse>(
     `/courses/${courseId}/quizzes/${quizId}/dry-run`,
+  );
+  return res.data;
+}
+
+export async function gradeDryRunQuiz(courseId: string, quizId: string, data: DryRunGradeRequest) {
+  const res = await httpClient.post<DryRunGradeResponse>(
+    `/courses/${courseId}/quizzes/${quizId}/dry-run/grade`,
+    data,
   );
   return res.data;
 }
@@ -305,6 +315,7 @@ export interface AiGenerateRequest {
   questionType: string;
   difficulty: string;
   subjectTag?: string;
+  sourceIds?: string[];
   count: number;
   duplicateThreshold?: number;
 }
@@ -332,11 +343,27 @@ export interface AiGenerateResponse {
   newCount: number;
 }
 
-export async function aiGenerateQuestions(courseId: string, req: AiGenerateRequest) {
-  const res = await httpClient.post<AiGenerateResponse>(
+export type AiGenerationStep = 'RETRIEVING_CONTEXT' | 'GENERATING' | 'CHECKING_DUPLICATES' | 'DONE' | 'FAILED';
+
+export interface AiGenerationJobStatus {
+  step: AiGenerationStep;
+  result: AiGenerateResponse | null;
+  errorMessage: string | null;
+}
+
+/** Bắt đầu sinh câu hỏi bằng AI — trả về jobId ngay, pipeline thật chạy nền (có thể mất 30-90s). */
+export async function startAiGenerateQuestions(courseId: string, req: AiGenerateRequest) {
+  const res = await httpClient.post<{ jobId: string }>(
     `/courses/${courseId}/bank-questions/ai/generate`,
     req,
-    { timeout: 120_000 },
+  );
+  return res.data;
+}
+
+/** Poll tiến trình 1 job sinh câu hỏi AI — gọi lặp lại cho tới khi step là DONE/FAILED. */
+export async function getAiGenerateJobStatus(courseId: string, jobId: string) {
+  const res = await httpClient.get<AiGenerationJobStatus>(
+    `/courses/${courseId}/bank-questions/ai/generate/${jobId}`,
   );
   return res.data;
 }

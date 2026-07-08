@@ -10,7 +10,7 @@ import java.util.List;
 import java.util.UUID;
 
 @Getter
-@Builder
+@Builder(toBuilder = true)
 public class QuizQuestionResponse {
     private UUID id;
     private UUID bankQuestionId; // null nếu câu thủ công

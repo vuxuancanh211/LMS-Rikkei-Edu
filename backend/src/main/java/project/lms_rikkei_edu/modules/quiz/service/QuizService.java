@@ -41,6 +41,9 @@ public interface QuizService {
     // Dry Run — chạy thử không lưu DB
     DryRunResponse dryRun(UUID courseId, UUID quizId);
 
+    // Chấm điểm bản xem thử — tính đúng/sai + điểm, KHÔNG lưu DB
+    DryRunGradeResponse gradeDryRun(UUID courseId, UUID quizId, DryRunGradeRequest request);
+
     // Scheduler gọi — auto-archive quiz đã hết end_date
     void autoArchiveExpiredQuizzes();
 }

@@ -13,4 +13,6 @@ public class DryRunResponse {
     private int totalQuestions;
     // Chạy thử không có đáp án thật — chỉ trả về câu hỏi để instructor preview
     private String note;
+    // Thời gian làm bài (phút) — lấy từ cấu hình quiz để FE đếm ngược giống hệt học viên thật
+    private Integer durationMinutes;
 }
