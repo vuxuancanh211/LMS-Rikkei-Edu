@@ -1,5 +1,7 @@
 import * as userService from './user-service';
 import * as csvImportService from './csv-import-service';
+import * as groupService from './group-service';
+import * as courseService from './course-service';
 import * as profileService from './profile-service';
 
-Object.assign(window, { __userService: userService, __csvImportService: csvImportService, __profileService: profileService });
+Object.assign(window, { __userService: userService, __csvImportService: csvImportService, __groupService: groupService, __courseService: courseService, __profileService: profileService });

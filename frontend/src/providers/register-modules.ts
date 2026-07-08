@@ -14,6 +14,8 @@ import '../pages/Student/StuTasks';
 import '../pages/Forum/ForumPage';
 import '../pages/Student/StuCerts';
 
+import '../services/api-registry';
+
 import '../pages/Instructor/InsDashboard';
 import '../pages/Instructor/InsCourses';
 import '../pages/Instructor/course-detail/CourseModals';
@@ -22,11 +24,11 @@ import '../pages/Instructor/course-detail/CourseVersionsTab';
 import '../pages/Instructor/InsCourseDetail';
 import '../pages/Instructor/InsGroups';
 import '../pages/Instructor/InsGroupDetail';
+import '../pages/Student/StuGroups';
+import '../pages/Student/StuGroupDetail';
 import '../pages/Instructor/InsAssess';
 import '../pages/Instructor/InsGrading';
 import '../pages/Instructor/InsStudents';
-
-import '../services/api-registry';
 
 import '../pages/Admin/AdminDashboard';
 import '../pages/Admin/CsvImportWizard';
