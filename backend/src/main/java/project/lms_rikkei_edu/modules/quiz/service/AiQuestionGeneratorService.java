@@ -27,6 +27,8 @@ import project.lms_rikkei_edu.modules.quiz.repository.AiQuestionGenerationJobRep
 
 import java.util.*;
 
+import static project.lms_rikkei_edu.modules.ai.service.retrieval.VectorSearchService.toVectorString;
+
 /**
  * Sinh câu hỏi trắc nghiệm bằng LLM, có tham khảo tài liệu AI (RAG) của khóa học
  * nếu có, sau đó kiểm tra trùng lặp với ngân hàng câu hỏi hiện có bằng cosine
@@ -426,9 +428,4 @@ public class AiQuestionGeneratorService {
         }
     }
 
-    private static String toVectorString(float[] embedding) {
-        StringJoiner sj = new StringJoiner(",", "[", "]");
-        for (float v : embedding) sj.add(Float.toString(v));
-        return sj.toString();
-    }
 }

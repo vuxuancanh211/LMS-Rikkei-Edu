@@ -52,4 +52,19 @@ public class OpenAiProperties {
 
     /** Maximum recent messages to include in conversation history. */
     private int maxHistoryMessages = 10;
+
+    /**
+     * Số kết quả tối đa cho semantic search ngân hàng câu hỏi — TÁCH RIÊNG khỏi
+     * {@link #topK} (tuned cho RAG context, 5 là quá ít cho 1 danh sách kết quả
+     * search kiểu duyệt-chọn).
+     */
+    private int searchTopK = 20;
+
+    /**
+     * Ngưỡng cosine similarity tối thiểu cho semantic search ngân hàng câu hỏi —
+     * TÁCH RIÊNG khỏi {@link #similarityThreshold} (0.5 tuned cho RAG là quá chặt:
+     * query tiếng Việt ngắn so với nội dung câu hỏi dài vốn có similarity thấp hơn
+     * do bất đối xứng độ dài).
+     */
+    private double searchSimilarityThreshold = 0.40;
 }

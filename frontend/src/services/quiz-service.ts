@@ -6,6 +6,7 @@ import type {
   BankQuestionResponse,
   BankQuestionImportPreviewResponse,
   BankQuestionImportConfirmResponse,
+  BankQuestionSearchHit,
   // Quiz
   QuizMetadataRequest,
   QuizAddBankQuestionsRequest,
@@ -36,6 +37,19 @@ export async function listBankQuestions(courseId: string, params?: BankQuestionL
   const res = await httpClient.get<BankQuestionResponse[]>(
     `/courses/${courseId}/bank-questions`,
     { params },
+  );
+  return res.data;
+}
+
+/** Hybrid search: khớp chữ xếp trước, tương đồng ngữ nghĩa (pgvector) nối sau. */
+export async function searchBankQuestions(
+  courseId: string,
+  q: string,
+  params?: BankQuestionListParams,
+) {
+  const res = await httpClient.get<BankQuestionSearchHit[]>(
+    `/courses/${courseId}/bank-questions/search`,
+    { params: { ...params, q } },
   );
   return res.data;
 }

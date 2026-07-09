@@ -41,6 +41,19 @@ public class BankQuestionController {
         return ResponseEntity.ok(bankQuestionService.list(courseId, status, difficulty, subjectTag));
     }
 
+    /** Hybrid search: khớp chữ xếp trước, tương đồng ngữ nghĩa (pgvector) nối sau. */
+    @GetMapping("/search")
+    @PreAuthorize("hasAnyRole('INSTRUCTOR', 'ADMIN')")
+    public ResponseEntity<List<BankQuestionSearchHit>> search(
+            @PathVariable UUID courseId,
+            @RequestParam String q,
+            @RequestParam(required = false) QuestionStatus status,
+            @RequestParam(required = false) QuestionDifficulty difficulty,
+            @RequestParam(required = false) String subjectTag) {
+        ownershipGuard.requireOwnership(courseId);
+        return ResponseEntity.ok(bankQuestionService.search(courseId, q, status, difficulty, subjectTag));
+    }
+
     @GetMapping("/{questionId}")
     @PreAuthorize("hasAnyRole('INSTRUCTOR', 'ADMIN')")
     public ResponseEntity<BankQuestionResponse> getById(

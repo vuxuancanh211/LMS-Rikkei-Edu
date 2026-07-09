@@ -326,23 +326,33 @@
         console.error("Failed to load AI sources", e);
       } finally {
         if (!opts.silent) setLoading(false);
+      }
     };
+
+    useEffect(() => { load(); }, []);
+
     // Ingest chạy nền (async) — poll lặng lẽ trong khi còn tài liệu PENDING/PROCESSING,
     // tự dừng khi tất cả đã INDEXED/FAILED hoặc sau ~2 phút an toàn.
     const hasPending = sources.some(s => s.ingestStatus === "PENDING" || s.ingestStatus === "PROCESSING");
+    useEffect(() => {
       if (!hasPending) return;
       const start = Date.now();
       const interval = setInterval(() => {
         if (Date.now() - start > 120_000) { clearInterval(interval); return; }
+        load({ silent: true });
       }, 3000);
       return () => clearInterval(interval);
     }, [hasPending]);
 
     async function handleReingest(id) {
       setBusyId(id);
+      try { await window.__aiService.reingestAiSource(id); await load(); }
+      catch (e) { console.error(e); }
       finally { setBusyId(null); }
     }
 
+    async function confirmDelete() {
+      if (!deleteTarget) return;
       setBusyId(deleteTarget.id);
       try { await window.__aiService.deleteAiSource(deleteTarget.id); await load(); }
       catch (e) { console.error(e); }

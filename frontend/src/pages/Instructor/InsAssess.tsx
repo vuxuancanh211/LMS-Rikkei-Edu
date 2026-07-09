@@ -3,13 +3,13 @@
    RIKKEI EDU — Giảng viên · Bài tập & Trắc nghiệm
    ============================================================ */
 (function () {
-  const { useState, useEffect, useCallback } = React;
+  const { useState, useEffect, useCallback, useRef } = React;
   const Ic = window.Icon;
   const { Avatar, Status, Search, Tabs, Select, Section, Modal, ModalHead, Empty } = window;
 
   const {
     listQuizzes, createQuiz, updateQuiz, publishQuiz, archiveQuiz, deleteQuiz,
-    listBankQuestions, createBankQuestion, updateBankQuestion, deleteBankQuestion,
+    listBankQuestions, searchBankQuestions, createBankQuestion, updateBankQuestion, deleteBankQuestion,
     toggleBankQuestionStatus, previewBankImport, confirmBankImport, exportBankQuestions,
     getQuizStats, getAllAttemptsForQuiz,
     startAiGenerateQuestions, getAiGenerateJobStatus, aiSaveQuestions,
@@ -88,6 +88,11 @@
     const [bankLoading, setBankLoading] = useState(false);
     const [bankFilter, setBankFilter] = useState('ALL');
     const [bankStatusFilter, setBankStatusFilter] = useState('ALL');
+
+    // Semantic search (hybrid) — nối thêm câu tương đồng ngữ nghĩa dưới kết quả khớp chữ
+    const [semanticHits, setSemanticHits] = useState([]);
+    const [semanticLoading, setSemanticLoading] = useState(false);
+    const semanticSeq = useRef(0);
 
     // Modal states
     const [createQuizOpen, setCreateQuizOpen] = useState(false);
@@ -181,6 +186,88 @@
     );
     const filteredBank = bankList.filter(x =>
       !q || x.questionText.toLowerCase().includes(q.toLowerCase())
+    );
+
+    /* ── Semantic search (hybrid, debounce 400ms) ── */
+    useEffect(() => {
+      if (tab !== 'bank' || q.trim().length < 3) { setSemanticHits([]); setSemanticLoading(false); return; }
+      const mySeq = ++semanticSeq.current;
+      setSemanticLoading(true);
+      const timer = setTimeout(async () => {
+        try {
+          const params = {};
+          if (bankFilter !== 'ALL') params.difficulty = bankFilter;
+          if (bankStatusFilter !== 'ALL') params.status = bankStatusFilter;
+          const hits = await searchBankQuestions(activeCourseId, q.trim(), params);
+          if (semanticSeq.current !== mySeq) return; // response cũ, bỏ qua
+          const textIds = new Set(filteredBank.map(x => x.id));
+          setSemanticHits(hits.filter(h => h.matchType === 'SEMANTIC' && !textIds.has(h.question.id)));
+        } catch {
+          if (semanticSeq.current === mySeq) setSemanticHits([]); // lỗi → lặng lẽ bỏ qua, vẫn còn kết quả text
+        } finally {
+          if (semanticSeq.current === mySeq) setSemanticLoading(false);
+        }
+      }, 400);
+      return () => clearTimeout(timer);
+    }, [q, tab, activeCourseId, bankFilter, bankStatusFilter]);
+
+    /* ── 1 dòng bảng ngân hàng câu hỏi — dùng chung cho kết quả khớp chữ và ngữ nghĩa ── */
+    const renderBankRow = (item, similarity) => (
+      <tr key={item.id} style={{ opacity: item.status === 'ARCHIVED' ? 0.55 : 1 }}>
+        <td>
+          <b style={{ fontSize: 13.5, maxWidth: 340, display: 'block' }} className="truncate">
+            {item.questionText}
+          </b>
+          {item.subjectTag && <span className="t-xs muted">{item.subjectTag}</span>}
+        </td>
+        <td>
+          <span className={`chip chip-${DIFF_CHIP[item.difficulty] || 'neutral'}`}>
+            {DIFF_LABEL[item.difficulty] || item.difficulty}
+          </span>
+          {similarity != null && (
+            <span className="chip chip-neutral" style={{ marginLeft: 6, fontSize: 11 }}>
+              Tương đồng {Math.round(similarity * 100)}%
+            </span>
+          )}
+        </td>
+        <td className="muted">{item.quizUsageCount} quiz</td>
+        <td>
+          <span className={`chip chip-${item.status === 'ACTIVE' ? 'success' : 'neutral'}`}>
+            {item.status === 'ACTIVE' ? 'Hoạt động' : 'Vô hiệu'}
+          </span>
+        </td>
+        <td>
+          <div className="row gap-6">
+            <button className="icon-btn" style={{ width: 34, height: 34 }} onClick={() => {
+              setEditBankItem(item);
+              setBqText(item.questionText);
+              setBqDiff(item.difficulty);
+              setBqType(item.questionType);
+              setBqTag(item.subjectTag || '');
+              setBqOpts(item.options.length >= 2 ? item.options.map(o => ({
+                optionText: o.optionText, isCorrect: o.isCorrect
+              })) : [
+                { optionText: '', isCorrect: true },
+                { optionText: '', isCorrect: false },
+                { optionText: '', isCorrect: false },
+                { optionText: '', isCorrect: false },
+              ]);
+              setAddBankOpen(true);
+            }}>
+              <Ic n="edit" size={16} />
+            </button>
+            <button className="icon-btn" style={{ width: 34, height: 34 }}
+              title={item.status === 'ACTIVE' ? 'Vô hiệu hóa' : 'Kích hoạt'}
+              onClick={() => handleToggleStatus(item)}>
+              <Ic n={item.status === 'ACTIVE' ? 'eye_off' : 'eye'} size={16} />
+            </button>
+            <button className="icon-btn" style={{ width: 34, height: 34, color: 'var(--error)' }}
+              onClick={() => handleDeleteBank(item)}>
+              <Ic n="x" size={16} />
+            </button>
+          </div>
+        </td>
+      </tr>
     );
 
     /* ── Create / Edit quiz ── */
@@ -567,60 +654,28 @@
                     <tr><th>Câu hỏi</th><th>Độ khó</th><th>Dùng trong</th><th>Trạng thái</th><th></th></tr>
                   </thead>
                   <tbody>
-                    {filteredBank.map(item => (
-                      <tr key={item.id} style={{ opacity: item.status === 'ARCHIVED' ? 0.55 : 1 }}>
-                        <td>
-                          <b style={{ fontSize: 13.5, maxWidth: 340, display: 'block' }} className="truncate">
-                            {item.questionText}
-                          </b>
-                          {item.subjectTag && <span className="t-xs muted">{item.subjectTag}</span>}
-                        </td>
-                        <td>
-                          <span className={`chip chip-${DIFF_CHIP[item.difficulty] || 'neutral'}`}>
-                            {DIFF_LABEL[item.difficulty] || item.difficulty}
-                          </span>
-                        </td>
-                        <td className="muted">{item.quizUsageCount} quiz</td>
-                        <td>
-                          <span className={`chip chip-${item.status === 'ACTIVE' ? 'success' : 'neutral'}`}>
-                            {item.status === 'ACTIVE' ? 'Hoạt động' : 'Vô hiệu'}
-                          </span>
-                        </td>
-                        <td>
-                          <div className="row gap-6">
-                            <button className="icon-btn" style={{ width: 34, height: 34 }} onClick={() => {
-                              setEditBankItem(item);
-                              setBqText(item.questionText);
-                              setBqDiff(item.difficulty);
-                              setBqType(item.questionType);
-                              setBqTag(item.subjectTag || '');
-                              setBqOpts(item.options.length >= 2 ? item.options.map(o => ({
-                                optionText: o.optionText, isCorrect: o.isCorrect
-                              })) : [
-                                { optionText: '', isCorrect: true },
-                                { optionText: '', isCorrect: false },
-                                { optionText: '', isCorrect: false },
-                                { optionText: '', isCorrect: false },
-                              ]);
-                              setAddBankOpen(true);
-                            }}>
-                              <Ic n="edit" size={16} />
-                            </button>
-                            <button className="icon-btn" style={{ width: 34, height: 34 }}
-                              title={item.status === 'ACTIVE' ? 'Vô hiệu hóa' : 'Kích hoạt'}
-                              onClick={() => handleToggleStatus(item)}>
-                              <Ic n={item.status === 'ACTIVE' ? 'eye_off' : 'eye'} size={16} />
-                            </button>
-                            <button className="icon-btn" style={{ width: 34, height: 34, color: 'var(--error)' }}
-                              onClick={() => handleDeleteBank(item)}>
-                              <Ic n="x" size={16} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                    {filteredBank.map(item => renderBankRow(item, null))}
                   </tbody>
                 </table>
+              </div>
+            )}
+
+            {/* ── Kết quả tương đồng ngữ nghĩa (hybrid search) ── */}
+            {tab === 'bank' && q.trim().length >= 3 && (semanticLoading || semanticHits.length > 0) && (
+              <div style={{ overflowX: 'auto', borderTop: '1px solid var(--border)' }}>
+                <div className="row gap-8" style={{ padding: '12px 16px 8px', alignItems: 'center' }}>
+                  <Ic n="sparkles" size={14} style={{ color: 'var(--accent)' }} />
+                  <span className="t-sm" style={{ fontWeight: 600 }}>Kết quả tương đồng ngữ nghĩa</span>
+                </div>
+                {semanticLoading ? (
+                  <div className="t-xs muted" style={{ padding: '0 16px 12px' }}>Đang tìm câu hỏi tương tự...</div>
+                ) : (
+                  <table className="tbl">
+                    <tbody>
+                      {semanticHits.map(hit => renderBankRow(hit.question, hit.similarity))}
+                    </tbody>
+                  </table>
+                )}
               </div>
             )}
           </Section>
@@ -2013,6 +2068,11 @@
     const [diffFilter, setDiffFilter] = useState('ALL');
     const [tagFilter, setTagFilter] = useState('ALL');
 
+    // Semantic search (hybrid) — nối thêm câu tương đồng ngữ nghĩa dưới kết quả khớp chữ
+    const [semanticExtra, setSemanticExtra] = useState([]); // [{ question, similarity }]
+    const [semanticLoading, setSemanticLoading] = useState(false);
+    const semanticSeq = useRef(0);
+
     useEffect(() => {
       setLoading(true);
       listBankQuestions(courseId, { status: 'ACTIVE' })
@@ -2033,9 +2093,37 @@
       return true;
     });
 
+    useEffect(() => {
+      if (search.trim().length < 3) { setSemanticExtra([]); setSemanticLoading(false); return; }
+      const mySeq = ++semanticSeq.current;
+      setSemanticLoading(true);
+      const timer = setTimeout(async () => {
+        try {
+          const hits = await searchBankQuestions(courseId, search.trim(), {
+            status: 'ACTIVE',
+            difficulty: diffFilter !== 'ALL' ? diffFilter : undefined,
+            subjectTag: tagFilter !== 'ALL' ? tagFilter : undefined,
+          });
+          if (semanticSeq.current !== mySeq) return;
+          const knownIds = new Set([...existingBankIds, ...filtered.map(it => it.id)]);
+          setSemanticExtra(hits
+            .filter(h => h.matchType === 'SEMANTIC' && !knownIds.has(h.question.id))
+            .map(h => ({ question: h.question, similarity: h.similarity })));
+        } catch {
+          if (semanticSeq.current === mySeq) setSemanticExtra([]);
+        } finally {
+          if (semanticSeq.current === mySeq) setSemanticLoading(false);
+        }
+      }, 400);
+      return () => clearTimeout(timer);
+    }, [search, diffFilter, tagFilter, courseId]);
+
+    // Gộp filtered + semantic-only để "chọn tất cả" và đếm số hiển thị bao gồm cả 2 nhóm
+    const visibleItems = [...filtered, ...semanticExtra.map(h => h.question)];
+
     const selectedCount = Object.values(selected).filter(Boolean).length;
-    const visibleSelectedCount = filtered.filter(it => selected[it.id]).length;
-    const allVisibleSelected = filtered.length > 0 && visibleSelectedCount === filtered.length;
+    const visibleSelectedCount = visibleItems.filter(it => selected[it.id]).length;
+    const allVisibleSelected = visibleItems.length > 0 && visibleSelectedCount === visibleItems.length;
 
     function toggle(id) {
       setSelected(prev => ({ ...prev, [id]: !prev[id] }));
@@ -2044,7 +2132,7 @@
     function toggleAllVisible() {
       setSelected(prev => {
         const next = { ...prev };
-        filtered.forEach(it => { next[it.id] = !allVisibleSelected; });
+        visibleItems.forEach(it => { next[it.id] = !allVisibleSelected; });
         return next;
       });
     }
@@ -2056,6 +2144,28 @@
       await onConfirm(ids);
       setSaving(false);
     }
+
+    const renderPickRow = (item, similarity) => (
+      <label key={item.id} className="row gap-10" style={{
+        padding: '10px 12px', borderRadius: 10, cursor: 'pointer', alignItems: 'flex-start',
+        border: `1px solid ${selected[item.id] ? 'var(--accent)' : 'var(--border)'}`,
+        background: selected[item.id] ? 'rgba(37,99,235,.04)' : 'transparent',
+      }}>
+        <input type="checkbox" style={{ marginTop: 3 }} checked={!!selected[item.id]} onChange={() => toggle(item.id)} />
+        <div className="grow" style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 13, lineHeight: 1.5 }}>{item.questionText}</div>
+          <div className="row gap-6" style={{ marginTop: 6, flexWrap: 'wrap' }}>
+            <span className={`chip chip-${DIFF_CHIP[item.difficulty] || 'neutral'}`} style={{ fontSize: 10 }}>
+              {DIFF_LABEL[item.difficulty] || item.difficulty}
+            </span>
+            {item.subjectTag && <span className="chip chip-neutral" style={{ fontSize: 10 }}>{item.subjectTag}</span>}
+            {similarity != null && (
+              <span className="chip chip-neutral" style={{ fontSize: 10 }}>Tương đồng {Math.round(similarity * 100)}%</span>
+            )}
+          </div>
+        </div>
+      </label>
+    );
 
     return (
       <Modal open onClose={onClose} max={640}>
@@ -2079,9 +2189,9 @@
                 ]} />
               )}
             </div>
-            {!loading && !error && filtered.length > 0 && (
+            {!loading && !error && visibleItems.length > 0 && (
               <div className="between" style={{ marginBottom: 4 }}>
-                <span className="t-xs muted">Hiển thị {filtered.length} / {available.length} câu</span>
+                <span className="t-xs muted">Hiển thị {visibleItems.length} / {available.length} câu</span>
                 <button className="btn btn-ghost btn-sm" style={{ fontSize: 12, padding: '3px 10px' }} onClick={toggleAllVisible}>
                   {allVisibleSelected ? 'Bỏ chọn tất cả' : 'Chọn tất cả (đang hiển thị)'}
                 </button>
@@ -2096,31 +2206,29 @@
               <Empty icon="layers" title="Không có câu hỏi khả dụng" sub="Ngân hàng trống hoặc tất cả câu đã có trong quiz này." />
             </div>
           )}
-          {!loading && !error && available.length > 0 && filtered.length === 0 && (
+          {!loading && !error && available.length > 0 && filtered.length === 0 && semanticExtra.length === 0 && !semanticLoading && (
             <div style={{ padding: '0 20px' }}>
               <Empty icon="search" title="Không tìm thấy câu hỏi phù hợp" sub="Thử từ khóa khác hoặc bỏ bớt bộ lọc." />
             </div>
           )}
           {!loading && !error && filtered.length > 0 && (
             <div style={{ maxHeight: 400, overflowY: 'auto', padding: '0 20px 4px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {filtered.map(item => (
-                <label key={item.id} className="row gap-10" style={{
-                  padding: '10px 12px', borderRadius: 10, cursor: 'pointer', alignItems: 'flex-start',
-                  border: `1px solid ${selected[item.id] ? 'var(--accent)' : 'var(--border)'}`,
-                  background: selected[item.id] ? 'rgba(37,99,235,.04)' : 'transparent',
-                }}>
-                  <input type="checkbox" style={{ marginTop: 3 }} checked={!!selected[item.id]} onChange={() => toggle(item.id)} />
-                  <div className="grow" style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 13, lineHeight: 1.5 }}>{item.questionText}</div>
-                    <div className="row gap-6" style={{ marginTop: 6, flexWrap: 'wrap' }}>
-                      <span className={`chip chip-${DIFF_CHIP[item.difficulty] || 'neutral'}`} style={{ fontSize: 10 }}>
-                        {DIFF_LABEL[item.difficulty] || item.difficulty}
-                      </span>
-                      {item.subjectTag && <span className="chip chip-neutral" style={{ fontSize: 10 }}>{item.subjectTag}</span>}
-                    </div>
-                  </div>
-                </label>
-              ))}
+              {filtered.map(item => renderPickRow(item, null))}
+            </div>
+          )}
+          {!loading && !error && search.trim().length >= 3 && (semanticLoading || semanticExtra.length > 0) && (
+            <div style={{ padding: '4px 20px 4px' }}>
+              <div className="row gap-8" style={{ alignItems: 'center', marginBottom: 8 }}>
+                <Ic n="sparkles" size={13} style={{ color: 'var(--accent)' }} />
+                <span className="t-xs" style={{ fontWeight: 600 }}>Kết quả tương đồng ngữ nghĩa</span>
+              </div>
+              {semanticLoading ? (
+                <div className="t-xs muted">Đang tìm câu hỏi tương tự...</div>
+              ) : (
+                <div style={{ maxHeight: 300, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {semanticExtra.map(h => renderPickRow(h.question, h.similarity))}
+                </div>
+              )}
             </div>
           )}
         </div>

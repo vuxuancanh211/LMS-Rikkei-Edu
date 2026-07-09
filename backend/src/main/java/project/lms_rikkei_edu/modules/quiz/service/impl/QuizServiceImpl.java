@@ -11,6 +11,7 @@ import project.lms_rikkei_edu.modules.quiz.dto.response.*;
 import project.lms_rikkei_edu.modules.quiz.entity.*;
 import project.lms_rikkei_edu.modules.quiz.enums.*;
 import project.lms_rikkei_edu.modules.quiz.repository.*;
+import project.lms_rikkei_edu.modules.quiz.service.BankQuestionEmbeddingService;
 import project.lms_rikkei_edu.modules.quiz.service.QuizService;
 
 import java.math.BigDecimal;
@@ -30,6 +31,7 @@ public class QuizServiceImpl implements QuizService {
     private final QuizOptionRepository quizOptionRepository;
     private final BankQuestionRepository bankQuestionRepository;
     private final BankOptionRepository bankOptionRepository;
+    private final BankQuestionEmbeddingService bankQuestionEmbeddingService;
 
     // ── Create / Update ───────────────────────────────────────────────────────
 
@@ -486,6 +488,7 @@ public class QuizServiceImpl implements QuizService {
             bo.setIsCorrect(opt.getIsCorrect());
             bankOptionRepository.save(bo);
         });
+        bankQuestionEmbeddingService.embedAndSaveSafe(bank.getId(), bank.getQuestionText());
         return bank;
     }
 

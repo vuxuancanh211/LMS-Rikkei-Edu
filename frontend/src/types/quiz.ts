@@ -47,6 +47,12 @@ export type BankQuestionResponse = {
   createdAt: string;
 };
 
+export type BankQuestionSearchHit = {
+  question: BankQuestionResponse;
+  matchType: 'TEXT' | 'SEMANTIC';
+  similarity?: number | null;
+};
+
 export type BankQuestionImportRowResult = {
   rowNumber: number;
   questionText: string;

@@ -6,6 +6,7 @@ import project.lms_rikkei_edu.modules.quiz.dto.request.BankQuestionRequest;
 import project.lms_rikkei_edu.modules.quiz.dto.response.BankQuestionImportConfirmResponse;
 import project.lms_rikkei_edu.modules.quiz.dto.response.BankQuestionImportPreviewResponse;
 import project.lms_rikkei_edu.modules.quiz.dto.response.BankQuestionResponse;
+import project.lms_rikkei_edu.modules.quiz.dto.response.BankQuestionSearchHit;
 import project.lms_rikkei_edu.modules.quiz.enums.QuestionDifficulty;
 import project.lms_rikkei_edu.modules.quiz.enums.QuestionStatus;
 
@@ -26,6 +27,10 @@ public interface BankQuestionService {
 
     List<BankQuestionResponse> list(UUID courseId, QuestionStatus status,
                                     QuestionDifficulty difficulty, String subjectTag);
+
+    /** Hybrid search: khớp chữ xếp trước, tương đồng ngữ nghĩa (pgvector) nối sau. */
+    List<BankQuestionSearchHit> search(UUID courseId, String q, QuestionStatus status,
+                                       QuestionDifficulty difficulty, String subjectTag);
 
     BankQuestionImportPreviewResponse importPreview(UUID courseId, MultipartFile file);
 

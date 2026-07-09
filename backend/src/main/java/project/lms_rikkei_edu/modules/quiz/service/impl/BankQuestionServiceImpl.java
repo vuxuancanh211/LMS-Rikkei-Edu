@@ -10,6 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 import project.lms_rikkei_edu.common.exception.BusinessException;
 import project.lms_rikkei_edu.infrastructure.redis.RedisService;
+import project.lms_rikkei_edu.modules.ai.config.OpenAiProperties;
 import project.lms_rikkei_edu.modules.quiz.dto.request.BankOptionRequest;
 import project.lms_rikkei_edu.modules.quiz.dto.request.BankQuestionImportConfirmRequest;
 import project.lms_rikkei_edu.modules.quiz.dto.request.BankQuestionRequest;
@@ -21,6 +22,9 @@ import project.lms_rikkei_edu.modules.quiz.enums.QuestionStatus;
 import project.lms_rikkei_edu.modules.quiz.enums.QuestionType;
 import project.lms_rikkei_edu.modules.quiz.repository.BankOptionRepository;
 import project.lms_rikkei_edu.modules.quiz.repository.BankQuestionRepository;
+import project.lms_rikkei_edu.modules.quiz.service.BankQuestionEmbeddingService;
+import project.lms_rikkei_edu.modules.quiz.service.BankQuestionEmbeddingService.IdText;
+import project.lms_rikkei_edu.modules.quiz.service.BankQuestionEmbeddingService.SemanticHit;
 import project.lms_rikkei_edu.modules.quiz.service.BankQuestionService;
 
 import java.io.ByteArrayOutputStream;
@@ -42,6 +46,8 @@ public class BankQuestionServiceImpl implements BankQuestionService {
     private final BankOptionRepository bankOptionRepository;
     private final RedisService redisService;
     private final ObjectMapper objectMapper;
+    private final BankQuestionEmbeddingService embeddingService;
+    private final OpenAiProperties openAiProperties;
 
     // ── CRUD ─────────────────────────────────────────────────────────────────
 
@@ -60,6 +66,7 @@ public class BankQuestionServiceImpl implements BankQuestionService {
         bankQuestionRepository.save(question);
 
         saveOptions(question.getId(), request.getOptions());
+        embeddingService.embedAndSaveSafe(question.getId(), question.getQuestionText());
         return toResponse(question);
     }
 
@@ -69,6 +76,7 @@ public class BankQuestionServiceImpl implements BankQuestionService {
         BankQuestionEntity question = findQuestion(courseId, questionId);
         validateOptions(request);
 
+        String oldText = question.getQuestionText();
         question.setQuestionText(request.getQuestionText());
         question.setQuestionType(request.getQuestionType());
         question.setDifficulty(request.getDifficulty());
@@ -77,6 +85,10 @@ public class BankQuestionServiceImpl implements BankQuestionService {
 
         bankOptionRepository.deleteByBankQuestionId(questionId);
         saveOptions(questionId, request.getOptions());
+        // Chỉ re-embed khi nội dung câu hỏi thực sự đổi — sửa độ khó/tag không tốn API call
+        if (!oldText.equals(request.getQuestionText())) {
+            embeddingService.embedAndSaveSafe(questionId, request.getQuestionText());
+        }
         return toResponse(question);
     }
 
@@ -135,6 +147,50 @@ public class BankQuestionServiceImpl implements BankQuestionService {
         }
 
         return questions.stream().map(this::toResponse).toList();
+    }
+
+    // ── Hybrid search ─────────────────────────────────────────────────────────
+
+    /**
+     * Pha 1 (TEXT): filter contains trên danh sách đã lọc status/difficulty/tag —
+     * giữ NGUYÊN ngữ nghĩa filter client cũ để kết quả không đổi với người dùng hiện tại.
+     * Pha 2 (SEMANTIC): pgvector cosine, loại các câu đã khớp chữ, sắp theo similarity.
+     * Embed lỗi → pha 2 rỗng, kết quả degrade về text-only (không 500).
+     */
+    @Override
+    public List<BankQuestionSearchHit> search(UUID courseId, String q, QuestionStatus status,
+                                              QuestionDifficulty difficulty, String subjectTag) {
+        String query = q == null ? "" : q.trim();
+        if (query.isEmpty()) return List.of();
+
+        String lowered = query.toLowerCase();
+        List<BankQuestionResponse> textHits = list(courseId, status, difficulty, subjectTag).stream()
+                .filter(r -> r.getQuestionText().toLowerCase().contains(lowered))
+                .toList();
+
+        Set<UUID> textHitIds = textHits.stream().map(BankQuestionResponse::getId)
+                .collect(java.util.stream.Collectors.toSet());
+
+        // Mirror mặc định của list(): có difficulty/subjectTag mà status null → ngầm hiểu ACTIVE,
+        // để 2 pha text/semantic lọc nhất quán với nhau
+        QuestionStatus effectiveStatus = status != null ? status
+                : (difficulty != null || subjectTag != null ? QuestionStatus.ACTIVE : null);
+
+        List<SemanticHit> semanticHits = embeddingService.searchSimilar(
+                courseId, query, effectiveStatus, difficulty, subjectTag, textHitIds,
+                openAiProperties.getSearchTopK(), openAiProperties.getSearchSimilarityThreshold());
+
+        List<BankQuestionSearchHit> result = new ArrayList<>(
+                textHits.stream()
+                        .map(r -> BankQuestionSearchHit.builder().question(r).matchType("TEXT").build())
+                        .toList());
+        for (SemanticHit hit : semanticHits) {
+            bankQuestionRepository.findById(hit.questionId())
+                    .map(this::toResponse)
+                    .ifPresent(r -> result.add(BankQuestionSearchHit.builder()
+                            .question(r).matchType("SEMANTIC").similarity(hit.similarity()).build()));
+        }
+        return result;
     }
 
     // ── Import ────────────────────────────────────────────────────────────────
@@ -199,6 +255,7 @@ public class BankQuestionServiceImpl implements BankQuestionService {
                 request.getSelectedDuplicateRows() != null ? request.getSelectedDuplicateRows() : List.of());
 
         int imported = 0, skipped = 0;
+        List<IdText> toEmbed = new ArrayList<>();
         for (BankQuestionImportRowResult row : preview) {
             if ("ERROR".equals(row.getStatus())) { skipped++; continue; }
             if ("DUPLICATE".equals(row.getStatus()) && !selectedDuplicates.contains(row.getRowNumber())) {
@@ -206,9 +263,13 @@ public class BankQuestionServiceImpl implements BankQuestionService {
             }
             // Import — dùng raw data từ redis preview
             // Tìm lại ImportRow từ preview (chỉ có parsed data đã lưu)
-            persistImportRow(courseId, instructorId, row);
+            BankQuestionEntity saved = persistImportRow(courseId, instructorId, row);
+            toEmbed.add(new IdText(saved.getId(), saved.getQuestionText()));
             imported++;
         }
+        // 1 lượt embedBatch cho cả file (≤500 dòng, dưới limit 2048 input/batch của OpenAI).
+        // Fail-soft — embed lỗi KHÔNG được fail import, backfill job sẽ vá.
+        embeddingService.embedAndSaveBatchSafe(toEmbed);
 
         return BankQuestionImportConfirmResponse.builder()
                 .totalImported(imported)
@@ -390,7 +451,7 @@ public class BankQuestionServiceImpl implements BankQuestionService {
         return errors;
     }
 
-    private void persistImportRow(UUID courseId, UUID instructorId, BankQuestionImportRowResult row) {
+    private BankQuestionEntity persistImportRow(UUID courseId, UUID instructorId, BankQuestionImportRowResult row) {
         // Lấy lại raw data từ preview response fields
         BankQuestionEntity q = new BankQuestionEntity();
         q.setCourseId(courseId);
@@ -402,6 +463,7 @@ public class BankQuestionServiceImpl implements BankQuestionService {
         bankQuestionRepository.save(q);
         // Options không lưu trong preview response — cần lưu thêm vào Redis
         // Handled trong savePreviewToRedis bằng RedisImportRow có đầy đủ options
+        return q;
     }
 
     private String savePreviewToRedis(UUID courseId, List<BankQuestionImportRowResult> results) {
