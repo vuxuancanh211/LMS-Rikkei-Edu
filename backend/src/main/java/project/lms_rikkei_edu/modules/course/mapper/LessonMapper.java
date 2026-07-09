@@ -16,6 +16,8 @@ public abstract class LessonMapper {
     protected LessonResourceMapper lessonResourceMapper;
 
     @Mapping(target = "resources", expression = "java(mapResources(lesson))")
+    @Mapping(target = "progress", ignore = true)
+    @Mapping(target = "progressPercentage", ignore = true)
     public abstract LessonResponse toResponse(Lesson lesson);
 
     protected List<LessonResourceResponse> mapResources(Lesson lesson) {

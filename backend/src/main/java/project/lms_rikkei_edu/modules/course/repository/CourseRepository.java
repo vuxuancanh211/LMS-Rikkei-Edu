@@ -43,4 +43,12 @@ public interface CourseRepository extends JpaRepository<Course, UUID> {
 
     @Query(value = "SELECT * FROM courses WHERE deleted_at IS NOT NULL AND instructor_id = :instructorId ORDER BY deleted_at DESC", nativeQuery = true)
     List<Course> findAllDeletedByInstructorId(@Param("instructorId") UUID instructorId);
+
+    @Query("SELECT c FROM Course c LEFT JOIN FETCH c.category WHERE c.id IN " +
+           "(SELECT ce.courseId FROM CourseEnrollmentEntity ce WHERE ce.studentId = :studentId) " +
+           "AND c.deletedAt IS NULL")
+    List<Course> findEnrolledCoursesByStudentId(@Param("studentId") UUID studentId);
+
+    @Query("SELECT c FROM Course c LEFT JOIN FETCH c.category LEFT JOIN FETCH c.chapters ch LEFT JOIN FETCH ch.lessons l LEFT JOIN FETCH l.resources WHERE c.id = :id AND c.deletedAt IS NULL")
+    Optional<Course> findByIdWithFullContent(@Param("id") UUID id);
 }

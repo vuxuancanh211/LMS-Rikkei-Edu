@@ -198,9 +198,18 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ErrorResponse> handleUnhandledException(
+    public ResponseEntity<?> handleUnhandledException(
             Exception exception,
             HttpServletRequest request) {
+        if (exception instanceof org.springframework.http.converter.HttpMessageNotWritableException
+                || exception instanceof org.springframework.web.context.request.async.AsyncRequestNotUsableException
+                || exception instanceof java.io.IOException) {
+            return ResponseEntity.status(HttpStatus.NO_CONTENT).build();
+        }
+        String acceptHeader = request.getHeader("Accept");
+        if ((acceptHeader != null && acceptHeader.contains("text/event-stream")) || request.getRequestURI().contains("/notifications/connect")) {
+            return ResponseEntity.status(HttpStatus.NO_CONTENT).build();
+        }
         log.error("Unhandled exception", exception);
         return buildResponse(HttpStatus.INTERNAL_SERVER_ERROR, "Internal server error", request.getRequestURI(), null);
     }

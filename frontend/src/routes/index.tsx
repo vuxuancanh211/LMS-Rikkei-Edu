@@ -120,8 +120,11 @@ function RoutedShell({ role, route }: { role: keyof typeof roleRoutes; route: st
       routeParams={params}
       onLogout={handleLogout}
       onExit={() => navigate('/gallery')}
-      onBare={(key: keyof typeof playerRoutes, params?: Record<string, string>) =>
-        navigate(playerRoutes[key] || '/player/lecture', params ? { state: params } : undefined)}
+      onBare={(key: keyof typeof playerRoutes, extra?: Record<string, string>) => {
+        const path = playerRoutes[key] || '/player/lecture';
+        const search = extra ? '?' + new URLSearchParams(extra).toString() : '';
+        navigate(path + search);
+      }}
       onNavigate={(nextRole: keyof typeof roleRoutes, nextRoute: string, extra?: Record<string, string>) => {
         const path = roleRoutes[nextRole]?.[nextRoute as keyof (typeof roleRoutes)[typeof nextRole]];
         if (!path) { navigate('/gallery'); return; }
@@ -191,18 +194,23 @@ function PlayerRoute({ name }: { name: string }) {
 
   if (!Comp) return <MissingRuntime name={name} />;
 
-  // Pass route state (courseId, quizId, attemptId) down to the player component
-  const state = (location.state as Record<string, string>) || {};
+  const handleLogout = async () => {
+    try { await logoutRequest(); } catch (e) { console.debug(e); }
+    finally {
+      useAuthStore.getState().logout();
+      navigate('/login', { replace: true });
+    }
+  };
 
   return (
     <div className="app">
       <Comp
-        {...state}
-        authUser={authUser}
-        onBack={() => navigate(-1)}
-        onSubmit={(attemptId: string, courseId: string, quizId: string) =>
-          navigate('/player/quiz-result', { state: { attemptId, courseId, quizId } })
-        }
+        onBack={() => navigate('/student/courses')}
+        onDashboard={() => navigate('/student/dashboard')}
+        onSettings={() => navigate('/settings')}
+        onLogout={handleLogout}
+        navigate={navigate}
+        onSubmit={() => navigate('/player/quiz-result')}
       />
     </div>
   );
