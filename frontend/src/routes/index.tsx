@@ -117,7 +117,11 @@ function RoutedShell({ role, route }: { role: keyof typeof roleRoutes; route: st
       routeParams={params}
       onLogout={handleLogout}
       onExit={() => navigate('/gallery')}
-      onBare={(key: keyof typeof playerRoutes) => navigate(playerRoutes[key] || '/player/lecture')}
+      onBare={(key: keyof typeof playerRoutes, extra?: Record<string, string>) => {
+        const path = playerRoutes[key] || '/player/lecture';
+        const search = extra ? '?' + new URLSearchParams(extra).toString() : '';
+        navigate(path + search);
+      }}
       onNavigate={(nextRole: keyof typeof roleRoutes, nextRoute: string, extra?: Record<string, string>) => {
         const path = roleRoutes[nextRole]?.[nextRoute as keyof (typeof roleRoutes)[typeof nextRole]];
         if (!path) { navigate('/gallery'); return; }
@@ -185,9 +189,24 @@ function PlayerRoute({ name }: { name: string }) {
 
   if (!Comp) return <MissingRuntime name={name} />;
 
+  const handleLogout = async () => {
+    try { await logoutRequest(); } catch (e) { console.debug(e); }
+    finally {
+      useAuthStore.getState().logout();
+      navigate('/login', { replace: true });
+    }
+  };
+
   return (
     <div className="app">
-      <Comp onBack={() => navigate(-1)} onSubmit={() => navigate('/player/quiz-result')} />
+      <Comp
+        onBack={() => navigate('/student/courses')}
+        onDashboard={() => navigate('/student/dashboard')}
+        onSettings={() => navigate('/settings')}
+        onLogout={handleLogout}
+        navigate={navigate}
+        onSubmit={() => navigate('/player/quiz-result')}
+      />
     </div>
   );
 }
