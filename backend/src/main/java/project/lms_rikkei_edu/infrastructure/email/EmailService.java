@@ -2,6 +2,7 @@ package project.lms_rikkei_edu.infrastructure.email;
 
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.mail.SimpleMailMessage;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -80,6 +81,53 @@ public class EmailService {
                 + "Đội ngũ Rikkei Edu");
 
         mailSender.send(message);
+    }
+
+    public void sendCertificateIssuedMail(
+            String to,
+            String fullName,
+            String courseTitle,
+            String verifyUrl,
+            byte[] pdfBytes,
+            String fileName) {
+        MimeMessage message = mailSender.createMimeMessage();
+
+        try {
+            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+            helper.setFrom(from);
+            helper.setTo(to);
+            helper.setSubject("[Rikkei Edu] Chứng chỉ khóa học của bạn");
+            helper.setText(buildCertificateEmailHtml(fullName, courseTitle, verifyUrl), true);
+            helper.addAttachment(fileName, new ByteArrayResource(pdfBytes), "application/pdf");
+        } catch (MessagingException e) {
+            throw new RuntimeException("Failed to create certificate email message", e);
+        }
+
+        mailSender.send(message);
+    }
+
+    private String buildCertificateEmailHtml(String fullName, String courseTitle, String verifyUrl) {
+        return """
+                <!DOCTYPE html>
+                <html>
+                <head><meta charset="UTF-8"></head>
+                <body style="margin:0;padding:0;background-color:#f4f6f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif">
+                <table role="presentation" style="width:100%%;background-color:#f4f6f9;padding:32px 16px">
+                <tr><td align="center">
+                <table role="presentation" style="max-width:560px;width:100%%;background-color:#ffffff;border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,0.06)">
+                <tr><td style="padding:36px;text-align:center">
+                <h1 style="font-size:22px;font-weight:700;color:#1e293b;margin:0 0 12px">Chúc mừng %s!</h1>
+                <p style="font-size:15px;color:#64748b;line-height:1.6;margin:0 0 8px">Bạn đã được cấp chứng chỉ cho khóa học:</p>
+                <p style="font-size:17px;color:#0f172a;font-weight:700;margin:0 0 24px">%s</p>
+                <a href="%s" style="display:inline-block;background-color:#4F46E5;color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;padding:14px 28px;border-radius:10px">Xác thực chứng chỉ</a>
+                <p style="font-size:13px;color:#94a3b8;margin:24px 0 0;line-height:1.5">File PDF chứng chỉ được đính kèm trong email này.</p>
+                </td></tr>
+                </table>
+                </td></tr>
+                </table>
+                </body>
+                </html>
+                """.formatted(fullName, courseTitle, verifyUrl);
     }
 
     public void sendAdminPasswordResetMail(String to, String fullName, String temporaryPassword) {
