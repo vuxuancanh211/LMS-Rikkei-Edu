@@ -7,8 +7,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
-import lombok.Getter;
-import lombok.Setter;
+import lombok.*;
 import project.lms_rikkei_edu.modules.course.entity.Course;
 import project.lms_rikkei_edu.modules.user.entity.UserEntity;
 
@@ -20,6 +19,9 @@ import java.util.UUID;
 @Setter
 @Entity
 @Table(name = "study_groups")
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class StudyGroupEntity {
 
     @Id

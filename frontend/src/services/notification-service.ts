@@ -69,8 +69,8 @@ export async function updateNotificationPreference(
   return response.data;
 }
 
-export function connectNotificationSSE(
-  onNotification: (notif: NotificationItem) => void,
+export function connectSSE(
+  onEvent: (eventName: string, data: unknown) => void,
   onError?: () => void,
   onReconnect?: () => void,
 ): () => void {
@@ -98,14 +98,16 @@ export function connectNotificationSSE(
       if (field === 'data') dataLines.push(value);
     }
 
-    if (eventName !== 'NOTIFICATION' || dataLines.length === 0) return;
+    if (dataLines.length === 0) {
+      onEvent(eventName, null);
+      return;
+    }
 
     try {
-      const parsed = JSON.parse(dataLines.join('\n'));
-      if (parsed.notification) {
-        onNotification(parsed.notification);
-      }
-    } catch { /* ignore malformed SSE payloads */ }
+      onEvent(eventName, JSON.parse(dataLines.join('\n')));
+    } catch {
+      onEvent(eventName, dataLines.join('\n'));
+    }
   }
 
   function scheduleReconnect() {
@@ -162,4 +164,16 @@ export function connectNotificationSSE(
     if (reconnectTimer) clearTimeout(reconnectTimer);
     if (reader) reader.cancel();
   };
+}
+
+export function connectNotificationSSE(
+  onNotification: (notif: NotificationItem) => void,
+  onError?: () => void,
+  onReconnect?: () => void,
+): () => void {
+  return connectSSE((eventName, data) => {
+    if (eventName !== 'NOTIFICATION' || !data || typeof data !== 'object') return;
+    const notification = (data as { notification?: NotificationItem }).notification;
+    if (notification) onNotification(notification);
+  }, onError, onReconnect);
 }
