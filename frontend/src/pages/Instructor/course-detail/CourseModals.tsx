@@ -82,15 +82,16 @@
   /* ── AddLessonModal ── */
   function AddLessonModal({ open, onClose, courseId, chapterId, onAdded }: any) {
     const [title, setTitle]   = useState("");
+    const [type, setType]     = useState("VIDEO");
     const [saving, setSaving] = useState(false);
     const [err, setErr]       = useState(null);
-    const close = () => { setTitle(""); setErr(null); onClose(); };
+    const close = () => { setTitle(""); setType("VIDEO"); setErr(null); onClose(); };
     async function handleAdd() {
       if (!title.trim()) { setErr("Vui lòng nhập tên bài giảng"); return; }
       if (title.trim().length < 3) { setErr("Tên phải có ít nhất 3 ký tự"); return; }
       setSaving(true); setErr(null);
       try {
-        await api.post(`/instructor/courses/${courseId}/chapters/${chapterId}/lessons`, { title: title.trim(), type: "TEXT" });
+        await api.post(`/instructor/courses/${courseId}/chapters/${chapterId}/lessons`, { title: title.trim(), type });
         close(); onAdded?.();
       } catch (e: any) { setErr(e?.response?.data?.message || "Thêm bài giảng thất bại"); }
       finally { setSaving(false); }
@@ -104,6 +105,20 @@
           <input className="input" value={title} onChange={e => setTitle(e.target.value)}
             placeholder="VD: Giới thiệu về React Hooks" autoFocus
             onKeyDown={e => e.key === "Enter" && handleAdd()} />
+          <label className="t-label" style={{ display: "block", marginBottom: 7, marginTop: 14 }}>Loại bài giảng</label>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            {[
+              { id: "VIDEO", label: "Video bài giảng", ic: "video" },
+              { id: "TEXT", label: "Bài đọc / Tài liệu", ic: "file" },
+            ].map(t => (
+              <div key={t.id} onClick={() => setType(t.id)}
+                style={{ padding: "10px 12px", borderRadius: 8, border: `1.5px solid ${type === t.id ? "var(--accent)" : "var(--border)"}`,
+                  background: type === t.id ? "var(--surface-2)" : "transparent", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, transition: "all .15s" }}>
+                <Ic n={t.ic} size={16} style={{ color: type === t.id ? "var(--accent)" : "var(--text-3)" }} />
+                <span style={{ fontSize: 13, fontWeight: type === t.id ? 600 : 400, color: type === t.id ? "var(--text-1)" : "var(--text-2)" }}>{t.label}</span>
+              </div>
+            ))}
+          </div>
           {err && <div style={{ color: "var(--error)", fontSize: 13, marginTop: 8 }}>{err}</div>}
         </div>
         <div className="modal-foot">
@@ -334,11 +349,35 @@
 
     function DocViewer({ url, type, height = 300 }: any) {
       if (!url) return null;
-      if (type === "PDF") return <iframe src={url} style={{ width: "100%", height, border: "none", display: "block" }} title="preview" />;
-      if (type === "SLIDE" || type === "DOC") return (
-        <iframe src={`https://docs.google.com/viewer?url=${encodeURIComponent(url)}&embedded=true`}
-          style={{ width: "100%", height, border: "none", display: "block" }} title="preview" />
+      if (type === "PDF") return (
+        <div style={{ position: "relative", width: "100%", height }}>
+          <iframe src={`${url}#toolbar=0&navpanes=0&scrollbar=0`} style={{ width: "100%", height, border: "none", display: "block" }} title="preview" />
+          <div style={{ position: "absolute", top: 0, right: 0, width: 180, height: 50, zIndex: 10, background: "transparent" }}
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); }} />
+        </div>
       );
+      if (type === "SLIDE" || type === "DOC") {
+        const isLocal = url.includes("localhost") || url.includes("127.0.0.1") || url.startsWith("/");
+        if (isLocal) {
+          return (
+            <div style={{ height, background: "var(--surface-2)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 20, textAlign: "center", gap: 10 }}>
+              <Ic n="book" size={28} style={{ color: "var(--muted)" }} />
+              <div style={{ fontSize: 13, fontWeight: 600, color: "var(--fg)" }}>Tài liệu {type === "SLIDE" ? "Slide PowerPoint" : "Word / Docx"}</div>
+              <div style={{ fontSize: 12, color: "var(--muted)", maxWidth: 380, lineHeight: 1.5 }}>Trình xem trực tuyến không kết nối được Localhost. Tài liệu sẽ hiển thị trực tiếp khi chạy trên máy chủ chính thức.</div>
+            </div>
+          );
+        }
+        return (
+          <div style={{ position: "relative", width: "100%", height }}>
+            <iframe src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}&wdDownloadButton=False&wdPrint=0`}
+              style={{ width: "100%", height, border: "none", display: "block" }} title="preview" />
+            <div style={{ position: "absolute", top: 0, right: 0, width: 160, height: 48, zIndex: 10, background: "transparent" }}
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); }} />
+            <div style={{ position: "absolute", bottom: 0, right: 0, width: 200, height: 44, zIndex: 10, background: "transparent" }}
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); }} />
+          </div>
+        );
+      }
       return null;
     }
 
@@ -555,19 +594,9 @@
           ) : isImage ? (
             viewUrl ? <img src={viewUrl} style={{ width: "100%", maxHeight: "70vh", objectFit: "contain", display: "block", background: "var(--surface-2)" }} />
                     : loading ? loadingNode : errorNode
-          ) : isSlide ? (
+          ) : (isSlide || isPdf || isDoc) ? (
             loading ? loadingNode : viewUrl
-              ? <iframe src={`https://docs.google.com/viewer?url=${encodeURIComponent(viewUrl)}&embedded=true`}
-                  style={{ width: "100%", height: iframeH, border: "none", display: "block" }} title="preview" />
-              : errorNode
-          ) : isPdf ? (
-            loading ? loadingNode : viewUrl
-              ? <iframe src={viewUrl} style={{ width: "100%", height: iframeH, border: "none", display: "block" }} title="preview" />
-              : errorNode
-          ) : isDoc ? (
-            loading ? loadingNode : viewUrl
-              ? <iframe src={`https://docs.google.com/viewer?url=${encodeURIComponent(viewUrl)}&embedded=true`}
-                  style={{ width: "100%", height: iframeH, border: "none", display: "block" }} title="preview" />
+              ? <DocViewer url={viewUrl} type={s.resourceType} height={iframeH} />
               : errorNode
           ) : (
             <div className="row gap-12" style={{ padding: "28px 20px" }}>

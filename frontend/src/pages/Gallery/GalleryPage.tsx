@@ -173,7 +173,7 @@ function registerGalleryPage() {
 
     const go = (k, params) => {
       setDemo(null);
-      if (FULLBARE[k]) { if (onBare) { onBare(k); return; } setBack(SCREENS[role][route] ? route : "dashboard"); setRoute(k); setDrawer(false); const m = document.querySelector(".main"); if (m) m.scrollTop = 0; return; }
+      if (FULLBARE[k]) { if (onBare) { onBare(k, params); return; } setBack(SCREENS[role][route] ? route : "dashboard"); setRoute(k); setRouteParams(params); setDrawer(false); const m = document.querySelector(".main"); if (m) m.scrollTop = 0; return; }
       if (SCREENS[role][k]) { if (onNavigate) { onNavigate(role, k, params); return; } setRouteParams(params); setRoute(k); setDrawer(false); const m = document.querySelector(".main"); if (m) m.scrollTop = 0; }
     };
     const switchRole = (r) => {
@@ -186,7 +186,11 @@ function registerGalleryPage() {
 
     if (FULLBARE[route]) {
       const Comp = window[FULLBARE[route]];
-      return <div className="app"><Comp onBack={() => setRoute(back)} onSubmit={() => setRoute("result")} /></div>;
+      const bareProps = {};
+      if (route === "player" && routeParams.courseId) {
+        window.__lectureCourse = { courseId: routeParams.courseId };
+      }
+      return <div className="app"><Comp onBack={() => setRoute(back)} onSubmit={() => setRoute("result")} {...bareProps} /></div>;
     }
 
     const activeKey = ALIAS[route] || route;
