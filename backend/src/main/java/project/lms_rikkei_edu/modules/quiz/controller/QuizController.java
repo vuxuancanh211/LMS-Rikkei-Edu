@@ -2,6 +2,10 @@ package project.lms_rikkei_edu.modules.quiz.controller;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -12,7 +16,6 @@ import project.lms_rikkei_edu.modules.quiz.dto.request.*;
 import project.lms_rikkei_edu.modules.quiz.dto.response.*;
 import project.lms_rikkei_edu.modules.quiz.service.QuizService;
 
-import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -26,8 +29,11 @@ public class QuizController {
 
     @GetMapping
     @PreAuthorize("hasAnyRole('INSTRUCTOR', 'ADMIN', 'STUDENT')")
-    public ResponseEntity<List<QuizSummaryResponse>> list(@PathVariable UUID courseId) {
-        return ResponseEntity.ok(quizService.listByCourse(courseId));
+    public ResponseEntity<Page<QuizSummaryResponse>> list(
+            @PathVariable UUID courseId,
+            @RequestParam(required = false) String title,
+            @PageableDefault(size = 10, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
+        return ResponseEntity.ok(quizService.listByCourse(courseId, title, pageable));
     }
 
     @GetMapping("/{quizId}")

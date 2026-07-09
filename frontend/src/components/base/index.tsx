@@ -153,12 +153,12 @@ function usePaged(list, size) {
   const slice = list.slice((cur - 1) * size, cur * size);
   return { slice, page: cur, pages, setPage, total: list.length, from: list.length ? (cur - 1) * size + 1 : 0, to: Math.min(cur * size, list.length) };
 }
-function PageBar({ pg, unit }) {
+function PageBar({ pg, unit, forcePager }) {
   if (pg.total === 0) return null;
   return (
     <div className="between wrap pagebar" style={{ gap: 12 }}>
       <span className="t-sm muted">Hiển thị <b style={{ color: "var(--text)" }}>{pg.from}–{pg.to}</b> trong tổng số <b style={{ color: "var(--text)" }}>{pg.total}</b> {unit || "mục"}</span>
-      {pg.pages > 1 && <Pager page={pg.page} pages={pg.pages} onPage={pg.setPage} />}
+      {(forcePager || pg.pages > 1) && <Pager page={pg.page} pages={pg.pages} onPage={pg.setPage} />}
     </div>
   );
 }

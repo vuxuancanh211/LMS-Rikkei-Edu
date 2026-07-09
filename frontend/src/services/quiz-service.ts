@@ -7,6 +7,7 @@ import type {
   BankQuestionImportPreviewResponse,
   BankQuestionImportConfirmResponse,
   BankQuestionSearchHit,
+  SpringPage,
   // Quiz
   QuizMetadataRequest,
   QuizAddBankQuestionsRequest,
@@ -33,8 +34,9 @@ import type {
 
 // ─── Question Bank ─────────────────────────────────────────────────────────────
 
+/** Phân trang — page 0-based (khớp Spring Pageable), tránh tải hết câu hỏi lên 1 lượt gây lag. */
 export async function listBankQuestions(courseId: string, params?: BankQuestionListParams) {
-  const res = await httpClient.get<BankQuestionResponse[]>(
+  const res = await httpClient.get<SpringPage<BankQuestionResponse>>(
     `/courses/${courseId}/bank-questions`,
     { params },
   );
@@ -119,8 +121,15 @@ export async function exportBankQuestions(courseId: string, format: 'csv' | 'xls
 
 // ─── Quiz CRUD ─────────────────────────────────────────────────────────────────
 
-export async function listQuizzes(courseId: string) {
-  const res = await httpClient.get<QuizSummaryResponse[]>(`/courses/${courseId}/quizzes`);
+/** Phân trang — page 0-based (khớp Spring Pageable), tránh tải hết quiz lên 1 lượt gây lag. */
+export async function listQuizzes(
+  courseId: string,
+  params?: { page?: number; size?: number; title?: string },
+) {
+  const res = await httpClient.get<SpringPage<QuizSummaryResponse>>(
+    `/courses/${courseId}/quizzes`,
+    { params },
+  );
   return res.data;
 }
 

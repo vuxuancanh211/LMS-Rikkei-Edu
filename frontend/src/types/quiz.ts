@@ -1,3 +1,13 @@
+// ─── Pagination (Spring Page<T> — content/totalElements/totalPages/number/size) ─────
+
+export type SpringPage<T> = {
+  content: T[];
+  totalElements: number;
+  totalPages: number;
+  number: number; // 0-based trang hiện tại
+  size: number;
+};
+
 // ─── Enums ────────────────────────────────────────────────────────────────────
 
 export type QuizType = 'STATIC' | 'SHUFFLED_POOL' | 'RANDOM_DRAW';
@@ -81,6 +91,8 @@ export type BankQuestionListParams = {
   status?: QuestionStatus;
   difficulty?: QuestionDifficulty;
   subjectTag?: string;
+  page?: number;
+  size?: number;
 };
 
 // ─── Quiz Management ───────────────────────────────────────────────────────────

@@ -5,7 +5,7 @@
 (function () {
   const { useState, useEffect, useCallback, useRef } = React;
   const Ic = window.Icon;
-  const { Avatar, Status, Search, Tabs, Select, Section, Modal, ModalHead, Empty } = window;
+  const { Avatar, Status, Search, Tabs, Select, Section, Modal, ModalHead, Empty, PageBar } = window;
 
   const {
     listQuizzes, createQuiz, updateQuiz, publishQuiz, archiveQuiz, deleteQuiz,
@@ -79,20 +79,31 @@
     const [q, setQ] = useState('');
     const [toast, setToast] = useState(null);
 
-    // Quiz state
+    // Quiz state — phân trang phía server, tránh tải hết quiz lên 1 lượt gây lag giao diện
+    const QUIZ_PAGE_SIZE = 10;
     const [quizzes, setQuizzes] = useState([]);
     const [quizLoading, setQuizLoading] = useState(false);
+    const [quizPageNum, setQuizPageNum] = useState(1); // 1-based (khớp Pager component)
+    const [quizTotalElements, setQuizTotalElements] = useState(0);
+    const [quizTotalPages, setQuizTotalPages] = useState(1);
+    const [debouncedQuizSearch, setDebouncedQuizSearch] = useState('');
 
-    // Bank state
+    // Bank state — 2 chế độ: "duyệt" (browse, phân trang phía server, tránh lag) khi không
+    // gõ tìm kiếm, và "tìm kiếm" (hybrid search — khớp chữ + tương đồng ngữ nghĩa, không phân
+    // trang vì kết quả đã tự giới hạn hợp lý) khi gõ ≥ 3 ký tự.
+    const BANK_PAGE_SIZE = 10;
     const [bankList, setBankList] = useState([]);
     const [bankLoading, setBankLoading] = useState(false);
     const [bankFilter, setBankFilter] = useState('ALL');
     const [bankStatusFilter, setBankStatusFilter] = useState('ALL');
+    const [bankPageNum, setBankPageNum] = useState(1); // 1-based (khớp Pager component)
+    const [bankTotalElements, setBankTotalElements] = useState(0);
+    const [bankTotalPages, setBankTotalPages] = useState(1);
 
-    // Semantic search (hybrid) — nối thêm câu tương đồng ngữ nghĩa dưới kết quả khớp chữ
-    const [semanticHits, setSemanticHits] = useState([]);
-    const [semanticLoading, setSemanticLoading] = useState(false);
-    const semanticSeq = useRef(0);
+    // Chế độ tìm kiếm (hybrid) — khớp chữ xếp trước, tương đồng ngữ nghĩa nối sau
+    const [searchHits, setSearchHits] = useState([]);
+    const [searchLoading, setSearchLoading] = useState(false);
+    const bankSearchSeq = useRef(0);
 
     // Modal states
     const [createQuizOpen, setCreateQuizOpen] = useState(false);
@@ -146,66 +157,83 @@
       setTimeout(() => setToast(null), 4000);
     }, []);
 
-    /* ── Fetch quizzes ── */
+    /* ── Fetch quizzes (phân trang) ── */
     const fetchQuizzes = useCallback(async () => {
       if (!activeCourseId) return;
       setQuizLoading(true);
       try {
-        const data = await listQuizzes(activeCourseId);
-        setQuizzes(data);
+        const data = await listQuizzes(activeCourseId, {
+          page: quizPageNum - 1,
+          size: QUIZ_PAGE_SIZE,
+          title: debouncedQuizSearch || undefined,
+        });
+        setQuizzes(data.content);
+        setQuizTotalElements(data.totalElements);
+        setQuizTotalPages(Math.max(1, data.totalPages));
       } catch (err) {
         showToast(extractError(err), 'error');
       } finally {
         setQuizLoading(false);
       }
-    }, [activeCourseId, showToast]);
+    }, [activeCourseId, quizPageNum, debouncedQuizSearch, showToast]);
 
-    /* ── Fetch bank questions ── */
+    // Debounce ô tìm kiếm (dùng chung với tab bank) khi đang ở tab quiz — 400ms, về trang 1
+    useEffect(() => {
+      if (tab !== 'quiz') return;
+      const timer = setTimeout(() => {
+        setDebouncedQuizSearch(q.trim());
+        setQuizPageNum(1);
+      }, 400);
+      return () => clearTimeout(timer);
+    }, [q, tab]);
+
+    // Đổi khóa học → về trang 1
+    useEffect(() => { setQuizPageNum(1); }, [activeCourseId]);
+
+    /* ── Fetch bank questions — chế độ duyệt (phân trang), chỉ chạy khi KHÔNG tìm kiếm ── */
     const fetchBank = useCallback(async () => {
       if (!activeCourseId) return;
       setBankLoading(true);
       try {
-        const params = {};
+        const params = { page: bankPageNum - 1, size: BANK_PAGE_SIZE };
         if (bankFilter !== 'ALL') params.difficulty = bankFilter;
         if (bankStatusFilter !== 'ALL') params.status = bankStatusFilter;
         const data = await listBankQuestions(activeCourseId, params);
-        setBankList(data);
+        setBankList(data.content);
+        setBankTotalElements(data.totalElements);
+        setBankTotalPages(Math.max(1, data.totalPages));
       } catch (err) {
         showToast(extractError(err), 'error');
       } finally {
         setBankLoading(false);
       }
-    }, [activeCourseId, bankFilter, bankStatusFilter, showToast]);
+    }, [activeCourseId, bankPageNum, bankFilter, bankStatusFilter, showToast]);
 
     useEffect(() => { fetchQuizzes(); }, [fetchQuizzes]);
-    useEffect(() => { if (tab === 'bank') fetchBank(); }, [tab, fetchBank]);
-
-    /* ── Filtered lists ── */
-    const filteredQuizzes = quizzes.filter(x =>
-      !q || x.title.toLowerCase().includes(q.toLowerCase())
-    );
-    const filteredBank = bankList.filter(x =>
-      !q || x.questionText.toLowerCase().includes(q.toLowerCase())
-    );
-
-    /* ── Semantic search (hybrid, debounce 400ms) ── */
     useEffect(() => {
-      if (tab !== 'bank' || q.trim().length < 3) { setSemanticHits([]); setSemanticLoading(false); return; }
-      const mySeq = ++semanticSeq.current;
-      setSemanticLoading(true);
+      if (tab === 'bank' && q.trim().length < 3) fetchBank();
+    }, [tab, fetchBank, q]);
+
+    // Đổi khóa học/bộ lọc → về trang 1
+    useEffect(() => { setBankPageNum(1); }, [activeCourseId, bankFilter, bankStatusFilter]);
+
+    /* ── Chế độ tìm kiếm (hybrid, debounce 400ms) — thay hẳn cho danh sách phân trang ── */
+    useEffect(() => {
+      if (tab !== 'bank' || q.trim().length < 3) { setSearchHits([]); setSearchLoading(false); return; }
+      const mySeq = ++bankSearchSeq.current;
+      setSearchLoading(true);
       const timer = setTimeout(async () => {
         try {
           const params = {};
           if (bankFilter !== 'ALL') params.difficulty = bankFilter;
           if (bankStatusFilter !== 'ALL') params.status = bankStatusFilter;
           const hits = await searchBankQuestions(activeCourseId, q.trim(), params);
-          if (semanticSeq.current !== mySeq) return; // response cũ, bỏ qua
-          const textIds = new Set(filteredBank.map(x => x.id));
-          setSemanticHits(hits.filter(h => h.matchType === 'SEMANTIC' && !textIds.has(h.question.id)));
+          if (bankSearchSeq.current !== mySeq) return; // response cũ, bỏ qua
+          setSearchHits(hits);
         } catch {
-          if (semanticSeq.current === mySeq) setSemanticHits([]); // lỗi → lặng lẽ bỏ qua, vẫn còn kết quả text
+          if (bankSearchSeq.current === mySeq) setSearchHits([]);
         } finally {
-          if (semanticSeq.current === mySeq) setSemanticLoading(false);
+          if (bankSearchSeq.current === mySeq) setSearchLoading(false);
         }
       }, 400);
       return () => clearTimeout(timer);
@@ -515,7 +543,7 @@
         <div className="toolbar">
           <Tabs
             items={[
-              { v: 'quiz', label: 'Đề trắc nghiệm', count: quizzes.length },
+              { v: 'quiz', label: 'Đề trắc nghiệm', count: quizTotalElements },
               { v: 'bank', label: 'Ngân hàng câu hỏi', count: bankList.length },
             ]}
             value={tab}
@@ -555,7 +583,7 @@
           <Section pad={false}>
             {quizLoading ? (
               <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-2)' }}>Đang tải...</div>
-            ) : filteredQuizzes.length === 0 ? (
+            ) : quizzes.length === 0 ? (
               <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-2)' }}>
                 <Ic n="clipboard" size={36} style={{ marginBottom: 10, opacity: 0.3 }} />
                 <p>Chưa có quiz nào. Nhấn "Tạo quiz" để bắt đầu.</p>
@@ -576,7 +604,7 @@
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredQuizzes.map(quiz => (
+                    {quizzes.map(quiz => (
                       <tr key={quiz.id} style={{ cursor: 'pointer' }}
                         onClick={() => { setDetailQuiz(quiz); setDetailOpen(true); }}>
                         <td>
@@ -636,49 +664,77 @@
             )}
           </Section>
         )}
+        {tab === 'quiz' && !quizLoading && (
+          <PageBar pg={{
+            page: quizPageNum,
+            pages: quizTotalPages,
+            total: quizTotalElements,
+            from: quizTotalElements ? (quizPageNum - 1) * QUIZ_PAGE_SIZE + 1 : 0,
+            to: Math.min(quizPageNum * QUIZ_PAGE_SIZE, quizTotalElements),
+            setPage: setQuizPageNum,
+          }} unit="quiz" forcePager />
+        )}
 
         {/* ── BANK TAB ── */}
-        {tab === 'bank' && (
-          <Section pad={false}>
-            {bankLoading ? (
-              <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-2)' }}>Đang tải...</div>
-            ) : filteredBank.length === 0 ? (
-              <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-2)' }}>
-                <Ic n="layers" size={36} style={{ marginBottom: 10, opacity: 0.3 }} />
-                <p>Ngân hàng câu hỏi trống. Thêm câu hỏi hoặc import CSV.</p>
-              </div>
-            ) : (
-              <div style={{ overflowX: 'auto' }}>
-                <table className="tbl">
-                  <thead>
-                    <tr><th>Câu hỏi</th><th>Độ khó</th><th>Dùng trong</th><th>Trạng thái</th><th></th></tr>
-                  </thead>
-                  <tbody>
-                    {filteredBank.map(item => renderBankRow(item, null))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-
-            {/* ── Kết quả tương đồng ngữ nghĩa (hybrid search) ── */}
-            {tab === 'bank' && q.trim().length >= 3 && (semanticLoading || semanticHits.length > 0) && (
-              <div style={{ overflowX: 'auto', borderTop: '1px solid var(--border)' }}>
-                <div className="row gap-8" style={{ padding: '12px 16px 8px', alignItems: 'center' }}>
-                  <Ic n="sparkles" size={14} style={{ color: 'var(--accent)' }} />
-                  <span className="t-sm" style={{ fontWeight: 600 }}>Kết quả tương đồng ngữ nghĩa</span>
+        {tab === 'bank' && (() => {
+          const searching = q.trim().length >= 3;
+          const rows = searching ? searchHits : bankList;
+          const loading = searching ? searchLoading : bankLoading;
+          const firstSemanticIdx = searching ? searchHits.findIndex(h => h.matchType === 'SEMANTIC') : -1;
+          return (
+            <Section pad={false}>
+              {loading && rows.length === 0 ? (
+                <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-2)' }}>Đang tải...</div>
+              ) : rows.length === 0 ? (
+                <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-2)' }}>
+                  <Ic n="layers" size={36} style={{ marginBottom: 10, opacity: 0.3 }} />
+                  <p>{searching ? 'Không tìm thấy câu hỏi phù hợp.' : 'Ngân hàng câu hỏi trống. Thêm câu hỏi hoặc import CSV.'}</p>
                 </div>
-                {semanticLoading ? (
-                  <div className="t-xs muted" style={{ padding: '0 16px 12px' }}>Đang tìm câu hỏi tương tự...</div>
-                ) : (
+              ) : (
+                <div style={{ overflowX: 'auto' }}>
                   <table className="tbl">
+                    <thead>
+                      <tr><th>Câu hỏi</th><th>Độ khó</th><th>Dùng trong</th><th>Trạng thái</th><th></th></tr>
+                    </thead>
                     <tbody>
-                      {semanticHits.map(hit => renderBankRow(hit.question, hit.similarity))}
+                      {searching
+                        ? searchHits.flatMap((hit, idx) => [
+                            idx === firstSemanticIdx && (
+                              <tr key={`divider-${hit.question.id}`}>
+                                <td colSpan={5} style={{ padding: '10px 18px', background: 'var(--surface-2)' }}>
+                                  <div className="row gap-8" style={{ alignItems: 'center' }}>
+                                    <Ic n="sparkles" size={13} style={{ color: 'var(--accent)' }} />
+                                    <span className="t-xs" style={{ fontWeight: 600 }}>Kết quả tương đồng ngữ nghĩa</span>
+                                  </div>
+                                </td>
+                              </tr>
+                            ),
+                            renderBankRow(hit.question, hit.matchType === 'SEMANTIC' ? hit.similarity : null),
+                          ].filter(Boolean))
+                        : bankList.map(item => renderBankRow(item, null))}
+                      {searching && searchLoading && (
+                        <tr>
+                          <td colSpan={5} className="t-xs muted" style={{ padding: '10px 18px' }}>
+                            Đang tìm câu hỏi tương tự...
+                          </td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
-                )}
-              </div>
-            )}
-          </Section>
+                </div>
+              )}
+            </Section>
+          );
+        })()}
+        {tab === 'bank' && !bankLoading && q.trim().length < 3 && (
+          <PageBar pg={{
+            page: bankPageNum,
+            pages: bankTotalPages,
+            total: bankTotalElements,
+            from: bankTotalElements ? (bankPageNum - 1) * BANK_PAGE_SIZE + 1 : 0,
+            to: Math.min(bankPageNum * BANK_PAGE_SIZE, bankTotalElements),
+            setPage: setBankPageNum,
+          }} unit="câu hỏi" />
         )}
 
         {/* ═══ Modal: Tạo / Sửa quiz ═══ */}
@@ -990,10 +1046,10 @@
     // Nạp danh sách tag hiện có (từ ngân hàng câu hỏi) + tài liệu AI đã index của khóa học mỗi khi mở modal
     useEffect(() => {
       if (!open || !courseId) return;
-      listBankQuestions(courseId, { status: 'ACTIVE' })
+      listBankQuestions(courseId, { status: 'ACTIVE', size: 500 })
         .then(data => {
           const tagSet = new Set();
-          (data || []).forEach(q => { if (q.subjectTag) tagSet.add(q.subjectTag); });
+          (data?.content || []).forEach(q => { if (q.subjectTag) tagSet.add(q.subjectTag); });
           setBankTags(Array.from(tagSet).sort());
         })
         .catch(() => setBankTags([]));
@@ -1725,15 +1781,16 @@
 
     useEffect(() => {
       if (!open || !courseId) return;
-      listBankQuestions(courseId, { status: 'ACTIVE' })
+      listBankQuestions(courseId, { status: 'ACTIVE', size: 500 })
         .then(data => {
+          const items = data?.content || [];
           const counts = { EASY: 0, MEDIUM: 0, HARD: 0 };
           const tagSet = new Set();
-          data.forEach(q => {
+          items.forEach(q => {
             counts[q.difficulty] = (counts[q.difficulty] || 0) + 1;
             if (q.subjectTag) tagSet.add(q.subjectTag);
           });
-          setBankSummary({ total: data.length, counts, tags: Array.from(tagSet).sort() });
+          setBankSummary({ total: items.length, counts, tags: Array.from(tagSet).sort() });
         })
         .catch(() => {});
     }, [open, courseId]);
@@ -2075,8 +2132,8 @@
 
     useEffect(() => {
       setLoading(true);
-      listBankQuestions(courseId, { status: 'ACTIVE' })
-        .then(data => setItems(data))
+      listBankQuestions(courseId, { status: 'ACTIVE', size: 500 })
+        .then(data => setItems(data?.content || []))
         .catch(err => setError(extractError(err)))
         .finally(() => setLoading(false));
     }, [courseId]);
@@ -2211,24 +2268,17 @@
               <Empty icon="search" title="Không tìm thấy câu hỏi phù hợp" sub="Thử từ khóa khác hoặc bỏ bớt bộ lọc." />
             </div>
           )}
-          {!loading && !error && filtered.length > 0 && (
+          {!loading && !error && (filtered.length > 0 || semanticLoading || semanticExtra.length > 0) && (
             <div style={{ maxHeight: 400, overflowY: 'auto', padding: '0 20px 4px', display: 'flex', flexDirection: 'column', gap: 8 }}>
               {filtered.map(item => renderPickRow(item, null))}
-            </div>
-          )}
-          {!loading && !error && search.trim().length >= 3 && (semanticLoading || semanticExtra.length > 0) && (
-            <div style={{ padding: '4px 20px 4px' }}>
-              <div className="row gap-8" style={{ alignItems: 'center', marginBottom: 8 }}>
-                <Ic n="sparkles" size={13} style={{ color: 'var(--accent)' }} />
-                <span className="t-xs" style={{ fontWeight: 600 }}>Kết quả tương đồng ngữ nghĩa</span>
-              </div>
-              {semanticLoading ? (
-                <div className="t-xs muted">Đang tìm câu hỏi tương tự...</div>
-              ) : (
-                <div style={{ maxHeight: 300, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {semanticExtra.map(h => renderPickRow(h.question, h.similarity))}
+              {search.trim().length >= 3 && (semanticLoading || semanticExtra.length > 0) && (
+                <div className="row gap-8" style={{ alignItems: 'center', padding: '6px 2px' }}>
+                  <Ic n="sparkles" size={13} style={{ color: 'var(--accent)' }} />
+                  <span className="t-xs" style={{ fontWeight: 600 }}>Kết quả tương đồng ngữ nghĩa</span>
+                  {semanticLoading && <span className="t-xs muted">— Đang tìm câu hỏi tương tự...</span>}
                 </div>
               )}
+              {!semanticLoading && semanticExtra.map(h => renderPickRow(h.question, h.similarity))}
             </div>
           )}
         </div>

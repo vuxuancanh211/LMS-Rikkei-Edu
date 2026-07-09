@@ -1,5 +1,7 @@
 package project.lms_rikkei_edu.modules.quiz.service;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import project.lms_rikkei_edu.modules.quiz.dto.request.*;
 import project.lms_rikkei_edu.modules.quiz.dto.response.*;
 
@@ -16,7 +18,8 @@ public interface QuizService {
 
     QuizDetailResponse getDetail(UUID courseId, UUID quizId);
 
-    List<QuizSummaryResponse> listByCourse(UUID courseId);
+    // Phân trang — tránh tải toàn bộ quiz của khóa học lên giao diện 1 lượt gây lag
+    Page<QuizSummaryResponse> listByCourse(UUID courseId, String title, Pageable pageable);
 
     // Thêm câu hỏi từ bank (Type 1/2) — snapshot ngay
     QuizDetailResponse addBankQuestions(UUID courseId, UUID quizId, QuizAddBankQuestionsRequest request);

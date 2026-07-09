@@ -1,5 +1,7 @@
 package project.lms_rikkei_edu.modules.quiz.service;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.web.multipart.MultipartFile;
 import project.lms_rikkei_edu.modules.quiz.dto.request.BankQuestionImportConfirmRequest;
 import project.lms_rikkei_edu.modules.quiz.dto.request.BankQuestionRequest;
@@ -25,8 +27,13 @@ public interface BankQuestionService {
 
     BankQuestionResponse getById(UUID courseId, UUID questionId);
 
+    // KHÔNG phân trang — dùng cho pha text-match của search() và PickBankQuestionsModal (cần tải hết).
     List<BankQuestionResponse> list(UUID courseId, QuestionStatus status,
                                     QuestionDifficulty difficulty, String subjectTag);
+
+    // Phân trang — tab Ngân hàng câu hỏi dùng, tránh tải hết 1 lượt gây lag giao diện.
+    Page<BankQuestionResponse> listPaged(UUID courseId, QuestionStatus status,
+                                        QuestionDifficulty difficulty, String subjectTag, Pageable pageable);
 
     /** Hybrid search: khớp chữ xếp trước, tương đồng ngữ nghĩa (pgvector) nối sau. */
     List<BankQuestionSearchHit> search(UUID courseId, String q, QuestionStatus status,

@@ -1,5 +1,7 @@
 package project.lms_rikkei_edu.modules.quiz.repository;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -12,7 +14,28 @@ import java.util.UUID;
 
 public interface BankQuestionRepository extends JpaRepository<BankQuestionEntity, UUID> {
 
+    // KHÔNG phân trang — vẫn cần cho pha text-match của hybrid search (BankQuestionServiceImpl#search)
+    // và PickBankQuestionsModal (cần tải toàn bộ để chọn nhiều câu tùy ý). Giao diện danh sách chính
+    // (tab Ngân hàng câu hỏi) dùng findByFilters phân trang bên dưới.
     List<BankQuestionEntity> findByCourseId(UUID courseId);
+
+    // Phân trang cho tab Ngân hàng câu hỏi — tránh tải hết câu hỏi lên 1 lượt gây lag.
+    // Gộp cả 3 filter (status/difficulty/subjectTag) vào 1 query duy nhất, null = bỏ qua filter đó —
+    // thay cho logic if/else phân nhánh + lọc Java phía service (vốn phá vỡ phân trang đúng khi
+    // kết hợp difficulty + subjectTag).
+    @Query("""
+            SELECT q FROM BankQuestionEntity q
+            WHERE q.courseId = :courseId
+              AND (:status IS NULL OR q.status = :status)
+              AND (:difficulty IS NULL OR q.difficulty = :difficulty)
+              AND (:subjectTag IS NULL OR q.subjectTag = :subjectTag)
+            """)
+    Page<BankQuestionEntity> findByFilters(
+            @Param("courseId") UUID courseId,
+            @Param("status") QuestionStatus status,
+            @Param("difficulty") QuestionDifficulty difficulty,
+            @Param("subjectTag") String subjectTag,
+            Pageable pageable);
 
     List<BankQuestionEntity> findByCourseIdAndStatus(UUID courseId, QuestionStatus status);
 

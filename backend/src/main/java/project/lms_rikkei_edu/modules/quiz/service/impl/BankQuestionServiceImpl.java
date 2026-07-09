@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -147,6 +149,17 @@ public class BankQuestionServiceImpl implements BankQuestionService {
         }
 
         return questions.stream().map(this::toResponse).toList();
+    }
+
+    @Override
+    public Page<BankQuestionResponse> listPaged(UUID courseId, QuestionStatus status,
+                                                QuestionDifficulty difficulty, String subjectTag, Pageable pageable) {
+        // Không chọn status nhưng có lọc difficulty/tag → ngầm hiểu ACTIVE (khớp hành vi list() cũ);
+        // không chọn gì cả → không lọc status (hiện toàn bộ, kể cả INACTIVE), đúng mặc định của tab.
+        QuestionStatus effectiveStatus = status != null ? status
+                : (difficulty != null || subjectTag != null ? QuestionStatus.ACTIVE : null);
+        return bankQuestionRepository.findByFilters(courseId, effectiveStatus, difficulty, subjectTag, pageable)
+                .map(this::toResponse);
     }
 
     // ── Hybrid search ─────────────────────────────────────────────────────────

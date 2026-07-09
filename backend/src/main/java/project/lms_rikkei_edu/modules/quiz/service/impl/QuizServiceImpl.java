@@ -2,6 +2,8 @@ package project.lms_rikkei_edu.modules.quiz.service.impl;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -74,10 +76,11 @@ public class QuizServiceImpl implements QuizService {
     }
 
     @Override
-    public List<QuizSummaryResponse> listByCourse(UUID courseId) {
-        return quizRepository.findByCourseId(courseId).stream()
-                .map(this::toSummary)
-                .toList();
+    public Page<QuizSummaryResponse> listByCourse(UUID courseId, String title, Pageable pageable) {
+        Page<QuizEntity> page = (title != null && !title.isBlank())
+                ? quizRepository.findByCourseIdAndTitleContainingIgnoreCase(courseId, title.trim(), pageable)
+                : quizRepository.findByCourseId(courseId, pageable);
+        return page.map(this::toSummary);
     }
 
     // ── Add questions (Type 1/2) ──────────────────────────────────────────────

@@ -2,6 +2,10 @@ package project.lms_rikkei_edu.modules.quiz.controller;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -32,13 +36,14 @@ public class BankQuestionController {
 
     @GetMapping
     @PreAuthorize("hasAnyRole('INSTRUCTOR', 'ADMIN')")
-    public ResponseEntity<List<BankQuestionResponse>> list(
+    public ResponseEntity<Page<BankQuestionResponse>> list(
             @PathVariable UUID courseId,
             @RequestParam(required = false) QuestionStatus status,
             @RequestParam(required = false) QuestionDifficulty difficulty,
-            @RequestParam(required = false) String subjectTag) {
+            @RequestParam(required = false) String subjectTag,
+            @PageableDefault(size = 10, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
         ownershipGuard.requireOwnership(courseId);
-        return ResponseEntity.ok(bankQuestionService.list(courseId, status, difficulty, subjectTag));
+        return ResponseEntity.ok(bankQuestionService.listPaged(courseId, status, difficulty, subjectTag, pageable));
     }
 
     /** Hybrid search: khớp chữ xếp trước, tương đồng ngữ nghĩa (pgvector) nối sau. */
