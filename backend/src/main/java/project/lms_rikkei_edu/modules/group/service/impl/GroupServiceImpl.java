@@ -7,9 +7,15 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import project.lms_rikkei_edu.common.exception.BusinessException;
 import project.lms_rikkei_edu.common.security.CurrentUserProvider;
 import project.lms_rikkei_edu.common.security.UserPrincipal;
+import project.lms_rikkei_edu.infrastructure.sse.SseEmitterRegistry;
+import project.lms_rikkei_edu.modules.chat.entity.ChatRoomEntity;
+import project.lms_rikkei_edu.modules.chat.entity.ChatRoomMemberEntity;
+import project.lms_rikkei_edu.modules.chat.service.ChatRoomService;
 import project.lms_rikkei_edu.modules.course.entity.Course;
 import project.lms_rikkei_edu.modules.course.repository.CourseRepository;
 import project.lms_rikkei_edu.modules.group.dto.request.AddGroupMembersRequest;
@@ -35,6 +41,7 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -43,6 +50,7 @@ import java.util.UUID;
 public class GroupServiceImpl implements GroupService {
 
     private static final String GROUP_REFERENCE_TYPE = "GROUP";
+    private static final String COURSE_TITLE_SEPARATOR = "\" của khóa học \"";
 
     private final StudyGroupRepository studyGroupRepository;
     private final GroupMemberRepository groupMemberRepository;
@@ -51,6 +59,8 @@ public class GroupServiceImpl implements GroupService {
     private final CurrentUserProvider currentUserProvider;
     private final NotificationService notificationService;
     private final NotificationPreferenceService notificationPreferenceService;
+    private final ChatRoomService chatRoomService;
+    private final SseEmitterRegistry sseEmitterRegistry;
 
     @Override
     @Transactional(readOnly = true)
@@ -109,7 +119,8 @@ public class GroupServiceImpl implements GroupService {
         group.setCreatedAt(now);
         group.setUpdatedAt(now);
 
-        studyGroupRepository.save(group);
+        group = studyGroupRepository.save(group);
+        chatRoomService.getOrCreateRoomForGroup(group, group.getInstructor());
         return toGroupResponse(group);
     }
 
@@ -160,9 +171,12 @@ public class GroupServiceImpl implements GroupService {
         UserPrincipal currentUser = requireCurrentUser();
         StudyGroupEntity group = findGroupForInstructor(groupId, currentUser.getId());
         List<GroupMemberEntity> members = groupMemberRepository.findByGroupIdWithStudent(groupId);
+        List<UUID> memberIds = members.stream().map(member -> member.getStudent().getId()).toList();
         notifyGroupDeleted(group, members, currentUser);
         groupMemberRepository.deleteByGroupId(groupId);
+        chatRoomService.deleteRoomForGroup(groupId);
         studyGroupRepository.delete(group);
+        sendChatRoomsChangedAfterCommit(memberIds, "GROUP_DELETED", groupId);
     }
 
     @Override
@@ -217,14 +231,20 @@ public class GroupServiceImpl implements GroupService {
                 .toList();
 
         groupMemberRepository.saveAll(members);
+        ChatRoomEntity room = chatRoomService.getOrCreateRoomForGroup(group, group.getInstructor());
+        students.forEach(student -> chatRoomService.addMember(
+                room.getId(),
+                student,
+                ChatRoomMemberEntity.MemberRole.MEMBER));
         notifyAddedMembers(group, members, currentUser);
+        sendChatRoomsChangedAfterCommit(studentIds, "GROUP_MEMBER_ADDED", groupId);
         return members.stream().map(this::toMemberResponse).toList();
     }
 
     private void notifyAddedMembers(StudyGroupEntity group, List<GroupMemberEntity> members, UserPrincipal actor) {
         String title = "Bạn đã được thêm vào nhóm học";
         String body = "Bạn đã được thêm vào nhóm \"" + group.getName()
-                + "\" của khóa học \"" + group.getCourse().getTitle() + "\".";
+                + COURSE_TITLE_SEPARATOR + group.getCourse().getTitle() + "\".";
         notifyMembers(group, members, NotificationType.GROUP_MEMBER_ADDED, title, body,
                 "group-member-added", actor);
     }
@@ -241,7 +261,7 @@ public class GroupServiceImpl implements GroupService {
 
     private void notifyGroupDeleted(StudyGroupEntity group, List<GroupMemberEntity> members, UserPrincipal actor) {
         String title = "Nhóm học đã bị xoá";
-        String body = "Nhóm \"" + group.getName() + "\" của khóa học \""
+        String body = "Nhóm \"" + group.getName() + COURSE_TITLE_SEPARATOR
                 + group.getCourse().getTitle() + "\" đã bị xoá.";
         notifyMembers(group, members, NotificationType.GROUP_DELETED, title, body,
                 "group-deleted", actor);
@@ -258,12 +278,34 @@ public class GroupServiceImpl implements GroupService {
 
         notifyMemberRemoved(group, member, currentUser);
         groupMemberRepository.deleteByGroupIdAndStudentId(groupId, studentId);
+        ChatRoomEntity room = chatRoomService.getOrCreateRoomForGroup(group, group.getInstructor());
+        chatRoomService.removeMember(room.getId(), studentId);
+        sendChatRoomsChangedAfterCommit(List.of(studentId), "GROUP_MEMBER_REMOVED", groupId);
+    }
+
+    private void sendChatRoomsChangedAfterCommit(List<UUID> userIds, String reason, UUID groupId) {
+        Runnable send = () -> sseEmitterRegistry.sendToUsers(userIds, "CHAT_ROOMS_CHANGED", Map.of(
+                "reason", reason,
+                "groupId", groupId
+        ));
+
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    send.run();
+                }
+            });
+            return;
+        }
+
+        send.run();
     }
 
     private void notifyMemberRemoved(StudyGroupEntity group, GroupMemberEntity member, UserPrincipal actor) {
         String title = "Bạn đã được xoá khỏi nhóm học";
         String body = "Bạn đã được xoá khỏi nhóm \"" + group.getName()
-                + "\" của khóa học \"" + group.getCourse().getTitle() + "\".";
+                + COURSE_TITLE_SEPARATOR + group.getCourse().getTitle() + "\".";
         notifyStudent(group, member.getStudent().getId(), NotificationType.GROUP_MEMBER_REMOVED, title, body,
                 "group-member-removed:" + group.getId() + ":" + member.getStudent().getId(), actor);
     }

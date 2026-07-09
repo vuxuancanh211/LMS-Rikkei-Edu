@@ -225,6 +225,11 @@
     const [notifLoading, setNotifLoading] = useState(false);
     const [userMenu, setUserMenu] = useState(false);
     const [userName, setUserName] = useState("Học viên");
+    
+    /* State từ dev: quản lý gửi tin nhắn AI Chatbot thật */
+    const [sending, setSending] = useState(false);
+    const [conversationId, setConversationId] = useState(null);
+
     useEffect(() => {
       api.get('/profile').then(r => { if (r.data?.fullName) setUserName(r.data.fullName); }).catch(() => { /* ignore */ });
     }, []);
@@ -328,15 +333,40 @@
 
     const endRef = useRef();
     function scrollBottom() { setTimeout(() => endRef.current?.scrollIntoView({ behavior: "smooth" }), 60); }
-    function send() {
-      if (!input.trim()) return;
-      setMsgs(p => [...p, { me: true, t: input }]);
-      const q = input; setInput(""); scrollBottom();
-      setTimeout(() => {
-        setMsgs(p => [...p, { me: false, t: `Ai trả lời câu hỏi "${q}" về bài ${activeL?.title || ""}...` }]);
+    useEffect(() => { scrollBottom(); }, [msgs, sending]);
+
+    /* Kết hợp AI Chatbot thật từ dev, nhưng truyền thêm activeL?.title/id của bạn */
+    const send = async () => {
+      if (!input.trim() || sending) return;
+      const q = input.trim();
+      setMsgs(m => [...m, { me: true, t: q }]);
+      setInput("");
+      scrollBottom();
+      setSending(true);
+      try {
+        if (window.__aiService && typeof window.__aiService.sendChatMessage === "function") {
+          const res = await window.__aiService.sendChatMessage({ 
+            message: q, 
+            courseId: courseId || window.__selectedCourseId || null, 
+            lessonId: activeL?.id || null,
+            conversationId 
+          });
+          if (res?.conversationId) setConversationId(res.conversationId);
+          setMsgs(m => [...m, { me: false, t: res.answer || res.message || "Đã phản hồi từ AI" }]);
+        } else {
+          /* Fallback nhẹ nhàng nếu aiService chưa bật */
+          setTimeout(() => {
+            setMsgs(m => [...m, { me: false, t: `AI trợ giảng: Mình đã nhận câu hỏi "${q}" về bài học ${activeL?.title || "này"}.` }]);
+            scrollBottom();
+          }, 700);
+        }
+      } catch (e) {
+        setMsgs(m => [...m, { me: false, t: "Xin lỗi, mình đang gặp sự cố kết nối AI. Bạn thử lại sau nhé." }]);
+      } finally {
+        setSending(false);
         scrollBottom();
-      }, 700);
-    }
+      }
+    };
 
     /* Fetch course */
     useEffect(() => {
@@ -444,6 +474,7 @@
         }
       }
     }, [activeL?.id, activeL?.progress]);
+
 
     /* ── Progress: YouTube iframe tracking (no onTimeUpdate) ── */
     useEffect(() => {
@@ -885,16 +916,22 @@
                   )}
                 </div>
               ))}
+              {sending && (
+                <div style={{ alignSelf: "flex-start", maxWidth: "85%" }}>
+                  <div style={{ padding: "10px 14px", borderRadius: 14, fontSize: 13.5, background: "#fff", color: "var(--text-3)", border: "1px solid var(--border)", borderBottomLeftRadius: 4 }}>Đang trả lời...</div>
+                </div>
+              )}
               <div ref={endRef} />
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8,
               padding: 14, borderTop: "1px solid var(--border)" }}>
               <input className="input" placeholder="Nhập câu hỏi của bạn..."
-                value={input} onChange={e => setInput(e.target.value)}
+                value={input} disabled={sending} onChange={e => setInput(e.target.value)}
                 onKeyDown={e => e.key === "Enter" && send()} />
-              <button className="btn btn-primary btn-icon" onClick={send}>
+              <button className="btn btn-primary btn-icon" disabled={sending} onClick={send}>
                 <Ic n="send" size={17} />
               </button>
+
             </div>
           </div>
         )}
