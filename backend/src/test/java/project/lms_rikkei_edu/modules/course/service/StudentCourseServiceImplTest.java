@@ -293,4 +293,182 @@ class StudentCourseServiceImplTest {
             p.getLessonPercentage().intValue() == 100
         ));
     }
+
+    @Test
+    void getEnrolledCourses_withNullAndBranches() {
+        Course course = new Course();
+        course.setId(courseId);
+        course.setTitle("Java Advanced");
+        course.setStatus(CourseStatus.PUBLISHED);
+        course.setInstructorId(instructorId);
+        course.setLevel(project.lms_rikkei_edu.modules.course.enums.CourseLevel.BEGINNER);
+
+        CourseCategory cat = new CourseCategory();
+        cat.setName("Backend");
+        course.setCategory(cat);
+
+        // chapter with null lessons
+        Chapter chNullLessons = new Chapter();
+        chNullLessons.setLessons(null);
+
+        // chapter with lesson having null duration
+        Chapter chLessonNullDur = new Chapter();
+        Lesson lNullDur = new Lesson();
+        lNullDur.setId(lessonId);
+        lNullDur.setDurationSeconds(null);
+        chLessonNullDur.setLessons(List.of(lNullDur));
+        course.setChapters(List.of(chNullLessons, chLessonNullDur));
+
+        UserEntity instructor = new UserEntity();
+        instructor.setId(instructorId);
+        instructor.setFullName("Nguyễn Văn B");
+
+        CourseProgressEntity prog = new CourseProgressEntity();
+        prog.setCourseId(courseId);
+        prog.setStatus("IN_PROGRESS");
+        prog.setOverallPercentage(null); // test null percentage branch
+
+        when(courseRepository.findEnrolledCoursesByStudentId(studentId)).thenReturn(List.of(course));
+        when(userRepository.findAllById(any())).thenReturn(List.of(instructor));
+        when(courseProgressRepository.findByStudentIdAndCourseIdIn(eq(studentId), any())).thenReturn(List.of(prog));
+
+        List<StudentCourseResponse> result = studentCourseService.getEnrolledCourses(studentId);
+        assertThat(result).hasSize(1);
+        StudentCourseResponse resp = result.get(0);
+        assertThat(resp.getCategory()).isEqualTo("Backend");
+        assertThat(resp.getLevel()).isEqualTo("BEGINNER");
+        assertThat(resp.getProgress()).isEqualTo(0);
+        assertThat(resp.getSStatus()).isEqualTo("learning");
+    }
+
+    @Test
+    void getCourseDetail_deletedCourse_throwsException() {
+        Course course = new Course();
+        course.setId(courseId);
+        course.setDeletedAt(Instant.now());
+        course.setStatus(CourseStatus.PUBLISHED);
+        when(courseRepository.findByIdWithCategory(courseId)).thenReturn(Optional.of(course));
+
+        assertThatThrownBy(() -> studentCourseService.getCourseDetail(studentId, courseId))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("Khóa học đã bị xóa");
+    }
+
+    @Test
+    void getCourseDetail_nullChaptersOrNullLessons_handledSafely() {
+        Course course = new Course();
+        course.setId(courseId);
+        course.setStatus(CourseStatus.PUBLISHED);
+        when(courseRepository.findByIdWithCategory(courseId)).thenReturn(Optional.of(course));
+        when(courseEnrollmentRepository.existsByCourseIdAndStudentId(courseId, studentId)).thenReturn(true);
+
+        CourseDetailResponse detailResp = CourseDetailResponse.builder()
+                .id(courseId)
+                .chapters(null)
+                .build();
+        when(courseMapper.toDetailResponse(course)).thenReturn(detailResp);
+        when(lessonProgressRepository.findByStudentIdAndCourseId(studentId, courseId)).thenReturn(Collections.emptyList());
+
+        CourseDetailResponse result = studentCourseService.getCourseDetail(studentId, courseId);
+        assertThat(result.getChapters()).isNull();
+    }
+
+    @Test
+    void updateLessonProgress_noVideoNoDoc_completesImmediately() {
+        when(courseEnrollmentRepository.existsByCourseIdAndStudentId(courseId, studentId)).thenReturn(true);
+        Lesson lesson = new Lesson();
+        lesson.setId(lessonId);
+        lesson.setResources(Collections.emptyList()); // no video, no doc
+        when(lessonRepository.findById(lessonId)).thenReturn(Optional.of(lesson));
+
+        LessonProgressEntity prog = new LessonProgressEntity();
+        prog.setLessonId(lessonId);
+        prog.setStatus(null);
+        when(lessonProgressRepository.findByStudentIdAndLessonId(studentId, lessonId)).thenReturn(Optional.of(prog));
+        when(lessonProgressRepository.findByStudentIdAndCourseId(studentId, courseId)).thenReturn(List.of(prog));
+
+        Course course = new Course();
+        course.setId(courseId);
+        course.setChapters(null); // tests getCourseLessonCount when chapters == null
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(course));
+
+        UpdateProgressRequest req = new UpdateProgressRequest();
+        studentCourseService.updateLessonProgress(studentId, courseId, lessonId, req);
+
+        verify(lessonProgressRepository).save(argThat(p ->
+            "COMPLETED".equals(p.getStatus()) &&
+            p.getCompletedAt() != null &&
+            p.getLessonPercentage().intValue() == 100
+        ));
+    }
+
+    @Test
+    void updateLessonProgress_videoLessonInProgressAndPendingDeleteFiltered() {
+        when(courseEnrollmentRepository.existsByCourseIdAndStudentId(courseId, studentId)).thenReturn(true);
+        Lesson lesson = new Lesson();
+        lesson.setId(lessonId);
+        LessonResource resVideo = new LessonResource();
+        resVideo.setResourceType(ResourceType.VIDEO);
+        lesson.setResources(List.of(resVideo));
+        when(lessonRepository.findById(lessonId)).thenReturn(Optional.of(lesson));
+
+        LessonProgressEntity prog = new LessonProgressEntity();
+        prog.setLessonId(lessonId);
+        when(lessonProgressRepository.findByStudentIdAndLessonId(studentId, lessonId)).thenReturn(Optional.of(prog));
+
+        Course course = new Course();
+        course.setId(courseId);
+        Chapter ch1 = new Chapter();
+        ch1.setPendingDelete(true); // filtered out
+        Chapter ch2 = new Chapter();
+        ch2.setPendingDelete(false);
+        Lesson lDel = new Lesson();
+        lDel.setPendingDelete(true); // filtered out
+        Lesson lActive = new Lesson();
+        lActive.setPendingDelete(false);
+        ch2.setLessons(List.of(lDel, lActive));
+        course.setChapters(List.of(ch1, ch2));
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(course));
+
+        CourseProgressEntity existingCourseProg = new CourseProgressEntity();
+        existingCourseProg.setCourseId(courseId);
+        when(courseProgressRepository.findByStudentIdAndCourseId(studentId, courseId)).thenReturn(Optional.of(existingCourseProg));
+        when(lessonProgressRepository.findByStudentIdAndCourseId(studentId, courseId)).thenReturn(List.of(prog));
+
+        UpdateProgressRequest req = new UpdateProgressRequest();
+        req.setWatchedPercentage(BigDecimal.valueOf(50)); // < 90 -> IN_PROGRESS
+        req.setDocumentViewSeconds(10); // test lower accumulation branch when existing is higher
+        prog.setDocumentViewSeconds(15);
+
+        studentCourseService.updateLessonProgress(studentId, courseId, lessonId, req);
+
+        verify(lessonProgressRepository).save(argThat(p ->
+            "IN_PROGRESS".equals(p.getStatus()) &&
+            p.getLessonPercentage().intValue() == 50 &&
+            p.getDocumentViewSeconds() == 15
+        ));
+        verify(courseProgressRepository).save(argThat(cp ->
+            cp.getTotalLessonsCount() == 1 && cp.getCompletedLessonsCount() == 0
+        ));
+    }
+
+    @Test
+    void findResource_lessonOrResourceNotFound_throwsException() {
+        when(courseEnrollmentRepository.existsByCourseIdAndStudentId(courseId, studentId)).thenReturn(true);
+        when(lessonRepository.findById(lessonId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> studentCourseService.getResourceViewUrl(studentId, courseId, lessonId, resourceId))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("Không tìm thấy bài học");
+
+        Lesson lesson = new Lesson();
+        lesson.setId(lessonId);
+        lesson.setResources(Collections.emptyList());
+        when(lessonRepository.findById(lessonId)).thenReturn(Optional.of(lesson));
+
+        assertThatThrownBy(() -> studentCourseService.getResourceViewUrl(studentId, courseId, lessonId, resourceId))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("Không tìm thấy tài liệu");
+    }
 }
+
