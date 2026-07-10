@@ -314,6 +314,13 @@ class CertificateServiceImplTest {
         assertThat(certificate.getRevokedBy()).isEqualTo(adminId);
         assertThat(certificate.getRevokedAt()).isNotNull();
         assertThat(certificate.getRevokeReason()).isEqualTo("Manual revoke");
+        verify(certificateEmailAsyncService).sendCertificateRevokedMailAsync(
+                "student@test.com",
+                "Nguyen Van A",
+                "Java Spring Boot",
+                "RKE-2026-ABC12345",
+                "Manual revoke",
+                "https://lms.test/verify/RKE-2026-ABC12345");
     }
 
     @Test

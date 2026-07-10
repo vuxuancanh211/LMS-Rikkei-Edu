@@ -27,4 +27,19 @@ public class CertificateEmailAsyncService {
             log.error("Failed to send certificate email to {} for course {}", to, courseTitle, e);
         }
     }
+
+    @Async("emailExecutor")
+    public void sendCertificateRevokedMailAsync(
+            String to,
+            String fullName,
+            String courseTitle,
+            String credentialId,
+            String reason,
+            String verifyUrl) {
+        try {
+            emailService.sendCertificateRevokedMail(to, fullName, courseTitle, credentialId, reason, verifyUrl);
+        } catch (Exception e) {
+            log.error("Failed to send certificate revoked email to {} for course {}", to, courseTitle, e);
+        }
+    }
 }

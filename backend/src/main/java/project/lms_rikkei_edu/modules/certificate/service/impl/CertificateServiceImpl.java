@@ -203,6 +203,13 @@ public class CertificateServiceImpl implements CertificateService {
         certificate.setRevokeReason(request.getReason());
 
         CertificateEntity saved = certificateRepository.save(certificate);
+        sendCertificateRevokedEmailAfterCommit(
+                saved.getStudent().getEmail(),
+                saved.getStudent().getFullName(),
+                saved.getCourse().getTitle(),
+                saved.getCredentialId(),
+                saved.getRevokeReason(),
+                buildVerifyUrl(saved.getCredentialId()));
         return certificateMapper.toResponse(saved, resolveInstructorName(saved.getCourse()));
     }
 
@@ -329,6 +336,28 @@ public class CertificateServiceImpl implements CertificateService {
             public void afterCommit() {
                 certificateEmailAsyncService.sendCertificateIssuedMailAsync(
                         to, fullName, courseTitle, verifyUrl, pdfBytes, fileName);
+            }
+        });
+    }
+
+    private void sendCertificateRevokedEmailAfterCommit(
+            String to,
+            String fullName,
+            String courseTitle,
+            String credentialId,
+            String reason,
+            String verifyUrl) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            certificateEmailAsyncService.sendCertificateRevokedMailAsync(
+                    to, fullName, courseTitle, credentialId, reason, verifyUrl);
+            return;
+        }
+
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                certificateEmailAsyncService.sendCertificateRevokedMailAsync(
+                        to, fullName, courseTitle, credentialId, reason, verifyUrl);
             }
         });
     }
