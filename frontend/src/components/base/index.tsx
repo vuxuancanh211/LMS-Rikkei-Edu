@@ -235,30 +235,35 @@ function Empty({ icon, title, text, action }) {
 /* ============================================================
    CHARTS (inline SVG, data viz)
    ============================================================ */
-function LineChart({ data, labels, color = "#2563eb", height = 240 }) {
+function LineChart({ data = [], labels = [], color = "#2563eb", height = 240 }) {
   const w = 640, h = height, pad = 36, padB = 28;
-  const max = Math.max(...data) * 1.1, min = 0;
-  const x = (i) => pad + (i * (w - pad - 12)) / (data.length - 1);
+  const rawMax = Math.max(...data, 0);
+  const max = rawMax === 0 ? 10 : rawMax * 1.15;
+  const min = 0;
+  const len = data.length || 1;
+  const x = (i) => len <= 1 ? pad + (w - pad - 12) / 2 : pad + (i * (w - pad - 12)) / (len - 1);
   const y = (v) => h - padB - ((v - min) / (max - min)) * (h - pad - padB);
   const pts = data.map((v, i) => [x(i), y(v)]);
   const line = pts.map((p, i) => (i ? "L" : "M") + p[0] + " " + p[1]).join(" ");
-  const area = line + ` L ${x(data.length - 1)} ${h - padB} L ${pad} ${h - padB} Z`;
+  const area = pts.length > 0 ? (line + ` L ${x(data.length - 1)} ${h - padB} L ${x(0)} ${h - padB} Z`) : "";
   const gridY = [0, 0.25, 0.5, 0.75, 1].map((t) => h - padB - t * (h - pad - padB));
   return (
     <svg viewBox={`0 0 ${w} ${h}`} style={{ width: "100%", height }} preserveAspectRatio="none">
       <defs><linearGradient id="lg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={color} stopOpacity="0.18" /><stop offset="100%" stopColor={color} stopOpacity="0" /></linearGradient></defs>
       {gridY.map((gy, i) => <line key={i} x1={pad} y1={gy} x2={w - 12} y2={gy} stroke="#eef2f7" strokeWidth="1" />)}
-      <path d={area} fill="url(#lg)" />
-      <path d={line} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+      {area && <path d={area} fill="url(#lg)" />}
+      {line && <path d={line} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />}
       {pts.map((p, i) => <circle key={i} cx={p[0]} cy={p[1]} r="3.5" fill="#fff" stroke={color} strokeWidth="2.5" />)}
       {labels.map((l, i) => <text key={i} x={x(i)} y={h - 8} textAnchor="middle" fontSize="11.5" fill="#94a3b8" fontWeight="500">{l}</text>)}
     </svg>
   );
 }
-function BarChart({ data, labels, color = "#0f172a", height = 240 }) {
+function BarChart({ data = [], labels = [], color = "#0f172a", height = 240 }) {
   const w = 640, h = height, pad = 36, padB = 28;
-  const max = Math.max(...data) * 1.15;
-  const bw = (w - pad - 12) / data.length;
+  const rawMax = Math.max(...data, 0);
+  const max = rawMax === 0 ? 10 : rawMax * 1.15;
+  const len = data.length || 1;
+  const bw = (w - pad - 12) / len;
   const gridY = [0, 0.25, 0.5, 0.75, 1].map((t) => h - padB - t * (h - pad - padB));
   return (
     <svg viewBox={`0 0 ${w} ${h}`} style={{ width: "100%", height }} preserveAspectRatio="none">

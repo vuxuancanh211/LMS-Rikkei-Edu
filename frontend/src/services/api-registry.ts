@@ -8,5 +8,14 @@ import * as courseService from './course-service';
 
 Object.assign(window, { __userService: userService, __csvImportService: csvImportService, __groupService: groupService, __courseService: courseService });
 import * as profileService from './profile-service';
+import * as dashboardService from './dashboard-service';
 
-Object.assign(window, { __userService: userService, __csvImportService: csvImportService, __profileService: profileService });
+Object.assign(window, {
+  __userService: userService,
+  __csvImportService: csvImportService,
+  __aiService: aiService,
+  __groupService: groupService,
+  __courseService: courseService,
+  __profileService: profileService,
+  __dashboardService: dashboardService,
+});
