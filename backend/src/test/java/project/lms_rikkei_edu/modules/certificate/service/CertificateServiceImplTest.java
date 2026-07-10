@@ -11,6 +11,8 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import project.lms_rikkei_edu.infrastructure.s3.S3Service;
 import project.lms_rikkei_edu.modules.certificate.dto.request.IssueCertificateRequest;
 import project.lms_rikkei_edu.modules.certificate.dto.request.RevokeCertificateRequest;
@@ -155,6 +157,41 @@ class CertificateServiceImplTest {
                 eq("https://lms.test/verify/" + saved.getCredentialId()),
                 eq(pdfBytes),
                 eq(saved.getCredentialId() + ".pdf"));
+    }
+
+    @Test
+    void issueCertificateSendsEmailAfterTransactionCommit() {
+        IssueCertificateRequest request = issueRequest(studentId, courseId);
+        byte[] pdfBytes = "%PDF test".getBytes();
+
+        when(userRepository.findByIdAndDeletedAtIsNull(studentId)).thenReturn(Optional.of(student));
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(course));
+        when(certificateRepository.existsByStudentIdAndCourseId(studentId, courseId)).thenReturn(false);
+        when(certificateRepository.existsByCredentialId(anyString())).thenReturn(false);
+        when(userRepository.findByIdAndDeletedAtIsNull(instructorId)).thenReturn(Optional.of(instructor));
+        when(certificatePdfService.generate(any(), any(), any(), any(), any(), any())).thenReturn(pdfBytes);
+        when(s3Service.generatePresignedGetUrl(anyString())).thenReturn(presignedGet("https://s3.test/cert.pdf"));
+        when(certificateRepository.save(any(CertificateEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(certificateMapper.toResponse(any(CertificateEntity.class), eq("Teacher One"))).thenAnswer(invocation -> response(invocation.getArgument(0), "Teacher One"));
+
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            CertificateResponse result = service.issueCertificate(adminId, request);
+
+            verify(certificateEmailAsyncService, never()).sendCertificateIssuedMailAsync(any(), any(), any(), any(), any(), any());
+
+            TransactionSynchronizationManager.getSynchronizations().forEach(TransactionSynchronization::afterCommit);
+
+            verify(certificateEmailAsyncService).sendCertificateIssuedMailAsync(
+                    eq("student@test.com"),
+                    eq("Nguyen Van A"),
+                    eq("Java Spring Boot"),
+                    eq("https://lms.test/verify/" + result.getCredentialId()),
+                    eq(pdfBytes),
+                    eq(result.getCredentialId() + ".pdf"));
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
     }
 
     @Test
@@ -321,6 +358,38 @@ class CertificateServiceImplTest {
                 "RKE-2026-ABC12345",
                 "Manual revoke",
                 "https://lms.test/verify/RKE-2026-ABC12345");
+    }
+
+    @Test
+    void revokeSendsEmailAfterTransactionCommit() {
+        UUID certificateId = UUID.randomUUID();
+        CertificateEntity certificate = certificate(certificateId, student, course, CertificateStatus.ISSUED);
+        RevokeCertificateRequest request = new RevokeCertificateRequest();
+        request.setReason("Manual revoke");
+
+        when(certificateRepository.findWithRelationsById(certificateId)).thenReturn(Optional.of(certificate));
+        when(certificateRepository.save(certificate)).thenReturn(certificate);
+        when(userRepository.findByIdAndDeletedAtIsNull(instructorId)).thenReturn(Optional.of(instructor));
+        when(certificateMapper.toResponse(certificate, "Teacher One")).thenReturn(response(certificate, "Teacher One"));
+
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            service.revoke(adminId, certificateId, request);
+
+            verify(certificateEmailAsyncService, never()).sendCertificateRevokedMailAsync(any(), any(), any(), any(), any(), any());
+
+            TransactionSynchronizationManager.getSynchronizations().forEach(TransactionSynchronization::afterCommit);
+
+            verify(certificateEmailAsyncService).sendCertificateRevokedMailAsync(
+                    "student@test.com",
+                    "Nguyen Van A",
+                    "Java Spring Boot",
+                    "RKE-2026-ABC12345",
+                    "Manual revoke",
+                    "https://lms.test/verify/RKE-2026-ABC12345");
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
     }
 
     @Test
