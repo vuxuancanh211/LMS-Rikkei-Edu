@@ -23,6 +23,11 @@ import project.lms_rikkei_edu.modules.chat.exception.ChatMessageNotFoundExceptio
 import project.lms_rikkei_edu.modules.chat.exception.ChatRoomNotFoundException;
 import project.lms_rikkei_edu.modules.ai.exception.AiSourceNotFoundException;
 import project.lms_rikkei_edu.modules.ai.exception.ConversationNotFoundException;
+import project.lms_rikkei_edu.modules.certificate.exception.CertificateAccessDeniedException;
+import project.lms_rikkei_edu.modules.certificate.exception.CertificateAlreadyIssuedException;
+import project.lms_rikkei_edu.modules.certificate.exception.CertificateNotFoundException;
+import project.lms_rikkei_edu.modules.certificate.exception.CertificatePdfException;
+import project.lms_rikkei_edu.modules.certificate.exception.CertificateStateException;
 import project.lms_rikkei_edu.modules.course.exception.*;
 
 import java.time.OffsetDateTime;
@@ -100,6 +105,36 @@ public class GlobalExceptionHandler {
             RuntimeException ex,
             HttpServletRequest request) {
         return buildResponse(HttpStatus.NOT_FOUND, ex.getMessage(), request.getRequestURI(), null);
+    }
+
+    // ── Certificate module exceptions ─────────────────────────────────────────
+
+    @ExceptionHandler(CertificateNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleCertificateNotFound(
+            CertificateNotFoundException ex,
+            HttpServletRequest request) {
+        return buildResponse(HttpStatus.NOT_FOUND, ex.getMessage(), request.getRequestURI(), null);
+    }
+
+    @ExceptionHandler({CertificateAlreadyIssuedException.class, CertificateStateException.class})
+    public ResponseEntity<ErrorResponse> handleCertificateConflict(
+            RuntimeException ex,
+            HttpServletRequest request) {
+        return buildResponse(HttpStatus.CONFLICT, ex.getMessage(), request.getRequestURI(), null);
+    }
+
+    @ExceptionHandler(CertificateAccessDeniedException.class)
+    public ResponseEntity<ErrorResponse> handleCertificateAccessDenied(
+            CertificateAccessDeniedException ex,
+            HttpServletRequest request) {
+        return buildResponse(HttpStatus.FORBIDDEN, ex.getMessage(), request.getRequestURI(), null);
+    }
+
+    @ExceptionHandler(CertificatePdfException.class)
+    public ResponseEntity<ErrorResponse> handleCertificatePdf(
+            CertificatePdfException ex,
+            HttpServletRequest request) {
+        return buildResponse(HttpStatus.INTERNAL_SERVER_ERROR, ex.getMessage(), request.getRequestURI(), null);
     }
 
     // ── Validation ────────────────────────────────────────────────────────────
