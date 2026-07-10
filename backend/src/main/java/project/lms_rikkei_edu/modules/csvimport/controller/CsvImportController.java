@@ -31,8 +31,9 @@ public class CsvImportController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<CsvImportPreviewResponse> preview(
             @RequestParam("file") MultipartFile file,
-            @RequestParam("defaultRole") String defaultRole) {
-        return ResponseEntity.ok(csvImportService.preview(file, defaultRole));
+            @RequestParam("defaultRole") String defaultRole,
+            @RequestParam(value = "courseId", required = false) UUID courseId) {
+        return ResponseEntity.ok(csvImportService.preview(file, defaultRole, courseId));
     }
 
     @PostMapping("/confirm")
@@ -41,6 +42,7 @@ public class CsvImportController {
             @Valid @RequestBody CsvImportConfirmRequest request) {
         UUID adminId = currentUserProvider.getCurrentUserId()
                 .orElseThrow(() -> new RuntimeException("Admin not authenticated"));
-        return ResponseEntity.ok(csvImportService.confirm(request.getToken(), adminId));
+        return ResponseEntity.ok(csvImportService.confirm(request.getToken(), adminId,
+                request.getCourseId()));
     }
 }

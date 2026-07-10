@@ -23,6 +23,14 @@ type SpringPage<T> = {
   size: number;
 };
 
+export async function getCourses(params?: { size?: number }) {
+  const response = await httpClient.get<SpringPage<CourseResponse>>(
+    '/admin/courses',
+    { params: { ...params, size: params?.size ?? 100 } },
+  );
+  return response.data;
+}
+
 export async function getMyCourses() {
   const response = await httpClient.get<SpringPage<CourseResponse>>(
     '/instructor/courses',

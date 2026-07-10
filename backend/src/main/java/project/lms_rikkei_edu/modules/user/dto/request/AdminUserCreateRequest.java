@@ -7,6 +7,8 @@ import jakarta.validation.constraints.Size;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.util.UUID;
+
 @Getter
 @Setter
 public class AdminUserCreateRequest {
@@ -24,4 +26,6 @@ public class AdminUserCreateRequest {
 
     @Pattern(regexp = "^(0[3-9]\\d{8,9})$", message = "Số điện thoại không hợp lệ (10 số, bắt đầu bằng 0)")
     private String phoneNumber;
+
+    private UUID courseId;
 }

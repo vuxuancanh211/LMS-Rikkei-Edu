@@ -21,5 +21,8 @@ public class CsvImportPreviewResponse {
     private int formatErrorCount;
     private int duplicateInFileCount;
     private int duplicateInDbCount;
+    private int existingUserCount;
+    private int alreadyEnrolledCount;
+    private int nameMismatchCount;
     private List<CsvImportRowResult> rows;
 }
