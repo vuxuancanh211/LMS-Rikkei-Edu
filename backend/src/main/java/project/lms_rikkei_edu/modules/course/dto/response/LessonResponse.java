@@ -2,6 +2,7 @@ package project.lms_rikkei_edu.modules.course.dto.response;
 
 import lombok.Builder;
 import lombok.Getter;
+import lombok.Setter;
 import project.lms_rikkei_edu.modules.course.enums.LessonType;
 import project.lms_rikkei_edu.modules.course.enums.VideoStatus;
 
@@ -10,6 +11,7 @@ import java.util.List;
 import java.util.UUID;
 
 @Getter
+@Setter
 @Builder
 public class LessonResponse {
     private UUID id;
@@ -28,4 +30,7 @@ public class LessonResponse {
     private Boolean pendingDelete;
     private String draftTitle;
     private String draftContentText;
+
+    private String progress;
+    private Integer progressPercentage;
 }

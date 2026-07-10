@@ -35,6 +35,16 @@
     const accentBg    = isA ? "#eff6ff"  : "#f5f3ff";
     const rs = res ? (RS[res.resourceType] || RS.OTHER) : null;
 
+    useEffect(() => {
+      const handleKeyDown = (e) => {
+        if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'p' || e.key === 'S' || e.key === 'P' || e.key === 'u' || e.key === 'U')) {
+          e.preventDefault();
+        }
+      };
+      window.addEventListener('keydown', handleKeyDown);
+      return () => window.removeEventListener('keydown', handleKeyDown);
+    }, []);
+
     return (
       <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", minHeight: 0 }}>
         {/* Header */}
@@ -44,8 +54,8 @@
             display: "grid", placeItems: "center", fontSize: 9, fontWeight: 800, flexShrink: 0 }}>
             {label}
           </span>
-          {res && rs && (
-            <div style={{ width: 16, height: 16, borderRadius: 3, background: rs.bg, color: rs.color,
+          {rs && (
+            <div style={{ width: 18, height: 18, borderRadius: 4, background: rs.bg, color: rs.color,
               display: "grid", placeItems: "center", flexShrink: 0 }}>
               <Ic n={rs.icon} size={9} />
             </div>
@@ -54,14 +64,6 @@
             color: res ? "#0f172a" : "#94a3b8", fontStyle: res ? "normal" : "italic" }} className="truncate">
             {res ? (res.displayName || res.originalFilename || res._label) : "Chưa có nội dung — chọn tài liệu bên trên"}
           </span>
-          {res && url && (
-            <a href={url === "__hls__" ? res._hlsUrl : url} target="_blank" rel="noreferrer"
-              style={{ flexShrink: 0, width: 22, height: 22, borderRadius: 5, border: "1px solid #e2e8f0",
-                display: "grid", placeItems: "center", color: "#94a3b8", textDecoration: "none" }}
-              title="Mở tab mới">
-              <Ic n="external_link" size={11} />
-            </a>
-          )}
           {onClose && (
             <button onClick={onClose}
               style={{ flexShrink: 0, width: 22, height: 22, borderRadius: 5, border: "1px solid #e2e8f0",
@@ -72,25 +74,20 @@
           )}
         </div>
 
-        {/* Body */}
-        <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column",
-          background: res ? "#111827" : "#f8fafc" }}>
+        {/* Content area */}
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0,
+          background: "#0f172a", position: "relative" }}
+          onContextMenu={(e) => e.preventDefault()}>
           {!res && (
-            <div style={{ flex: 1, display: "grid", placeItems: "center", color: "#cbd5e1" }}>
-              <div style={{ textAlign: "center", display: "flex", flexDirection: "column",
-                alignItems: "center", gap: 10 }}>
-                <div style={{ width: 40, height: 40, borderRadius: 10, background: "#f1f5f9",
-                  display: "grid", placeItems: "center" }}>
-                  <Ic n="monitor" size={18} style={{ color: "#cbd5e1" }} />
-                </div>
-                <span style={{ fontSize: 12.5 }}>Chọn tài liệu để hiển thị ở đây</span>
-              </div>
+            <div style={{ flex: 1, display: "grid", placeItems: "center",
+              color: "#475569", fontSize: 13, background: "#f8fafc" }}>
+              ← Chọn bài/tài liệu ở cột trái để phát
             </div>
           )}
           {res && loading && (
             <div style={{ flex: 1, display: "grid", placeItems: "center",
-              color: "#94a3b8", fontSize: 13, background: "#f8fafc" }}>
-              Đang tải...
+              color: "#64748b", fontSize: 13, background: "#f8fafc" }}>
+              <span>Đang tải... {res.displayName}</span>
             </div>
           )}
           {res && error && (
@@ -103,17 +100,19 @@
             const t = res.resourceType;
             // HLS video
             if (t === "VIDEO_HLS") return (
-              <video controls src={res._hlsUrl}
+              <video controls controlsList="nodownload" src={res._hlsUrl}
+                onContextMenu={(e) => e.preventDefault()}
                 style={{ flex: 1, width: "100%", height: "100%", display: "block", minHeight: 0 }} />
             );
             if (!url) return null;
             // Image
             if (t === "IMAGE") return (
               <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
-                background: "#1e293b", padding: 16, minHeight: 0, overflow: "auto" }}>
+                background: "#1e293b", padding: 16, minHeight: 0, overflow: "auto" }}
+                onContextMenu={(e) => e.preventDefault()}>
                 <img src={url} alt={res.displayName}
                   style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain",
-                    borderRadius: 6, display: "block" }} />
+                    borderRadius: 6, display: "block", pointerEvents: "none" }} />
               </div>
             );
             // External video
@@ -125,35 +124,50 @@
                   allowFullScreen />
               );
               return (
-                <video controls src={url}
+                <video controls controlsList="nodownload" src={url}
+                  onContextMenu={(e) => e.preventDefault()}
                   style={{ flex: 1, width: "100%", height: "100%", display: "block", minHeight: 0 }} />
               );
             }
             // PDF direct
             if (t === "PDF") return (
-              <iframe src={url} title={res.displayName}
-                style={{ flex: 1, width: "100%", height: "100%", border: "none", display: "block", minHeight: 0 }} />
+              <div style={{ flex: 1, position: "relative", width: "100%", height: "100%", display: "flex" }}>
+                <iframe src={`${url}#toolbar=0&navpanes=0&scrollbar=0`} title={res.displayName}
+                  style={{ flex: 1, width: "100%", height: "100%", border: "none", display: "block", minHeight: 0 }} />
+                <div style={{ position: "absolute", top: 0, right: 0, width: 200, height: 55, zIndex: 10, background: "transparent" }}
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); }} />
+              </div>
             );
-            // DOC / SLIDE via Google Viewer
-            if (t === "DOC" || t === "SLIDE") return (
-              <iframe src={`https://docs.google.com/viewer?url=${encodeURIComponent(url)}&embedded=true`}
-                title={res.displayName}
-                style={{ flex: 1, width: "100%", height: "100%", border: "none", display: "block", minHeight: 0 }} />
-            );
-            // Unsupported
+            // DOC / SLIDE
+            if (t === "DOC" || t === "SLIDE") {
+              const isLocal = url.includes("localhost") || url.includes("127.0.0.1") || url.startsWith("/");
+              if (isLocal) {
+                return (
+                  <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#f8fafc", padding: 20, textAlign: "center", gap: 12 }}>
+                    <div style={{ width: 48, height: 48, borderRadius: 12, background: "#f1f5f9", color: "#64748b", display: "grid", placeItems: "center" }}>
+                      <Ic n="book" size={24} />
+                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: "#0f172a" }}>{res.displayName || res.originalFilename || "Tài liệu " + t}</div>
+                    <div style={{ fontSize: 12.5, color: "#64748b", maxWidth: 400, lineHeight: 1.5 }}>Trình xem trực tuyến không hỗ trợ kết nối tới đường dẫn nội bộ (Localhost). Tài liệu sẽ hiển thị trực tiếp trong khung khi hệ thống chạy trên máy chủ chính thức.</div>
+                  </div>
+                );
+              }
+              return (
+                <div style={{ flex: 1, position: "relative", width: "100%", height: "100%", display: "flex" }}>
+                  <iframe src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}&wdDownloadButton=False&wdPrint=0`}
+                    title={res.displayName}
+                    style={{ flex: 1, width: "100%", height: "100%", border: "none", display: "block", minHeight: 0 }} />
+                  <div style={{ position: "absolute", top: 0, right: 0, width: 170, height: 50, zIndex: 10, background: "transparent" }}
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); }} />
+                  <div style={{ position: "absolute", bottom: 0, right: 0, width: 220, height: 48, zIndex: 10, background: "transparent" }}
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); }} />
+                </div>
+              );
+            }
             return (
               <div style={{ flex: 1, display: "grid", placeItems: "center",
-                background: "#f8fafc", color: "#94a3b8", fontSize: 13 }}>
-                <div style={{ textAlign: "center", display: "flex", flexDirection: "column",
-                  alignItems: "center", gap: 10 }}>
-                  <span>Định dạng không hỗ trợ xem trực tiếp</span>
-                  <a href={url} target="_blank" rel="noreferrer"
-                    style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: "#2563eb",
-                      border: "1px solid #bfdbfe", borderRadius: 7, padding: "5px 12px",
-                      textDecoration: "none", background: "#eff6ff" }}>
-                    <Ic n="download" size={12} />Tải xuống
-                  </a>
-                </div>
+                background: "#f8fafc", color: "#64748b", fontSize: 13 }}>
+                <span>Định dạng tài liệu không hỗ trợ xem trực tiếp trên trình duyệt</span>
               </div>
             );
           })()}
@@ -324,7 +338,7 @@
       setResUrls(m => ({ ...m, [r.id]: { loading: true } }));
       const ep = role === "admin"
         ? `/admin/courses/resources/${r.id}/download-url`
-        : `/instructor/courses/${courseId}/lessons/${lessonId}/resources/${r.id}/download-url`;
+        : `/instructor/courses/${courseId}/lessons/${lessonId}/resources/${r.id}/view-url`;
       api.get(ep)
         .then(res => setResUrls(m => ({ ...m, [r.id]: { url: res.data?.url } })))
         .catch(() => setResUrls(m => ({ ...m, [r.id]: { error: true } })));

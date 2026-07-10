@@ -44,6 +44,7 @@ function registerGalleryPage() {
       { k: "students", l: "Học viên", ic: "users" },
       { k: "forum", l: "Diễn đàn", ic: "message" },
       { k: "chat", l: "Chat nhóm", ic: "chat" },
+      { k: "aiDocs", l: "Tài liệu AI", ic: "sparkles" },
       { k: "settings", l: "Cài đặt", ic: "settings" },
     ],
     admin: [
@@ -51,19 +52,21 @@ function registerGalleryPage() {
       { k: "users", l: "Quản lý Người dùng", ic: "users" },
       { k: "courses", l: "Quản lý Khóa học", ic: "book" },
       { k: "approval", l: "Phê duyệt", ic: "check_circle" },
+      { k: "certificates", l: "Chứng chỉ", ic: "award" },
       { k: "reports", l: "Báo cáo", ic: "chart" },
       { k: "logs", l: "Nhật ký hệ thống", ic: "file" },
+      { k: "aiDocs", l: "Quản lý Tài liệu AI", ic: "sparkles" },
       { k: "settings", l: "Cài đặt", ic: "settings" },
     ],
   };
   const SCREENS = {
-    student: { dashboard: "StuDashboard", courses: "StuCourses", tasks: "StuTasks", forum: "ForumPage", chat: "ChatScreen", certs: "StuCerts", groups: "StuGroups", groupDetail: "StuGroupDetail", settings: "Settings", notifications: "NotificationsPage" },
-    instructor: { dashboard: "InsDashboard", courses: "InsCourses", courseDetail: "InsCourseDetail", groups: "InsGroups", groupDetail: "InsGroupDetail", assess: "InsAssess", grading: "InsGrading", students: "InsStudents", forum: "ForumPage", chat: "ChatScreen", settings: "Settings", notifications: "NotificationsPage" },
-    admin: { dashboard: "AdminDashboard", users: "AdminUsers", courses: "AdminCourses", approval: "AdminApproval", reports: "AdminReports", logs: "AdminLogs", settings: "Settings", notifications: "NotificationsPage" },
+    student: { dashboard: "StuDashboard", courses: "StuCourses", courseDetail: "StuCourseDetail", groups: "StuGroups", groupDetail: "StuGroupDetail", tasks: "StuTasks", forum: "ForumPage", chat: "ChatScreen", certs: "StuCerts", settings: "Settings", notifications: "NotificationsPage" },
+    instructor: { dashboard: "InsDashboard", courses: "InsCourses", courseDetail: "InsCourseDetail", groups: "InsGroups", groupDetail: "InsGroupDetail", assess: "InsAssess", grading: "InsGrading", students: "InsStudents", forum: "ForumPage", chat: "ChatScreen", aiDocs: "InsAiDocs", settings: "Settings", notifications: "NotificationsPage" },
+    admin: { dashboard: "AdminDashboard", users: "AdminUsers", courses: "AdminCourses", approval: "AdminApproval", certificates: "AdminCertificates", reports: "AdminReports", logs: "AdminLogs", aiDocs: "AdminAiDocs", settings: "Settings", notifications: "NotificationsPage" },
   };
   const FULLBARE = { player: "LecturePlayer", quiz: "QuizPlayer", result: "QuizResult", preview: "PreviewPlayer" };
   const ROLES = [["student", "Học viên"], ["instructor", "Giảng viên"], ["admin", "Quản trị"]];
-  const ALIAS = { groupDetail: "groups", courseDetail: "courses" };
+  const ALIAS = { groupDetail: "groups", courseDetail: "courses", certDetail: "certs" };
 
   function notifMeta(type) {
     const map = {
@@ -171,7 +174,7 @@ function registerGalleryPage() {
 
     const go = (k, params) => {
       setDemo(null);
-      if (FULLBARE[k]) { if (onBare) { onBare(k); return; } setBack(SCREENS[role][route] ? route : "dashboard"); setRoute(k); setDrawer(false); const m = document.querySelector(".main"); if (m) m.scrollTop = 0; return; }
+      if (FULLBARE[k]) { if (onBare) { onBare(k, params); return; } setBack(SCREENS[role][route] ? route : "dashboard"); setRoute(k); setRouteParams(params); setDrawer(false); const m = document.querySelector(".main"); if (m) m.scrollTop = 0; return; }
       if (SCREENS[role][k]) { if (onNavigate) { onNavigate(role, k, params); return; } setRouteParams(params); setRoute(k); setDrawer(false); const m = document.querySelector(".main"); if (m) m.scrollTop = 0; }
     };
     const switchRole = (r) => {
@@ -184,7 +187,11 @@ function registerGalleryPage() {
 
     if (FULLBARE[route]) {
       const Comp = window[FULLBARE[route]];
-      return <div className="app"><Comp onBack={() => setRoute(back)} onSubmit={() => setRoute("result")} /></div>;
+      const bareProps = {};
+      if (route === "player" && routeParams.courseId) {
+        window.__lectureCourse = { courseId: routeParams.courseId };
+      }
+      return <div className="app"><Comp onBack={() => setRoute(back)} onSubmit={() => setRoute("result")} {...bareProps} /></div>;
     }
 
     const activeKey = ALIAS[route] || route;

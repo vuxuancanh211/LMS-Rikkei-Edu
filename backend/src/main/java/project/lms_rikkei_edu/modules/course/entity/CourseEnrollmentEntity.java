@@ -7,6 +7,7 @@ import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.time.Instant;
 import java.util.UUID;
 
 @Getter
@@ -23,4 +24,10 @@ public class CourseEnrollmentEntity {
 
     @Column(name = "student_id")
     private UUID studentId;
+
+    @Column(name = "enrolled_by")
+    private UUID enrolledBy;
+
+    @Column(name = "enrolled_at")
+    private Instant enrolledAt;
 }

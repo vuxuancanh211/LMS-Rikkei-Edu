@@ -35,4 +35,6 @@ public interface UserRepository extends JpaRepository<UserEntity, UUID>, JpaSpec
 
     List<UserEntity> findByEmailIgnoreCaseInAndDeletedAtIsNull(List<String> emails);
 
+    List<UserEntity> findAllByIdInAndDeletedAtIsNull(List<UUID> ids);
+
 }

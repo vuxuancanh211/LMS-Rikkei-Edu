@@ -13,6 +13,7 @@ import '../pages/Student/StuCourses';
 import '../pages/Student/StuTasks';
 import '../pages/Forum/ForumPage';
 import '../pages/Student/StuCerts';
+import '../pages/Student/StuCertDetail';
 
 import '../services/api-registry';
 
@@ -21,6 +22,8 @@ import '../pages/Instructor/InsCourses';
 import '../pages/Instructor/course-detail/CourseModals';
 import '../pages/Instructor/course-detail/CourseContentTab';
 import '../pages/Instructor/course-detail/CourseVersionsTab';
+import '../pages/Instructor/course-detail/AiDocsTab';
+import '../pages/Instructor/InsAiDocs';
 import '../pages/Instructor/InsCourseDetail';
 import '../pages/Instructor/InsGroups';
 import '../pages/Instructor/InsGroupDetail';
@@ -35,8 +38,10 @@ import '../pages/Admin/CsvImportWizard';
 import '../pages/Admin/AdminUsers';
 import '../pages/Admin/AdminCourses';
 import '../pages/Admin/AdminApproval';
+import '../pages/Admin/AdminCertificates';
 import '../pages/Admin/AdminReports';
 import '../pages/Admin/AdminLogs';
+import '../pages/Admin/AdminAiDocs';
 
 import '../pages/Auth/LoginPage';
 import '../pages/SettingsPage';

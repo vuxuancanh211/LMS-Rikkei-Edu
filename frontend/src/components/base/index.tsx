@@ -63,8 +63,8 @@ function StatCard({ icon, iconBg, iconColor, value, label, sub, trend }) {
 }
 
 /* ---------- Course card ---------- */
-function CourseCard({ c, onOpen, cta }) {
-  const ctaLabel = cta || (c.sStatus === "done" ? "Xem chứng chỉ" : c.sStatus === "new" ? "Bắt đầu học" : "Tiếp tục học");
+function CourseCard({ c, onOpen, onCert, cta }) {
+  const ctaLabel = cta || (c.sStatus === "done" ? "Học lại" : c.sStatus === "new" ? "Bắt đầu học" : "Tiếp tục học");
   return (
     <div className="card course-card fade-in" onClick={onOpen} style={{ cursor: "pointer" }}>
       <div className="course-thumb" style={{ backgroundImage: `url(${c.thumb})` }}>
@@ -86,9 +86,20 @@ function CourseCard({ c, onOpen, cta }) {
               <Progress value={c.progress} />
             </div>
           )}
-          <button className={"btn btn-block " + (c.sStatus === "done" ? "btn-ghost" : "btn-primary")}>
-            {c.sStatus === "done" && <I n="award" size={16} />}{ctaLabel}
-          </button>
+          {c.sStatus === "done" ? (
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="btn btn-primary" style={{ flex: 1, padding: "0 10px", fontSize: 13 }} onClick={(e) => { e.stopPropagation(); onOpen?.(); }}>
+                <I n="rotate_ccw" size={15} />Học lại
+              </button>
+              <button className="btn btn-secondary" style={{ flex: 1, padding: "0 10px", fontSize: 13 }} onClick={(e) => { e.stopPropagation(); if (onCert) onCert(); else if (window.nav) window.nav("certs", { courseId: c.id }); else if (onOpen) onOpen(); }}>
+                <I n="award" size={15} />Chứng chỉ
+              </button>
+            </div>
+          ) : (
+            <button className="btn btn-block btn-primary" onClick={(e) => { e.stopPropagation(); onOpen?.(); }}>
+              {ctaLabel}
+            </button>
+          )}
         </div>
       </div>
     </div>

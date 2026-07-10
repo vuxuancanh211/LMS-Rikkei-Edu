@@ -1,7 +1,8 @@
 import '../providers/register-modules';
 
 import type { ReactNode } from 'react';
-import { createBrowserRouter, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { createBrowserRouter, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { CertificateVerifyPage } from '../pages/CertificateVerifyPage';
 import { logoutRequest } from '../services';
 import { mapApiRole, useAuthStore } from '../store';
 
@@ -13,6 +14,7 @@ const roleRoutes = {
     forum: '/student/forum',
     chat: '/student/chat',
     certs: '/student/certs',
+    certDetail: '/student/certs',
     groups: '/student/groups',
     groupDetail: '/student/groups/detail',
     settings: '/settings',
@@ -29,6 +31,7 @@ const roleRoutes = {
     students: '/instructor/students',
     forum: '/instructor/forum',
     chat: '/instructor/chat',
+    aiDocs: '/instructor/ai-docs',
     settings: '/settings',
     notifications: '/notifications',
   },
@@ -37,8 +40,10 @@ const roleRoutes = {
     users: '/admin/users',
     courses: '/admin/courses',
     approval: '/admin/approval',
+    certificates: '/admin/certificates',
     reports: '/admin/reports',
     logs: '/admin/logs',
+    aiDocs: '/admin/ai-docs',
     settings: '/settings',
     notifications: '/notifications',
   },
@@ -59,6 +64,7 @@ function dashboardForRole(role: keyof typeof roleRoutes | null) {
 function RequireAuth({ children }: { children: ReactNode }) {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const location = useLocation();
+  const routeParams = useParams();
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />;
@@ -85,6 +91,7 @@ function MissingRuntime({ name }: { name: string }) {
 function RoutedShell({ role, route }: { role: keyof typeof roleRoutes; route: string }) {
   const navigate = useNavigate();
   const location = useLocation();
+  const routeParams = useParams();
   const authUser = useAuthStore((state) => state.user);
   const currentRole = useAuthStore((state) => state.role);
   const AppShell = window.AppShell;
@@ -106,7 +113,10 @@ function RoutedShell({ role, route }: { role: keyof typeof roleRoutes; route: st
     }
   };
 
-  const params = Object.fromEntries(new URLSearchParams(location.search));
+  const params = {
+    ...Object.fromEntries(new URLSearchParams(location.search)),
+    ...routeParams,
+  };
 
   return (
     <AppShell
@@ -117,8 +127,16 @@ function RoutedShell({ role, route }: { role: keyof typeof roleRoutes; route: st
       routeParams={params}
       onLogout={handleLogout}
       onExit={() => navigate('/gallery')}
-      onBare={(key: keyof typeof playerRoutes) => navigate(playerRoutes[key] || '/player/lecture')}
+      onBare={(key: keyof typeof playerRoutes, extra?: Record<string, string>) => {
+        const path = playerRoutes[key] || '/player/lecture';
+        const search = extra ? '?' + new URLSearchParams(extra).toString() : '';
+        navigate(path + search);
+      }}
       onNavigate={(nextRole: keyof typeof roleRoutes, nextRoute: string, extra?: Record<string, string>) => {
+        if (nextRole === 'student' && nextRoute === 'certDetail' && extra?.certificateId) {
+          navigate(`/student/certs/${encodeURIComponent(extra.certificateId)}`);
+          return;
+        }
         const path = roleRoutes[nextRole]?.[nextRoute as keyof (typeof roleRoutes)[typeof nextRole]];
         if (!path) { navigate('/gallery'); return; }
         const search = extra ? '?' + new URLSearchParams(extra).toString() : '';
@@ -185,9 +203,24 @@ function PlayerRoute({ name }: { name: string }) {
 
   if (!Comp) return <MissingRuntime name={name} />;
 
+  const handleLogout = async () => {
+    try { await logoutRequest(); } catch (e) { console.debug(e); }
+    finally {
+      useAuthStore.getState().logout();
+      navigate('/login', { replace: true });
+    }
+  };
+
   return (
     <div className="app">
-      <Comp onBack={() => navigate(-1)} onSubmit={() => navigate('/player/quiz-result')} />
+      <Comp
+        onBack={() => navigate('/student/courses')}
+        onDashboard={() => navigate('/student/dashboard')}
+        onSettings={() => navigate('/settings')}
+        onLogout={handleLogout}
+        navigate={navigate}
+        onSubmit={() => navigate('/player/quiz-result')}
+      />
     </div>
   );
 }
@@ -197,6 +230,7 @@ export const router = createBrowserRouter([
   { path: '/login', element: <PublicOnly><LoginRoute /></PublicOnly> },
   { path: '/forgot-password', element: <ForgotPasswordRoute /> },
   { path: '/reset-password', element: <ResetPasswordRoute /> },
+  { path: '/verify/:code', element: <CertificateVerifyPage /> },
   { path: '/gallery', element: <GalleryRoute /> },
   { path: '/settings', element: <RequireAuth><SettingsRoute /></RequireAuth> },
   { path: '/student/dashboard', element: <RequireAuth><RoutedShell role="student" route="dashboard" /></RequireAuth> },
@@ -205,6 +239,7 @@ export const router = createBrowserRouter([
   { path: '/student/forum', element: <RequireAuth><RoutedShell role="student" route="forum" /></RequireAuth> },
   { path: '/student/chat', element: <RequireAuth><RoutedShell role="student" route="chat" /></RequireAuth> },
   { path: '/student/certs', element: <RequireAuth><RoutedShell role="student" route="certs" /></RequireAuth> },
+  { path: '/student/certs/:certificateId', element: <RequireAuth><RoutedShell role="student" route="certDetail" /></RequireAuth> },
   { path: '/student/groups', element: <RequireAuth><RoutedShell role="student" route="groups" /></RequireAuth> },
   { path: '/student/groups/detail', element: <RequireAuth><RoutedShell role="student" route="groupDetail" /></RequireAuth> },
   { path: '/instructor/dashboard', element: <RequireAuth><RoutedShell role="instructor" route="dashboard" /></RequireAuth> },
@@ -217,13 +252,16 @@ export const router = createBrowserRouter([
   { path: '/instructor/students', element: <RequireAuth><RoutedShell role="instructor" route="students" /></RequireAuth> },
   { path: '/instructor/forum', element: <RequireAuth><RoutedShell role="instructor" route="forum" /></RequireAuth> },
   { path: '/instructor/chat', element: <RequireAuth><RoutedShell role="instructor" route="chat" /></RequireAuth> },
+  { path: '/instructor/ai-docs', element: <RequireAuth><RoutedShell role="instructor" route="aiDocs" /></RequireAuth> },
   { path: '/notifications', element: <RequireAuth><NotificationsRoute /></RequireAuth> },
   { path: '/admin/dashboard', element: <RequireAuth><RoutedShell role="admin" route="dashboard" /></RequireAuth> },
   { path: '/admin/users', element: <RequireAuth><RoutedShell role="admin" route="users" /></RequireAuth> },
   { path: '/admin/courses', element: <RequireAuth><RoutedShell role="admin" route="courses" /></RequireAuth> },
   { path: '/admin/approval', element: <RequireAuth><RoutedShell role="admin" route="approval" /></RequireAuth> },
+  { path: '/admin/certificates', element: <RequireAuth><RoutedShell role="admin" route="certificates" /></RequireAuth> },
   { path: '/admin/reports', element: <RequireAuth><RoutedShell role="admin" route="reports" /></RequireAuth> },
   { path: '/admin/logs', element: <RequireAuth><RoutedShell role="admin" route="logs" /></RequireAuth> },
+  { path: '/admin/ai-docs', element: <RequireAuth><RoutedShell role="admin" route="aiDocs" /></RequireAuth> },
   { path: '/player/lecture', element: <RequireAuth><PlayerRoute name="LecturePlayer" /></RequireAuth> },
   { path: '/player/quiz', element: <RequireAuth><PlayerRoute name="QuizPlayer" /></RequireAuth> },
   { path: '/player/quiz-result', element: <RequireAuth><PlayerRoute name="QuizResult" /></RequireAuth> },

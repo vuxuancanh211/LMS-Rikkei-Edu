@@ -5,7 +5,6 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -74,7 +73,7 @@ public class SseEmitterRegistry {
                 emitter.send(SseEmitter.event()
                         .name(eventType)
                         .data(data));
-            } catch (IOException e) {
+            } catch (Exception e) {
                 dead.add(emitter);
             }
         }

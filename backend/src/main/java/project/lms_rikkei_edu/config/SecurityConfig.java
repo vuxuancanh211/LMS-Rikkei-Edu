@@ -57,11 +57,14 @@ public class SecurityConfig {
                                 "/api/auth/reset-password",
                                 "/api/auth/activate",
                                 "/error",
-                                "/actuator/health"
+                                "/actuator/health",
+                                "/ws/**"
                         ).permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/certificate/verify/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/forum/attachments/*/content").permitAll()
                         .requestMatchers("/actuator/**").hasRole("ADMIN")
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                        .requestMatchers("/api/ai/sources/**").hasAnyRole("ADMIN", "INSTRUCTOR")
                         .requestMatchers("/api/instructor/**").hasAnyRole("ADMIN", "INSTRUCTOR")
                         .requestMatchers("/api/student/**").hasAnyRole("ADMIN", "STUDENT")
                         .anyRequest().authenticated()
