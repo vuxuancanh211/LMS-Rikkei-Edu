@@ -59,7 +59,7 @@ public class CsvImportServiceImpl implements CsvImportService {
 
     @Override
     public CsvImportPreviewResponse preview(MultipartFile file, String defaultRole,
-                                             UUID courseId, List<UUID> groupIds) {
+                                             UUID courseId) {
         validateCsvFile(file);
         parseRole(defaultRole);
         List<String[]> rows = parseCsv(file);
@@ -73,7 +73,7 @@ public class CsvImportServiceImpl implements CsvImportService {
     @Override
     @Transactional
     public CsvImportConfirmResponse confirm(String token, UUID adminId,
-                                             UUID courseId, List<UUID> groupIds) {
+                                             UUID courseId) {
         RedisPreviewData previewData = loadPreviewData(token);
         redisService.delete(RedisKeyConstants.CSV_IMPORT_PREVIEW + token);
 

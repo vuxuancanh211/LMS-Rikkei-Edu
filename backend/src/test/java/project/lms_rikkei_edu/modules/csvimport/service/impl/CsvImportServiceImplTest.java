@@ -83,7 +83,7 @@ class CsvImportServiceImplTest {
         when(userService.existsByPhoneNumber("0987654321")).thenReturn(false);
         doNothing().when(redisService).set(anyString(), anyString(), anyLong());
 
-        CsvImportPreviewResponse result = service.preview(file, "STUDENT", null, null);
+        CsvImportPreviewResponse result = service.preview(file, "STUDENT", null);
 
         assertThat(result.getTotalRows()).isEqualTo(2);
         assertThat(result.getValidCount()).isEqualTo(2);
@@ -108,7 +108,7 @@ class CsvImportServiceImplTest {
         when(userService.existsByPhoneNumber("0934567890")).thenReturn(false);
         doNothing().when(redisService).set(anyString(), anyString(), anyLong());
 
-        CsvImportPreviewResponse result = service.preview(file, "STUDENT", null, null);
+        CsvImportPreviewResponse result = service.preview(file, "STUDENT", null);
 
         assertThat(result.getTotalRows()).isEqualTo(2);
         assertThat(result.getValidCount()).isEqualTo(1);
@@ -129,7 +129,7 @@ class CsvImportServiceImplTest {
         when(userService.existsByPhoneNumber("0934567890")).thenReturn(false);
         doNothing().when(redisService).set(anyString(), anyString(), anyLong());
 
-        CsvImportPreviewResponse result = service.preview(file, "STUDENT", null, null);
+        CsvImportPreviewResponse result = service.preview(file, "STUDENT", null);
 
         assertThat(result.getValidCount()).isEqualTo(1);
         assertThat(result.getDuplicateInFileCount()).isEqualTo(1);
@@ -148,7 +148,7 @@ class CsvImportServiceImplTest {
         when(userService.existsByEmail("jane@test.com")).thenReturn(false);
         doNothing().when(redisService).set(anyString(), anyString(), anyLong());
 
-        CsvImportPreviewResponse result = service.preview(file, "STUDENT", null, null);
+        CsvImportPreviewResponse result = service.preview(file, "STUDENT", null);
 
         assertThat(result.getDuplicateInDbCount()).isEqualTo(1);
         assertThat(result.getValidCount()).isEqualTo(1);
@@ -167,7 +167,7 @@ class CsvImportServiceImplTest {
         when(userService.existsByPhoneNumber("0934567890")).thenReturn(false);
         doNothing().when(redisService).set(anyString(), anyString(), anyLong());
 
-        CsvImportPreviewResponse result = service.preview(file, "STUDENT", null, null);
+        CsvImportPreviewResponse result = service.preview(file, "STUDENT", null);
 
         assertThat(result.getValidCount()).isEqualTo(1);
         assertThat(result.getDuplicateInFileCount()).isEqualTo(1);
@@ -191,7 +191,7 @@ class CsvImportServiceImplTest {
         when(courseEnrollmentRepository.existsByCourseIdAndStudentId(courseId, user.getId())).thenReturn(false);
         doNothing().when(redisService).set(anyString(), anyString(), anyLong());
 
-        CsvImportPreviewResponse result = service.preview(file, "STUDENT", courseId, null);
+        CsvImportPreviewResponse result = service.preview(file, "STUDENT", courseId);
 
         assertThat(result.getExistingUserCount()).isEqualTo(1);
         assertThat(result.getRows().get(0).getStatus()).isEqualTo("EXISTING_USER");
@@ -211,7 +211,7 @@ class CsvImportServiceImplTest {
         when(userRepository.findByEmailIgnoreCaseAndDeletedAtIsNull("john@test.com")).thenReturn(Optional.of(user));
         doNothing().when(redisService).set(anyString(), anyString(), anyLong());
 
-        CsvImportPreviewResponse result = service.preview(file, "STUDENT", courseId, null);
+        CsvImportPreviewResponse result = service.preview(file, "STUDENT", courseId);
 
         assertThat(result.getNameMismatchCount()).isEqualTo(1);
         assertThat(result.getAlreadyEnrolledCount()).isEqualTo(0);
@@ -233,7 +233,7 @@ class CsvImportServiceImplTest {
         when(courseEnrollmentRepository.existsByCourseIdAndStudentId(courseId, user.getId())).thenReturn(true);
         doNothing().when(redisService).set(anyString(), anyString(), anyLong());
 
-        CsvImportPreviewResponse result = service.preview(file, "STUDENT", courseId, null);
+        CsvImportPreviewResponse result = service.preview(file, "STUDENT", courseId);
 
         assertThat(result.getAlreadyEnrolledCount()).isEqualTo(1);
         assertThat(result.getNameMismatchCount()).isEqualTo(0);
@@ -248,7 +248,7 @@ class CsvImportServiceImplTest {
         var file = mock(MultipartFile.class);
         when(file.getOriginalFilename()).thenReturn("data.txt");
 
-        assertThatThrownBy(() -> service.preview(file, "STUDENT", null, null))
+        assertThatThrownBy(() -> service.preview(file, "STUDENT", null))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("không đúng định dạng CSV");
     }
@@ -259,7 +259,7 @@ class CsvImportServiceImplTest {
         when(file.getOriginalFilename()).thenReturn("test.csv");
         when(file.isEmpty()).thenReturn(true);
 
-        assertThatThrownBy(() -> service.preview(file, "STUDENT", null, null))
+        assertThatThrownBy(() -> service.preview(file, "STUDENT", null))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("không có dữ liệu");
     }
@@ -269,7 +269,7 @@ class CsvImportServiceImplTest {
         var file = createCsvMock("test.csv",
                 "fullname,email,phone");
 
-        assertThatThrownBy(() -> service.preview(file, "STUDENT", null, null))
+        assertThatThrownBy(() -> service.preview(file, "STUDENT", null))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("ít nhất");
     }
@@ -280,7 +280,7 @@ class CsvImportServiceImplTest {
         var file = createCsvMock("test.csv",
                 "fullname,email\nJohn,john@test.com\nJane,jane@test.com");
 
-        assertThatThrownBy(() -> service.preview(file, "STUDENT", null, null))
+        assertThatThrownBy(() -> service.preview(file, "STUDENT", null))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("vượt quá");
     }
@@ -291,7 +291,7 @@ class CsvImportServiceImplTest {
         when(file.getOriginalFilename()).thenReturn("test.csv");
         when(file.isEmpty()).thenReturn(false);
 
-        assertThatThrownBy(() -> service.preview(file, "INVALID_ROLE", null, null))
+        assertThatThrownBy(() -> service.preview(file, "INVALID_ROLE", null))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("Vai trò không hợp lệ");
     }
@@ -301,7 +301,7 @@ class CsvImportServiceImplTest {
         var file = createCsvMock("test.csv",
                 "name,email_address\nJohn,john@test.com");
 
-        assertThatThrownBy(() -> service.preview(file, "STUDENT", null, null))
+        assertThatThrownBy(() -> service.preview(file, "STUDENT", null))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("Thiếu cột bắt buộc");
     }
@@ -316,7 +316,7 @@ class CsvImportServiceImplTest {
         doNothing().when(redisService).delete(anyString());
         when(userService.batchCreateUsers(any(UUID.class), anyList(), any())).thenReturn(List.of());
 
-        CsvImportConfirmResponse result = service.confirm("test-token", adminId, null, null);
+        CsvImportConfirmResponse result = service.confirm("test-token", adminId, null);
 
         assertThat(result.getTotalProcessed()).isEqualTo(2);
         assertThat(result.getSuccessCount()).isEqualTo(2);
@@ -329,7 +329,7 @@ class CsvImportServiceImplTest {
     void confirm_tokenExpired_throwsException() {
         when(redisService.get(anyString())).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.confirm("invalid-token", UUID.randomUUID(), null, null))
+        assertThatThrownBy(() -> service.confirm("invalid-token", UUID.randomUUID(), null))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("đã hết hạn");
     }
@@ -343,7 +343,7 @@ class CsvImportServiceImplTest {
         when(userService.batchCreateUsers(any(UUID.class), anyList(), any()))
                 .thenThrow(new RuntimeException("DB connection error"));
 
-        CsvImportConfirmResponse result = service.confirm("test-token", adminId, null, null);
+        CsvImportConfirmResponse result = service.confirm("test-token", adminId, null);
 
         assertThat(result.getSuccessCount()).isEqualTo(0);
         assertThat(result.getFailCount()).isEqualTo(2);
@@ -358,7 +358,7 @@ class CsvImportServiceImplTest {
         doNothing().when(redisService).delete(anyString());
         when(userService.batchCreateUsers(any(UUID.class), anyList(), any())).thenReturn(List.of());
 
-        CsvImportConfirmResponse result = service.confirm("test-token", adminId, null, null);
+        CsvImportConfirmResponse result = service.confirm("test-token", adminId, null);
 
         assertThat(result.getSuccessCount()).isEqualTo(1);
         assertThat(result.getFailCount()).isEqualTo(0);
@@ -384,7 +384,7 @@ class CsvImportServiceImplTest {
         when(existingUser.getFullName()).thenReturn("User 2");
         when(userRepository.findByEmailIgnoreCaseInAndDeletedAtIsNull(anyList())).thenReturn(List.of(existingUser));
 
-        CsvImportConfirmResponse result = service.confirm("test-token", adminId, courseId, null);
+        CsvImportConfirmResponse result = service.confirm("test-token", adminId, courseId);
 
         assertThat(result.getSuccessCount()).isEqualTo(1);
         assertThat(result.getFailCount()).isEqualTo(0);
@@ -411,7 +411,7 @@ class CsvImportServiceImplTest {
         when(existingUser.getFullName()).thenReturn("User 1");
         when(userRepository.findByEmailIgnoreCaseInAndDeletedAtIsNull(anyList())).thenReturn(List.of(existingUser));
 
-        CsvImportConfirmResponse result = service.confirm("test-token", adminId, courseId, null);
+        CsvImportConfirmResponse result = service.confirm("test-token", adminId, courseId);
 
         assertThat(result.getSuccessCount()).isEqualTo(0);
         assertThat(result.getFailCount()).isEqualTo(0);

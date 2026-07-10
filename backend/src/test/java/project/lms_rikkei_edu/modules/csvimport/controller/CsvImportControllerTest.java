@@ -66,7 +66,7 @@ class CsvImportControllerTest {
 
         @Test
         void returns200_withPreviewRows() throws Exception {
-            when(csvImportService.preview(any(), eq("STUDENT"), any(), any()))
+            when(csvImportService.preview(any(), eq("STUDENT"), any()))
                     .thenReturn(CsvImportPreviewResponse.builder()
                             .token("token-1")
                             .totalRows(2)
@@ -100,7 +100,7 @@ class CsvImportControllerTest {
                     .andExpect(jsonPath("$.existingUserCount").value(1))
                     .andExpect(jsonPath("$.rows", hasSize(2)));
 
-            verify(csvImportService).preview(any(), eq("STUDENT"), any(), any());
+            verify(csvImportService).preview(any(), eq("STUDENT"), any());
         }
 
         @Test
@@ -124,7 +124,7 @@ class CsvImportControllerTest {
         void returns200_withConfirmResult() throws Exception {
             UUID adminId = UUID.randomUUID();
             when(currentUserProvider.getCurrentUserId()).thenReturn(Optional.of(adminId));
-            when(csvImportService.confirm(eq("token-1"), eq(adminId), any(), any()))
+            when(csvImportService.confirm(eq("token-1"), eq(adminId), any()))
                     .thenReturn(CsvImportConfirmResponse.builder()
                             .totalProcessed(2)
                             .successCount(1)
@@ -146,7 +146,7 @@ class CsvImportControllerTest {
                     .andExpect(jsonPath("$.successCount").value(1))
                     .andExpect(jsonPath("$.results[0].status").value("IMPORTED"));
 
-            verify(csvImportService).confirm(eq("token-1"), eq(adminId), any(), any());
+            verify(csvImportService).confirm(eq("token-1"), eq(adminId), any());
         }
 
         @Test

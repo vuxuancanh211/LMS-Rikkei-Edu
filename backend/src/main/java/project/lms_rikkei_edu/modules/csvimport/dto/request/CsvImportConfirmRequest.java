@@ -4,7 +4,6 @@ import jakarta.validation.constraints.NotBlank;
 import lombok.Getter;
 import lombok.Setter;
 
-import java.util.List;
 import java.util.UUID;
 
 @Getter
@@ -15,6 +14,4 @@ public class CsvImportConfirmRequest {
     private String token;
 
     private UUID courseId;
-
-    private List<UUID> groupIds;
 }

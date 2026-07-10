@@ -17,7 +17,6 @@ import project.lms_rikkei_edu.modules.csvimport.dto.response.CsvImportConfirmRes
 import project.lms_rikkei_edu.modules.csvimport.dto.response.CsvImportPreviewResponse;
 import project.lms_rikkei_edu.modules.csvimport.service.CsvImportService;
 
-import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -33,9 +32,8 @@ public class CsvImportController {
     public ResponseEntity<CsvImportPreviewResponse> preview(
             @RequestParam("file") MultipartFile file,
             @RequestParam("defaultRole") String defaultRole,
-            @RequestParam(value = "courseId", required = false) UUID courseId,
-            @RequestParam(value = "groupIds", required = false) List<UUID> groupIds) {
-        return ResponseEntity.ok(csvImportService.preview(file, defaultRole, courseId, groupIds));
+            @RequestParam(value = "courseId", required = false) UUID courseId) {
+        return ResponseEntity.ok(csvImportService.preview(file, defaultRole, courseId));
     }
 
     @PostMapping("/confirm")
@@ -45,6 +43,6 @@ public class CsvImportController {
         UUID adminId = currentUserProvider.getCurrentUserId()
                 .orElseThrow(() -> new RuntimeException("Admin not authenticated"));
         return ResponseEntity.ok(csvImportService.confirm(request.getToken(), adminId,
-                request.getCourseId(), request.getGroupIds()));
+                request.getCourseId()));
     }
 }

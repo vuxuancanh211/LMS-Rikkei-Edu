@@ -35,24 +35,6 @@ public interface StudyGroupRepository extends JpaRepository<StudyGroupEntity, UU
             @Param("keyword") String keyword,
             Pageable pageable);
 
-    @Query(value = """
-            SELECT sg FROM StudyGroupEntity sg
-            JOIN FETCH sg.course c
-            WHERE (:courseId IS NULL OR c.id = :courseId)
-            AND (:keyword IS NULL OR LOWER(sg.name) LIKE LOWER(CONCAT('%', CAST(:keyword AS text), '%')))
-            ORDER BY sg.createdAt DESC
-            """,
-            countQuery = """
-            SELECT COUNT(sg) FROM StudyGroupEntity sg
-            JOIN sg.course c
-            WHERE (:courseId IS NULL OR c.id = :courseId)
-            AND (:keyword IS NULL OR LOWER(sg.name) LIKE LOWER(CONCAT('%', CAST(:keyword AS text), '%')))
-            """)
-    Page<StudyGroupEntity> findAllByFilters(
-            @Param("courseId") UUID courseId,
-            @Param("keyword") String keyword,
-            Pageable pageable);
-
     @Query("SELECT sg FROM StudyGroupEntity sg JOIN FETCH sg.course WHERE sg.id = :id AND sg.instructor.id = :instructorId")
     Optional<StudyGroupEntity> findByIdAndInstructorId(@Param("id") UUID id, @Param("instructorId") UUID instructorId);
 
