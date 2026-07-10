@@ -284,7 +284,7 @@ public class CertificatePdfService {
         content.showText(label);
         content.endText();
 
-        float labelWidth = labelFont.getStringWidth(label) / 1000 * size;
+        float labelWidth = (float) (labelFont.getStringWidth(label) / 1000d * size);
         content.setNonStrokingColor(TEXT_GRAY[0], TEXT_GRAY[1], TEXT_GRAY[2]);
         content.beginText();
         content.setFont(valueFont, size);
@@ -298,7 +298,7 @@ public class CertificatePdfService {
         // approximate letter-spacing by summing widths + tracking
         float total = 0;
         for (char c : text.toCharArray()) {
-            total += font.getStringWidth(String.valueOf(c)) / 1000 * fontSize + extraTracking;
+            total += (float) (font.getStringWidth(String.valueOf(c)) / 1000d * fontSize) + extraTracking;
         }
         total -= extraTracking; // no trailing gap
         float x = centerX - total / 2;
@@ -309,13 +309,13 @@ public class CertificatePdfService {
             content.newLineAtOffset(x, y);
             content.showText(String.valueOf(c));
             content.endText();
-            x += font.getStringWidth(String.valueOf(c)) / 1000 * fontSize + extraTracking;
+            x += (float) (font.getStringWidth(String.valueOf(c)) / 1000d * fontSize) + extraTracking;
         }
     }
 
     private void drawCentered(PDPageContentStream content, PDFont font, float fontSize, String text,
                               float centerX, float y, float[] color) throws IOException {
-        float textWidth = font.getStringWidth(text) / 1000 * fontSize;
+        float textWidth = (float) (font.getStringWidth(text) / 1000d * fontSize);
         drawText(content, font, fontSize, text, centerX - textWidth / 2, y, color);
     }
 
