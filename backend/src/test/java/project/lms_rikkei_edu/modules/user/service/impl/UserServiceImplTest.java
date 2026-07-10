@@ -21,6 +21,10 @@ import project.lms_rikkei_edu.common.security.JwtService;
 import project.lms_rikkei_edu.infrastructure.email.EmailAsyncService;
 import project.lms_rikkei_edu.infrastructure.email.EmailService;
 import project.lms_rikkei_edu.infrastructure.redis.RedisService;
+import project.lms_rikkei_edu.modules.course.entity.Course;
+import project.lms_rikkei_edu.modules.course.entity.CourseEnrollmentEntity;
+import project.lms_rikkei_edu.modules.course.repository.CourseRepository;
+import project.lms_rikkei_edu.modules.course.repository.CourseEnrollmentRepository;
 import project.lms_rikkei_edu.modules.audit.entity.AuditLogEntity;
 import project.lms_rikkei_edu.modules.audit.repository.AuditLogRepository;
 import project.lms_rikkei_edu.modules.user.dto.request.AdminUserCreateRequest;
@@ -64,6 +68,10 @@ class UserServiceImplTest {
     @Mock
     private RedisService redisService;
     @Mock
+    private CourseRepository courseRepository;
+    @Mock
+    private CourseEnrollmentRepository courseEnrollmentRepository;
+    @Mock
     private EmailService emailService;
     @Mock
     private EmailAsyncService emailAsyncService;
@@ -81,7 +89,8 @@ class UserServiceImplTest {
         userService = new UserServiceImpl(
                 userRepository, passwordEncoder, userMapper,
                 redisService, emailService, emailAsyncService,
-                jwtService, currentUserProvider, auditLogRepository
+                jwtService, currentUserProvider, auditLogRepository,
+                courseRepository, courseEnrollmentRepository
         );
         ReflectionTestUtils.setField(userService, "defaultTempPassword", "123456@");
     }
@@ -194,12 +203,15 @@ class UserServiceImplTest {
     void createUserSuccess() {
         UUID adminId = UUID.randomUUID();
         var request = adminUserCreateRequest("john@test.com", "John", "STUDENT", "0934567890");
+        var course = courseEntity(request.getCourseId(), "Khoá học A");
 
         when(userRepository.findByEmailIgnoreCaseAndDeletedAtIsNull("john@test.com"))
                 .thenReturn(Optional.empty());
         when(userRepository.findByPhoneNumberAndDeletedAtIsNull("0934567890"))
                 .thenReturn(Optional.empty());
         when(passwordEncoder.encode(anyString())).thenReturn("hashed_123456@");
+        when(courseRepository.findById(request.getCourseId())).thenReturn(Optional.of(course));
+        when(courseEnrollmentRepository.existsByCourseIdAndStudentId(eq(course.getId()), any())).thenReturn(false);
         when(userRepository.save(any(UserEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
         var expectedResponse = userResponse(UUID.randomUUID());
         when(userMapper.toResponse(any(UserEntity.class))).thenReturn(expectedResponse);
@@ -218,7 +230,8 @@ class UserServiceImplTest {
         assertThat(saved.getPasswordHash()).isEqualTo("hashed_123456@");
         assertThat(saved.getCreatedBy()).isEqualTo(adminId);
 
-        verify(emailService).sendNewAccountMail(eq("john@test.com"), eq("John"), anyString());
+        verify(courseEnrollmentRepository).save(any(CourseEnrollmentEntity.class));
+        verify(emailService).sendNewAccountMail(eq("john@test.com"), eq("John"), anyString(), eq("Khoá học A"));
         verify(auditLogRepository).save(any(AuditLogEntity.class));
     }
 
@@ -447,7 +460,7 @@ class UserServiceImplTest {
                 .thenReturn(responses.get(0))
                 .thenReturn(responses.get(1));
 
-        List<UserResponse> result = userService.batchCreateUsers(adminId, List.of(request1, request2));
+        List<UserResponse> result = userService.batchCreateUsers(adminId, List.of(request1, request2), null);
 
         assertThat(result).hasSize(2);
 
@@ -460,8 +473,8 @@ class UserServiceImplTest {
         assertThat(savedList.get(0).getPasswordHash()).isEqualTo("hashed_batch");
         assertThat(savedList.get(1).getPasswordHash()).isEqualTo("hashed_batch");
 
-        verify(emailAsyncService).sendNewAccountMailAsync(eq("user1@test.com"), eq("User One"), anyString());
-        verify(emailAsyncService).sendNewAccountMailAsync(eq("user2@test.com"), eq("User Two"), anyString());
+        verify(emailAsyncService).sendNewAccountMailAsync(eq("user1@test.com"), eq("User One"), anyString(), eq(null));
+        verify(emailAsyncService).sendNewAccountMailAsync(eq("user2@test.com"), eq("User Two"), anyString(), eq(null));
         verify(auditLogRepository, times(2)).save(any(AuditLogEntity.class));
     }
 
@@ -487,6 +500,7 @@ class UserServiceImplTest {
         request.setFullName(fullName);
         request.setRole(role);
         request.setPhoneNumber(phoneNumber);
+        request.setCourseId(UUID.randomUUID());
         return request;
     }
 
@@ -516,6 +530,13 @@ class UserServiceImplTest {
         var request = new ResetPasswordRequest();
         request.setReason(reason);
         return request;
+    }
+
+    private Course courseEntity(UUID id, String title) {
+        var c = new Course();
+        c.setId(id);
+        c.setTitle(title);
+        return c;
     }
 
     private UserResponse userResponse(UUID id) {

@@ -19,6 +19,7 @@
 
     const [assignments, setAssignments] = useState([]);
     const [loading, setLoading] = useState(false);
+    const [editAssignment, setEditAssignment] = useState(null);
 
     useEffect(() => {
       setLoading(true);
@@ -27,6 +28,15 @@
         setAssignments(Array.isArray(data) ? data : []);
       }).catch(() => {}).finally(() => setLoading(false));
     }, []);
+
+    async function handleEdit(a) {
+      try {
+        const res = await api.get(`/instructor/courses/${a.courseId}/assignments/${a.id}`);
+        setEditAssignment(res.data || res);
+      } catch (err) {
+        console.error("Lỗi tải chi tiết bài tập:", err);
+      }
+    }
 
     const DIFF = { easy:{label:"Dễ",c:"success"}, medium:{label:"Trung bình",c:"warning"}, hard:{label:"Khó",c:"error"} };
     const courseOpts = D.courses.map(c => ({ v: c.title, label: c.title }));
@@ -83,7 +93,7 @@
                         <td className="muted">{a.deadline ? new Date(a.deadline).toLocaleDateString("vi-VN") : "—"}</td>
                         <td><b>—</b> <span className="muted">/ —</span></td>
                         <td><Status s={a.status === "PUBLISHED" ? "published" : a.status === "CLOSED" ? "closed" : "draft"} /></td>
-                        <td><div className="row gap-6"><button className="icon-btn" style={{ width: 34, height: 34 }}><Ic n="edit" size={16} /></button><button className="icon-btn" style={{ width: 34, height: 34 }}><Ic n="eye" size={16} /></button></div></td>
+                        <td><div className="row gap-6"><button className="icon-btn" style={{ width: 34, height: 34 }} onClick={() => handleEdit(a)}><Ic n="edit" size={16} /></button><button className="icon-btn" style={{ width: 34, height: 34 }}><Ic n="eye" size={16} /></button></div></td>
                       </tr>
                     ))}</tbody>
                   </>
@@ -132,6 +142,14 @@
         {add && window.CreateAssignmentModal && React.createElement(window.CreateAssignmentModal, {
           role: "instructor",
           onClose: (refreshed) => { setAdd(false); if (refreshed) { window.location.reload(); } },
+        })}
+
+        {/* ---- Modal 1b: edit essay assignment ---- */}
+        {editAssignment && window.CreateAssignmentModal && React.createElement(window.CreateAssignmentModal, {
+          courseId: editAssignment.courseId,
+          assignment: editAssignment,
+          role: "instructor",
+          onClose: (refreshed) => { setEditAssignment(null); if (refreshed) { window.location.reload(); } },
         })}
 
         {/* ---- Modal 2: add question to bank ---- */}

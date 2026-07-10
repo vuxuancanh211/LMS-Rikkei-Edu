@@ -33,5 +33,6 @@ public class AssignmentDetailResponse {
     private OffsetDateTime publishedAt;
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;
+    private String courseTitle;
     private List<AssignmentAttachmentResponse> attachments;
 }

@@ -28,4 +28,7 @@ public interface GroupMemberRepository extends JpaRepository<GroupMemberEntity, 
     void deleteByGroupIdAndStudentId(UUID groupId, UUID studentId);
 
     void deleteByGroupId(UUID groupId);
+
+    @Query("SELECT gm.group.id FROM GroupMemberEntity gm JOIN gm.group sg WHERE sg.course.id = :courseId AND gm.student.id = :studentId")
+    List<UUID> findGroupIdsByStudentIdAndCourseId(@Param("studentId") UUID studentId, @Param("courseId") UUID courseId);
 }

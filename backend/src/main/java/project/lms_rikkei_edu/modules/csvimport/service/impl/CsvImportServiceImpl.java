@@ -11,23 +11,33 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 import project.lms_rikkei_edu.common.constants.RedisKeyConstants;
 import project.lms_rikkei_edu.common.exception.BusinessException;
+import project.lms_rikkei_edu.infrastructure.email.EmailAsyncService;
 import project.lms_rikkei_edu.infrastructure.redis.RedisService;
 import project.lms_rikkei_edu.modules.csvimport.dto.response.CsvImportConfirmResponse;
 import project.lms_rikkei_edu.modules.csvimport.dto.response.CsvImportPreviewResponse;
 import project.lms_rikkei_edu.modules.csvimport.dto.response.CsvImportRowResult;
 import project.lms_rikkei_edu.modules.csvimport.service.CsvImportService;
+import project.lms_rikkei_edu.modules.course.entity.Course;
+import project.lms_rikkei_edu.modules.course.repository.CourseRepository;
+import project.lms_rikkei_edu.modules.course.entity.CourseEnrollmentEntity;
+import project.lms_rikkei_edu.modules.course.repository.CourseEnrollmentRepository;
 import project.lms_rikkei_edu.modules.user.dto.request.AdminUserCreateRequest;
+import project.lms_rikkei_edu.modules.user.entity.UserEntity;
 import project.lms_rikkei_edu.modules.user.enums.UserRole;
+import project.lms_rikkei_edu.modules.user.repository.UserRepository;
 import project.lms_rikkei_edu.modules.user.service.UserService;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+
 
 @Service
 @RequiredArgsConstructor
@@ -39,53 +49,106 @@ public class CsvImportServiceImpl implements CsvImportService {
     private final RedisService redisService;
     private final Validator validator = Validation.buildDefaultValidatorFactory().getValidator();
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final UserRepository userRepository;
+    private final CourseEnrollmentRepository courseEnrollmentRepository;
+    private final CourseRepository courseRepository;
+    private final EmailAsyncService emailAsyncService;
 
     @Value("${app.csv-import.max-rows:500}")
     private int maxCsvRows;
 
     @Override
-    public CsvImportPreviewResponse preview(MultipartFile file, String defaultRole) {
+    public CsvImportPreviewResponse preview(MultipartFile file, String defaultRole,
+                                             UUID courseId, List<UUID> groupIds) {
         validateCsvFile(file);
         parseRole(defaultRole);
         List<String[]> rows = parseCsv(file);
         validateRowCount(rows);
         ColumnIndexes indexes = resolveColumnIndexes(rows.getFirst());
-        PreviewResult previewResult = processAllRows(rows, indexes, defaultRole);
-        String token = savePreviewToRedis(previewResult, defaultRole);
+        PreviewResult previewResult = processAllRows(rows, indexes, defaultRole, courseId);
+        String token = savePreviewToRedis(previewResult, defaultRole, courseId);
         return buildPreviewResponse(token, rows.size() - 1, previewResult);
     }
 
     @Override
     @Transactional
-    public CsvImportConfirmResponse confirm(String token, UUID adminId) {
+    public CsvImportConfirmResponse confirm(String token, UUID adminId,
+                                             UUID courseId, List<UUID> groupIds) {
         RedisPreviewData previewData = loadPreviewData(token);
         redisService.delete(RedisKeyConstants.CSV_IMPORT_PREVIEW + token);
 
         List<CsvImportRowResult> results = new ArrayList<>();
         List<AdminUserCreateRequest> batchRequests = new ArrayList<>();
-        List<CsvImportRowResult> validRows = new ArrayList<>();
-        separateValidRows(previewData, results, batchRequests, validRows);
+        List<String> newUserEmails = new ArrayList<>();
+        List<String> existingUserEmails = new ArrayList<>();
+
+        for (CsvImportRowResult row : previewData.getRows()) {
+            switch (row.getStatus()) {
+                case "VALID" -> {
+                    AdminUserCreateRequest createRequest = new AdminUserCreateRequest();
+                    createRequest.setFullName(row.getFullName());
+                    createRequest.setEmail(row.getEmail());
+                    createRequest.setRole(previewData.getDefaultRole());
+                    createRequest.setPhoneNumber(row.getPhoneNumber().isEmpty() ? null : row.getPhoneNumber());
+                    batchRequests.add(createRequest);
+                    newUserEmails.add(row.getEmail());
+                    results.add(buildImportedRowResult(row));
+                }
+                case "EXISTING_USER" -> {
+                    existingUserEmails.add(row.getEmail());
+                    results.add(buildImportedRowResult(row));
+                }
+                case "NAME_MISMATCH" -> {
+                    existingUserEmails.add(row.getEmail());
+                    results.add(buildImportedRowResult(row));
+                }
+                default -> results.add(row);
+            }
+        }
+
+        String courseTitle = null;
+        if (courseId != null) {
+            courseTitle = courseRepository.findById(courseId)
+                    .map(Course::getTitle)
+                    .orElse(null);
+        }
 
         int successCount = 0;
         int failCount = 0;
 
         if (!batchRequests.isEmpty()) {
             try {
-                userService.batchCreateUsers(adminId, batchRequests);
-                for (CsvImportRowResult row : validRows) {
-                    successCount++;
-                    results.add(buildImportedRowResult(row));
-                }
+                userService.batchCreateUsers(adminId, batchRequests, courseTitle);
+                successCount = batchRequests.size();
             } catch (Exception e) {
                 failCount = batchRequests.size();
-                for (CsvImportRowResult row : validRows) {
-                    results.add(buildFailedRowResult(row, e.getMessage()));
+                for (CsvImportRowResult row : results) {
+                    if ("IMPORTED".equals(row.getStatus())) {
+                        row.setStatus("IMPORT_FAILED");
+                        row.setErrors(List.of(e.getMessage() != null ? e.getMessage() : "Lỗi không xác định"));
+                    }
                 }
             }
         }
 
+        if (courseId != null) {
+            List<String> allEnrollEmails = new ArrayList<>();
+            allEnrollEmails.addAll(newUserEmails);
+            allEnrollEmails.addAll(existingUserEmails);
+            if (!allEnrollEmails.isEmpty()) {
+                enrollUsers(adminId, courseId, allEnrollEmails);
+            }
+        }
+
+        if (courseTitle != null && !existingUserEmails.isEmpty()) {
+            List<UserEntity> existingUsers = userRepository.findByEmailIgnoreCaseInAndDeletedAtIsNull(existingUserEmails);
+            for (UserEntity user : existingUsers) {
+                emailAsyncService.sendEnrolledToCourseMailAsync(user.getEmail(), user.getFullName(), courseTitle);
+            }
+        }
+
         return CsvImportConfirmResponse.builder()
-                .totalProcessed(successCount + failCount)
+                .totalProcessed(results.size())
                 .successCount(successCount)
                 .failCount(failCount)
                 .results(results)
@@ -133,29 +196,38 @@ public class CsvImportServiceImpl implements CsvImportService {
         return new ColumnIndexes(nameIdx, emailIdx, phoneIdx);
     }
 
-    private PreviewResult processAllRows(List<String[]> rawRows, ColumnIndexes indexes, String defaultRole) {
+    private PreviewResult processAllRows(List<String[]> rawRows, ColumnIndexes indexes, String defaultRole,
+                                          UUID courseId) {
         List<CsvImportRowResult> results = new ArrayList<>();
         Set<String> emailsInFile = new HashSet<>();
         Set<String> phonesInFile = new HashSet<>();
         int validCount = 0;
+        int existingUserCount = 0;
         int formatErrorCount = 0;
         int duplicateInFileCount = 0;
         int duplicateInDbCount = 0;
+        int alreadyEnrolledCount = 0;
+        int nameMismatchCount = 0;
 
         for (int i = 1; i < rawRows.size(); i++) {
             CsvRowData rowData = extractRowData(rawRows.get(i), i, indexes);
-            CsvImportRowResult result = validateRow(rowData, defaultRole, emailsInFile, phonesInFile, rawRows);
+            CsvImportRowResult result = validateRow(rowData, defaultRole, emailsInFile, phonesInFile,
+                    rawRows, courseId);
             results.add(result);
 
             switch (result.getStatus()) {
                 case "VALID" -> validCount++;
+                case "EXISTING_USER" -> existingUserCount++;
                 case "FORMAT_ERROR" -> formatErrorCount++;
                 case "DUPLICATE_IN_FILE" -> duplicateInFileCount++;
                 case "DUPLICATE_IN_DB" -> duplicateInDbCount++;
+                case "ALREADY_ENROLLED" -> alreadyEnrolledCount++;
+                case "NAME_MISMATCH" -> nameMismatchCount++;
             }
         }
 
-        return new PreviewResult(results, validCount, formatErrorCount, duplicateInFileCount, duplicateInDbCount);
+        return new PreviewResult(results, validCount, existingUserCount, formatErrorCount,
+                duplicateInFileCount, duplicateInDbCount, alreadyEnrolledCount, nameMismatchCount);
     }
 
     private CsvRowData extractRowData(String[] cols, int rowIndex, ColumnIndexes indexes) {
@@ -180,7 +252,7 @@ public class CsvImportServiceImpl implements CsvImportService {
 
     private CsvImportRowResult validateRow(CsvRowData rowData, String defaultRole,
                                             Set<String> emailsInFile, Set<String> phonesInFile,
-                                            List<String[]> rawRows) {
+                                            List<String[]> rawRows, UUID courseId) {
         AdminUserCreateRequest createRequest = buildCreateRequest(rowData, defaultRole);
 
         List<String> errors = validateRequest(createRequest);
@@ -203,6 +275,24 @@ public class CsvImportServiceImpl implements CsvImportService {
         }
 
         if (userService.existsByEmail(rowData.email)) {
+            if (courseId != null) {
+                UserEntity existingUser = userRepository.findByEmailIgnoreCaseAndDeletedAtIsNull(rowData.email).orElse(null);
+                if (existingUser != null) {
+                    if (courseEnrollmentRepository.existsByCourseIdAndStudentId(courseId, existingUser.getId())) {
+                        errors.add("Email [" + rowData.email + "] đã tham gia khoá học này");
+                        return buildRowResult(rowData.rowNumber, rowData.fullName, rowData.email, rowData.phone,
+                                "ALREADY_ENROLLED", errors);
+                    }
+                    if (!rowData.fullName.equalsIgnoreCase(existingUser.getFullName())) {
+                        errors.add("Tên trong file (" + rowData.fullName + ") khác với tên thật ("
+                                + existingUser.getFullName() + ")");
+                        return buildRowResult(rowData.rowNumber, rowData.fullName, rowData.email, rowData.phone,
+                                "NAME_MISMATCH", errors);
+                    }
+                }
+                return buildRowResult(rowData.rowNumber, rowData.fullName, rowData.email, rowData.phone,
+                        "EXISTING_USER", List.of("Email đã tồn tại, sẽ thêm vào khoá học"));
+            }
             errors.add("Email đã tồn tại trong hệ thống");
             return buildRowResult(rowData.rowNumber, rowData.fullName, rowData.email, rowData.phone, "DUPLICATE_IN_DB", errors);
         }
@@ -231,11 +321,13 @@ public class CsvImportServiceImpl implements CsvImportService {
                 .toList());
     }
 
-    private String savePreviewToRedis(PreviewResult previewResult, String role) {
+    private String savePreviewToRedis(PreviewResult previewResult, String role,
+                                       UUID courseId) {
         String token = UUID.randomUUID().toString();
         String redisKey = RedisKeyConstants.CSV_IMPORT_PREVIEW + token;
         try {
-            String json = objectMapper.writeValueAsString(new RedisPreviewData(previewResult.results, role));
+            String json = objectMapper.writeValueAsString(
+                    new RedisPreviewData(previewResult.results, role, courseId));
             redisService.set(redisKey, json, CSV_PREVIEW_TTL_MINUTES * 60);
         } catch (Exception e) {
             throw new BusinessException("Không thể lưu dữ liệu xem trước, vui lòng thử lại");
@@ -248,9 +340,12 @@ public class CsvImportServiceImpl implements CsvImportService {
                 .token(token)
                 .totalRows(totalRows)
                 .validCount(result.validCount)
+                .existingUserCount(result.existingUserCount)
                 .formatErrorCount(result.formatErrorCount)
                 .duplicateInFileCount(result.duplicateInFileCount)
                 .duplicateInDbCount(result.duplicateInDbCount)
+                .alreadyEnrolledCount(result.alreadyEnrolledCount)
+                .nameMismatchCount(result.nameMismatchCount)
                 .rows(result.results)
                 .build();
     }
@@ -270,24 +365,23 @@ public class CsvImportServiceImpl implements CsvImportService {
         }
     }
 
-    private void separateValidRows(RedisPreviewData previewData,
-                                    List<CsvImportRowResult> results,
-                                    List<AdminUserCreateRequest> batchRequests,
-                                    List<CsvImportRowResult> validRows) {
-        for (CsvImportRowResult row : previewData.getRows()) {
-            if (!"VALID".equals(row.getStatus())) {
-                results.add(row);
-                continue;
+    private void enrollUsers(UUID adminId, UUID courseId, List<String> emails) {
+        List<UserEntity> users = userRepository.findByEmailIgnoreCaseInAndDeletedAtIsNull(emails);
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+
+        List<CourseEnrollmentEntity> enrollments = new ArrayList<>();
+        for (UserEntity user : users) {
+            if (!courseEnrollmentRepository.existsByCourseIdAndStudentId(courseId, user.getId())) {
+                CourseEnrollmentEntity enrollment = new CourseEnrollmentEntity();
+                enrollment.setId(UUID.randomUUID());
+                enrollment.setCourseId(courseId);
+                enrollment.setStudentId(user.getId());
+                enrollments.add(enrollment);
             }
+        }
 
-            AdminUserCreateRequest createRequest = new AdminUserCreateRequest();
-            createRequest.setFullName(row.getFullName());
-            createRequest.setEmail(row.getEmail());
-            createRequest.setRole(previewData.getDefaultRole());
-            createRequest.setPhoneNumber(row.getPhoneNumber().isEmpty() ? null : row.getPhoneNumber());
-
-            batchRequests.add(createRequest);
-            validRows.add(row);
+        if (!enrollments.isEmpty()) {
+            courseEnrollmentRepository.saveAll(enrollments);
         }
     }
 
@@ -404,8 +498,9 @@ public class CsvImportServiceImpl implements CsvImportService {
     private record CsvRowData(int rowNumber, String fullName, String email, String phone) {}
 
     private record PreviewResult(List<CsvImportRowResult> results, int validCount,
-                                  int formatErrorCount, int duplicateInFileCount,
-                                  int duplicateInDbCount) {}
+                                  int existingUserCount, int formatErrorCount,
+                                  int duplicateInFileCount, int duplicateInDbCount,
+                                  int alreadyEnrolledCount, int nameMismatchCount) {}
 
     @lombok.Getter
     @lombok.Setter
@@ -414,5 +509,6 @@ public class CsvImportServiceImpl implements CsvImportService {
     private static class RedisPreviewData {
         private List<CsvImportRowResult> rows;
         private String defaultRole;
+        private UUID courseId;
     }
 }

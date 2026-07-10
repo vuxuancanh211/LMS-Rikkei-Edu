@@ -8,6 +8,8 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import project.lms_rikkei_edu.modules.assignment.enums.AssignmentScope;
 import project.lms_rikkei_edu.modules.assignment.enums.AssignmentStatus;
 
@@ -61,6 +63,7 @@ public class AssignmentEntity {
     @Column(name = "max_file_size_mb")
     private Integer maxFileSizeMb;
 
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "allowed_file_types", columnDefinition = "jsonb")
     private String allowedFileTypes;
 

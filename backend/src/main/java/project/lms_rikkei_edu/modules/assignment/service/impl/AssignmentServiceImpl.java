@@ -25,11 +25,13 @@ import project.lms_rikkei_edu.modules.assignment.repository.AssignmentAttachment
 import project.lms_rikkei_edu.modules.assignment.repository.AssignmentGroupRepository;
 import project.lms_rikkei_edu.modules.assignment.repository.AssignmentRepository;
 import project.lms_rikkei_edu.modules.assignment.service.AssignmentService;
+import project.lms_rikkei_edu.infrastructure.s3.S3Service;
 import project.lms_rikkei_edu.modules.course.entity.Course;
 import project.lms_rikkei_edu.modules.course.enums.CourseStatus;
 import project.lms_rikkei_edu.modules.course.repository.CourseRepository;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest;
 
 import java.io.IOException;
 import java.time.OffsetDateTime;
@@ -48,10 +50,14 @@ public class AssignmentServiceImpl implements AssignmentService {
     private final CourseRepository courseRepository;
     private final AssignmentMapper assignmentMapper;
     private final S3Client s3Client;
+    private final S3Service s3Service;
     private final ObjectMapper objectMapper;
 
     @Value("${app.s3.bucket}")
     private String bucket;
+
+    @Value("${app.s3.presigned-url-expiry:3600}")
+    private long presignedUrlExpiry;
 
     @Override
     @Transactional
@@ -205,8 +211,28 @@ public class AssignmentServiceImpl implements AssignmentService {
         List<AssignmentAttachmentResponse> attachments = assignmentAttachmentRepository
                 .findByAssignmentIdOrderByOrderIndexAsc(assignmentId)
                 .stream()
-                .map(assignmentMapper::toAttachmentResponse)
+                .map(entity -> {
+                    AssignmentAttachmentResponse resp = assignmentMapper.toAttachmentResponse(entity);
+                    if (entity.getS3Key() == null) return resp;
+                    PresignedGetObjectRequest presigned = s3Service.generatePresignedInlineUrl(
+                            entity.getS3Key(), presignedUrlExpiry);
+                    return AssignmentAttachmentResponse.builder()
+                            .id(resp.getId())
+                            .assignmentId(resp.getAssignmentId())
+                            .displayName(resp.getDisplayName())
+                            .originalFilename(resp.getOriginalFilename())
+                            .fileSizeBytes(resp.getFileSizeBytes())
+                            .mimeType(resp.getMimeType())
+                            .orderIndex(resp.getOrderIndex())
+                            .uploadedAt(resp.getUploadedAt())
+                            .url(presigned.url().toString())
+                            .build();
+                })
                 .toList();
+
+        String courseTitle = courseRepository.findById(courseId)
+                .map(Course::getTitle)
+                .orElse(null);
 
         return AssignmentDetailResponse.builder()
                 .id(assignment.getId())
@@ -228,6 +254,7 @@ public class AssignmentServiceImpl implements AssignmentService {
                 .publishedAt(assignment.getPublishedAt())
                 .createdAt(assignment.getCreatedAt())
                 .updatedAt(assignment.getUpdatedAt())
+                .courseTitle(courseTitle)
                 .attachments(attachments)
                 .build();
     }
@@ -466,6 +493,7 @@ public class AssignmentServiceImpl implements AssignmentService {
 
         if (request.getScope() == AssignmentScope.SPECIFIC_GROUPS && request.getGroupIds() != null) {
             assignmentGroupRepository.deleteByAssignmentId(assignment.getId());
+            assignmentGroupRepository.flush();
             OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
             for (UUID groupId : request.getGroupIds()) {
                 AssignmentGroupEntity ag = new AssignmentGroupEntity();

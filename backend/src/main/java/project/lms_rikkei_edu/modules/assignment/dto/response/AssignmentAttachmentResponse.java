@@ -18,4 +18,5 @@ public class AssignmentAttachmentResponse {
     private String mimeType;
     private Integer orderIndex;
     private OffsetDateTime uploadedAt;
+    private String url;
 }

@@ -63,19 +63,40 @@ public class EmailService {
     @Value("${app.auth.login-url}")
     private String loginUrl;
 
-    public void sendNewAccountMail(String to, String fullName, String temporaryPassword) {
+    public void sendNewAccountMail(String to, String fullName, String temporaryPassword, String courseTitle) {
         SimpleMailMessage message = new SimpleMailMessage();
 
         message.setFrom(from);
         message.setTo(to);
         message.setSubject("[Rikkei Edu] Tài khoản của bạn đã được tạo");
+
+        String courseLine = courseTitle != null
+                ? "Bạn đã được thêm vào khóa học \"" + courseTitle + "\".\n\n"
+                : "";
+
         message.setText("Chào " + fullName + ",\n\n"
                 + "Tài khoản của bạn tại hệ thống Rikkei Edu đã được tạo thành công.\n\n"
+                + courseLine
                 + "Thông tin đăng nhập:\n"
                 + "  - Email:    " + to + "\n"
                 + "  - Mật khẩu: " + temporaryPassword + "\n\n"
                 + "Vui lòng đăng nhập tại: " + loginUrl + "\n"
                 + "Sau khi đăng nhập, hãy đổi mật khẩu ngay để bảo vệ tài khoản.\n\n"
+                + "Trân trọng,\n"
+                + "Đội ngũ Rikkei Edu");
+
+        mailSender.send(message);
+    }
+
+    public void sendEnrolledToCourseMail(String to, String fullName, String courseTitle) {
+        SimpleMailMessage message = new SimpleMailMessage();
+
+        message.setFrom(from);
+        message.setTo(to);
+        message.setSubject("[Rikkei Edu] Bạn đã được thêm vào khóa học");
+        message.setText("Chào " + fullName + ",\n\n"
+                + "Bạn đã được thêm vào khóa học \"" + courseTitle + "\".\n\n"
+                + "Đăng nhập tại: " + loginUrl + " để xem chi tiết.\n\n"
                 + "Trân trọng,\n"
                 + "Đội ngũ Rikkei Edu");
 

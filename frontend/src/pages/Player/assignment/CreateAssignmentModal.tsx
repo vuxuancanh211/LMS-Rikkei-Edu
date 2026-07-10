@@ -1,10 +1,9 @@
 // @ts-nocheck
 import { createPortal } from 'react-dom';
 (function () {
-  const { useState, useEffect, useRef, useCallback } = React;
+  const { useState, useEffect, useRef } = React;
   const Ic = window.Icon;
   const api = window.httpClient;
-  const mammoth = window.mammoth;
 
   const ALLOWED_MIME_TYPES = [
     { key: "image/jpeg", label: "JPEG" },
@@ -15,7 +14,7 @@ import { createPortal } from 'react-dom';
     { key: "application/vnd.openxmlformats-officedocument.presentationml.presentation", label: "PPTX" },
   ];
 
-  function CreateAssignmentModal({ courseId, role, onClose }) {
+  function CreateAssignmentModal({ courseId, role, onClose, assignment }) {
     const [title, setTitle] = useState("");
     const [description, setDescription] = useState("");
     const [maxScore, setMaxScore] = useState(100);
@@ -35,6 +34,12 @@ import { createPortal } from 'react-dom';
     const [selectedCourseId, setSelectedCourseId] = useState(courseId || "");
     const [courses, setCourses] = useState([]);
     const [coursesLoading, setCoursesLoading] = useState(!courseId);
+    const [selectedGroupIds, setSelectedGroupIds] = useState([]);
+    const [groups, setGroups] = useState([]);
+    const [groupsLoading, setGroupsLoading] = useState(false);
+    const isEdit = !!assignment;
+    const [existingAttachments, setExistingAttachments] = useState(assignment?.attachments || []);
+    const deletedAttachmentIds = useRef([]);
 
     useEffect(() => {
       if (courseId) return;
@@ -46,29 +51,80 @@ import { createPortal } from 'react-dom';
       }).catch(() => setCoursesLoading(false));
     }, []);
 
+    const effectiveCourseId = courseId || selectedCourseId;
+
+    useEffect(() => {
+      if (!effectiveCourseId || scope !== "SPECIFIC_GROUPS") {
+        setGroups([]);
+        return;
+      }
+      setGroupsLoading(true);
+      api.get("/instructor/groups", { params: { courseId: effectiveCourseId, size: 100 } }).then(res => {
+        const data = res.data || res;
+        setGroups(data.content || data);
+        setGroupsLoading(false);
+      }).catch(err => {
+        console.error("Lỗi tải nhóm:", err?.response?.status, err?.response?.data || err);
+        setGroupsLoading(false);
+      });
+    }, [effectiveCourseId, scope]);
+
+    function toggleGroup(id) {
+      setSelectedGroupIds(prev =>
+        prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+      );
+    }
+
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState("");
 
-    const [previewIdx, setPreviewIdx] = useState(null);
-    const [docxHtml, setDocxHtml] = useState({});
-    const [previewLoading, setPreviewLoading] = useState(false);
-    const [previewError, setPreviewError] = useState("");
+    const [previewItemIdx, setPreviewItemIdx] = useState(null);
+    const [previewItems, setPreviewItems] = useState([]);
 
     const fileRef = useRef(null);
     const fileUrls = useRef(new Map());
-    const docxCache = useRef({});
+
+    function padNum(n) { return String(n).padStart(2, '0'); }
+    function toLocalDateStr(d) {
+      return `${d.getFullYear()}-${padNum(d.getMonth()+1)}-${padNum(d.getDate())}`;
+    }
+    function toLocalTimeStr(d) {
+      return `${padNum(d.getHours())}:${padNum(d.getMinutes())}`;
+    }
+
+    useEffect(() => {
+      if (!assignment) return;
+      setTitle(assignment.title || "");
+      setDescription(assignment.description || "");
+      setMaxScore(assignment.maxScore ?? 100);
+      setScope(assignment.scope || "ALL_GROUPS");
+      setMaxFileSize(assignment.maxFileSizeMb ?? 50);
+      setAllowedTypes(assignment.allowedFileTypes || []);
+      setMaxSubmissions(assignment.maxSubmissions ?? 3);
+      setSelectedGroupIds(assignment.groupIds || []);
+      setAllowLate(assignment.allowLateSubmission || false);
+      setLatePenalty(assignment.latePenaltyPercent ?? 10);
+      setExistingAttachments(assignment.attachments || []);
+      deletedAttachmentIds.current = [];
+
+      if (assignment.startDate) {
+        setHasStartDate(true);
+        const d = new Date(assignment.startDate);
+        setStartDateDate(toLocalDateStr(d));
+        setStartDateTime(toLocalTimeStr(d));
+      }
+      if (assignment.deadline) {
+        setHasDeadline(true);
+        const d = new Date(assignment.deadline);
+        setDeadlineDate(toLocalDateStr(d));
+        setDeadlineTime(toLocalTimeStr(d));
+      }
+    }, [assignment]);
 
     function toggleType(mime) {
       setAllowedTypes(prev =>
         prev.includes(mime) ? prev.filter(t => t !== mime) : [...prev, mime]
       );
-    }
-
-    function getFileUrl(file) {
-      if (!fileUrls.current.has(file)) {
-        fileUrls.current.set(file, URL.createObjectURL(file));
-      }
-      return fileUrls.current.get(file);
     }
 
     useEffect(() => {
@@ -90,58 +146,63 @@ import { createPortal } from 'react-dom';
       };
     }, []);
 
-    function isDocx(file) {
-      return file.name.toLowerCase().endsWith(".docx")
-        || file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    function buildPreviewItems() {
+      const items = [];
+      for (const att of existingAttachments) {
+        if (att.url) {
+          items.push({
+            name: att.displayName || att.originalFilename,
+            url: att.url,
+            size: att.fileSizeBytes,
+            mimeType: att.mimeType,
+          });
+        }
+      }
+      for (const file of files) {
+        items.push({
+          name: file.name,
+          file: file,
+          size: file.size,
+          mimeType: file.type,
+        });
+      }
+      return items;
     }
 
-    function isImage(file) { return file.type.startsWith("image/"); }
-    function isPdf(file) { return file.type === "application/pdf"; }
+    function openPreviewExisting(att) {
+      const items = buildPreviewItems();
+      const idx = existingAttachments.findIndex(a => a.id === att.id);
+      if (idx >= 0) {
+        setPreviewItems(items);
+        setPreviewItemIdx(idx);
+      }
+    }
 
-    useEffect(() => {
-      if (previewIdx === null || !files[previewIdx]) {
-        setPreviewLoading(false);
-        setPreviewError("");
-        return;
-      }
-      const file = files[previewIdx];
-      if (!isDocx(file)) {
-        setPreviewLoading(false);
-        setPreviewError("");
-        return;
-      }
-      if (docxCache.current[file.name]) {
-        setPreviewLoading(false);
-        setPreviewError("");
-        return;
-      }
-      setPreviewLoading(true);
-      setPreviewError("");
-      file.arrayBuffer().then(buf => {
-        mammoth.convertToHtml({ arrayBuffer: buf }).then(result => {
-          docxCache.current[file.name] = result.value;
-          setDocxHtml(prev => ({ ...prev, [file.name]: result.value }));
-          setPreviewLoading(false);
-        }).catch(() => {
-          setPreviewError("Không thể đọc file DOCX");
-          setPreviewLoading(false);
-        });
-      }).catch(() => {
-        setPreviewError("Không thể đọc file");
-        setPreviewLoading(false);
-      });
-    }, [previewIdx]);
+    function openPreviewNewFile(fileIdx) {
+      const items = buildPreviewItems();
+      const localStart = existingAttachments.filter(a => a.url).length;
+      setPreviewItems(items);
+      setPreviewItemIdx(localStart + fileIdx);
+    }
 
-    useEffect(() => {
-      if (previewIdx === null) return;
-      function handleKey(e) {
-        if (e.key === "Escape") { setPreviewIdx(null); return; }
-        if (e.key === "ArrowLeft" && previewIdx > 0) { e.preventDefault(); setPreviewIdx(previewIdx - 1); }
-        if (e.key === "ArrowRight" && previewIdx < files.length - 1) { e.preventDefault(); setPreviewIdx(previewIdx + 1); }
+    function closePreview() {
+      setPreviewItemIdx(null);
+      setPreviewItems([]);
+    }
+
+    async function removeExistingAttachment(att) {
+      setError("");
+      try {
+        const ep = role === "admin"
+          ? `/admin/courses/${effectiveCourseId}/assignments/${assignment.id}/attachments/${att.id}`
+          : `/instructor/courses/${effectiveCourseId}/assignments/${assignment.id}/attachments/${att.id}`;
+        await api.delete(ep);
+        setExistingAttachments(prev => prev.filter(a => a.id !== att.id));
+      } catch (err) {
+        const msg = err?.response?.data?.message || err?.message || "Xoá file thất bại";
+        setError(msg);
       }
-      window.addEventListener("keydown", handleKey);
-      return () => window.removeEventListener("keydown", handleKey);
-    }, [previewIdx, files.length]);
+    }
 
     function handleFileDrop(e) {
       e.preventDefault();
@@ -162,11 +223,10 @@ import { createPortal } from 'react-dom';
         URL.revokeObjectURL(fileUrls.current.get(removed));
         fileUrls.current.delete(removed);
       }
-      if (previewIdx !== null) {
-        if (previewIdx === i) {
-          setPreviewIdx(null);
-        } else if (previewIdx > i) {
-          setPreviewIdx(previewIdx - 1);
+      if (previewItemIdx !== null) {
+        const localStart = existingAttachments.filter(a => a.url).length;
+        if (previewItemIdx === localStart + i) {
+          setPreviewItemIdx(null);
         }
       }
     }
@@ -175,6 +235,7 @@ import { createPortal } from 'react-dom';
       setError("");
       if (!title.trim()) { setError("Vui lòng nhập tiêu đề"); return; }
       if (publishAfter && title.trim().length < 5) { setError("Tiêu đề phải có ít nhất 5 ký tự"); return; }
+      if (allowedTypes.length === 0) { setError("Vui lòng chọn ít nhất một loại file được phép"); return; }
 
       let startDate = null;
       if (hasStartDate && startDateDate) {
@@ -197,34 +258,49 @@ import { createPortal } from 'react-dom';
         maxFileSizeMb: maxFileSize != null ? Number(maxFileSize) : null,
         allowedFileTypes: allowedTypes.length > 0 ? allowedTypes : null,
         maxSubmissions: maxSubmissions != null ? Number(maxSubmissions) : null,
+        groupIds: scope === "SPECIFIC_GROUPS" ? selectedGroupIds : null,
       };
 
-      const effectiveCourseId = courseId || selectedCourseId;
       if (!effectiveCourseId) { setError("Vui lòng chọn khóa học"); setSubmitting(false); return; }
 
       setSubmitting(true);
       try {
-        const ep = role === "admin"
+        const baseEp = role === "admin"
           ? `/admin/courses/${effectiveCourseId}/assignments`
           : `/instructor/courses/${effectiveCourseId}/assignments`;
-        const res = await api.post(ep, payload);
-        const assignment = res.data || res;
 
-        // Upload files if any
-        for (const file of files) {
-          const formData = new FormData();
-          formData.append("file", file);
-          await api.post(`${ep}/${assignment.id}/attachments`, formData, {
-            headers: { "Content-Type": "multipart/form-data" },
-          });
+        if (isEdit) {
+          const ep = `${baseEp}/${assignment.id}`;
+          await api.put(ep, payload);
+          for (const file of files) {
+            const formData = new FormData();
+            formData.append("file", file);
+            await api.post(`${ep}/attachments`, formData, {
+              headers: { "Content-Type": "multipart/form-data" },
+            });
+          }
+          if (publishAfter) {
+            await api.put(`${ep}/publish`);
+          }
+          onClose(true);
+        } else {
+          const res = await api.post(baseEp, payload);
+          const created = res.data || res;
+
+          for (const file of files) {
+            const formData = new FormData();
+            formData.append("file", file);
+            await api.post(`${baseEp}/${created.id}/attachments`, formData, {
+              headers: { "Content-Type": "multipart/form-data" },
+            });
+          }
+
+          if (publishAfter) {
+            await api.put(`${baseEp}/${created.id}/publish`);
+          }
+
+          onClose(true);
         }
-
-        // Publish if requested
-        if (publishAfter) {
-          await api.put(`${ep}/${assignment.id}/publish`);
-        }
-
-        onClose(true);
       } catch (err) {
         const msg = err?.response?.data?.message || err?.message || "Có lỗi xảy ra";
         setError(msg);
@@ -253,9 +329,14 @@ import { createPortal } from 'react-dom';
               <Ic n="clipboard" size={14} style={{ color: "#fff" }} />
             </div>
             <span style={{ fontSize: 15, fontWeight: 700, color: "#0f172a", flexShrink: 0 }}>
-              Tạo bài tập
+              {isEdit ? "Sửa bài tập" : "Tạo bài tập"}
             </span>
-            {!courseId && (
+            {isEdit ? (
+              <div style={{ flex: 1, fontSize: 12, color: "#64748b", textAlign: "right" }}>
+                <Ic n="book" size={12} style={{ marginRight: 4 }} />
+                {assignment.courseTitle || "Đang tải..."}
+              </div>
+            ) : !courseId && (
               <div style={{ flex: 1, maxWidth: 280 }}>
                 <select value={selectedCourseId}
                   onChange={e => setSelectedCourseId(e.target.value)}
@@ -317,6 +398,31 @@ import { createPortal } from 'react-dom';
               <div>
                 <label style={{ fontSize: 12, fontWeight: 600, color: "#0f172a",
                   display: "block", marginBottom: 4 }}>File đính kèm</label>
+                {isEdit && existingAttachments.length > 0 && (
+                  <div style={{ marginBottom: 6, display: "flex", flexDirection: "column", gap: 4 }}>
+                    {existingAttachments.map(att => (
+                      <div key={att.id}
+                        style={{ display: "flex", alignItems: "center", gap: 6,
+                          padding: "4px 8px", borderRadius: 6, background: "#eef2ff" }}>
+                        <Ic n="file" size={11} style={{ color: "#6366f1", flexShrink: 0 }} />
+                        <span onClick={() => openPreviewExisting(att)}
+                          style={{ flex: 1, fontSize: 11.5, color: "#2563eb", cursor: "pointer",
+                            textDecoration: "underline", textDecorationColor: "#bfdbfe",
+                            textUnderlineOffset: 2 }}
+                          className="truncate">{att.displayName || att.originalFilename}</span>
+                        <span style={{ fontSize: 10, color: "#94a3b8", flexShrink: 0 }}>
+                          {att.fileSizeBytes ? (att.fileSizeBytes / 1024).toFixed(0) + " KB" : ""}
+                        </span>
+                        <button onClick={() => removeExistingAttachment(att)}
+                          style={{ border: "none", background: "transparent", color: "#ef4444",
+                            cursor: "pointer", padding: 0, display: "grid", placeItems: "center",
+                            flexShrink: 0 }}>
+                          <Ic n="x" size={11} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <div onDragOver={e => e.preventDefault()} onDrop={handleFileDrop}
                   style={{ border: "1.5px dashed #cbd5e1", borderRadius: 8,
                     padding: "14px 12px", textAlign: "center", cursor: "pointer",
@@ -338,7 +444,7 @@ import { createPortal } from 'react-dom';
                         style={{ display: "flex", alignItems: "center", gap: 6,
                           padding: "4px 8px", borderRadius: 6, background: "#f8fafc" }}>
                         <Ic n="file" size={11} style={{ color: "#94a3b8", flexShrink: 0 }} />
-                        <span onClick={() => setPreviewIdx(i)}
+                        <span onClick={() => openPreviewNewFile(i)}
                           style={{ flex: 1, fontSize: 11.5, color: "#2563eb", cursor: "pointer",
                             textDecoration: "underline", textDecorationColor: "#bfdbfe",
                             textUnderlineOffset: 2 }}
@@ -451,13 +557,55 @@ import { createPortal } from 'react-dom';
               <div>
                 <label style={{ fontSize: 12, fontWeight: 600, color: "#0f172a",
                   display: "block", marginBottom: 4 }}>Phạm vi</label>
-                <select value={scope} onChange={e => setScope(e.target.value)}
+                <select value={scope} onChange={e => { setScope(e.target.value); setSelectedGroupIds([]); }}
                   style={{ width: "100%", height: 36, borderRadius: 8, border: "1px solid #e2e8f0",
                     padding: "0 10px", fontSize: 13, outline: "none", background: "#fff",
                     boxSizing: "border-box" }}>
                   <option value="ALL_GROUPS">Tất cả nhóm</option>
-                  <option value="SPECIFIC_GROUPS" disabled>Nhóm cụ thể (sắp ra mắt)</option>
+                  <option value="SPECIFIC_GROUPS">Nhóm cụ thể</option>
                 </select>
+                {scope === "SPECIFIC_GROUPS" && (
+                  <div style={{ marginTop: 8, border: "1px solid #e2e8f0", borderRadius: 8,
+                    maxHeight: 160, overflowY: "auto", background: "#f8fafc" }}>
+                    {groupsLoading ? (
+                      <div style={{ padding: "10px 12px", fontSize: 12, color: "#94a3b8" }}>
+                        Đang tải nhóm...
+                      </div>
+                    ) : groups.length === 0 ? (
+                      <div style={{ padding: "10px 12px", fontSize: 12, color: "#94a3b8" }}>
+                        Không có nhóm nào
+                      </div>
+                    ) : (
+                      groups.map(g => {
+                        const sel = selectedGroupIds.includes(g.id);
+                        return (
+                          <label key={g.id}
+                            style={{ display: "flex", alignItems: "center", gap: 8,
+                              padding: "7px 12px", cursor: "pointer", fontSize: 12.5,
+                              color: "#0f172a", transition: ".1s",
+                              background: sel ? "#eff6ff" : "transparent",
+                              borderBottom: "1px solid #f1f5f9" }}
+                            onMouseEnter={e => { if (!sel) e.currentTarget.style.background = "#f8fafc"; }}
+                            onMouseLeave={e => { if (!sel) e.currentTarget.style.background = "transparent"; }}>
+                            <input type="checkbox" checked={sel}
+                              onChange={() => toggleGroup(g.id)}
+                              style={{ accentColor: "#2563eb" }} />
+                            <span style={{ flex: 1 }}>{g.name}</span>
+                            <span style={{ fontSize: 11, color: "#94a3b8" }}>
+                              {g.memberCount ?? 0} HV
+                            </span>
+                          </label>
+                        );
+                      })
+                    )}
+                    {selectedGroupIds.length > 0 && (
+                      <div style={{ padding: "6px 12px", fontSize: 11, color: "#64748b",
+                        borderTop: "1px solid #e2e8f0", background: "#fff" }}>
+                        Đã chọn {selectedGroupIds.length} nhóm
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Max file size */}
@@ -513,119 +661,61 @@ import { createPortal } from 'react-dom';
                 cursor: "pointer", fontWeight: 600 }}>
               Huỷ
             </button>
-            <button onClick={() => handleSubmit(false)} disabled={submitting}
-              style={{ height: 36, padding: "0 14px", borderRadius: 8, fontSize: 13,
-                border: "1.5px solid #e2e8f0", background: "#f8fafc", color: "#475569",
-                cursor: "pointer", fontWeight: 600, display: "flex", alignItems: "center", gap: 5 }}>
-              <Ic n="save" size={12} />
-              {submitting ? "Đang lưu..." : "Lưu nháp"}
-            </button>
-            <button onClick={() => handleSubmit(true)} disabled={submitting}
-              style={{ height: 36, padding: "0 14px", borderRadius: 8, fontSize: 13,
-                border: "none", background: "#2563eb", color: "#fff",
-                cursor: "pointer", fontWeight: 600, display: "flex", alignItems: "center", gap: 5 }}>
-              <Ic n="send" size={12} />
-              {submitting ? "Đang đăng..." : "Đăng"}
-            </button>
+            {isEdit && assignment.status === 'DRAFT' ? (
+              <>
+                <button onClick={() => handleSubmit(false)} disabled={submitting}
+                  style={{ height: 36, padding: "0 14px", borderRadius: 8, fontSize: 13,
+                    border: "1.5px solid #e2e8f0", background: "#f8fafc", color: "#475569",
+                    cursor: "pointer", fontWeight: 600, display: "flex", alignItems: "center", gap: 5 }}>
+                  <Ic n="save" size={12} />
+                  {submitting ? "Đang lưu..." : "Lưu thay đổi"}
+                </button>
+                <button onClick={() => handleSubmit(true)} disabled={submitting}
+                  style={{ height: 36, padding: "0 14px", borderRadius: 8, fontSize: 13,
+                    border: "none", background: "#2563eb", color: "#fff",
+                    cursor: "pointer", fontWeight: 600, display: "flex", alignItems: "center", gap: 5 }}>
+                  <Ic n="send" size={12} />
+                  {submitting ? "Đang đăng..." : "Đăng"}
+                </button>
+              </>
+            ) : isEdit ? (
+              <button onClick={() => handleSubmit(false)} disabled={submitting}
+                style={{ height: 36, padding: "0 16px", borderRadius: 8, fontSize: 13,
+                  border: "none", background: "#2563eb", color: "#fff",
+                  cursor: "pointer", fontWeight: 600, display: "flex", alignItems: "center", gap: 5 }}>
+                <Ic n="save" size={12} />
+                {submitting ? "Đang lưu..." : "Lưu thay đổi"}
+              </button>
+            ) : (
+              <>
+                <button onClick={() => handleSubmit(false)} disabled={submitting}
+                  style={{ height: 36, padding: "0 14px", borderRadius: 8, fontSize: 13,
+                    border: "1.5px solid #e2e8f0", background: "#f8fafc", color: "#475569",
+                    cursor: "pointer", fontWeight: 600, display: "flex", alignItems: "center", gap: 5 }}>
+                  <Ic n="save" size={12} />
+                  {submitting ? "Đang lưu..." : "Lưu nháp"}
+                </button>
+                <button onClick={() => handleSubmit(true)} disabled={submitting}
+                  style={{ height: 36, padding: "0 14px", borderRadius: 8, fontSize: 13,
+                    border: "none", background: "#2563eb", color: "#fff",
+                    cursor: "pointer", fontWeight: 600, display: "flex", alignItems: "center", gap: 5 }}>
+                  <Ic n="send" size={12} />
+                  {submitting ? "Đang đăng..." : "Đăng"}
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>
 
       {/* File preview overlay */}
-      {previewIdx !== null && files[previewIdx] && (() => {
-        const file = files[previewIdx];
-        const hasPrev = previewIdx > 0;
-        const hasNext = previewIdx < files.length - 1;
-        const fileSize = (file.size / 1024).toFixed(0);
-
-        let content;
-        if (isImage(file)) {
-          content = <img src={getFileUrl(file)}
-            style={{ maxWidth: "100%", maxHeight: "100%", minWidth: 400, minHeight: 300,
-              objectFit: "contain", borderRadius: 4 }} />;
-        } else if (isPdf(file)) {
-          content = <iframe src={getFileUrl(file)}
-            style={{ width: "100%", height: "100%", border: "none", borderRadius: 4,
-              minHeight: "60vh" }} />;
-        } else if (isDocx(file)) {
-          if (previewLoading) {
-            content = <div style={{ color: "#94a3b8", fontSize: 13, textAlign: "center" }}>
-              <div style={{ fontSize: 11, marginBottom: 8 }}>⏳</div>
-              Đang tải nội dung...
-            </div>;
-          } else if (previewError) {
-            content = <div style={{ color: "#f87171", fontSize: 13, textAlign: "center" }}>
-              <Ic n="alert_circle" size={20} style={{ marginBottom: 6 }} /><br />
-              {previewError}
-            </div>;
-          } else if (docxHtml[file.name]) {
-            content = <div dangerouslySetInnerHTML={{ __html: docxHtml[file.name] }}
-              style={{ width: "100%", height: "100%", overflow: "auto", background: "#fff",
-                padding: 32, borderRadius: 6, color: "#0f172a", fontSize: 14,
-                lineHeight: 1.7, boxSizing: "border-box" }} />;
-          } else {
-            content = <div style={{ color: "#94a3b8", fontSize: 13, textAlign: "center" }}>
-              Không thể xem trước
-            </div>;
-          }
-        } else {
-          content = <div style={{ color: "#94a3b8", fontSize: 13, textAlign: "center" }}>
-            <Ic n="file" size={28} style={{ marginBottom: 6 }} /><br />
-            Không thể xem trước file này
-          </div>;
-        }
-
-        return (
-          <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 400, background: "rgba(0,0,0,.88)",
-            display: "flex", flexDirection: "column" }}>
-            {/* Top bar */}
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
-              padding: "10px 16px", flexShrink: 0 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <button onClick={() => setPreviewIdx(null)}
-                  style={{ border: "none", background: "rgba(255,255,255,.1)", color: "#fff",
-                    width: 32, height: 32, borderRadius: 8, cursor: "pointer", fontSize: 14,
-                    display: "grid", placeItems: "center" }}>
-                  ✕
-                </button>
-                <Ic n="file" size={13} style={{ color: "#94a3b8" }} />
-                <span style={{ color: "#f1f5f9", fontSize: 13, fontWeight: 500 }}>{file.name}</span>
-                <span style={{ color: "#64748b", fontSize: 11 }}>({fileSize} KB)</span>
-              </div>
-              <span style={{ color: "#94a3b8", fontSize: 12 }}>
-                {previewIdx + 1} / {files.length}
-              </span>
-            </div>
-
-            {/* Content area */}
-            <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
-              {hasPrev && (
-                <button onClick={() => setPreviewIdx(previewIdx - 1)}
-                  style={{ position: "absolute", left: 16, top: "50%", translate: "0 -50%",
-                    zIndex: 10, border: "none", background: "rgba(255,255,255,.1)",
-                    color: "#fff", width: 44, height: 44, borderRadius: "50%",
-                    cursor: "pointer", fontSize: 20, display: "grid", placeItems: "center" }}>
-                  ‹
-                </button>
-              )}
-              <div style={{ width: "100%", height: "100%", display: "flex",
-                alignItems: "center", justifyContent: "center", padding: "16px 64px",
-                boxSizing: "border-box" }}>
-                {content}
-              </div>
-              {hasNext && (
-                <button onClick={() => setPreviewIdx(previewIdx + 1)}
-                  style={{ position: "absolute", right: 16, top: "50%", translate: "0 -50%",
-                    zIndex: 10, border: "none", background: "rgba(255,255,255,.1)",
-                    color: "#fff", width: 44, height: 44, borderRadius: "50%",
-                    cursor: "pointer", fontSize: 20, display: "grid", placeItems: "center" }}>
-                  ›
-                </button>
-              )}
-            </div>
-          </div>
-        );
-      })()}
+      {previewItemIdx !== null && previewItems[previewItemIdx] && (
+        React.createElement(window.FilePreview, {
+          files: previewItems,
+          initialIdx: previewItemIdx,
+          onClose: closePreview,
+        })
+      )}
       </>,
   document.body
     );

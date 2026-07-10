@@ -32,11 +32,6 @@ public class InstructorAssignmentController {
                 .orElseThrow(() -> new BusinessException("Unauthorized", HttpStatus.UNAUTHORIZED));
     }
 
-    @GetMapping("/api/instructor/assignments")
-    public ResponseEntity<List<AssignmentResponse>> getAllAssignments() {
-        return ResponseEntity.ok(assignmentService.getAllAssignments(currentUserId()));
-    }
-
     @PostMapping
     public ResponseEntity<AssignmentResponse> createAssignment(
             @PathVariable UUID courseId,

@@ -7,7 +7,9 @@
   const Ic = window.Icon;
   const { Avatar, Status, StatCard, Search, Tabs, Select, Section, Pager, Modal, ModalHead, Empty } = window;
 
-  const { getUsers, createUser, updateUser, adminResetPassword } = window.__userService;
+    const { getUsers, createUser, updateUser, adminResetPassword } = window.__userService;
+
+    const { getCourses } = window.__courseService;
 
   const ROLE_LABEL = { STUDENT:'Học viên', INSTRUCTOR:'Giảng viên', ADMIN:'Quản trị viên' };
   const ROLE_CHIP = { STUDENT:'neutral', INSTRUCTOR:'info', ADMIN:'warning' };
@@ -63,6 +65,10 @@
     const [formRole, setFormRole] = useState('STUDENT');
     const [formPhone, setFormPhone] = useState('');
     const [formStatus, setFormStatus] = useState('ACTIVE');
+    const [courses, setCourses] = useState([]);
+    const [coursesLoading, setCoursesLoading] = useState(false);
+    const [formCourseId, setFormCourseId] = useState('');
+
     const [submitting, setSubmitting] = useState(false);
     const [formError, setFormError] = useState(null);
     const [fieldErrors, setFieldErrors] = useState({});
@@ -107,6 +113,15 @@
 
     useEffect(() => { fetchUsers(); }, [fetchUsers]);
 
+    useEffect(() => {
+      if (!addOpen) return;
+      setCoursesLoading(true);
+      getCourses({ size: 100 }).then(res => {
+        const data = res.data || res;
+        setCourses(data.content || data || []);
+      }).catch(() => {}).finally(() => setCoursesLoading(false));
+    }, [addOpen]);
+
     // Debounce search
     useEffect(() => {
       const t = setTimeout(() => { setDebouncedQ(q); setPage(1); }, 400);
@@ -129,6 +144,7 @@
       setFormEmail('');
       setFormRole('STUDENT');
       setFormPhone('');
+      setFormCourseId('');
       setAddOpen(true);
     }, []);
 
@@ -140,7 +156,7 @@
       setSubmitting(true);
       clearFormError();
       try {
-        await createUser({ fullName:formFullName, email:formEmail, role:formRole, phoneNumber:formPhone || undefined });
+        await createUser({ fullName:formFullName, email:formEmail, role:formRole, phoneNumber:formPhone || undefined, courseId: formCourseId || undefined });
         setAddOpen(false);
         showToast('Tạo tài khoản thành công', 'success');
         fetchUsers();
@@ -152,7 +168,7 @@
       } finally {
         setSubmitting(false);
       }
-    }, [formFullName, formEmail, formRole, formPhone, fetchUsers, showToast]);
+    }, [formFullName, formEmail, formRole, formPhone, formCourseId, fetchUsers, showToast]);
 
     // --- Edit ---
     const openEditModal = useCallback((user) => {
@@ -439,6 +455,19 @@
             <div style={{ background: 'var(--chip-info-bg)', borderRadius: 11, padding: '12px 14px', fontSize: 13, color: 'var(--chip-info-fg)', display: 'flex', gap: 10 }}>
               <Ic n="mail" size={18} style={{ flex: 'none' }} />Mật khẩu khởi tạo sẽ được gửi tới email của người dùng.
             </div>
+            {formRole === 'STUDENT' && (
+              <div>
+                <label className="t-label" style={{ display: 'block', marginBottom: 7 }}>Khoá học</label>
+                <select value={formCourseId} onChange={e => setFormCourseId(e.target.value)}
+                  style={{ width: '100%', height: 36, borderRadius: 8, border: '1px solid var(--border)',
+                    padding: '0 10px', fontSize: 13, outline: 'none', background: '#fff' }}>
+                  <option value="" disabled>{coursesLoading ? 'Đang tải...' : 'Chọn khoá học'}</option>
+                  {courses.map(c => (
+                    <option key={c.id} value={c.id}>{c.title}</option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
           <div className="modal-foot">
             <button className="btn btn-ghost" onClick={() => setAddOpen(false)} disabled={submitting}>Hủy</button>
