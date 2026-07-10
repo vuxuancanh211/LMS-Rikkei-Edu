@@ -2,6 +2,8 @@ package project.lms_rikkei_edu.modules.quiz.service.impl;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -9,6 +11,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import project.lms_rikkei_edu.common.exception.BusinessException;
 import project.lms_rikkei_edu.infrastructure.redis.RedisService;
+import project.lms_rikkei_edu.modules.course.entity.Lesson;
+import project.lms_rikkei_edu.modules.course.repository.CourseEnrollmentRepository;
+import project.lms_rikkei_edu.modules.course.repository.LessonRepository;
+import project.lms_rikkei_edu.modules.course.service.StudentCourseService;
 import project.lms_rikkei_edu.modules.quiz.dto.request.AutosaveRequest;
 import project.lms_rikkei_edu.modules.quiz.dto.request.SubmitAttemptRequest;
 import project.lms_rikkei_edu.modules.quiz.dto.response.*;
@@ -20,6 +26,7 @@ import project.lms_rikkei_edu.modules.quiz.service.QuizAttemptService;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.OffsetDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -30,6 +37,7 @@ public class QuizAttemptServiceImpl implements QuizAttemptService {
 
     private static final long AUTOSAVE_TTL_SECONDS = 24 * 60 * 60L;
     private static final String AUTOSAVE_KEY_PREFIX = "quiz:autosave:";
+    private static final DateTimeFormatter RETRY_AT_FORMAT = DateTimeFormatter.ofPattern("HH:mm dd/MM/yyyy");
 
     private final QuizRepository quizRepository;
     private final QuizAttemptRepository attemptRepository;
@@ -40,13 +48,30 @@ public class QuizAttemptServiceImpl implements QuizAttemptService {
     private final BankOptionRepository bankOptionRepository;
     private final RedisService redisService;
     private final ObjectMapper objectMapper;
+    private final LessonRepository lessonRepository;
+    private final StudentCourseService studentCourseService;
+    private final CourseEnrollmentRepository courseEnrollmentRepository;
+
+    @PersistenceContext
+    private EntityManager entityManager;
 
     // ── Start ─────────────────────────────────────────────────────────────────
 
     @Override
     @Transactional
     public StartAttemptResponse startAttempt(UUID courseId, UUID quizId, UUID studentId, String ipAddress) {
+        // Khóa advisory theo (quizId, studentId) trong phạm vi transaction hiện tại — nếu 2 request
+        // startAttempt cùng lúc lọt qua đây (VD: React StrictMode gọi effect 2 lần khi dev, double-click,
+        // 2 tab), request thứ 2 sẽ chờ ở đây đến khi request 1 commit xong, rồi mới thấy attempt IN_PROGRESS
+        // vừa tạo và báo lỗi hợp lệ — thay vì cả 2 cùng tính attemptNumber=1 và vỡ unique constraint lúc commit.
+        entityManager.createNativeQuery("SELECT pg_advisory_xact_lock(hashtext(?1))")
+                .setParameter(1, quizId.toString() + ":" + studentId.toString())
+                .getSingleResult();
+
         QuizEntity quiz = findPublishedQuiz(courseId, quizId);
+
+        if (!courseEnrollmentRepository.existsByCourseIdAndStudentId(courseId, studentId))
+            throw new BusinessException("Bạn chưa đăng ký khóa học này");
 
         // Kiểm tra attempt đang IN_PROGRESS chưa hoàn thành
         attemptRepository.findByQuizIdAndStudentIdAndStatus(quizId, studentId, AttemptStatus.IN_PROGRESS)
@@ -63,7 +88,7 @@ public class QuizAttemptServiceImpl implements QuizAttemptService {
                 int cooldown = quiz.getCooldownMinutes() != null ? quiz.getCooldownMinutes() : 20;
                 OffsetDateTime canRetryAt = latest.getSubmittedAt().plusMinutes(cooldown);
                 if (OffsetDateTime.now().isBefore(canRetryAt))
-                    throw new BusinessException("Bạn cần chờ đến " + canRetryAt + " để làm lại");
+                    throw new BusinessException("Bạn cần chờ đến " + RETRY_AT_FORMAT.format(canRetryAt) + " để làm lại");
             }
         });
 
@@ -374,6 +399,17 @@ public class QuizAttemptServiceImpl implements QuizAttemptService {
         attempt.setAutoSubmitted(autoSubmitted);
         attemptRepository.save(attempt);
 
+        // Quiz gắn với 1 lesson (dạy như 1 bài học) + đậu bài → đánh dấu lesson đó hoàn thành.
+        // Fail-soft: lỗi ở đây không được làm hỏng việc nộp bài của học viên.
+        if (passed) {
+            try {
+                lessonRepository.findByQuizId(quiz.getId()).ifPresent((Lesson lesson) ->
+                        studentCourseService.completeQuizLesson(attempt.getStudentId(), quiz.getCourseId(), lesson.getId()));
+            } catch (Exception ex) {
+                log.warn("Không thể đánh dấu hoàn thành lesson cho quizId={}: {}", quiz.getId(), ex.getMessage());
+            }
+        }
+
         // Xóa autosave
         redisService.delete(AUTOSAVE_KEY_PREFIX + attemptId);
 
@@ -438,7 +474,7 @@ public class QuizAttemptServiceImpl implements QuizAttemptService {
         return AttemptAnswerResult.builder()
                 .questionId(a.getQuestionId())
                 .questionText(q != null ? q.getQuestionText() : null)
-                .selectedOptionIds(a.getSelectedOptionIds())
+                .selectedOptionIds(a.getSelectedOptionIds() != null ? a.getSelectedOptionIds() : List.of())
                 .isCorrect(Boolean.TRUE.equals(a.getIsCorrect()))
                 .build();
     }
@@ -458,6 +494,8 @@ public class QuizAttemptServiceImpl implements QuizAttemptService {
                 .totalQuestions(answers.size())
                 .timeSpentSeconds(attempt.getTimeSpentSeconds())
                 .submittedAt(attempt.getSubmittedAt())
+                .autoSubmitted(Boolean.TRUE.equals(attempt.getAutoSubmitted()))
+                .violationCount(attempt.getViolationCount() != null ? attempt.getViolationCount() : 0)
                 .answers(answers)
                 .build();
     }

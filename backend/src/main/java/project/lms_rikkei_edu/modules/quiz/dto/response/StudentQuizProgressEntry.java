@@ -15,7 +15,7 @@ public class StudentQuizProgressEntry {
     private String quizTitle;
     private QuizType quizType;
     private QuizStatus quizStatus;
-    private int maxAttempts;
+    private Integer maxAttempts; // null = không giới hạn số lần
     private int attemptsUsed;
     private boolean passed;
     private BigDecimal bestScore;

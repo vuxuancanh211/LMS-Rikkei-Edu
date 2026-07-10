@@ -7,7 +7,7 @@
   const Ic = window.Icon;
   const { Avatar, Modal } = window;
 
-  const { startAttempt, autosave, submitAttempt, reportViolation } = window.__quizService;
+  const { startAttempt, autosave, submitAttempt, submitAttemptOnExit, reportViolation } = window.__quizService;
 
   /* ── Top bar ──────────────────────────────────────────────── */
   function PlayerTop({ title, onBack, authUser }) {
@@ -62,6 +62,8 @@
     // ── State ──────────────────────────────────────────────────
     const [phase, setPhase] = useState('loading'); // loading | playing | submitting | error
     const [errorMsg, setErrorMsg] = useState('');
+    const [submitError, setSubmitError] = useState(''); // lỗi nộp bài thủ công — hiển thị ngay trong màn làm bài, không mất câu trả lời
+    const [isOffline, setIsOffline] = useState(!navigator.onLine);
     const [attempt, setAttempt] = useState(null);   // StartAttemptResponse
     const [questions, setQuestions] = useState([]);
     const [currentIdx, setCurrentIdx] = useState(0);
@@ -77,6 +79,7 @@
     const answersRef = useRef({});
     const proctoringRef = useRef(false);
     const submittingRef = useRef(false);
+    const startedKeyRef = useRef(null); // tránh gọi startAttempt 2 lần do React.StrictMode chạy effect 2 lần ở dev
 
     // Keep refs in sync
     useEffect(() => { attemptRef.current = attempt; }, [attempt]);
@@ -90,10 +93,18 @@
         return;
       }
 
-      let cancelled = false;
+      const key = courseId + ':' + quizId;
+      if (startedKeyRef.current === key) return;
+      startedKeyRef.current = key;
+
+      // So sánh với startedKeyRef.current (không phải 1 biến "cancelled" cục bộ) để áp dụng kết quả
+      // đúng — React.StrictMode chạy effect này 2 lần lúc dev (mount → cleanup → mount); nếu dùng
+      // "cancelled" cục bộ, lần cleanup "ma" đầu tiên sẽ đánh dấu request thật (duy nhất, nhờ guard
+      // ở trên) là cancelled, khiến kết quả trả về không bao giờ được áp dụng — màn hình treo ở
+      // trạng thái loading vĩnh viễn dù request đã thành công.
       startAttempt(courseId, quizId)
         .then(data => {
-          if (cancelled) return;
+          if (startedKeyRef.current !== key) return;
           setAttempt(data);
           setQuestions(data.questions || []);
           proctoringRef.current = data.proctoringEnabled;
@@ -106,13 +117,11 @@
           setPhase('playing');
         })
         .catch(err => {
-          if (cancelled) return;
+          if (startedKeyRef.current !== key) return;
           const msg = err?.response?.data?.message || 'Không thể bắt đầu bài thi. Vui lòng thử lại.';
           setErrorMsg(msg);
           setPhase('error');
         });
-
-      return () => { cancelled = true; };
     }, [courseId, quizId]);
 
     /* ── Countdown timer ────────────────────────────────────── */
@@ -145,6 +154,58 @@
       }, 30_000);
       return () => clearInterval(autosaveTimer.current);
     }, [phase, courseId, quizId]);
+
+    /* ── Nộp bài "cứu cánh" khi rời trang giữa chừng ─────────── */
+    // Đóng tab / F5 / điều hướng đi giữa chừng khiến attempt kẹt ở IN_PROGRESS cho tới khi hết
+    // thời gian làm bài mới được scheduler tự nộp. Bắt beforeunload + pagehide để nộp ngay bằng
+    // câu trả lời hiện có, tránh học viên phải chờ / bị chặn "đang có 1 lần thi chưa hoàn thành"
+    // khi quay lại làm quiz khác.
+    useEffect(() => {
+      if (phase !== 'playing') return;
+      function handleExit() {
+        const att = attemptRef.current;
+        if (!att || submittingRef.current) return;
+        submitAttemptOnExit(courseId, quizId, att.attemptId, answersRef.current);
+      }
+      window.addEventListener('beforeunload', handleExit);
+      window.addEventListener('pagehide', handleExit);
+      return () => {
+        window.removeEventListener('beforeunload', handleExit);
+        window.removeEventListener('pagehide', handleExit);
+      };
+    }, [phase, courseId, quizId]);
+
+    /* ── Nộp bài khi rời màn hình bằng điều hướng trong app ────── */
+    // beforeunload/pagehide chỉ bắt được khi unload cả trang (đóng tab, F5, rời domain) — bấm nút
+    // "quay lại" hoặc chuyển sang route khác trong SPA này KHÔNG unload trang, chỉ unmount
+    // component, nên 2 sự kiện trên không fire. Phải nộp ngay trong cleanup của effect này (chạy
+    // đúng lúc unmount thật), nếu không attempt kẹt vĩnh viễn ở IN_PROGRESS — quay lại quiz đó sẽ
+    // bị chặn "Bạn đang có một lần thi chưa hoàn thành" thay vì thấy kết quả đã nộp.
+    useEffect(() => {
+      return () => {
+        const att = attemptRef.current;
+        if (att && !submittingRef.current) {
+          submitAttemptOnExit(courseId, quizId, att.attemptId, answersRef.current);
+        }
+      };
+    }, [courseId, quizId]);
+
+    /* ── Theo dõi mất/có mạng ─────────────────────────────────── */
+    useEffect(() => {
+      function goOnline() {
+        setIsOffline(false);
+        // Đồng bộ ngay khi có mạng lại — không đợi tick 30s tiếp theo của autosave định kỳ.
+        const att = attemptRef.current;
+        if (att) autosave(courseId, quizId, att.attemptId, { answers: answersRef.current }).catch(() => {});
+      }
+      function goOffline() { setIsOffline(true); }
+      window.addEventListener('online', goOnline);
+      window.addEventListener('offline', goOffline);
+      return () => {
+        window.removeEventListener('online', goOnline);
+        window.removeEventListener('offline', goOffline);
+      };
+    }, [courseId, quizId]);
 
     /* ── Proctoring: tab switch & window blur ───────────────── */
     useEffect(() => {
@@ -189,6 +250,7 @@
       if (!att || submittingRef.current) return;
       submittingRef.current = true;
       clearInterval(autosaveTimer.current);
+      setSubmitError('');
       setPhase('submitting');
       try {
         await submitAttempt(courseId, quizId, att.attemptId, {
@@ -196,10 +258,26 @@
         });
         onSubmit(att.attemptId, courseId, quizId);
       } catch (err) {
-        const msg = err?.response?.data?.message || 'Nộp bài thất bại. Vui lòng thử lại.';
-        setErrorMsg(msg);
-        setPhase('error');
         submittingRef.current = false;
+        // err.response chỉ có khi server đã thực sự phản hồi (VD: 400 "đã nộp rồi") — lỗi KHÔNG
+        // phải do mất mạng nên thử lại vô ích. Trường hợp này thường do một lần nộp khác đã thành
+        // công trước đó (VD: submitAttemptOnExit bắn lúc rời trang) — cứ điều hướng sang xem kết
+        // quả luôn, vì bài gần như chắc chắn đã được chấm.
+        if (err?.response) {
+          onSubmit(att.attemptId, courseId, quizId);
+          return;
+        }
+        if (auto) {
+          // Không có phản hồi — mất mạng đúng lúc hết giờ/bị khóa do vi phạm, không có đường
+          // "làm tiếp" để quay lại nên tự thử nộp lại ngầm (giữ màn "Đang nộp bài...") cho tới
+          // khi có mạng trở lại.
+          setTimeout(() => doSubmit(true), 3000);
+        } else {
+          // Nộp thủ công thất bại do mất mạng — quay lại màn làm bài (không mất câu trả lời),
+          // báo lỗi ngay tại chỗ để học viên có thể nộp lại thay vì bị đẩy sang màn lỗi cụt đường.
+          setSubmitError('Nộp bài thất bại — vui lòng kiểm tra kết nối mạng và thử lại.');
+          setPhase('playing');
+        }
       }
     }
 
@@ -260,6 +338,16 @@
 
           {/* ── Question area ──────────────────────────────── */}
           <div className="grow" style={{ minWidth: 0, padding: '28px 32px', maxWidth: 860, margin: '0 auto', width: '100%' }}>
+
+            {submitError && (
+              <div className="row gap-10" style={{
+                padding: '12px 16px', marginBottom: 18, borderRadius: 12,
+                background: 'var(--chip-error-bg)', color: 'var(--chip-error-fg)', fontSize: 13.5,
+              }}>
+                <Ic n="warn" size={16} style={{ flex: 'none' }} />
+                <span className="grow">{submitError}</span>
+              </div>
+            )}
 
             {/* Progress */}
             <div className="row gap-12" style={{ marginBottom: 20 }}>
@@ -357,6 +445,19 @@
             width: 300, flex: 'none', background: 'var(--sidebar-bg)',
             color: '#fff', padding: 20, overflowY: 'auto',
           }}>
+            {/* Offline banner */}
+            {isOffline && (
+              <div className="row gap-9" style={{
+                background: 'rgba(239,68,68,.12)', border: '1px solid rgba(239,68,68,.3)',
+                borderRadius: 11, padding: 11, marginBottom: 14, alignItems: 'flex-start',
+              }}>
+                <Ic n="warn" size={16} style={{ color: '#f87171', flex: 'none', marginTop: 1 }} />
+                <div style={{ fontSize: 11.5, color: '#fecaca', lineHeight: 1.5 }}>
+                  Mất kết nối mạng. Câu trả lời vẫn được giữ — hệ thống sẽ tự đồng bộ khi có mạng trở lại.
+                </div>
+              </div>
+            )}
+
             {/* Timer */}
             <div style={{ background: 'rgba(255,255,255,.05)', borderRadius: 14, padding: 16, textAlign: 'center', marginBottom: 16 }}>
               <div className="row gap-7" style={{ justifyContent: 'center', color: timerWarning ? '#f87171' : '#fbbf24', marginBottom: 8 }}>

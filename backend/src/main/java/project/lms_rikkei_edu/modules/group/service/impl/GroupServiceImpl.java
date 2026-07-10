@@ -17,6 +17,8 @@ import project.lms_rikkei_edu.modules.chat.entity.ChatRoomEntity;
 import project.lms_rikkei_edu.modules.chat.entity.ChatRoomMemberEntity;
 import project.lms_rikkei_edu.modules.chat.service.ChatRoomService;
 import project.lms_rikkei_edu.modules.course.entity.Course;
+import project.lms_rikkei_edu.modules.course.entity.CourseEnrollmentEntity;
+import project.lms_rikkei_edu.modules.course.repository.CourseEnrollmentRepository;
 import project.lms_rikkei_edu.modules.course.repository.CourseRepository;
 import project.lms_rikkei_edu.modules.group.dto.request.AddGroupMembersRequest;
 import project.lms_rikkei_edu.modules.group.dto.request.CreateGroupRequest;
@@ -37,6 +39,7 @@ import project.lms_rikkei_edu.modules.user.entity.UserEntity;
 import project.lms_rikkei_edu.modules.user.enums.UserRole;
 import project.lms_rikkei_edu.modules.user.repository.UserRepository;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
@@ -55,6 +58,7 @@ public class GroupServiceImpl implements GroupService {
     private final StudyGroupRepository studyGroupRepository;
     private final GroupMemberRepository groupMemberRepository;
     private final CourseRepository courseRepository;
+    private final CourseEnrollmentRepository courseEnrollmentRepository;
     private final UserRepository userRepository;
     private final CurrentUserProvider currentUserProvider;
     private final NotificationService notificationService;
@@ -231,6 +235,7 @@ public class GroupServiceImpl implements GroupService {
                 .toList();
 
         groupMemberRepository.saveAll(members);
+        enrollInCourse(group.getCourse().getId(), studentIds, currentUser.getId());
         ChatRoomEntity room = chatRoomService.getOrCreateRoomForGroup(group, group.getInstructor());
         students.forEach(student -> chatRoomService.addMember(
                 room.getId(),
@@ -239,6 +244,31 @@ public class GroupServiceImpl implements GroupService {
         notifyAddedMembers(group, members, currentUser);
         sendChatRoomsChangedAfterCommit(studentIds, "GROUP_MEMBER_ADDED", groupId);
         return members.stream().map(this::toMemberResponse).toList();
+    }
+
+    /**
+     * Thêm học viên vào nhóm không tự động cấp quyền truy cập khóa học — course_enrollments
+     * là bảng duy nhất được StudentCourseServiceImpl dùng để kiểm tra "đã đăng ký khóa học chưa".
+     * Tạo enrollment còn thiếu ở đây để học viên thấy khóa học ngay sau khi được thêm vào nhóm.
+     */
+    private void enrollInCourse(UUID courseId, List<UUID> studentIds, UUID enrolledBy) {
+        List<UUID> alreadyEnrolled = courseEnrollmentRepository.findEnrolledStudentIds(courseId, studentIds);
+        Instant now = Instant.now();
+        List<CourseEnrollmentEntity> toCreate = studentIds.stream()
+                .filter(id -> !alreadyEnrolled.contains(id))
+                .map(id -> {
+                    CourseEnrollmentEntity enrollment = new CourseEnrollmentEntity();
+                    enrollment.setId(UUID.randomUUID());
+                    enrollment.setCourseId(courseId);
+                    enrollment.setStudentId(id);
+                    enrollment.setEnrolledBy(enrolledBy);
+                    enrollment.setEnrolledAt(now);
+                    return enrollment;
+                })
+                .toList();
+        if (!toCreate.isEmpty()) {
+            courseEnrollmentRepository.saveAll(toCreate);
+        }
     }
 
     private void notifyAddedMembers(StudyGroupEntity group, List<GroupMemberEntity> members, UserPrincipal actor) {

@@ -202,15 +202,21 @@ function PlayerRoute({ name }: { name: string }) {
     }
   };
 
+  const params = Object.fromEntries(new URLSearchParams(location.search));
+
   return (
     <div className="app">
       <Comp
+        {...params}
+        proctoringEnabled={params.proctoringEnabled === 'true'}
+        authUser={authUser}
         onBack={() => navigate('/student/courses')}
         onDashboard={() => navigate('/student/dashboard')}
         onSettings={() => navigate('/settings')}
         onLogout={handleLogout}
         navigate={navigate}
-        onSubmit={() => navigate('/player/quiz-result')}
+        onSubmit={(attemptId: string, courseId: string, quizId: string) =>
+          navigate(`/player/quiz-result?attemptId=${attemptId}&courseId=${courseId}&quizId=${quizId}`)}
       />
     </div>
   );

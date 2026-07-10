@@ -65,7 +65,10 @@ public class BankQuestionServiceImpl implements BankQuestionService {
         question.setQuestionType(request.getQuestionType());
         question.setDifficulty(request.getDifficulty());
         question.setSubjectTag(request.getSubjectTag());
-        bankQuestionRepository.save(question);
+        // saveAndFlush — embedAndSaveSafe() ghi qua JdbcTemplate (raw SQL, bỏ qua Hibernate session),
+        // FK bank_question_embeddings -> bank_questions cần dòng cha đã thực sự tồn tại trong DB,
+        // không chỉ pending trong session (save() thường trì hoãn INSERT tới lúc flush/commit).
+        bankQuestionRepository.saveAndFlush(question);
 
         saveOptions(question.getId(), request.getOptions());
         embeddingService.embedAndSaveSafe(question.getId(), question.getQuestionText());
@@ -280,6 +283,10 @@ public class BankQuestionServiceImpl implements BankQuestionService {
             toEmbed.add(new IdText(saved.getId(), saved.getQuestionText()));
             imported++;
         }
+        // Flush trước khi embed — embedAndSaveBatchSafe() ghi qua JdbcTemplate (raw SQL, bỏ qua
+        // Hibernate session), cần các dòng bank_questions vừa persist ở trên đã thực sự tồn tại
+        // trong DB (FK bank_question_embeddings -> bank_questions), không chỉ pending trong session.
+        bankQuestionRepository.flush();
         // 1 lượt embedBatch cho cả file (≤500 dòng, dưới limit 2048 input/batch của OpenAI).
         // Fail-soft — embed lỗi KHÔNG được fail import, backfill job sẽ vá.
         embeddingService.embedAndSaveBatchSafe(toEmbed);

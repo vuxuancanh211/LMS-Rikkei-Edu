@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import project.lms_rikkei_edu.common.exception.BusinessException;
+import project.lms_rikkei_edu.modules.course.repository.CourseEnrollmentRepository;
 import project.lms_rikkei_edu.modules.quiz.dto.response.*;
 import project.lms_rikkei_edu.modules.quiz.entity.QuizAttemptEntity;
 import project.lms_rikkei_edu.modules.quiz.entity.QuizEntity;
@@ -28,6 +29,7 @@ public class QuizStatsServiceImpl implements QuizStatsService {
     private final QuizAttemptRepository attemptRepository;
     private final QuizAttemptAnswerRepository answerRepository;
     private final QuizQuestionRepository questionRepository;
+    private final CourseEnrollmentRepository courseEnrollmentRepository;
 
     // ── Instructor: quiz tổng quan ────────────────────────────────────────────
 
@@ -71,6 +73,7 @@ public class QuizStatsServiceImpl implements QuizStatsService {
     @Override
     public List<AttemptHistoryEntry> getStudentAttemptHistory(UUID courseId, UUID quizId, UUID studentId) {
         findQuiz(courseId, quizId);
+        checkEnrollment(courseId, studentId);
         return attemptRepository
                 .findByQuizIdAndStudentIdOrderByAttemptNumber(quizId, studentId)
                 .stream()
@@ -82,6 +85,7 @@ public class QuizStatsServiceImpl implements QuizStatsService {
 
     @Override
     public List<StudentQuizProgressEntry> getStudentCourseProgress(UUID courseId, UUID studentId) {
+        checkEnrollment(courseId, studentId);
         List<QuizEntity> quizzes = quizRepository.findByCourseId(courseId);
         return quizzes.stream()
                 .map(quiz -> buildProgressEntry(quiz, studentId))
@@ -104,6 +108,11 @@ public class QuizStatsServiceImpl implements QuizStatsService {
     private QuizEntity findQuiz(UUID courseId, UUID quizId) {
         return quizRepository.findByIdAndCourseId(quizId, courseId)
                 .orElseThrow(() -> new BusinessException("Quiz không tồn tại", HttpStatus.NOT_FOUND));
+    }
+
+    private void checkEnrollment(UUID courseId, UUID studentId) {
+        if (!courseEnrollmentRepository.existsByCourseIdAndStudentId(courseId, studentId))
+            throw new BusinessException("Bạn chưa đăng ký khóa học này");
     }
 
     private List<QuizQuestionStatsResponse> buildQuestionStats(UUID quizId) {
@@ -143,7 +152,7 @@ public class QuizStatsServiceImpl implements QuizStatsService {
 
     private StudentQuizProgressEntry buildProgressEntry(QuizEntity quiz, UUID studentId) {
         long used = attemptRepository.countByQuizIdAndStudentId(quiz.getId(), studentId);
-        int max = quiz.getMaxAttempts() != null ? quiz.getMaxAttempts() : 3;
+        Integer max = quiz.getMaxAttempts(); // null = không giới hạn
 
         var best = attemptRepository.findBestAttemptByQuizIdAndStudentId(quiz.getId(), studentId);
         boolean passed = best.map(a -> Boolean.TRUE.equals(a.getIsPassed())).orElse(false);
@@ -161,7 +170,7 @@ public class QuizStatsServiceImpl implements QuizStatsService {
             }).orElse(true);
         }
 
-        boolean canRetry = used < max && cooldownPassed;
+        boolean canRetry = (max == null || used < max) && cooldownPassed;
 
         return StudentQuizProgressEntry.builder()
                 .quizId(quiz.getId())

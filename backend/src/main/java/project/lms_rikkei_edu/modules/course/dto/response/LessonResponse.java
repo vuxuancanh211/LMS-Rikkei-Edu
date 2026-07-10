@@ -5,6 +5,7 @@ import lombok.Getter;
 import lombok.Setter;
 import project.lms_rikkei_edu.modules.course.enums.LessonType;
 import project.lms_rikkei_edu.modules.course.enums.VideoStatus;
+import project.lms_rikkei_edu.modules.quiz.enums.QuizStatus;
 
 import java.time.Instant;
 import java.util.List;
@@ -33,4 +34,9 @@ public class LessonResponse {
 
     private String progress;
     private Integer progressPercentage;
+
+    /** Chỉ có giá trị khi type == QUIZ. */
+    private UUID quizId;
+    private String quizTitle;
+    private QuizStatus quizStatus;
 }

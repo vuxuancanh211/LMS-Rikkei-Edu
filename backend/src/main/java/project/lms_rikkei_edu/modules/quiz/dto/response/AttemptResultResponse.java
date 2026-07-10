@@ -24,6 +24,8 @@ public class AttemptResultResponse {
     private int totalQuestions;
     private Integer timeSpentSeconds;
     private OffsetDateTime submittedAt;
+    private Boolean autoSubmitted;
+    private long violationCount;
     // Chi tiết từng câu — chỉ trả về nếu quiz cho phép xem kết quả
     private List<AttemptAnswerResult> answers;
 }

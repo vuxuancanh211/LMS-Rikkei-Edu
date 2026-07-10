@@ -827,13 +827,26 @@
                         const lHasVid = (l.resources || []).some((r: any) => !r.pendingDelete && r.resourceType === "VIDEO");
                         const lHasDoc = (l.resources || []).some((r: any) => !r.pendingDelete && r.resourceType !== "VIDEO");
                         const lIsVid  = lHasVid || (l.type === "VIDEO" && !lHasDoc);
+                        const isQuiz     = l.type === "QUIZ";
+                        const quizLocked = isQuiz && l.quizStatus !== "PUBLISHED";
                         return (
-                          <div key={l.id} onClick={() => goLesson(l)}
+                          <div key={l.id}
+                            onClick={() => {
+                              if (quizLocked) return;
+                              if (isQuiz) {
+                                const url = `/player/quiz?courseId=${courseId}&quizId=${l.quizId}`;
+                                if (navigate) navigate(url); else window.location.href = url;
+                                return;
+                              }
+                              goLesson(l);
+                            }}
+                            title={quizLocked ? "Giảng viên chưa xuất bản đề này" : undefined}
                             style={{ display: "flex", alignItems: "center", gap: 10,
-                              padding: "10px 10px 10px 48px", cursor: "pointer",
+                              padding: "10px 10px 10px 48px", cursor: quizLocked ? "not-allowed" : "pointer",
+                              opacity: quizLocked ? 0.5 : 1,
                               background: isAct ? "rgba(16,185,129,.13)" : "transparent",
                               transition: ".12s" }}
-                            onMouseEnter={e => { if (!isAct) e.currentTarget.style.background = "rgba(255,255,255,.03)"; }}
+                            onMouseEnter={e => { if (!isAct && !quizLocked) e.currentTarget.style.background = "rgba(255,255,255,.03)"; }}
                             onMouseLeave={e => { if (!isAct) e.currentTarget.style.background = "transparent"; }}>
                             <div
                               title={"Tiến độ bài học: " + (lDone ? "Đã hoàn thành" : lProg ? "Đang học" : "Chưa bắt đầu")}
@@ -851,8 +864,8 @@
                               </div>
                               <div style={{ fontSize: 11, color: "#64748b", marginTop: 2,
                                 display: "flex", alignItems: "center", gap: 4 }}>
-                                <Ic n={lIsVid ? "video" : "file"} size={11} />
-                                {lIsVid ? "Video" : "Tài liệu"}
+                                <Ic n={isQuiz ? "clipboard" : lIsVid ? "video" : "file"} size={11} />
+                                {isQuiz ? (quizLocked ? "Đề trắc nghiệm (chưa xuất bản)" : "Đề trắc nghiệm") : lIsVid ? "Video" : "Tài liệu"}
                               </div>
                             </div>
                             {isAct && (

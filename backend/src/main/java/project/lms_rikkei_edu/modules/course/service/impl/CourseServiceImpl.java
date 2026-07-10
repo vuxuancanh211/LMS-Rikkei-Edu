@@ -8,6 +8,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import project.lms_rikkei_edu.common.exception.BusinessException;
 import project.lms_rikkei_edu.modules.course.dto.request.*;
 import project.lms_rikkei_edu.modules.course.dto.response.*;
 import project.lms_rikkei_edu.modules.course.entity.Chapter;
@@ -26,7 +27,12 @@ import project.lms_rikkei_edu.modules.course.entity.CourseApprovalLog;
 import project.lms_rikkei_edu.modules.course.entity.CourseVersion;
 import project.lms_rikkei_edu.modules.course.repository.*;
 import project.lms_rikkei_edu.modules.course.service.CourseService;
+import project.lms_rikkei_edu.modules.course.service.StudentCourseService;
 import project.lms_rikkei_edu.infrastructure.s3.S3Service;
+import project.lms_rikkei_edu.modules.quiz.dto.request.QuizMetadataRequest;
+import project.lms_rikkei_edu.modules.quiz.dto.response.QuizSummaryResponse;
+import project.lms_rikkei_edu.modules.quiz.repository.QuizRepository;
+import project.lms_rikkei_edu.modules.quiz.service.QuizService;
 
 import java.text.Normalizer;
 import java.time.Instant;
@@ -56,6 +62,9 @@ public class CourseServiceImpl implements CourseService {
     private final LessonMapper lessonMapper;
     private final EntityManager entityManager;
     private final S3Service s3Service;
+    private final QuizService quizService;
+    private final QuizRepository quizRepository;
+    private final StudentCourseService studentCourseService;
 
     @Override
     public CourseResponse createCourse(UUID instructorId, CreateCourseRequest request) {
@@ -285,6 +294,31 @@ public class CourseServiceImpl implements CourseService {
     }
 
     @Override
+    public List<ChapterResponse> reorderChapters(UUID instructorId, UUID courseId, List<UUID> chapterIds) {
+        Course course = loadOwnedCourse(instructorId, courseId);
+        assertEditable(course);
+
+        List<Chapter> chapters = chapterRepository.findAllByCourseIdOrderByOrderIndexAsc(courseId);
+        validateReorderSet(chapters.stream().map(Chapter::getId).toList(), chapterIds, "chương");
+
+        Map<UUID, Chapter> byId = chapters.stream().collect(Collectors.toMap(Chapter::getId, c -> c));
+        for (int i = 0; i < chapterIds.size(); i++) {
+            byId.get(chapterIds.get(i)).setOrderIndex(i + 1);
+        }
+        chapterRepository.saveAll(chapters);
+
+        return chapterRepository.findAllByCourseIdOrderByOrderIndexAsc(courseId).stream()
+                .map(chapterMapper::toResponse).toList();
+    }
+
+    /** So khớp tập id gửi lên với tập id hiện có (không quan tâm thứ tự) — không cho thêm/bớt/nhầm phần tử qua API sắp xếp lại. */
+    private void validateReorderSet(List<UUID> existingIds, List<UUID> requestedIds, String label) {
+        if (requestedIds.size() != existingIds.size() || !new HashSet<>(requestedIds).equals(new HashSet<>(existingIds))) {
+            throw new BusinessException("Danh sách sắp xếp lại " + label + " không khớp với danh sách hiện có");
+        }
+    }
+
+    @Override
     public LessonResponse addLesson(UUID instructorId, UUID courseId, UUID chapterId, CreateLessonRequest request) {
         Course course = loadOwnedCourse(instructorId, courseId);
         assertEditable(course);
@@ -295,6 +329,10 @@ public class CourseServiceImpl implements CourseService {
         int nextOrder = lessonRepository.findMaxOrderIndexByChapterId(chapterId) + 1;
         boolean draft = isLive(course);
 
+        UUID quizId = request.getType() == LessonType.QUIZ
+                ? resolveQuizForLesson(courseId, instructorId, request.getQuizId(), request.getNewQuiz(), null)
+                : null;
+
         Lesson lesson = Lesson.builder()
                 .chapter(chapter)
                 .courseId(courseId)
@@ -304,9 +342,34 @@ public class CourseServiceImpl implements CourseService {
                 .isPreview(request.getIsPreview() != null ? request.getIsPreview() : false)
                 .orderIndex(nextOrder)
                 .isDraft(draft)
+                .quizId(quizId)
                 .build();
 
         return lessonMapper.toResponse(lessonRepository.save(lesson));
+    }
+
+    /**
+     * Gắn quiz cho 1 lesson loại QUIZ — hoặc gắn quiz đã có sẵn ({@code quizId}), hoặc tạo mới
+     * (shell, chưa có câu hỏi) từ {@code newQuiz}. Bắt buộc đúng 1 trong 2. {@code excludeLessonId}
+     * dùng khi đổi quiz của 1 lesson đã tồn tại (bỏ qua chính lesson đó khi kiểm tra unique).
+     */
+    private UUID resolveQuizForLesson(UUID courseId, UUID instructorId, UUID quizId,
+                                       QuizMetadataRequest newQuiz, UUID excludeLessonId) {
+        if ((quizId == null) == (newQuiz == null)) {
+            throw new BusinessException("Bài học loại đề trắc nghiệm phải chọn đúng 1 trong 2: gắn đề có sẵn hoặc tạo đề mới");
+        }
+        if (newQuiz != null) {
+            QuizSummaryResponse created = quizService.create(courseId, instructorId, newQuiz);
+            return created.getId();
+        }
+        quizRepository.findByIdAndCourseId(quizId, courseId)
+                .orElseThrow(() -> new BusinessException("Đề trắc nghiệm không tồn tại trong khóa học này"));
+        lessonRepository.findByQuizId(quizId)
+                .filter(l -> !l.getId().equals(excludeLessonId))
+                .ifPresent(l -> {
+                    throw new BusinessException("Đề trắc nghiệm này đã được gắn với 1 bài học khác");
+                });
+        return quizId;
     }
 
     @Override
@@ -333,7 +396,40 @@ public class CourseServiceImpl implements CourseService {
             if (request.getIsPreview() != null) lesson.setIsPreview(request.getIsPreview());
         }
 
+        // Đổi quiz gắn với lesson QUIZ — áp dụng ngay bất kể course live/draft (giống reorder ở
+        // trên), không qua cơ chế draft-approval vì đây là đổi assessment, không phải content-diff dạng text.
+        if (lesson.getType() == LessonType.QUIZ && (request.getQuizId() != null || request.getNewQuiz() != null)) {
+            UUID newQuizId = resolveQuizForLesson(courseId, instructorId, request.getQuizId(), request.getNewQuiz(), lessonId);
+            lesson.setQuizId(newQuizId);
+            lessonRepository.save(lesson);
+
+            if (Boolean.TRUE.equals(request.getResetProgressForInProgressStudents())) {
+                studentCourseService.resetLessonProgressForInProgressStudents(courseId, lessonId);
+            }
+        }
+
         return lessonMapper.toResponse(lessonRepository.save(lesson));
+    }
+
+    @Override
+    public List<LessonResponse> reorderLessons(UUID instructorId, UUID courseId, UUID chapterId, List<UUID> lessonIds) {
+        Course course = loadOwnedCourse(instructorId, courseId);
+        assertEditable(course);
+
+        chapterRepository.findByIdAndCourseId(chapterId, courseId)
+                .orElseThrow(() -> new ChapterNotFoundException(chapterId));
+
+        List<Lesson> lessons = lessonRepository.findAllByChapterIdOrderByOrderIndexAsc(chapterId);
+        validateReorderSet(lessons.stream().map(Lesson::getId).toList(), lessonIds, "bài học");
+
+        Map<UUID, Lesson> byId = lessons.stream().collect(Collectors.toMap(Lesson::getId, l -> l));
+        for (int i = 0; i < lessonIds.size(); i++) {
+            byId.get(lessonIds.get(i)).setOrderIndex(i + 1);
+        }
+        lessonRepository.saveAll(lessons);
+
+        return lessonRepository.findAllByChapterIdOrderByOrderIndexAsc(chapterId).stream()
+                .map(lessonMapper::toResponse).toList();
     }
 
     @Override

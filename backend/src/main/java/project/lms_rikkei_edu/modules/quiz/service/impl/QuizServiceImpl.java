@@ -8,6 +8,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import project.lms_rikkei_edu.common.exception.BusinessException;
+import project.lms_rikkei_edu.modules.course.repository.LessonRepository;
 import project.lms_rikkei_edu.modules.quiz.dto.request.*;
 import project.lms_rikkei_edu.modules.quiz.dto.response.*;
 import project.lms_rikkei_edu.modules.quiz.entity.*;
@@ -34,6 +35,7 @@ public class QuizServiceImpl implements QuizService {
     private final BankQuestionRepository bankQuestionRepository;
     private final BankOptionRepository bankOptionRepository;
     private final BankQuestionEmbeddingService bankQuestionEmbeddingService;
+    private final LessonRepository lessonRepository;
 
     // ── Create / Update ───────────────────────────────────────────────────────
 
@@ -63,6 +65,9 @@ public class QuizServiceImpl implements QuizService {
     @Transactional
     public void delete(UUID courseId, UUID quizId) {
         QuizEntity quiz = findDraftQuiz(courseId, quizId);
+        if (lessonRepository.findByQuizId(quizId).isPresent()) {
+            throw new BusinessException("Không thể xoá đề đang gắn với bài học trong khoá học, hãy gỡ khỏi bài học trước");
+        }
         quizQuestionRepository.deleteByQuizId(quizId);
         quizRepository.delete(quiz);
     }
@@ -228,9 +233,6 @@ public class QuizServiceImpl implements QuizService {
     public DryRunResponse dryRun(UUID courseId, UUID quizId) {
         QuizEntity quiz = findQuiz(courseId, quizId);
 
-        if (quiz.getStatus() != QuizStatus.DRAFT)
-            throw new BusinessException("Dry Run chỉ khả dụng khi quiz đang DRAFT");
-
         List<QuizQuestionResponse> questions;
 
         if (quiz.getQuizType() == QuizType.RANDOM_DRAW) {
@@ -273,9 +275,6 @@ public class QuizServiceImpl implements QuizService {
     @Override
     public DryRunGradeResponse gradeDryRun(UUID courseId, UUID quizId, DryRunGradeRequest request) {
         QuizEntity quiz = findQuiz(courseId, quizId);
-
-        if (quiz.getStatus() != QuizStatus.DRAFT)
-            throw new BusinessException("Chấm thử chỉ khả dụng khi quiz đang DRAFT");
 
         List<UUID> questionIds = request.getQuestionIds() != null ? request.getQuestionIds() : List.of();
         Map<UUID, List<UUID>> answers = request.getAnswers() != null ? request.getAnswers() : Map.of();
@@ -375,7 +374,8 @@ public class QuizServiceImpl implements QuizService {
         quiz.setDescription(request.getDescription());
         quiz.setQuizType(request.getQuizType());
         quiz.setDurationMinutes(request.getDurationMinutes());
-        quiz.setMaxAttempts(request.getMaxAttempts() != null ? request.getMaxAttempts() : 3);
+        // null = không giới hạn số lần làm bài (xem QuizAttemptServiceImpl.startAttempt) — không fallback về 3.
+        quiz.setMaxAttempts(request.getMaxAttempts());
         quiz.setPassScore(request.getPassScore());
         quiz.setShuffleQuestions(Boolean.TRUE.equals(request.getShuffleQuestions()));
         quiz.setShuffleOptions(Boolean.TRUE.equals(request.getShuffleOptions()));
@@ -482,7 +482,9 @@ public class QuizServiceImpl implements QuizService {
         bank.setQuestionType(request.getQuestionType());
         bank.setDifficulty(request.getDifficulty());
         bank.setSubjectTag(request.getSubjectTag());
-        bankQuestionRepository.save(bank);
+        // saveAndFlush — embedAndSaveSafe() ghi qua JdbcTemplate (raw SQL, bỏ qua Hibernate session),
+        // FK bank_question_embeddings -> bank_questions cần dòng cha đã thực sự tồn tại trong DB.
+        bankQuestionRepository.saveAndFlush(bank);
 
         request.getOptions().forEach(opt -> {
             BankOptionEntity bo = new BankOptionEntity();

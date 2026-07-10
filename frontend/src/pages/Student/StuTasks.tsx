@@ -5,26 +5,29 @@
 (function () {
   const { useState, useEffect, useCallback } = React;
   const Ic = window.Icon;
+  const api = window.httpClient;
   const D = window.DATA;
   const { Status: St, Search: Se, Tabs: Tb, Select: Sl, Section: Sn, Modal: Md, ModalHead: MH, StatCard: SC } = window;
 
-  const { getStudentCourseProgress } = window.__quizService;
+  const { getStudentCourseProgress, getMyAttempts } = window.__quizService;
 
   const QUIZ_STATUS_CHIP = { DRAFT: 'neutral', PUBLISHED: 'success', ARCHIVED: 'muted' };
   const QUIZ_TYPE_LABEL  = { STATIC: 'Cố định', SHUFFLED_POOL: 'Xáo câu', RANDOM_DRAW: 'Ngẫu nhiên' };
 
-  function getCourses() {
-    try { return (D?.courses || []).slice(0, 20); } catch { return []; }
-  }
-
   /* ─── Tab: Trắc nghiệm (API thực) ──────────────────────── */
-  function QuizTab({ nav }) {
-    const courses = getCourses();
+  function QuizTab({ nav, courses }) {
     const [courseId, setCourseId] = useState(courses[0]?.id || null);
     const [quizList, setQuizList] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [q, setQ] = useState('');
+    const [historyQuiz, setHistoryQuiz] = useState(null); // { quizId, quizTitle } — quiz đang xem lịch sử làm bài
+
+    // Courses tải bất đồng bộ ở component cha (StuTasks) — chọn khóa đầu tiên
+    // ngay khi danh sách thực về, vì lúc mount courses vẫn còn rỗng.
+    useEffect(() => {
+      if (!courseId && courses.length > 0) setCourseId(courses[0].id);
+    }, [courses, courseId]);
 
     const fetchProgress = useCallback(async () => {
       if (!courseId) return;
@@ -106,7 +109,7 @@
                         <span className="chip chip-neutral">{QUIZ_TYPE_LABEL[quiz.quizType] || quiz.quizType}</span>
                       </td>
                       <td className="muted">
-                        {quiz.attemptsUsed} / {quiz.maxAttempts} lần
+                        {quiz.attemptsUsed} / {quiz.maxAttempts != null ? quiz.maxAttempts : '∞'} lần
                       </td>
                       <td style={{ fontWeight: 700 }}>
                         {quiz.bestScorePercentage != null
@@ -125,21 +128,138 @@
                         )}
                       </td>
                       <td>
-                        {quiz.quizStatus !== 'PUBLISHED' ? (
-                          <span className="chip chip-neutral" style={{ fontSize: 11 }}>Chưa mở</span>
-                        ) : quiz.canRetry ? (
-                          <button
-                            className="btn btn-primary btn-sm"
-                            onClick={() => nav('quiz', { courseId, quizId: quiz.quizId })}
-                          >
-                            <Ic n="play" size={14} />
-                            {quiz.attemptsUsed === 0 ? 'Làm bài' : 'Làm lại'}
-                          </button>
-                        ) : (
-                          <button className="btn btn-ghost btn-sm" disabled>
-                            {quiz.maxAttempts > 0 && quiz.attemptsUsed >= quiz.maxAttempts
-                              ? 'Hết lượt'
-                              : 'Chờ cooldown'}
+                        <div className="row gap-6" style={{ justifyContent: 'flex-end' }}>
+                          {quiz.attemptsUsed > 0 && (
+                            <button
+                              className="btn btn-ghost btn-sm"
+                              title="Xem lịch sử làm bài"
+                              onClick={() => setHistoryQuiz({ quizId: quiz.quizId, quizTitle: quiz.quizTitle })}
+                            >
+                              <Ic n="clock" size={14} />Lịch sử
+                            </button>
+                          )}
+                          {quiz.quizStatus !== 'PUBLISHED' ? (
+                            <span className="chip chip-neutral" style={{ fontSize: 11 }}>Chưa mở</span>
+                          ) : quiz.canRetry ? (
+                            <button
+                              className="btn btn-primary btn-sm"
+                              onClick={() => nav('quiz', { courseId, quizId: quiz.quizId })}
+                            >
+                              <Ic n="play" size={14} />
+                              {quiz.attemptsUsed === 0 ? 'Làm bài' : 'Làm lại'}
+                            </button>
+                          ) : (
+                            <button className="btn btn-ghost btn-sm" disabled>
+                              {quiz.maxAttempts != null && quiz.attemptsUsed >= quiz.maxAttempts
+                                ? 'Hết lượt'
+                                : 'Chờ cooldown'}
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Sn>
+
+        <AttemptHistoryModal
+          quiz={historyQuiz}
+          courseId={courseId}
+          onClose={() => setHistoryQuiz(null)}
+          onViewResult={attemptId => nav('result', { attemptId, courseId, quizId: historyQuiz.quizId })}
+        />
+      </div>
+    );
+  }
+
+  /* ─── Modal: Lịch sử làm bài của 1 quiz ─────────────────── */
+  function AttemptHistoryModal({ quiz, courseId, onClose, onViewResult }) {
+    const [attempts, setAttempts] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+
+    useEffect(() => {
+      if (!quiz) return;
+      setLoading(true);
+      setError('');
+      getMyAttempts(courseId, quiz.quizId)
+        .then(data => setAttempts([...data].sort((a, b) => b.attemptNumber - a.attemptNumber)))
+        .catch(err => setError(err?.response?.data?.message || 'Không thể tải lịch sử làm bài.'))
+        .finally(() => setLoading(false));
+    }, [quiz, courseId]);
+
+    if (!quiz) return null;
+
+    function fmtTime(secs) {
+      if (!secs && secs !== 0) return '—';
+      const m = Math.floor(secs / 60), s = secs % 60;
+      return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    }
+    function fmtDate(iso) {
+      if (!iso) return '—';
+      return new Date(iso).toLocaleString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    }
+
+    return (
+      <Md open={!!quiz} onClose={onClose} max={720}>
+        <MH title="Lịch sử làm bài" sub={quiz.quizTitle} icon="clock" iconBg="#eaf1ff" iconColor="#2563eb" onClose={onClose} />
+        <div className="modal-body">
+          {loading ? (
+            <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-2)' }}>Đang tải...</div>
+          ) : error ? (
+            <div style={{ padding: 40, textAlign: 'center', color: 'var(--error)' }}>{error}</div>
+          ) : attempts.length === 0 ? (
+            <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-2)' }}>Chưa có lần làm bài nào.</div>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table className="tbl">
+                <thead>
+                  <tr>
+                    <th>Lần</th>
+                    <th>Ngày nộp</th>
+                    <th>Điểm</th>
+                    <th>Đúng/Sai/Bỏ qua</th>
+                    <th>Thời gian</th>
+                    <th>Kết quả</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {attempts.map(a => (
+                    <tr key={a.attemptId}>
+                      <td style={{ fontWeight: 700 }}>#{a.attemptNumber}</td>
+                      <td className="muted">{fmtDate(a.submittedAt)}</td>
+                      <td style={{ fontWeight: 700 }}>
+                        {a.scorePercentage != null
+                          ? <span style={{ color: a.isPassed ? 'var(--success)' : 'var(--error)' }}>
+                              {Number(a.scorePercentage).toFixed(1)}%
+                            </span>
+                          : <span className="muted">—</span>}
+                      </td>
+                      <td className="muted t-sm">
+                        {a.correctCount}/{a.incorrectCount}/{a.unansweredCount}
+                      </td>
+                      <td className="muted">{fmtTime(a.timeSpentSeconds)}</td>
+                      <td>
+                        <div className="row gap-6 wrap">
+                          {a.status === 'IN_PROGRESS' ? (
+                            <span className="chip chip-neutral" style={{ fontSize: 11 }}>Đang làm</span>
+                          ) : a.isPassed ? (
+                            <span className="chip chip-success" style={{ fontSize: 11 }}><Ic n="check" size={11} />Đạt</span>
+                          ) : (
+                            <span className="chip chip-error" style={{ fontSize: 11 }}><Ic n="x" size={11} />Chưa đạt</span>
+                          )}
+                          {a.autoSubmitted && <span className="chip chip-warning" style={{ fontSize: 10 }}>Tự động nộp</span>}
+                          {a.violationCount > 0 && <span className="chip chip-error" style={{ fontSize: 10 }}>{a.violationCount} vi phạm</span>}
+                        </div>
+                      </td>
+                      <td>
+                        {a.status !== 'IN_PROGRESS' && (
+                          <button className="btn btn-ghost btn-sm" onClick={() => onViewResult(a.attemptId)}>
+                            Xem chi tiết
                           </button>
                         )}
                       </td>
@@ -149,8 +269,11 @@
               </table>
             </div>
           )}
-        </Sn>
-      </div>
+        </div>
+        <div className="modal-foot">
+          <button className="btn btn-ghost" onClick={onClose}>Đóng</button>
+        </div>
+      </Md>
     );
   }
 
@@ -213,10 +336,18 @@
   /* ─── Main StuTasks ─────────────────────────────────────── */
   function StuTasks({ nav }) {
     const [tab, setTab] = useState('quiz');
+    const [courses, setCourses] = useState([]);
 
-    // Stats (mock — sẽ swap khi có enrollment/progress API)
+    // Danh sách khóa học thực đã đăng ký — dùng chung cho bộ chọn khóa của tab Trắc nghiệm
+    // và số liệu thống kê (trước đây lấy nhầm từ window.DATA — dữ liệu demo tĩnh).
+    useEffect(() => {
+      api.get('/student/courses')
+        .then(r => setCourses(r.data || []))
+        .catch(() => setCourses([]));
+    }, []);
+
+    // Stats (bài tập tự luận vẫn là mock — chưa có API thật)
     const allAssign = D?.assignments || [];
-    const quizCount  = (D?.courses || []).length;
     const pendingCount = allAssign.filter(a => a.status === 'pending' || a.status === 'late').length;
     const gradedCount  = allAssign.filter(a => a.status === 'graded').length;
 
@@ -229,7 +360,7 @@
 
         {/* Stats row */}
         <div className="grid grid-stats" style={{ marginBottom: 22 }}>
-          <SC icon="clipboard" iconBg="#eaf1ff" iconColor="#2563eb" value={String(quizCount)} label="Khóa đang học" />
+          <SC icon="clipboard" iconBg="#eaf1ff" iconColor="#2563eb" value={String(courses.length)} label="Khóa đang học" />
           <SC icon="warn" iconBg="#fef5e6" iconColor="#d97706" value={String(pendingCount)} label="Bài tập chờ nộp" />
           <SC icon="check_circle" iconBg="#e7f8f0" iconColor="#059669" value={String(gradedCount)} label="Đã được chấm" />
           <SC icon="target" iconBg="#f3edff" iconColor="#7c3aed" value="—" label="Điểm TB quiz" />
@@ -246,7 +377,7 @@
           />
         </div>
 
-        {tab === 'quiz'   && <QuizTab nav={nav} />}
+        {tab === 'quiz'   && <QuizTab nav={nav} courses={courses} />}
         {tab === 'assign' && <AssignTab />}
       </div>
     );

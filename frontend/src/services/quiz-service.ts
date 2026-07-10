@@ -1,4 +1,5 @@
 import { httpClient } from '../lib';
+import { useAuthStore } from '../store';
 import type {
   // Bank
   BankQuestionListParams,
@@ -271,6 +272,41 @@ export async function submitAttempt(
     data,
   );
   return res.data;
+}
+
+/**
+ * Nộp bài "best-effort" khi học viên rời trang (đóng tab/refresh/điều hướng đi) — gọi từ
+ * beforeunload/pagehide. axios (XHR) không giữ được request khi trang unload, nên phải dùng
+ * fetch({keepalive:true}) trực tiếp; sendBeacon không dùng được vì không set được header
+ * Authorization (API xác thực bằng JWT Bearer, không phải cookie). Không await — trình duyệt
+ * không đảm bảo chờ promise trong lúc unload, chỉ đảm bảo request được gửi đi nếu kịp trước khi
+ * tab đóng hẳn.
+ */
+export function submitAttemptOnExit(
+  courseId: string,
+  quizId: string,
+  attemptId: string,
+  answers: Record<string, string[]>,
+) {
+  try {
+    const { accessToken, tokenType } = useAuthStore.getState();
+    const base = httpClient.defaults.baseURL || '';
+    const url = `${base}/courses/${courseId}/quizzes/${quizId}/attempts/${attemptId}/submit`;
+    fetch(url, {
+      method: 'POST',
+      keepalive: true,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(accessToken ? { Authorization: `${tokenType || 'Bearer'} ${accessToken}` } : {}),
+      },
+      body: JSON.stringify({ answers }),
+    }).catch(() => {
+      // Best-effort — nếu request không gửi được (VD: mất mạng đúng lúc đóng tab) thì
+      // scheduler auto-submit theo thời hạn quiz ở backend vẫn sẽ chấm bài khi hết giờ.
+    });
+  } catch {
+    // ignore — không có gì để làm thêm khi trang đang unload
+  }
 }
 
 export async function getAttemptResult(

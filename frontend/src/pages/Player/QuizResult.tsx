@@ -91,7 +91,7 @@
     return (
       <div className="main" style={{ minHeight: '100vh' }}>
         <PlayerTop onBack={onBack} authUser={authUser} />
-        <div className="page" style={{ maxWidth: 820 }}>
+        <div className="page" style={{ maxWidth: 820, margin: '0 auto' }}>
 
           {/* ── Score card ── */}
           <div className="card fade-in" style={{ overflow: 'hidden', marginBottom: 22 }}>

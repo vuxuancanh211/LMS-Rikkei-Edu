@@ -5,7 +5,7 @@
 (function () {
   const { useState, useEffect, useCallback, useRef } = React;
   const Ic = window.Icon;
-  const { Avatar, Status, Search, Tabs, Select, Section, Modal, ModalHead, Empty, PageBar } = window;
+  const { Avatar, Status, Search, Tabs, Select, Section, Modal, ModalHead, Empty, PageBar, ConfirmModal } = window;
 
   const {
     listQuizzes, createQuiz, updateQuiz, publishQuiz, archiveQuiz, deleteQuiz,
@@ -42,13 +42,6 @@
     return new Date(d).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' });
   }
 
-  function toDatetimeLocalValue(iso) {
-    if (!iso) return '';
-    const d = new Date(iso);
-    const pad = n => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  }
-
   function extractError(err) {
     const data = err?.response?.data;
     if (!data) return 'Không thể kết nối tới máy chủ';
@@ -56,18 +49,25 @@
   }
 
   /* ─── Main Component ──────────────────────────────────────── */
-  function InsAssess({ courseId, demo, nav }) {
+  function InsAssess({ courseId, quizId, demo, nav }) {
     const [courses, setCourses] = useState([]);
     const [coursesLoading, setCoursesLoading] = useState(true);
     const [selectedCourseId, setSelectedCourseId] = useState(courseId || null);
     const activeCourseId = selectedCourseId;
+
+    // Điều hướng sâu (deep-link) từ nơi khác (vd "Soạn câu hỏi cho đề này" ở CourseContentTab) truyền
+    // courseId/quizId qua query string — Shell không remount khi chỉ đổi query string trên cùng route,
+    // nên phải đồng bộ lại selectedCourseId mỗi khi PROP courseId đổi, không chỉ lúc mount lần đầu.
+    useEffect(() => {
+      if (courseId) setSelectedCourseId(courseId);
+    }, [courseId]);
 
     useEffect(() => {
       getMyCourses()
         .then(page => {
           const list = page.content || [];
           setCourses(list);
-          if (!selectedCourseId && list.length > 0) {
+          if (!selectedCourseId && !courseId && list.length > 0) {
             setSelectedCourseId(list[0].id);
           }
         })
@@ -106,6 +106,7 @@
     const bankSearchSeq = useRef(0);
 
     // Modal states
+    const [confirmState, setConfirmState] = useState(null); // { message, title?, danger?, onConfirm }
     const [createQuizOpen, setCreateQuizOpen] = useState(false);
     const [addBankOpen, setAddBankOpen] = useState(false);
     const [editBankItem, setEditBankItem] = useState(null);
@@ -119,6 +120,7 @@
     // Quiz detail modal state
     const [detailQuiz, setDetailQuiz] = useState(null);
     const [detailOpen, setDetailOpen] = useState(false);
+    const openedQuizIdRef = useRef(null);
 
     // AI generate modal state
     const [aiOpen, setAiOpen] = useState(false);
@@ -129,11 +131,12 @@
     const [qzType, setQzType] = useState('STATIC');
     const [qzDuration, setQzDuration] = useState(45);
     const [qzMax, setQzMax] = useState(3);
+    const [qzUnlimited, setQzUnlimited] = useState(false);
+    const [qzCooldown, setQzCooldown] = useState(20);
     const [qzPass, setQzPass] = useState(50);
     const [qzProctoring, setQzProctoring] = useState(false);
     const [qzShuffleQuestions, setQzShuffleQuestions] = useState(false);
     const [qzShuffleOptions, setQzShuffleOptions] = useState(false);
-    const [qzEndDate, setQzEndDate] = useState('');
 
     // Bank question form
     const [bqText, setBqText] = useState('');
@@ -156,6 +159,26 @@
       setToast({ msg, type });
       setTimeout(() => setToast(null), 4000);
     }, []);
+
+    // Mở sẵn quiz được deep-link tới (quizId trên URL, vd từ "Soạn câu hỏi cho đề này" ở
+    // CourseContentTab) sau khi đã chuyển đúng khóa học — chỉ chạy 1 lần cho mỗi quizId để
+    // tránh mở lại nếu người dùng tự đóng modal.
+    useEffect(() => {
+      if (!quizId || !courseId || activeCourseId !== courseId) return;
+      if (openedQuizIdRef.current === quizId) return;
+      openedQuizIdRef.current = quizId;
+      // Xoá quizId khỏi URL ngay sau khi tiêu thụ — nếu không, F5 sẽ đọc lại đúng quizId này
+      // và tự mở lại modal dù người dùng đã đóng nó (giữ lại courseId để refresh vẫn đúng khóa học).
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('quizId');
+        window.history.replaceState(null, '', url.pathname + url.search);
+      } catch { /* ignore */ }
+      setTab('quiz');
+      getQuizDetail(courseId, quizId)
+        .then(data => { setDetailQuiz(data); setDetailOpen(true); })
+        .catch(() => showToast('Không tìm thấy đề trắc nghiệm', 'error'));
+    }, [quizId, courseId, activeCourseId, showToast]);
 
     /* ── Fetch quizzes (phân trang) ── */
     const fetchQuizzes = useCallback(async () => {
@@ -210,9 +233,11 @@
     }, [activeCourseId, bankPageNum, bankFilter, bankStatusFilter, showToast]);
 
     useEffect(() => { fetchQuizzes(); }, [fetchQuizzes]);
+    // Bỏ điều kiện tab === 'bank' — tải số lượng câu hỏi ngay khi đổi khóa học/bộ lọc dù đang ở
+    // tab nào, để badge đếm trên Tabs luôn đúng (khớp cách fetchQuizzes ở trên không phụ thuộc tab).
     useEffect(() => {
-      if (tab === 'bank' && q.trim().length < 3) fetchBank();
-    }, [tab, fetchBank, q]);
+      if (q.trim().length < 3) fetchBank();
+    }, [fetchBank, q]);
 
     // Đổi khóa học/bộ lọc → về trang 1
     useEffect(() => { setBankPageNum(1); }, [activeCourseId, bankFilter, bankStatusFilter]);
@@ -304,12 +329,13 @@
       setQzTitle(q.title);
       setQzType(q.quizType);
       setQzDuration(q.durationMinutes || 45);
+      setQzUnlimited(q.maxAttempts == null);
       setQzMax(q.maxAttempts || 3);
+      setQzCooldown(q.cooldownMinutes ?? 20);
       setQzPass(q.passScore ?? 50);
       setQzProctoring(!!q.proctoringEnabled);
       setQzShuffleQuestions(!!q.shuffleQuestions);
       setQzShuffleOptions(!!q.shuffleOptions);
-      setQzEndDate(toDatetimeLocalValue(q.endDate));
       setCreateQuizOpen(true);
     }
 
@@ -322,12 +348,12 @@
           title: qzTitle.trim(),
           quizType: qzType,
           durationMinutes: Number(qzDuration),
-          maxAttempts: Number(qzMax),
+          maxAttempts: qzUnlimited ? null : Number(qzMax),
+          cooldownMinutes: Number(qzCooldown),
           passScore: Number(qzPass),
           proctoringEnabled: qzProctoring,
           shuffleQuestions: qzShuffleQuestions,
           shuffleOptions: qzShuffleOptions,
-          endDate: qzEndDate ? new Date(qzEndDate).toISOString() : undefined,
         };
         if (editQuizItem) {
           await updateQuiz(activeCourseId, editQuizItem.id, payload);
@@ -344,7 +370,7 @@
       } finally {
         setSubmitting(false);
       }
-    }, [activeCourseId, qzTitle, qzType, qzDuration, qzMax, qzPass, qzProctoring, qzShuffleQuestions, qzShuffleOptions, qzEndDate, editQuizItem, fetchQuizzes, showToast]);
+    }, [activeCourseId, qzTitle, qzType, qzDuration, qzMax, qzUnlimited, qzCooldown, qzPass, qzProctoring, qzShuffleQuestions, qzShuffleOptions, editQuizItem, fetchQuizzes, showToast]);
 
     /* ── Publish / Archive quiz ── */
     const handlePublish = useCallback(async (quiz) => {
@@ -363,15 +389,21 @@
     }, [activeCourseId, fetchQuizzes, showToast]);
 
     /* ── Delete quiz ── */
-    const handleDeleteQuiz = useCallback(async (quiz) => {
-      if (!confirm(`Xóa quiz "${quiz.title}"?`)) return;
-      try {
-        await deleteQuiz(activeCourseId, quiz.id);
-        showToast('Đã xóa quiz');
-        fetchQuizzes();
-      } catch (err) {
-        showToast(extractError(err), 'error');
-      }
+    const handleDeleteQuiz = useCallback((quiz) => {
+      setConfirmState({
+        title: 'Xóa quiz này?',
+        message: `Xóa quiz "${quiz.title}"? Hành động này không thể hoàn tác.`,
+        danger: true,
+        onConfirm: async () => {
+          try {
+            await deleteQuiz(activeCourseId, quiz.id);
+            showToast('Đã xóa quiz');
+            fetchQuizzes();
+          } catch (err) {
+            showToast(extractError(err), 'error');
+          }
+        },
+      });
     }, [activeCourseId, fetchQuizzes, showToast]);
 
     /* ── Save bank question ── */
@@ -432,15 +464,21 @@
     }, [activeCourseId, showToast]);
 
     /* ── Delete bank question ── */
-    const handleDeleteBank = useCallback(async (item) => {
-      if (!confirm('Xóa câu hỏi này?')) return;
-      try {
-        await deleteBankQuestion(activeCourseId, item.id);
-        showToast('Đã xóa câu hỏi');
-        fetchBank();
-      } catch (err) {
-        showToast(extractError(err), 'error');
-      }
+    const handleDeleteBank = useCallback((item) => {
+      setConfirmState({
+        title: 'Xóa câu hỏi này?',
+        message: 'Câu hỏi sẽ bị xóa khỏi ngân hàng câu hỏi. Hành động này không thể hoàn tác.',
+        danger: true,
+        onConfirm: async () => {
+          try {
+            await deleteBankQuestion(activeCourseId, item.id);
+            showToast('Đã xóa câu hỏi');
+            fetchBank();
+          } catch (err) {
+            showToast(extractError(err), 'error');
+          }
+        },
+      });
     }, [activeCourseId, fetchBank, showToast]);
 
     /* ── Import bank ── */
@@ -511,8 +549,8 @@
             {tab === 'quiz' && (
               <button className="btn btn-primary" onClick={() => {
                 setQzTitle(''); setQzType('STATIC'); setQzDuration(45);
-                setQzMax(3); setQzPass(50); setQzProctoring(false);
-                setQzShuffleQuestions(false); setQzShuffleOptions(false); setQzEndDate('');
+                setQzMax(3); setQzUnlimited(false); setQzCooldown(20); setQzPass(50); setQzProctoring(false);
+                setQzShuffleQuestions(false); setQzShuffleOptions(false);
                 setCreateQuizOpen(true);
               }}>
                 <Ic n="plus" size={17} />Tạo quiz
@@ -544,7 +582,7 @@
           <Tabs
             items={[
               { v: 'quiz', label: 'Đề trắc nghiệm', count: quizTotalElements },
-              { v: 'bank', label: 'Ngân hàng câu hỏi', count: bankList.length },
+              { v: 'bank', label: 'Ngân hàng câu hỏi', count: bankTotalElements },
             ]}
             value={tab}
             onChange={(v) => { setTab(v); setQ(''); }}
@@ -737,78 +775,113 @@
           }} unit="câu hỏi" />
         )}
 
+        <ConfirmModal
+          open={!!confirmState}
+          onClose={() => setConfirmState(null)}
+          onConfirm={confirmState?.onConfirm}
+          title={confirmState?.title}
+          message={confirmState?.message}
+          danger={confirmState?.danger}
+          confirmLabel="Xóa"
+        />
+
         {/* ═══ Modal: Tạo / Sửa quiz ═══ */}
-        <Modal open={createQuizOpen} onClose={() => { setCreateQuizOpen(false); setEditQuizItem(null); }} max={560}>
+        <Modal open={createQuizOpen} onClose={() => { setCreateQuizOpen(false); setEditQuizItem(null); }} max={600}>
           <ModalHead
             title={editQuizItem ? 'Sửa quiz' : 'Tạo quiz mới'}
             sub={editQuizItem ? 'Chỉ áp dụng được khi quiz đang ở trạng thái Nháp' : 'Bạn có thể thêm câu hỏi và xuất bản sau'}
             icon="clipboard" iconBg="#eaf1ff" iconColor="#2563eb"
             onClose={() => { setCreateQuizOpen(false); setEditQuizItem(null); }}
           />
-          <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
             <div>
               <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Tên quiz *</label>
               <input className="input" placeholder="VD: Kiểm tra giữa kỳ ReactJS" value={qzTitle} onChange={e => setQzTitle(e.target.value)} />
             </div>
-            <div className="grid grid-2" style={{ gap: 12 }}>
-              <div>
-                <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Loại quiz</label>
-                {editQuizItem ? (
-                  <div className="input" style={{ display: 'flex', alignItems: 'center', color: 'var(--text-2)', background: 'var(--surface-2)' }}>
-                    {TYPE_LABEL[qzType] || qzType}
-                  </div>
-                ) : (
-                  <Select value={qzType} onChange={setQzType} options={[
-                    { v: 'STATIC', label: 'Cố định' },
-                    { v: 'SHUFFLED_POOL', label: 'Xáo câu' },
-                    { v: 'RANDOM_DRAW', label: 'Ngẫu nhiên (bank)' },
-                  ]} />
-                )}
-              </div>
-              <div>
-                <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Thời gian (phút)</label>
-                <input className="input" type="number" min={1} value={qzDuration} onChange={e => setQzDuration(e.target.value)} />
+
+            <div>
+              <div className="t-xs muted" style={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.03em', marginBottom: 10 }}>Loại & thời lượng</div>
+              <div className="grid grid-2" style={{ gap: 12 }}>
+                <div>
+                  <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Loại quiz</label>
+                  {editQuizItem ? (
+                    <div className="input" style={{ display: 'flex', alignItems: 'center', color: 'var(--text-2)', background: 'var(--surface-2)' }}>
+                      {TYPE_LABEL[qzType] || qzType}
+                    </div>
+                  ) : (
+                    <Select value={qzType} onChange={setQzType} options={[
+                      { v: 'STATIC', label: 'Cố định' },
+                      { v: 'SHUFFLED_POOL', label: 'Xáo câu' },
+                      { v: 'RANDOM_DRAW', label: 'Ngẫu nhiên (bank)' },
+                    ]} />
+                  )}
+                </div>
+                <div>
+                  <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Thời gian làm bài (phút)</label>
+                  <input className="input" type="number" min={1} value={qzDuration} onChange={e => setQzDuration(e.target.value)} />
+                </div>
               </div>
             </div>
-            <div className="grid grid-2" style={{ gap: 12 }}>
-              <div>
-                <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Số lần làm tối đa</label>
-                <input className="input" type="number" min={1} value={qzMax} onChange={e => setQzMax(e.target.value)} />
+
+            <div>
+              <div className="t-xs muted" style={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.03em', marginBottom: 10 }}>Số lần làm bài</div>
+              <div className="grid grid-2" style={{ gap: 12 }}>
+                <div>
+                  <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Số lần làm tối đa</label>
+                  <input className="input" type="number" min={1} value={qzMax} disabled={qzUnlimited}
+                    onChange={e => setQzMax(e.target.value)} />
+                  <label className="row gap-6" style={{ marginTop: 6, cursor: 'pointer', alignItems: 'center' }}>
+                    <input type="checkbox" checked={qzUnlimited} onChange={e => setQzUnlimited(e.target.checked)} style={{ width: 15, height: 15 }} />
+                    <span className="t-xs muted">Không giới hạn số lần</span>
+                  </label>
+                </div>
+                <div>
+                  <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Khoảng cách giữa các lần (phút)</label>
+                  <input className="input" type="number" min={0} value={qzCooldown} onChange={e => setQzCooldown(e.target.value)} />
+                </div>
               </div>
-              <div>
+            </div>
+
+            <div>
+              <div className="t-xs muted" style={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.03em', marginBottom: 10 }}>Đánh giá</div>
+              <div style={{ maxWidth: 180 }}>
                 <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Điểm đạt (%)</label>
                 <input className="input" type="number" min={0} max={100} value={qzPass} onChange={e => setQzPass(e.target.value)} />
               </div>
             </div>
+
             <div>
-              <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Hạn nộp bài</label>
-              <input className="input" type="datetime-local" value={qzEndDate} onChange={e => setQzEndDate(e.target.value)} />
-            </div>
-            <div className="grid grid-2" style={{ gap: 12 }}>
-              <label className="row gap-10" style={{ padding: '11px 14px', background: 'var(--surface-2)', borderRadius: 10, cursor: 'pointer' }}>
-                <input type="checkbox" checked={qzShuffleQuestions} onChange={e => setQzShuffleQuestions(e.target.checked)} style={{ width: 17, height: 17 }} />
-                <div>
-                  <div style={{ fontWeight: 600, fontSize: 13.5 }}>Xáo thứ tự câu hỏi</div>
-                  <div className="t-xs muted">Đổi thứ tự câu mỗi lần thi</div>
-                </div>
-              </label>
-              <label className="row gap-10" style={{ padding: '11px 14px', background: 'var(--surface-2)', borderRadius: 10, cursor: 'pointer' }}>
-                <input type="checkbox" checked={qzShuffleOptions} onChange={e => setQzShuffleOptions(e.target.checked)} style={{ width: 17, height: 17 }} />
-                <div>
-                  <div style={{ fontWeight: 600, fontSize: 13.5 }}>Xáo thứ tự đáp án</div>
-                  <div className="t-xs muted">Đổi thứ tự A/B/C/D mỗi lần thi</div>
-                </div>
-              </label>
-            </div>
-            <label className="row gap-10" style={{ padding: '11px 14px', background: 'var(--chip-error-bg)', borderRadius: 10, cursor: 'pointer' }}>
-              <input type="checkbox" checked={qzProctoring} onChange={e => setQzProctoring(e.target.checked)} style={{ width: 17, height: 17 }} />
-              <div>
-                <div style={{ fontWeight: 600, fontSize: 13.5, color: 'var(--chip-error-fg)' }}>Bật chế độ giám sát</div>
-                <div className="t-xs" style={{ color: 'var(--chip-error-fg)', opacity: 0.8 }}>
-                  Phát hiện chuyển tab / mất focus cửa sổ khi làm bài. Vi phạm lần 1-2: cảnh báo, lần 3: tự động nộp bài.
-                </div>
+              <div className="t-xs muted" style={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.03em', marginBottom: 10 }}>Ngẫu nhiên hoá</div>
+              <div className="grid grid-2" style={{ gap: 12 }}>
+                <label className="row gap-10" style={{ padding: '11px 14px', background: 'var(--surface-2)', borderRadius: 10, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={qzShuffleQuestions} onChange={e => setQzShuffleQuestions(e.target.checked)} style={{ width: 17, height: 17 }} />
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: 13.5 }}>Xáo thứ tự câu hỏi</div>
+                    <div className="t-xs muted">Đổi thứ tự câu mỗi lần thi</div>
+                  </div>
+                </label>
+                <label className="row gap-10" style={{ padding: '11px 14px', background: 'var(--surface-2)', borderRadius: 10, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={qzShuffleOptions} onChange={e => setQzShuffleOptions(e.target.checked)} style={{ width: 17, height: 17 }} />
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: 13.5 }}>Xáo thứ tự đáp án</div>
+                    <div className="t-xs muted">Đổi thứ tự A/B/C/D mỗi lần thi</div>
+                  </div>
+                </label>
               </div>
-            </label>
+            </div>
+
+            <div>
+              <div className="t-xs muted" style={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.03em', marginBottom: 10 }}>Bảo mật</div>
+              <label className="row gap-10" style={{ padding: '11px 14px', background: 'var(--chip-error-bg)', borderRadius: 10, cursor: 'pointer' }}>
+                <input type="checkbox" checked={qzProctoring} onChange={e => setQzProctoring(e.target.checked)} style={{ width: 17, height: 17 }} />
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 13.5, color: 'var(--chip-error-fg)' }}>Bật chế độ giám sát</div>
+                  <div className="t-xs" style={{ color: 'var(--chip-error-fg)', opacity: 0.8 }}>
+                    Phát hiện chuyển tab / mất focus cửa sổ khi làm bài. Vi phạm lần 1-2: cảnh báo, lần 3: tự động nộp bài.
+                  </div>
+                </div>
+              </label>
+            </div>
           </div>
           <div className="modal-foot">
             <button className="btn btn-ghost" onClick={() => { setCreateQuizOpen(false); setEditQuizItem(null); }}>Hủy</button>
@@ -1015,6 +1088,7 @@
     const [tag, setTag] = useState(''); // gõ trực tiếp hoặc chọn từ datalist các tag có sẵn
     const [bankTags, setBankTags] = useState([]); // tag đã dùng trong ngân hàng câu hỏi của khóa học
     const [count, setCount] = useState(5);
+    const countInvalid = count === '' || !Number.isInteger(Number(count)) || Number(count) < 1 || Number(count) > AI_MAX_QUESTIONS_PER_GEN;
     const [threshold, setThreshold] = useState(0.88);
 
     // Giới hạn tài liệu AI tham khảo — chọn riêng vài tài liệu giúp sinh câu hỏi nhanh hơn
@@ -1100,13 +1174,14 @@
     async function handleGenerate() {
       if (!topic.trim()) { setError('Vui lòng nhập chủ đề.'); return; }
       if (!tag.trim()) { setError('Vui lòng chọn hoặc nhập chuyên đề / tag.'); return; }
+      if (countInvalid) { setError(`Số câu muốn sinh phải từ 1 đến ${AI_MAX_QUESTIONS_PER_GEN}.`); return; }
       setError(''); setStep(STEPS.progress); setJobStep('RETRIEVING_CONTEXT');
       try {
         const { jobId: newJobId } = await startAiGenerateQuestions(courseId, {
           topic, questionType: qType, difficulty: diff,
           subjectTag: tag.trim(),
           sourceIds: sourceIds.length > 0 ? sourceIds : undefined,
-          count, duplicateThreshold: threshold,
+          count: Number(count), duplicateThreshold: threshold,
         });
         setJobId(newJobId);
       } catch (err) {
@@ -1209,8 +1284,13 @@
               <div className="grid grid-2" style={{ gap: 12 }}>
                 <div>
                   <div className="t-label" style={{ marginBottom: 6 }}>Số câu muốn sinh (tối đa {AI_MAX_QUESTIONS_PER_GEN})</div>
-                  <input className="input" type="number" min={1} max={AI_MAX_QUESTIONS_PER_GEN} style={{ width: '100%' }} value={count}
-                    onChange={e => setCount(Math.max(1, Math.min(AI_MAX_QUESTIONS_PER_GEN, Number(e.target.value))))} />
+                  <input className="input" type="number" min={1} max={AI_MAX_QUESTIONS_PER_GEN} style={{ width: '100%', ...(countInvalid ? { borderColor: 'var(--error)' } : null) }} value={count}
+                    onChange={e => setCount(e.target.value)} />
+                  {countInvalid && (
+                    <div className="t-xs" style={{ color: 'var(--error)', marginTop: 4 }}>
+                      Nhập từ 1 đến {AI_MAX_QUESTIONS_PER_GEN} câu.
+                    </div>
+                  )}
                 </div>
                 <div>
                   <div className="t-label" style={{ marginBottom: 6 }}>Chuyên đề / Tag <span style={{ color: 'var(--error)' }}>*</span></div>
@@ -1255,7 +1335,7 @@
             </div>
             <div className="modal-foot">
               <button className="btn btn-ghost" onClick={() => { reset(); onClose(); }}>Huỷ</button>
-              <button className="btn btn-primary" onClick={handleGenerate} disabled={!topic.trim() || !tag.trim()}>
+              <button className="btn btn-primary" onClick={handleGenerate} disabled={!topic.trim() || !tag.trim() || countInvalid}>
                 <Ic n="sparkles" size={16} />Sinh câu hỏi
               </button>
             </div>
@@ -1765,6 +1845,7 @@
 
     const [pickOpen, setPickOpen] = useState(false);
     const [manualOpen, setManualOpen] = useState(false);
+    const [confirmState, setConfirmState] = useState(null); // { message, title?, onConfirm }
 
     // Random draw config form
     const [randomMode, setRandomMode] = useState('FULLY_RANDOM');
@@ -1832,18 +1913,23 @@
       nav?.('dryRun', { courseId, quizId: quiz.id, quizTitle: quiz.title, proctoringEnabled });
     }
 
-    async function handleRemoveQuestion(qId) {
-      if (!confirm('Xóa câu hỏi này khỏi quiz?')) return;
-      setRemovingId(qId);
-      try {
-        await removeQuestionFromQuiz(courseId, quiz.id, qId);
-        showToast('Đã xóa câu hỏi khỏi quiz');
-        load();
-      } catch (err) {
-        showToast(extractError(err), 'error');
-      } finally {
-        setRemovingId(null);
-      }
+    function handleRemoveQuestion(qId) {
+      setConfirmState({
+        title: 'Xóa câu hỏi khỏi quiz?',
+        message: 'Câu hỏi vẫn còn trong ngân hàng câu hỏi, chỉ bị gỡ khỏi quiz này.',
+        onConfirm: async () => {
+          setRemovingId(qId);
+          try {
+            await removeQuestionFromQuiz(courseId, quiz.id, qId);
+            showToast('Đã xóa câu hỏi khỏi quiz');
+            load();
+          } catch (err) {
+            showToast(extractError(err), 'error');
+          } finally {
+            setRemovingId(null);
+          }
+        },
+      });
     }
 
     async function handleAddBank(bankQuestionIds) {
@@ -1903,15 +1989,13 @@
         <div className="row gap-8" style={{ padding: '0 24px', borderBottom: '1px solid var(--border)', alignItems: 'center' }}>
           <div className="grow"><Tabs items={tabItems} value={tab} onChange={setTab} /></div>
           {isDraft && (
-            <>
-              <button className="btn btn-ghost btn-sm" style={{ flex: 'none', marginBottom: 8 }} onClick={() => onEdit?.(detail || quiz)}>
-                <Ic n="edit" size={14} />Sửa quiz
-              </button>
-              <button className="btn btn-ghost btn-sm" style={{ flex: 'none', marginBottom: 8 }} onClick={handleDryRun}>
-                <Ic n="play" size={14} />Làm thử
-              </button>
-            </>
+            <button className="btn btn-ghost btn-sm" style={{ flex: 'none', marginBottom: 8 }} onClick={() => onEdit?.(detail || quiz)}>
+              <Ic n="edit" size={14} />Sửa quiz
+            </button>
           )}
+          <button className="btn btn-ghost btn-sm" style={{ flex: 'none', marginBottom: 8 }} onClick={handleDryRun}>
+            <Ic n="play" size={14} />Làm thử
+          </button>
         </div>
 
         <div className="modal-body" style={{ minHeight: 320 }}>
@@ -1970,7 +2054,7 @@
 
           {/* ── Tab Cấu hình ngẫu nhiên (RANDOM_DRAW) ── */}
           {!loading && !error && detail && tab === 'random' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 18, maxWidth: 540 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
 
               {/* Thông tin ngân hàng ACTIVE hiện có */}
               <div style={{ padding: '12px 16px', background: 'var(--surface-2)', borderRadius: 12 }}>
@@ -2022,7 +2106,7 @@
                   </div>
 
                   {randomMode === 'FULLY_RANDOM' ? (
-                    <div>
+                    <div style={{ maxWidth: 220 }}>
                       <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>
                         Tổng số câu <span className="muted" style={{ fontWeight: 400 }}>(tối đa {bankSummary.total} câu khả dụng)</span>
                       </label>
@@ -2037,7 +2121,7 @@
                     </div>
                   ) : (
                     <div>
-                      <div className="grid grid-3" style={{ gap: 10 }}>
+                      <div className="grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
                         {[
                           { key: 'EASY', label: 'Dễ', value: easyCount, set: setEasyCount },
                           { key: 'MEDIUM', label: 'Trung bình', value: mediumCount, set: setMediumCount },
@@ -2109,6 +2193,14 @@
             onConfirm={handleAddManual}
           />
         )}
+        <ConfirmModal
+          open={!!confirmState}
+          onClose={() => setConfirmState(null)}
+          onConfirm={confirmState?.onConfirm}
+          title={confirmState?.title}
+          message={confirmState?.message}
+          confirmLabel="Xóa"
+        />
       </Modal>
     );
   }
