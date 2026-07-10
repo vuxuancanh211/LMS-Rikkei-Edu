@@ -49,5 +49,8 @@ import '../pages/Notification/NotificationsPage';
 import '../pages/Player/LecturePlayer';
 import '../pages/Player/QuizPlayer';
 import '../pages/Player/QuizResult';
+import '../pages/Player/assignment/AssignmentDropdown';
+import '../pages/Player/assignment/CreateAssignmentModal';
+import '../pages/Player/assignment/FilePreview';
 import '../pages/Player/PreviewPlayer';
 import '../pages/Gallery/GalleryPage';

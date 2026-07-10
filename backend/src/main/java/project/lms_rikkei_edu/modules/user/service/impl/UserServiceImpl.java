@@ -19,6 +19,10 @@ import project.lms_rikkei_edu.infrastructure.email.EmailService;
 import project.lms_rikkei_edu.infrastructure.redis.RedisService;
 import project.lms_rikkei_edu.modules.audit.entity.AuditLogEntity;
 import project.lms_rikkei_edu.modules.audit.repository.AuditLogRepository;
+import project.lms_rikkei_edu.modules.course.entity.Course;
+import project.lms_rikkei_edu.modules.course.repository.CourseRepository;
+import project.lms_rikkei_edu.modules.course.entity.CourseEnrollmentEntity;
+import project.lms_rikkei_edu.modules.course.repository.CourseEnrollmentRepository;
 import project.lms_rikkei_edu.modules.user.dto.request.AdminUserCreateRequest;
 import project.lms_rikkei_edu.modules.user.dto.request.AdminUserListRequest;
 import project.lms_rikkei_edu.modules.user.dto.request.AdminUserUpdateRequest;
@@ -53,6 +57,8 @@ public class UserServiceImpl implements UserService {
     private final JwtService jwtService;
     private final CurrentUserProvider currentUserProvider;
     private final AuditLogRepository auditLogRepository;
+    private final CourseRepository courseRepository;
+    private final CourseEnrollmentRepository courseEnrollmentRepository;
 
     @Value("${app.auth.password-reset-url}")
     private String passwordResetUrl;
@@ -134,7 +140,21 @@ public class UserServiceImpl implements UserService {
 
         userRepository.save(user);
 
-        emailService.sendNewAccountMail(user.getEmail(), user.getFullName(), tempPassword);
+        if (request.getCourseId() == null) {
+            throw new BusinessException("Vui lòng chọn khóa học");
+        }
+        Course course = courseRepository.findById(request.getCourseId())
+                .orElseThrow(() -> new BusinessException("Không tìm thấy khóa học"));
+        String courseTitle = course.getTitle();
+        if (!courseEnrollmentRepository.existsByCourseIdAndStudentId(course.getId(), user.getId())) {
+            CourseEnrollmentEntity enrollment = new CourseEnrollmentEntity();
+            enrollment.setId(UUID.randomUUID());
+            enrollment.setCourseId(course.getId());
+            enrollment.setStudentId(user.getId());
+            courseEnrollmentRepository.save(enrollment);
+        }
+
+        emailService.sendNewAccountMail(user.getEmail(), user.getFullName(), tempPassword, courseTitle);
 
         writeAuditLog(adminId, "CREATE_USER", "USER", user.getId(),
                 null, String.format("{\"email\":\"%s\",\"role\":\"%s\"}", email, role),
@@ -206,7 +226,7 @@ public class UserServiceImpl implements UserService {
 
     @Override
     @Transactional
-    public List<UserResponse> batchCreateUsers(UUID adminId, List<AdminUserCreateRequest> requests) {
+    public List<UserResponse> batchCreateUsers(UUID adminId, List<AdminUserCreateRequest> requests, String courseTitle) {
         String tempPassword = generateTemporaryPassword();
         String passwordHash = passwordEncoder.encode(tempPassword);
 
@@ -229,7 +249,7 @@ public class UserServiceImpl implements UserService {
         userRepository.saveAll(users);
 
         for (UserEntity user : users) {
-            emailAsyncService.sendNewAccountMailAsync(user.getEmail(), user.getFullName(), tempPassword);
+            emailAsyncService.sendNewAccountMailAsync(user.getEmail(), user.getFullName(), tempPassword, courseTitle);
             writeAuditLog(adminId, "CREATE_USER", "USER", user.getId(),
                     null, String.format("{\"email\":\"%s\",\"role\":\"%s\"}", user.getEmail(), user.getRole()),
                     "Admin created user account via CSV import");

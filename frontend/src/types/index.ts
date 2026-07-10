@@ -59,6 +59,7 @@ export type AdminUserCreateRequest = {
   email: string;
   role: string;
   phoneNumber?: string;
+  courseId?: string;
 };
 
 export type AdminUserUpdateRequest = {
@@ -169,7 +170,7 @@ export type ChangePasswordRequest = {
 };
 
 // CSV Import
-export type CsvRowStatus = 'VALID' | 'FORMAT_ERROR' | 'DUPLICATE_IN_FILE' | 'DUPLICATE_IN_DB' | 'IMPORTED' | 'IMPORT_FAILED';
+export type CsvRowStatus = 'VALID' | 'FORMAT_ERROR' | 'DUPLICATE_IN_FILE' | 'DUPLICATE_IN_DB' | 'EXISTING_USER' | 'ALREADY_ENROLLED' | 'NAME_MISMATCH' | 'IMPORTED' | 'IMPORT_FAILED';
 
 export type CsvImportRowResult = {
   rowNumber: number;
@@ -187,6 +188,9 @@ export type CsvImportPreviewResponse = {
   formatErrorCount: number;
   duplicateInFileCount: number;
   duplicateInDbCount: number;
+  existingUserCount: number;
+  alreadyEnrolledCount: number;
+  nameMismatchCount: number;
   rows: CsvImportRowResult[];
 };
 

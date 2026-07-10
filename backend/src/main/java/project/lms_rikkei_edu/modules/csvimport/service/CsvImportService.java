@@ -8,7 +8,7 @@ import java.util.UUID;
 
 public interface CsvImportService {
 
-    CsvImportPreviewResponse preview(MultipartFile file, String defaultRole);
+    CsvImportPreviewResponse preview(MultipartFile file, String defaultRole, UUID courseId);
 
-    CsvImportConfirmResponse confirm(String token, UUID adminId);
+    CsvImportConfirmResponse confirm(String token, UUID adminId, UUID courseId);
 }

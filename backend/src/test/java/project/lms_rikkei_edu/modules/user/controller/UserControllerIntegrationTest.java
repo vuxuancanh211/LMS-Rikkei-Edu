@@ -108,6 +108,7 @@ class UserControllerIntegrationTest {
         request.setEmail("new@test.com");
         request.setRole("STUDENT");
         request.setPhoneNumber("0934567890");
+        request.setCourseId(UUID.randomUUID());
         var response = userResponse(userId);
 
         when(currentUserProvider.getCurrentUserId()).thenReturn(Optional.of(adminId));
