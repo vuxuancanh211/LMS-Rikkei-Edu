@@ -237,7 +237,7 @@ public class CertificatePdfService {
     private void drawStar(PDPageContentStream content, float cx, float cy, float r, float[] color) throws IOException {
         content.setNonStrokingColor(color[0], color[1], color[2]);
         for (int i = 0; i < 10; i++) {
-            double angle = Math.toRadians(-90 + i * 36);
+            double angle = Math.toRadians(-90d + i * 36d);
             float radius = i % 2 == 0 ? r : r * 0.45f;
             float x = cx + (float) Math.cos(angle) * radius;
             float y = cy + (float) Math.sin(angle) * radius;
