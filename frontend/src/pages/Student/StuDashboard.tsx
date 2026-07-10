@@ -3,15 +3,31 @@
    RIKKEI EDU — StuDashboard
    ============================================================ */
 (function () {
-const { useState: uS } = React;
+const { useState: uS, useEffect } = React;
 const Ic = window.Icon;
 const D = window.DATA;
+const api = window.httpClient;
 const { Avatar:Av, Status:St, Progress:Pg, StatCard:SC, CourseCard:CC, Search:Se, Tabs:Tb, Select:Sl, Section:Sn, Pager:Pgr, Modal:Md, ModalHead:MH, Empty:Em, LineChart:LC, BarChart:BC, Donut:Dn } = window;
 
 /* ---------------- Student Dashboard ---------------- */
 function StuDashboard({ nav }) {
-  const inProgress = D.courses.filter(c => c.sStatus === "learning").slice(0, 3);
+  const [courses, setCourses] = uS([]);
+  const [loading, setLoading] = uS(true);
   const due = D.assignments.filter(a => a.status === "pending" || a.status === "late").slice(0, 4);
+
+  useEffect(() => {
+    api.get("/student/courses")
+      .then(r => setCourses(r.data || []))
+      .catch(() => setCourses([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const mapped = courses.map(c => ({
+    ...c,
+    thumb: c.thumbnailUrl || "assets/courses/placeholder.png",
+    cat: c.category,
+  }));
+  const inProgress = mapped.filter(c => c.sStatus === "learning").slice(0, 3);
   return (
     <div className="page fade-in">
       <div className="page-head">
@@ -29,7 +45,7 @@ function StuDashboard({ nav }) {
         <Sn title="Tiếp tục học" sub="Các khóa học bạn đang theo dõi" action={<span className="link" onClick={() => nav("courses")}>Xem tất cả</span>} pad={false}>
           <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
             {inProgress.map(c => (
-              <div key={c.id} className="row gap-16" style={{ padding: 12, border: "1px solid var(--border)", borderRadius: 14, cursor: "pointer" }} onClick={() => nav("player")}>
+              <div key={c.id} className="row gap-16" style={{ padding: 12, border: "1px solid var(--border)", borderRadius: 14, cursor: "pointer" }} onClick={() => nav("player", { courseId: c.id })}>
                 <div style={{ width: 92, height: 64, borderRadius: 10, backgroundImage: `url(${c.thumb})`, backgroundSize: "cover", backgroundPosition: "center", flex: "none" }} />
                 <div className="grow">
                   <div className="t-xs" style={{ color: "var(--accent)", fontWeight: 700, marginBottom: 4 }}>{c.cat}</div>
