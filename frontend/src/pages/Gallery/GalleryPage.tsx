@@ -133,12 +133,12 @@ function registerGalleryPage() {
     };
 
     useEffect(() => {
-      if (!authUser) return;
+      if (!authUser && !window.useAuthStore?.getState()?.accessToken) return;
       loadNotifications();
     }, [authUser]);
 
     useEffect(() => {
-      if (!authUser) return;
+      if (!authUser && !window.useAuthStore?.getState()?.accessToken) return;
       const disconnect = connectNotificationSSE((notif) => {
         setNotificationList(prev => [notif, ...prev]);
         setUnreadCount(prev => prev + 1);
