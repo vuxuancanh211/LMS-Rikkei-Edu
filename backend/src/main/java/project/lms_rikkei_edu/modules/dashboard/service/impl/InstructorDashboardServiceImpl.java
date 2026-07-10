@@ -1,0 +1,155 @@
+package project.lms_rikkei_edu.modules.dashboard.service.impl;
+
+import lombok.RequiredArgsConstructor;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.stereotype.Service;
+import project.lms_rikkei_edu.modules.dashboard.dto.response.CourseDistributionDto;
+import project.lms_rikkei_edu.modules.dashboard.dto.response.InstructorDashboardResponse;
+import project.lms_rikkei_edu.modules.dashboard.dto.response.PendingSubmissionDto;
+import project.lms_rikkei_edu.modules.dashboard.service.InstructorDashboardService;
+
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+
+@Service
+@RequiredArgsConstructor
+public class InstructorDashboardServiceImpl implements InstructorDashboardService {
+
+    private final JdbcTemplate jdbc;
+    private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm").withZone(ZoneId.systemDefault());
+
+    @Override
+    public InstructorDashboardResponse getDashboard(UUID instructorId) {
+        // 1. Active courses count
+        Integer activeCoursesCount = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM courses WHERE instructor_id = ? AND status IN ('PUBLISHED', 'ACTIVE')",
+                Integer.class, instructorId);
+        if (activeCoursesCount == null) activeCoursesCount = 0;
+
+        // 2. Pending approval courses count
+        Integer pendingCoursesCount = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM courses WHERE instructor_id = ? AND status = 'PENDING_APPROVAL'",
+                Integer.class, instructorId);
+        if (pendingCoursesCount == null) pendingCoursesCount = 0;
+
+        // 3. Total students count
+        Integer totalStudentsCount = jdbc.queryForObject("""
+                SELECT COUNT(DISTINCT ce.student_id)
+                FROM course_enrollments ce
+                JOIN courses c ON c.id = ce.course_id
+                WHERE c.instructor_id = ?
+                """, Integer.class, instructorId);
+        if (totalStudentsCount == null) totalStudentsCount = 0;
+
+        // 4. Total groups count
+        Integer totalGroupsCount = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM study_groups WHERE instructor_id = ?",
+                Integer.class, instructorId);
+        if (totalGroupsCount == null) totalGroupsCount = 0;
+
+        // 5. Pending submissions count
+        Integer pendingSubmissionsCount = jdbc.queryForObject("""
+                SELECT COUNT(*)
+                FROM assignment_submissions s
+                JOIN courses c ON c.id = s.course_id
+                WHERE c.instructor_id = ? AND s.status IN ('SUBMITTED', 'LATE')
+                """, Integer.class, instructorId);
+        if (pendingSubmissionsCount == null) pendingSubmissionsCount = 0;
+
+        // 6. Average completion rate
+        Double avgRate = jdbc.queryForObject("""
+                SELECT COALESCE(AVG(cp.overall_percentage), 0.0)
+                FROM course_progress cp
+                JOIN courses c ON c.id = cp.course_id
+                WHERE c.instructor_id = ?
+                """, Double.class, instructorId);
+        double averageCompletionRate = avgRate != null ? Math.round(avgRate * 10.0) / 10.0 : 0.0;
+
+        // 7. Monthly completion rates (last 6 months rolling window - single query optimization)
+        List<Double> monthlyCompletionRates = new ArrayList<>(Collections.nCopies(6, 0.0));
+        List<String> monthlyLabels = new ArrayList<>();
+        Map<String, Integer> ymToIndex = new HashMap<>();
+
+        Calendar cal = Calendar.getInstance();
+        for (int i = 5; i >= 0; i--) {
+            Calendar c = (Calendar) cal.clone();
+            c.add(Calendar.MONTH, -i);
+            int month = c.get(Calendar.MONTH) + 1;
+            int year = c.get(Calendar.YEAR);
+            String ym = String.format("%04d-%02d", year, month);
+            monthlyLabels.add("Th" + month);
+            ymToIndex.put(ym, 5 - i);
+        }
+
+        jdbc.query("""
+                SELECT TO_CHAR(cp.updated_at, 'YYYY-MM') AS ym, COALESCE(AVG(cp.overall_percentage), 0.0) AS rate
+                FROM course_progress cp
+                JOIN courses c ON c.id = cp.course_id
+                WHERE c.instructor_id = ?
+                  AND cp.updated_at >= DATE_TRUNC('month', NOW() - INTERVAL '5 months')
+                GROUP BY ym
+                """, (rs) -> {
+            String ym = rs.getString("ym");
+            Double rate = rs.getDouble("rate");
+            Integer idx = ymToIndex.get(ym);
+            if (idx != null && idx >= 0 && idx < 6) {
+                monthlyCompletionRates.set(idx, Math.round(rate * 10.0) / 10.0);
+            }
+        }, instructorId);
+
+        // 8. Course student distribution
+        List<String> palette = List.of("#2563eb", "#10b981", "#f59e0b", "#7c3aed", "#ec4899");
+        List<CourseDistributionDto> courseDistributions = jdbc.query("""
+                SELECT c.title, COUNT(ce.student_id) AS student_count
+                FROM courses c
+                LEFT JOIN course_enrollments ce ON ce.course_id = c.id
+                WHERE c.instructor_id = ?
+                GROUP BY c.id, c.title
+                ORDER BY student_count DESC, c.created_at ASC
+                LIMIT 5
+                """, (rs, rowNum) -> CourseDistributionDto.builder()
+                .title(rs.getString("title"))
+                .studentCount(rs.getInt("student_count"))
+                .color(palette.get(rowNum % palette.size()))
+                .build(), instructorId);
+
+        // 9. Recent submissions
+        List<PendingSubmissionDto> pendingSubmissions = jdbc.query("""
+                SELECT s.id, u.full_name, a.title AS assignment_title,
+                       COALESCE((SELECT sg.name FROM group_members gm JOIN study_groups sg ON sg.id = gm.group_id WHERE gm.student_id = s.student_id AND sg.course_id = s.course_id LIMIT 1), 'Tự do') AS group_name,
+                       s.submitted_at, s.status
+                FROM assignment_submissions s
+                JOIN assignments a ON a.id = s.assignment_id
+                JOIN users u ON u.id = s.student_id
+                JOIN courses c ON c.id = s.course_id
+                WHERE c.instructor_id = ? AND s.status IN ('SUBMITTED', 'LATE')
+                ORDER BY s.submitted_at DESC
+                LIMIT 5
+                """, (rs, rowNum) -> {
+            Instant submittedAt = rs.getTimestamp("submitted_at") != null ? rs.getTimestamp("submitted_at").toInstant() : Instant.now();
+            return PendingSubmissionDto.builder()
+                    .id(UUID.fromString(rs.getString("id")))
+                    .studentName(rs.getString("full_name"))
+                    .assignmentTitle(rs.getString("assignment_title"))
+                    .groupName(rs.getString("group_name"))
+                    .submittedAt(DATE_FORMATTER.format(submittedAt))
+                    .status(rs.getString("status"))
+                    .build();
+        }, instructorId);
+
+        return InstructorDashboardResponse.builder()
+                .activeCoursesCount(activeCoursesCount)
+                .pendingCoursesCount(pendingCoursesCount)
+                .totalStudentsCount(totalStudentsCount)
+                .totalGroupsCount(totalGroupsCount)
+                .pendingSubmissionsCount(pendingSubmissionsCount)
+                .monthlyCompletionRates(monthlyCompletionRates)
+                .monthlyLabels(monthlyLabels)
+                .averageCompletionRate(averageCompletionRate)
+                .courseDistributions(courseDistributions)
+                .pendingSubmissions(pendingSubmissions)
+                .build();
+    }
+}
