@@ -11,7 +11,6 @@ import * as profileService from './profile-service';
 Object.assign(window, { __userService: userService, __csvImportService: csvImportService, __groupService: groupService, __courseService: courseService, __profileService: profileService });
 
 Object.assign(window, { __userService: userService, __csvImportService: csvImportService, __groupService: groupService, __courseService: courseService, __certificateService: certificateService });
-import * as profileService from './profile-service';
 import * as dashboardService from './dashboard-service';
 
 Object.assign(window, {
