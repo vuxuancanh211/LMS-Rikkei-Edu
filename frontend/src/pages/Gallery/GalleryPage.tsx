@@ -60,7 +60,7 @@ function registerGalleryPage() {
     ],
   };
   const SCREENS = {
-    student: { dashboard: "StuDashboard", courses: "StuCourses", tasks: "StuTasks", forum: "ForumPage", chat: "ChatScreen", certs: "StuCerts", certDetail: "StuCertDetail", settings: "Settings", notifications: "NotificationsPage" },
+    student: { dashboard: "StuDashboard", courses: "StuCourses", courseDetail: "StuCourseDetail", groups: "StuGroups", groupDetail: "StuGroupDetail", tasks: "StuTasks", forum: "ForumPage", chat: "ChatScreen", certs: "StuCerts", settings: "Settings", notifications: "NotificationsPage" },
     instructor: { dashboard: "InsDashboard", courses: "InsCourses", courseDetail: "InsCourseDetail", groups: "InsGroups", groupDetail: "InsGroupDetail", assess: "InsAssess", grading: "InsGrading", students: "InsStudents", forum: "ForumPage", chat: "ChatScreen", aiDocs: "InsAiDocs", settings: "Settings", notifications: "NotificationsPage" },
     admin: { dashboard: "AdminDashboard", users: "AdminUsers", courses: "AdminCourses", approval: "AdminApproval", certificates: "AdminCertificates", reports: "AdminReports", logs: "AdminLogs", aiDocs: "AdminAiDocs", settings: "Settings", notifications: "NotificationsPage" },
   };
@@ -275,7 +275,7 @@ function registerGalleryPage() {
               )}
             </div>
           </header>
-          <main style={{ flex: 1 }}><Comp nav={go} persona={persona} demo={demo} groupId={routeParams.groupId} certificateId={routeParams.certificateId} /></main>
+          <main style={{ flex: 1 }}><Comp nav={go} persona={persona} demo={demo} groupId={routeParams.groupId} /></main>
         </div>
         {(role === "student" || role === "instructor") && <window.AIChatbot />}
       </div>
