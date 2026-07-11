@@ -1,5 +1,7 @@
 package project.lms_rikkei_edu.modules.quiz.dto.request;
 
+import jakarta.validation.constraints.DecimalMax;
+import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -28,6 +30,8 @@ public class QuizMetadataRequest {
     @Min(value = 1, message = "Số lần thử phải ít nhất 1")
     private Integer maxAttempts = 3;
 
+    @DecimalMin(value = "0", message = "Điểm đạt không được âm")
+    @DecimalMax(value = "100", message = "Điểm đạt không được vượt quá 100")
     private BigDecimal passScore;
 
     private Boolean shuffleQuestions = false;

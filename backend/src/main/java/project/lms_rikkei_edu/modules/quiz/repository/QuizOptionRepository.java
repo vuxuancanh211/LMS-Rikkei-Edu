@@ -10,5 +10,9 @@ public interface QuizOptionRepository extends JpaRepository<QuizOptionEntity, UU
 
     List<QuizOptionEntity> findByQuestionIdOrderByOrderIndex(UUID questionId);
 
+    // Batch — tải option cho nhiều câu hỏi trong 1 query, tránh N+1 khi build câu hỏi/chấm điểm
+    // cho cả 1 lượt thi (xem QuizAttemptServiceImpl).
+    List<QuizOptionEntity> findByQuestionIdInOrderByOrderIndex(List<UUID> questionIds);
+
     void deleteByQuestionId(UUID questionId);
 }

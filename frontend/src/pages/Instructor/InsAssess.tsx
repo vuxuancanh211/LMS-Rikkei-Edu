@@ -11,7 +11,7 @@
     listQuizzes, createQuiz, updateQuiz, publishQuiz, archiveQuiz, deleteQuiz,
     listBankQuestions, searchBankQuestions, createBankQuestion, updateBankQuestion, deleteBankQuestion,
     toggleBankQuestionStatus, previewBankImport, confirmBankImport, exportBankQuestions,
-    getQuizStats, getAllAttemptsForQuiz,
+    getQuizStats, getAllAttemptsForQuiz, getViolations, reorderQuizQuestions,
     startAiGenerateQuestions, getAiGenerateJobStatus, aiSaveQuestions,
     getQuizDetail, addBankQuestionsToQuiz, addManualQuestionToQuiz,
     removeQuestionFromQuiz, configureRandomDraw,
@@ -134,6 +134,7 @@
     const [qzUnlimited, setQzUnlimited] = useState(false);
     const [qzCooldown, setQzCooldown] = useState(20);
     const [qzPass, setQzPass] = useState(50);
+    const qzPassInvalid = qzPass === '' || Number.isNaN(Number(qzPass)) || Number(qzPass) < 0 || Number(qzPass) > 100;
     const [qzProctoring, setQzProctoring] = useState(false);
     const [qzShuffleQuestions, setQzShuffleQuestions] = useState(false);
     const [qzShuffleOptions, setQzShuffleOptions] = useState(false);
@@ -342,6 +343,7 @@
     const handleCreateQuiz = useCallback(async () => {
       if (!qzTitle.trim()) { showToast('Vui lòng nhập tên quiz', 'error'); return; }
       if (!activeCourseId) { showToast('Chưa chọn khóa học', 'error'); return; }
+      if (qzPassInvalid) { showToast('Điểm đạt phải trong khoảng 0-100', 'error'); return; }
       setSubmitting(true);
       try {
         const payload = {
@@ -370,7 +372,7 @@
       } finally {
         setSubmitting(false);
       }
-    }, [activeCourseId, qzTitle, qzType, qzDuration, qzMax, qzUnlimited, qzCooldown, qzPass, qzProctoring, qzShuffleQuestions, qzShuffleOptions, editQuizItem, fetchQuizzes, showToast]);
+    }, [activeCourseId, qzTitle, qzType, qzDuration, qzMax, qzUnlimited, qzCooldown, qzPass, qzPassInvalid, qzProctoring, qzShuffleQuestions, qzShuffleOptions, editQuizItem, fetchQuizzes, showToast]);
 
     /* ── Publish / Archive quiz ── */
     const handlePublish = useCallback(async (quiz) => {
@@ -846,7 +848,14 @@
               <div className="t-xs muted" style={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.03em', marginBottom: 10 }}>Đánh giá</div>
               <div style={{ maxWidth: 180 }}>
                 <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Điểm đạt (%)</label>
-                <input className="input" type="number" min={0} max={100} value={qzPass} onChange={e => setQzPass(e.target.value)} />
+                <input className="input" type="number" min={0} max={100} value={qzPass}
+                  style={qzPassInvalid ? { borderColor: 'var(--error)' } : undefined}
+                  onChange={e => setQzPass(e.target.value)} />
+                {qzPassInvalid && (
+                  <div className="t-xs" style={{ color: 'var(--error)', marginTop: 4 }}>
+                    Điểm đạt phải trong khoảng 0-100.
+                  </div>
+                )}
               </div>
             </div>
 
@@ -885,7 +894,7 @@
           </div>
           <div className="modal-foot">
             <button className="btn btn-ghost" onClick={() => { setCreateQuizOpen(false); setEditQuizItem(null); }}>Hủy</button>
-            <button className="btn btn-primary" onClick={handleCreateQuiz} disabled={submitting}>
+            <button className="btn btn-primary" onClick={handleCreateQuiz} disabled={submitting || qzPassInvalid}>
               {submitting
                 ? (editQuizItem ? 'Đang lưu...' : 'Đang tạo...')
                 : <><Ic n={editQuizItem ? 'check' : 'plus'} size={16} />{editQuizItem ? 'Lưu thay đổi' : 'Tạo quiz'}</>}
@@ -1615,6 +1624,7 @@
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [view, setView] = useState('overview'); // overview | attempts
+    const [violationAttempt, setViolationAttempt] = useState(null); // { attemptId, attemptNumber } — lần thi đang xem chi tiết vi phạm
 
     useEffect(() => {
       if (!open || !courseId || !quiz) return;
@@ -1801,7 +1811,12 @@
                               <b>Lần {a.attemptNumber}</b>
                               {a.autoSubmitted && <span className="chip chip-warning" style={{ fontSize: 10 }}>Tự nộp</span>}
                               {a.violationCount > 0 && (
-                                <span className="chip chip-error" style={{ fontSize: 10 }}>
+                                <span
+                                  className="chip chip-error"
+                                  style={{ fontSize: 10, cursor: 'pointer' }}
+                                  title="Xem chi tiết vi phạm"
+                                  onClick={() => setViolationAttempt({ attemptId: a.attemptId, attemptNumber: a.attemptNumber })}
+                                >
                                   <Ic n="shield" size={10} />{a.violationCount}
                                 </span>
                               )}
@@ -1831,6 +1846,81 @@
         <div className="modal-foot">
           <button className="btn btn-ghost" onClick={onClose}>Đóng</button>
         </div>
+
+        <AttemptViolationsModal
+          attempt={violationAttempt}
+          onClose={() => setViolationAttempt(null)}
+        />
+      </Modal>
+    );
+  }
+
+  /* ═══ AttemptViolationsModal — chi tiết vi phạm giám sát của 1 lần thi ═══ */
+  function AttemptViolationsModal({ attempt, onClose }) {
+    const [violations, setViolations] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+
+    useEffect(() => {
+      if (!attempt) return;
+      setLoading(true);
+      setError('');
+      getViolations(attempt.attemptId)
+        .then(setViolations)
+        .catch(err => setError(extractError(err)))
+        .finally(() => setLoading(false));
+    }, [attempt]);
+
+    if (!attempt) return null;
+
+    const TYPE_LABEL = { TAB_SWITCH: 'Chuyển tab', WINDOW_BLUR: 'Rời cửa sổ', EXIT_FULLSCREEN: 'Thoát toàn màn hình' };
+
+    function fmtDateTime(d) {
+      if (!d) return '—';
+      return new Date(d).toLocaleString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
+
+    return (
+      <Modal open={!!attempt} onClose={onClose} max={520}>
+        <ModalHead
+          title="Chi tiết vi phạm giám sát"
+          sub={`Lần ${attempt.attemptNumber}`}
+          icon="shield" iconBg="#fde8e8" iconColor="#dc2626"
+          onClose={onClose}
+        />
+        <div className="modal-body">
+          {loading ? (
+            <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-2)' }}>Đang tải...</div>
+          ) : error ? (
+            <div style={{ padding: 32, textAlign: 'center', color: 'var(--error)' }}>{error}</div>
+          ) : violations.length === 0 ? (
+            <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-2)' }}>Không có vi phạm nào.</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {violations.map(v => (
+                <div key={v.id} className="row gap-10" style={{ padding: '10px 14px', background: 'var(--surface-2)', borderRadius: 10 }}>
+                  <div style={{
+                    width: 28, height: 28, borderRadius: 999, flex: 'none', display: 'grid', placeItems: 'center',
+                    background: v.lockedOut ? 'var(--chip-error-bg)' : 'var(--chip-warning-bg)',
+                    color: v.lockedOut ? 'var(--error)' : 'var(--warning)',
+                  }}>
+                    <Ic n="shield" size={13} />
+                  </div>
+                  <div className="grow" style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: 13.5 }}>
+                      Vi phạm #{v.violationOrder} — {TYPE_LABEL[v.violationType] || v.violationType}
+                    </div>
+                    <div className="t-xs muted">{fmtDateTime(v.serverTimestamp)}</div>
+                  </div>
+                  {v.lockedOut && <span className="chip chip-error" style={{ fontSize: 10, flex: 'none' }}>Đã khóa bài</span>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="modal-foot">
+          <button className="btn btn-ghost" onClick={onClose}>Đóng</button>
+        </div>
       </Modal>
     );
   }
@@ -1842,6 +1932,8 @@
     const [error, setError] = useState('');
     const [tab, setTab] = useState('questions');
     const [removingId, setRemovingId] = useState(null);
+    const [dragQIdx, setDragQIdx] = useState(null);
+    const [dragOverQIdx, setDragOverQIdx] = useState(null);
 
     const [pickOpen, setPickOpen] = useState(false);
     const [manualOpen, setManualOpen] = useState(false);
@@ -1930,6 +2022,22 @@
           }
         },
       });
+    }
+
+    async function handleReorderQuestion(fromIdx, toIdx) {
+      if (fromIdx === toIdx) return;
+      const ids = detail.questions.map(q => q.id);
+      const [moved] = ids.splice(fromIdx, 1);
+      ids.splice(toIdx, 0, moved);
+      // Cập nhật giao diện ngay (optimistic) rồi mới gọi API — kéo thả cảm giác mượt hơn chờ round-trip.
+      const reorderedQuestions = ids.map(id => detail.questions.find(q => q.id === id));
+      setDetail(prev => ({ ...prev, questions: reorderedQuestions }));
+      try {
+        await reorderQuizQuestions(courseId, quiz.id, ids);
+      } catch (err) {
+        showToast(extractError(err), 'error');
+        load(); // rollback về đúng thứ tự đã lưu trên server
+      }
     }
 
     async function handleAddBank(bankQuestionIds) {
@@ -2026,8 +2134,35 @@
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   {detail.questions.map((qq, i) => (
-                    <div key={qq.id} style={{ padding: 12, border: '1px solid var(--border)', borderRadius: 12 }}>
+                    <div key={qq.id}
+                      onDragOver={e => {
+                        if (dragQIdx === null) return;
+                        e.preventDefault();
+                        if (dragOverQIdx !== i) setDragOverQIdx(i);
+                      }}
+                      onDragLeave={() => { if (dragOverQIdx === i) setDragOverQIdx(null); }}
+                      onDrop={e => {
+                        e.preventDefault();
+                        if (dragQIdx !== null) handleReorderQuestion(dragQIdx, i);
+                        setDragQIdx(null); setDragOverQIdx(null);
+                      }}
+                      style={{
+                        padding: 12,
+                        border: dragOverQIdx === i ? '1px solid var(--accent)' : '1px solid var(--border)',
+                        borderRadius: 12,
+                        opacity: dragQIdx === i ? 0.4 : 1,
+                        transition: 'opacity .12s, border-color .12s',
+                      }}>
                       <div className="row gap-8" style={{ alignItems: 'flex-start' }}>
+                        {isDraft && (
+                          <div draggable
+                            onDragStart={e => { setDragQIdx(i); e.dataTransfer.effectAllowed = 'move'; }}
+                            onDragEnd={() => { setDragQIdx(null); setDragOverQIdx(null); }}
+                            style={{ width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'grab', color: 'var(--text-3)', flex: 'none', marginTop: 1 }}
+                            title="Kéo để sắp xếp lại">
+                            <Ic n="menu" size={14} />
+                          </div>
+                        )}
                         <span className="muted" style={{ fontSize: 12, flex: 'none', marginTop: 2 }}>#{i + 1}</span>
                         <div className="grow" style={{ minWidth: 0 }}>
                           <div style={{ fontSize: 13.5, fontWeight: 500 }}>{qq.questionText}</div>

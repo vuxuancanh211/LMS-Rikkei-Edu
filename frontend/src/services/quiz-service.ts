@@ -228,6 +228,18 @@ export async function removeQuestionFromQuiz(
   await httpClient.delete(`/courses/${courseId}/quizzes/${quizId}/questions/${questionId}`);
 }
 
+export async function reorderQuizQuestions(
+  courseId: string,
+  quizId: string,
+  questionIds: string[],
+) {
+  const res = await httpClient.put<QuizDetailResponse>(
+    `/courses/${courseId}/quizzes/${quizId}/questions/reorder`,
+    questionIds,
+  );
+  return res.data;
+}
+
 export async function configureRandomDraw(
   courseId: string,
   quizId: string,

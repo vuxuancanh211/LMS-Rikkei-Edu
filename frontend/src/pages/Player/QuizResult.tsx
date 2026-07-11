@@ -196,6 +196,28 @@
                           {ans.isCorrect ? 'Đúng' : ans.selectedOptionIds.length === 0 ? 'Bỏ qua' : 'Sai'}
                         </span>
                       </div>
+
+                      {/* Đáp án — hiện lại toàn bộ lựa chọn, đánh dấu đâu là đáp án đúng và học viên đã chọn gì */}
+                      {ans.options && ans.options.length > 0 && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          {ans.options.map(opt => {
+                            const wasSelected = ans.selectedOptionIds.includes(opt.id);
+                            const isCorrectOpt = ans.correctOptionIds?.includes(opt.id);
+                            return (
+                              <div key={opt.id} className="row gap-8" style={{
+                                padding: '7px 10px', borderRadius: 8, fontSize: 12.5,
+                                background: isCorrectOpt ? 'rgba(16,185,129,.08)' : wasSelected ? 'rgba(239,68,68,.08)' : 'transparent',
+                                color: isCorrectOpt ? 'var(--success)' : wasSelected ? 'var(--error)' : 'var(--text-2)',
+                              }}>
+                                <Ic n={isCorrectOpt ? 'check' : wasSelected ? 'x' : 'minus'} size={13} style={{ flex: 'none' }} />
+                                <span className="grow">{opt.optionText}</span>
+                                {wasSelected && <span className="t-xs" style={{ fontWeight: 700, flex: 'none' }}>Bạn đã chọn</span>}
+                                {isCorrectOpt && !wasSelected && <span className="t-xs" style={{ fontWeight: 700, flex: 'none' }}>Đáp án đúng</span>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>

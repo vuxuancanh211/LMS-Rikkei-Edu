@@ -233,7 +233,9 @@ export type StartAttemptResponse = {
 export type AttemptAnswerResult = {
   questionId: string;
   questionText: string;
+  options: QuizOptionResponse[];
   selectedOptionIds: string[];
+  correctOptionIds: string[];
   isCorrect: boolean;
 };
 
@@ -250,6 +252,8 @@ export type AttemptResultResponse = {
   totalQuestions: number;
   timeSpentSeconds?: number | null;
   submittedAt?: string | null;
+  autoSubmitted?: boolean;
+  violationCount?: number;
   answers: AttemptAnswerResult[];
 };
 

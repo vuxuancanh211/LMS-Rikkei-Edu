@@ -8,7 +8,16 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import project.lms_rikkei_edu.common.exception.BusinessException;
+import project.lms_rikkei_edu.common.security.CurrentUserProvider;
+import project.lms_rikkei_edu.common.security.UserPrincipal;
+import project.lms_rikkei_edu.modules.course.entity.Course;
+import project.lms_rikkei_edu.modules.course.entity.CourseEnrollmentEntity;
+import project.lms_rikkei_edu.modules.course.repository.CourseEnrollmentRepository;
+import project.lms_rikkei_edu.modules.course.repository.CourseRepository;
 import project.lms_rikkei_edu.modules.course.repository.LessonRepository;
+import project.lms_rikkei_edu.modules.notification.enums.NotificationType;
+import project.lms_rikkei_edu.modules.notification.service.NotificationPreferenceService;
+import project.lms_rikkei_edu.modules.notification.service.NotificationService;
 import project.lms_rikkei_edu.modules.quiz.dto.request.*;
 import project.lms_rikkei_edu.modules.quiz.dto.response.*;
 import project.lms_rikkei_edu.modules.quiz.entity.*;
@@ -36,6 +45,11 @@ public class QuizServiceImpl implements QuizService {
     private final BankOptionRepository bankOptionRepository;
     private final BankQuestionEmbeddingService bankQuestionEmbeddingService;
     private final LessonRepository lessonRepository;
+    private final CourseRepository courseRepository;
+    private final CourseEnrollmentRepository courseEnrollmentRepository;
+    private final NotificationService notificationService;
+    private final NotificationPreferenceService notificationPreferenceService;
+    private final CurrentUserProvider currentUserProvider;
 
     // ── Create / Update ───────────────────────────────────────────────────────
 
@@ -148,7 +162,28 @@ public class QuizServiceImpl implements QuizService {
                 .orElseThrow(() -> new BusinessException("Câu hỏi không tồn tại trong quiz này"));
         quizOptionRepository.deleteByQuestionId(questionId);
         quizQuestionRepository.delete(qq);
-        reorderQuestions(quizId);
+        renormalizeQuestionOrder(quizId);
+    }
+
+    @Override
+    @Transactional
+    public QuizDetailResponse reorderQuestions(UUID courseId, UUID quizId, List<UUID> questionIds) {
+        QuizEntity quiz = findDraftQuiz(courseId, quizId);
+        List<QuizQuestionEntity> questions = quizQuestionRepository.findByQuizIdOrderByOrderIndex(quizId);
+
+        List<UUID> existingIds = questions.stream().map(QuizQuestionEntity::getId).toList();
+        if (questionIds.size() != existingIds.size() || !new HashSet<>(questionIds).equals(new HashSet<>(existingIds))) {
+            throw new BusinessException("Danh sách sắp xếp lại câu hỏi không khớp với danh sách hiện có");
+        }
+
+        Map<UUID, QuizQuestionEntity> byId = questions.stream()
+                .collect(Collectors.toMap(QuizQuestionEntity::getId, q -> q));
+        for (int i = 0; i < questionIds.size(); i++) {
+            byId.get(questionIds.get(i)).setOrderIndex(i);
+        }
+        quizQuestionRepository.saveAll(questions);
+
+        return toDetail(quiz, loadQuestions(quizId));
     }
 
     // ── Random Draw config (Type 3) ───────────────────────────────────────────
@@ -196,7 +231,45 @@ public class QuizServiceImpl implements QuizService {
         quiz.setStatus(QuizStatus.PUBLISHED);
         quiz.setPublishedAt(OffsetDateTime.now());
         quizRepository.save(quiz);
+
+        notifyStudentsQuizPublished(courseId, quiz);
+
         return toSummary(quiz);
+    }
+
+    // Thông báo cho học viên đã đăng ký khóa học biết có đề trắc nghiệm mới — fail-soft, lỗi ở đây
+    // (VD: notification service lỗi) không được làm hỏng việc publish quiz.
+    private void notifyStudentsQuizPublished(UUID courseId, QuizEntity quiz) {
+        try {
+            Course course = courseRepository.findById(courseId).orElse(null);
+            if (course == null) return;
+            List<CourseEnrollmentEntity> enrollments = courseEnrollmentRepository.findAllByCourseId(courseId);
+            if (enrollments.isEmpty()) return;
+
+            UUID actorId = currentUserProvider.getCurrentUserId().orElse(null);
+            String actorName = currentUserProvider.getCurrentUser().map(UserPrincipal::getUsername).orElse(null);
+            String title = "Đề trắc nghiệm mới";
+            String body = "Đề \"" + quiz.getTitle() + "\" trong khóa \"" + course.getTitle() + "\" đã được xuất bản.";
+
+            for (CourseEnrollmentEntity enrollment : enrollments) {
+                UUID studentId = enrollment.getStudentId();
+                if (!notificationPreferenceService.isInAppEnabled(studentId, NotificationType.QUIZ_PUBLISHED.name())) {
+                    continue;
+                }
+                notificationService.createNotification(
+                        studentId,
+                        NotificationType.QUIZ_PUBLISHED.name(),
+                        title,
+                        body,
+                        "QUIZ",
+                        quiz.getId(),
+                        actorId,
+                        actorName,
+                        "quiz-published-" + quiz.getId() + ":" + studentId);
+            }
+        } catch (Exception ex) {
+            log.warn("Không thể gửi thông báo publish quiz cho quizId={}: {}", quiz.getId(), ex.getMessage());
+        }
     }
 
     @Override
@@ -497,7 +570,9 @@ public class QuizServiceImpl implements QuizService {
         return bank;
     }
 
-    private void reorderQuestions(UUID quizId) {
+    // Dồn lại orderIndex liên tục (0..n-1) sau khi xoá 1 câu — không nhận thứ tự cụ thể, chỉ lấp
+    // khoảng trống. Khác với reorderQuestions() public (API sắp xếp lại theo danh sách id cụ thể).
+    private void renormalizeQuestionOrder(UUID quizId) {
         List<QuizQuestionEntity> questions = quizQuestionRepository.findByQuizIdOrderByOrderIndex(quizId);
         IntStream.range(0, questions.size()).forEach(i -> questions.get(i).setOrderIndex(i));
         quizQuestionRepository.saveAll(questions);

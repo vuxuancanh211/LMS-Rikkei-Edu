@@ -172,10 +172,14 @@ public class QuizAttemptServiceImpl implements QuizAttemptService {
             throw new BusinessException("Bài làm chưa được nộp");
 
         List<QuizAttemptAnswerEntity> answerEntities = answerRepository.findByAttemptId(attemptId);
-        Map<UUID, QuizQuestionEntity> qMap = loadQuestionMap(attempt);
+        List<QuizQuestionEntity> questions = loadQuestionsForAttempt(attempt);
+        Map<UUID, QuizQuestionEntity> qMap = questions.stream()
+                .collect(Collectors.toMap(QuizQuestionEntity::getId, q -> q));
+        Map<UUID, Set<UUID>> correctOptionsMap = buildCorrectOptionsMap(questions);
+        Map<UUID, List<QuizOptionResponse>> optionsMap = buildOptionsMap(questions);
 
         List<AttemptAnswerResult> results = answerEntities.stream()
-                .map(a -> buildAnswerResult(a, qMap))
+                .map(a -> buildAnswerResult(a, qMap, correctOptionsMap, optionsMap))
                 .toList();
 
         return toResultResponse(attempt, results);
@@ -266,12 +270,18 @@ public class QuizAttemptServiceImpl implements QuizAttemptService {
             Map<UUID, QuizQuestionEntity> qMap,
             boolean shuffleOptions) {
 
+        List<QuizQuestionEntity> questions = questionOrder.stream()
+                .map(qMap::get).filter(Objects::nonNull).toList();
+        Map<UUID, List<QuizOptionResponse>> optionsMap = buildOptionsMap(questions);
+
         return questionOrder.stream().map(qId -> {
             QuizQuestionEntity qq = qMap.get(qId);
             if (qq == null) return null;
 
-            // Load options — from quiz_options nếu cloned, từ bank_options nếu RANDOM_DRAW transient
-            List<QuizOptionResponse> options = loadOptionsForStudent(qId, qq.getBankQuestionId(), shuffleOptions);
+            // Copy riêng trước khi shuffle — optionsMap dùng chung, shuffle tại chỗ sẽ làm hỏng
+            // thứ tự của các lần đọc khác (VD buildAnswerResult dùng lại cùng map lúc chấm/xem kết quả).
+            List<QuizOptionResponse> options = new ArrayList<>(optionsMap.getOrDefault(qId, List.of()));
+            if (shuffleOptions) Collections.shuffle(options);
 
             return QuizQuestionResponse.builder()
                     .id(qq.getId())
@@ -285,34 +295,49 @@ public class QuizAttemptServiceImpl implements QuizAttemptService {
         }).filter(Objects::nonNull).toList();
     }
 
-    private List<QuizOptionResponse> loadOptionsForStudent(UUID questionId, UUID bankQuestionId,
-                                                            boolean shuffle) {
-        List<QuizOptionResponse> options;
-        // Nếu có quiz_options (cloned) thì dùng
-        List<?> quizOpts = optionRepository.findByQuestionIdOrderByOrderIndex(questionId);
-        if (!quizOpts.isEmpty()) {
-            options = ((List<QuizOptionEntity>) quizOpts).stream()
-                    .map(o -> QuizOptionResponse.builder()
-                            .id(o.getId())
-                            .optionText(o.getOptionText())
-                            .orderIndex(o.getOrderIndex())
-                            .build())
-                    .collect(Collectors.toList());
-        } else if (bankQuestionId != null) {
-            // RANDOM_DRAW transient — dùng bank_options
-            options = bankOptionRepository.findByBankQuestionIdOrderByOrderIndex(bankQuestionId)
-                    .stream()
-                    .map(o -> QuizOptionResponse.builder()
-                            .id(o.getId())
-                            .optionText(o.getOptionText())
-                            .orderIndex(o.getOrderIndex())
-                            .build())
-                    .collect(Collectors.toList());
-        } else {
-            options = new ArrayList<>();
+    // ── Batch loaders — tránh N+1 khi build câu hỏi/chấm điểm cho cả 1 lượt thi ────────────────
+
+    private Map<UUID, List<QuizOptionEntity>> loadQuizOptionsBatch(List<UUID> questionIds) {
+        if (questionIds.isEmpty()) return Map.of();
+        return optionRepository.findByQuestionIdInOrderByOrderIndex(questionIds).stream()
+                .collect(Collectors.groupingBy(QuizOptionEntity::getQuestionId));
+    }
+
+    private Map<UUID, List<BankOptionEntity>> loadBankOptionsBatch(List<UUID> bankQuestionIds) {
+        if (bankQuestionIds.isEmpty()) return Map.of();
+        return bankOptionRepository.findByBankQuestionIdInOrderByOrderIndex(bankQuestionIds).stream()
+                .collect(Collectors.groupingBy(BankOptionEntity::getBankQuestionId));
+    }
+
+    // questionId -> danh sách option (id + text), lấy từ quiz_options nếu có (clone), nếu không thì
+    // từ bank_options (RANDOM_DRAW transient) — batch 2 query cho toàn bộ câu hỏi thay vì lặp N lần.
+    private Map<UUID, List<QuizOptionResponse>> buildOptionsMap(List<QuizQuestionEntity> questions) {
+        List<UUID> questionIds = questions.stream().map(QuizQuestionEntity::getId).toList();
+        List<UUID> bankQuestionIds = questions.stream()
+                .map(QuizQuestionEntity::getBankQuestionId).filter(Objects::nonNull).toList();
+        Map<UUID, List<QuizOptionEntity>> quizOptionsMap = loadQuizOptionsBatch(questionIds);
+        Map<UUID, List<BankOptionEntity>> bankOptionsMap = loadBankOptionsBatch(bankQuestionIds);
+
+        Map<UUID, List<QuizOptionResponse>> result = new HashMap<>();
+        for (QuizQuestionEntity q : questions) {
+            List<QuizOptionEntity> quizOpts = quizOptionsMap.get(q.getId());
+            List<QuizOptionResponse> options;
+            if (quizOpts != null && !quizOpts.isEmpty()) {
+                options = quizOpts.stream()
+                        .map(o -> QuizOptionResponse.builder()
+                                .id(o.getId()).optionText(o.getOptionText()).orderIndex(o.getOrderIndex()).build())
+                        .collect(Collectors.toList());
+            } else if (q.getBankQuestionId() != null) {
+                options = bankOptionsMap.getOrDefault(q.getBankQuestionId(), List.of()).stream()
+                        .map(o -> QuizOptionResponse.builder()
+                                .id(o.getId()).optionText(o.getOptionText()).orderIndex(o.getOrderIndex()).build())
+                        .collect(Collectors.toList());
+            } else {
+                options = new ArrayList<>();
+            }
+            result.put(q.getId(), options);
         }
-        if (shuffle) Collections.shuffle(options);
-        return options;
+        return result;
     }
 
     @SuppressWarnings("unchecked")
@@ -344,7 +369,7 @@ public class QuizAttemptServiceImpl implements QuizAttemptService {
                 .collect(Collectors.toMap(QuizQuestionEntity::getId, q -> q));
 
         // Load correct options per question
-        Map<UUID, Set<UUID>> correctOptionsMap = buildCorrectOptionsMap(questions, attempt);
+        Map<UUID, Set<UUID>> correctOptionsMap = buildCorrectOptionsMap(questions);
 
         // Mọi câu hỏi cùng trọng số — điểm chỉ còn là % số câu trả lời đúng / tổng số câu,
         // không còn khái niệm "points" theo từng câu nữa.
@@ -413,9 +438,10 @@ public class QuizAttemptServiceImpl implements QuizAttemptService {
         // Xóa autosave
         redisService.delete(AUTOSAVE_KEY_PREFIX + attemptId);
 
-        // Build result
+        // Build result — kèm option đầy đủ + đáp án đúng để FE hiện lại sau khi chấm
+        Map<UUID, List<QuizOptionResponse>> optionsMap = buildOptionsMap(questions);
         List<AttemptAnswerResult> resultDetails = answerEntities.stream()
-                .map(a -> buildAnswerResult(a, qMap))
+                .map(a -> buildAnswerResult(a, qMap, correctOptionsMap, optionsMap))
                 .toList();
 
         return toResultResponse(attempt, resultDetails);
@@ -430,51 +456,53 @@ public class QuizAttemptServiceImpl implements QuizAttemptService {
         List<QuizQuestionEntity> fromQuiz = questionRepository.findByQuizIdOrderByOrderIndex(attempt.getQuizId());
         if (!fromQuiz.isEmpty()) return fromQuiz;
 
-        // RANDOM_DRAW: order chứa bank_question_id → load từ bank
+        // RANDOM_DRAW: order chứa bank_question_id → load từ bank — batch 1 query thay vì
+        // findById từng cái một cho toàn bộ order (có thể tới vài chục phần tử).
+        Map<UUID, BankQuestionEntity> bankMap = bankQuestionRepository.findAllById(order).stream()
+                .collect(Collectors.toMap(BankQuestionEntity::getId, bq -> bq));
         return order.stream()
-                .map(id -> bankQuestionRepository.findById(id).map(this::snapshotToTransient).orElse(null))
+                .map(bankMap::get)
                 .filter(Objects::nonNull)
+                .map(this::snapshotToTransient)
                 .toList();
     }
 
-    private Map<UUID, Set<UUID>> buildCorrectOptionsMap(List<QuizQuestionEntity> questions,
-                                                         QuizAttemptEntity attempt) {
+    private Map<UUID, Set<UUID>> buildCorrectOptionsMap(List<QuizQuestionEntity> questions) {
+        List<UUID> questionIds = questions.stream().map(QuizQuestionEntity::getId).toList();
+        List<UUID> bankQuestionIds = questions.stream()
+                .map(QuizQuestionEntity::getBankQuestionId).filter(Objects::nonNull).toList();
+        Map<UUID, List<QuizOptionEntity>> quizOptionsMap = loadQuizOptionsBatch(questionIds);
+        Map<UUID, List<BankOptionEntity>> bankOptionsMap = loadBankOptionsBatch(bankQuestionIds);
+
         Map<UUID, Set<UUID>> map = new HashMap<>();
         for (QuizQuestionEntity q : questions) {
-            // Kiểm tra quiz_options trước
-            List<QuizOptionEntity> opts = optionRepository.findByQuestionIdOrderByOrderIndex(q.getId());
-            if (!opts.isEmpty()) {
-                Set<UUID> correct = opts.stream()
+            List<QuizOptionEntity> opts = quizOptionsMap.get(q.getId());
+            if (opts != null && !opts.isEmpty()) {
+                map.put(q.getId(), opts.stream()
                         .filter(o -> Boolean.TRUE.equals(o.getIsCorrect()))
                         .map(QuizOptionEntity::getId)
-                        .collect(Collectors.toSet());
-                map.put(q.getId(), correct);
+                        .collect(Collectors.toSet()));
             } else if (q.getBankQuestionId() != null) {
-                // RANDOM_DRAW — đáp án từ bank_options
-                Set<UUID> correct = bankOptionRepository
-                        .findByBankQuestionIdOrderByOrderIndex(q.getBankQuestionId())
-                        .stream()
+                map.put(q.getId(), bankOptionsMap.getOrDefault(q.getBankQuestionId(), List.of()).stream()
                         .filter(o -> Boolean.TRUE.equals(o.getIsCorrect()))
                         .map(BankOptionEntity::getId)
-                        .collect(Collectors.toSet());
-                map.put(q.getId(), correct);
+                        .collect(Collectors.toSet()));
             }
         }
         return map;
     }
 
-    private Map<UUID, QuizQuestionEntity> loadQuestionMap(QuizAttemptEntity attempt) {
-        List<QuizQuestionEntity> questions = loadQuestionsForAttempt(attempt);
-        return questions.stream().collect(Collectors.toMap(QuizQuestionEntity::getId, q -> q));
-    }
-
     private AttemptAnswerResult buildAnswerResult(QuizAttemptAnswerEntity a,
-                                                   Map<UUID, QuizQuestionEntity> qMap) {
+                                                   Map<UUID, QuizQuestionEntity> qMap,
+                                                   Map<UUID, Set<UUID>> correctOptionsMap,
+                                                   Map<UUID, List<QuizOptionResponse>> optionsMap) {
         QuizQuestionEntity q = qMap.get(a.getQuestionId());
         return AttemptAnswerResult.builder()
                 .questionId(a.getQuestionId())
                 .questionText(q != null ? q.getQuestionText() : null)
+                .options(optionsMap.getOrDefault(a.getQuestionId(), List.of()))
                 .selectedOptionIds(a.getSelectedOptionIds() != null ? a.getSelectedOptionIds() : List.of())
+                .correctOptionIds(new ArrayList<>(correctOptionsMap.getOrDefault(a.getQuestionId(), Set.of())))
                 .isCorrect(Boolean.TRUE.equals(a.getIsCorrect()))
                 .build();
     }

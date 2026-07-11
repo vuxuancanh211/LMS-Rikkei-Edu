@@ -16,6 +16,7 @@ import project.lms_rikkei_edu.modules.quiz.dto.request.*;
 import project.lms_rikkei_edu.modules.quiz.dto.response.*;
 import project.lms_rikkei_edu.modules.quiz.service.QuizService;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -102,6 +103,16 @@ public class QuizController {
         ownershipGuard.requireOwnership(courseId);
         quizService.removeQuestion(courseId, quizId, questionId);
         return ResponseEntity.noContent().build();
+    }
+
+    @PutMapping("/{quizId}/questions/reorder")
+    @PreAuthorize("hasAnyRole('INSTRUCTOR', 'ADMIN')")
+    public ResponseEntity<QuizDetailResponse> reorderQuestions(
+            @PathVariable UUID courseId,
+            @PathVariable UUID quizId,
+            @RequestBody List<UUID> questionIds) {
+        ownershipGuard.requireOwnership(courseId);
+        return ResponseEntity.ok(quizService.reorderQuestions(courseId, quizId, questionIds));
     }
 
     @PutMapping("/{quizId}/random-config")

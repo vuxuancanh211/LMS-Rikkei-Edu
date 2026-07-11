@@ -10,5 +10,8 @@ public interface BankOptionRepository extends JpaRepository<BankOptionEntity, UU
 
     List<BankOptionEntity> findByBankQuestionIdOrderByOrderIndex(UUID bankQuestionId);
 
+    // Batch — tải option cho nhiều câu hỏi (RANDOM_DRAW) trong 1 query, tránh N+1.
+    List<BankOptionEntity> findByBankQuestionIdInOrderByOrderIndex(List<UUID> bankQuestionIds);
+
     void deleteByBankQuestionId(UUID bankQuestionId);
 }
