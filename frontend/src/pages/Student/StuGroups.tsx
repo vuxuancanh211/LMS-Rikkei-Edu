@@ -3,7 +3,6 @@
   const { useState, useEffect } = React;
   const Ic = window.Icon;
   const { Empty } = window;
-  const { getStudentGroups } = window.__groupService;
 
   function StuGroups({ nav }) {
     const [groups, setGroups] = useState([]);
@@ -11,7 +10,11 @@
 
     useEffect(() => {
       setLoading(true);
-      getStudentGroups()
+      const fetchGroups = window.__groupService && window.__groupService.getStudentGroups
+        ? window.__groupService.getStudentGroups
+        : () => window.httpClient ? window.httpClient.get('/student/groups').then(r => r.data) : Promise.resolve([]);
+
+      fetchGroups()
         .then(setGroups)
         .catch(() => setGroups([]))
         .finally(() => setLoading(false));

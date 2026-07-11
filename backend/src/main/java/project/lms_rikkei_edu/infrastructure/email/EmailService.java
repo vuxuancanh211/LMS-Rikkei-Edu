@@ -2,6 +2,7 @@ package project.lms_rikkei_edu.infrastructure.email;
 
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.mail.SimpleMailMessage;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -63,14 +64,20 @@ public class EmailService {
     @Value("${app.auth.login-url}")
     private String loginUrl;
 
-    public void sendNewAccountMail(String to, String fullName, String temporaryPassword) {
+    public void sendNewAccountMail(String to, String fullName, String temporaryPassword, String courseTitle) {
         SimpleMailMessage message = new SimpleMailMessage();
 
         message.setFrom(from);
         message.setTo(to);
         message.setSubject("[Rikkei Edu] Tài khoản của bạn đã được tạo");
+
+        String courseLine = courseTitle != null
+                ? "Bạn đã được thêm vào khóa học \"" + courseTitle + "\".\n\n"
+                : "";
+
         message.setText("Chào " + fullName + ",\n\n"
                 + "Tài khoản của bạn tại hệ thống Rikkei Edu đã được tạo thành công.\n\n"
+                + courseLine
                 + "Thông tin đăng nhập:\n"
                 + "  - Email:    " + to + "\n"
                 + "  - Mật khẩu: " + temporaryPassword + "\n\n"
@@ -80,6 +87,123 @@ public class EmailService {
                 + "Đội ngũ Rikkei Edu");
 
         mailSender.send(message);
+    }
+
+    public void sendEnrolledToCourseMail(String to, String fullName, String courseTitle) {
+        SimpleMailMessage message = new SimpleMailMessage();
+
+        message.setFrom(from);
+        message.setTo(to);
+        message.setSubject("[Rikkei Edu] Bạn đã được thêm vào khóa học");
+        message.setText("Chào " + fullName + ",\n\n"
+                + "Bạn đã được thêm vào khóa học \"" + courseTitle + "\".\n\n"
+                + "Đăng nhập tại: " + loginUrl + " để xem chi tiết.\n\n"
+                + "Trân trọng,\n"
+                + "Đội ngũ Rikkei Edu");
+        mailSender.send(message);
+    }
+
+    public void sendCertificateIssuedMail(
+            String to,
+            String fullName,
+            String courseTitle,
+            String verifyUrl,
+            byte[] pdfBytes,
+            String fileName) {
+        MimeMessage message = mailSender.createMimeMessage();
+
+        try {
+            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+            helper.setFrom(from);
+            helper.setTo(to);
+            helper.setSubject("[Rikkei Edu] Chứng chỉ khóa học của bạn");
+            helper.setText(buildCertificateEmailHtml(fullName, courseTitle, verifyUrl), true);
+            helper.addAttachment(fileName, new ByteArrayResource(pdfBytes), "application/pdf");
+        } catch (MessagingException e) {
+            throw new RuntimeException("Failed to create certificate email message", e);
+        }
+
+        mailSender.send(message);
+    }
+
+    private String buildCertificateEmailHtml(String fullName, String courseTitle, String verifyUrl) {
+        return """
+                <!DOCTYPE html>
+                <html>
+                <head><meta charset="UTF-8"></head>
+                <body style="margin:0;padding:0;background-color:#f4f6f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif">
+                <table role="presentation" style="width:100%%;background-color:#f4f6f9;padding:32px 16px">
+                <tr><td align="center">
+                <table role="presentation" style="max-width:560px;width:100%%;background-color:#ffffff;border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,0.06)">
+                <tr><td style="padding:36px;text-align:center">
+                <h1 style="font-size:22px;font-weight:700;color:#1e293b;margin:0 0 12px">Chúc mừng %s!</h1>
+                <p style="font-size:15px;color:#64748b;line-height:1.6;margin:0 0 8px">Bạn đã được cấp chứng chỉ cho khóa học:</p>
+                <p style="font-size:17px;color:#0f172a;font-weight:700;margin:0 0 24px">%s</p>
+                <a href="%s" style="display:inline-block;background-color:#4F46E5;color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;padding:14px 28px;border-radius:10px">Xác thực chứng chỉ</a>
+                <p style="font-size:13px;color:#94a3b8;margin:24px 0 0;line-height:1.5">File PDF chứng chỉ được đính kèm trong email này.</p>
+                </td></tr>
+                </table>
+                </td></tr>
+                </table>
+                </body>
+                </html>
+                """.formatted(fullName, courseTitle, verifyUrl);
+    }
+
+    public void sendCertificateRevokedMail(
+            String to,
+            String fullName,
+            String courseTitle,
+            String credentialId,
+            String reason,
+            String verifyUrl) {
+        MimeMessage message = mailSender.createMimeMessage();
+
+        try {
+            MimeMessageHelper helper = new MimeMessageHelper(message, "UTF-8");
+            helper.setFrom(from);
+            helper.setTo(to);
+            helper.setSubject("[Rikkei Edu] Chứng chỉ của bạn đã bị thu hồi");
+            helper.setText(buildCertificateRevokedEmailHtml(fullName, courseTitle, credentialId, reason, verifyUrl), true);
+        } catch (MessagingException e) {
+            throw new RuntimeException("Failed to create certificate revoked email message", e);
+        }
+
+        mailSender.send(message);
+    }
+
+    private String buildCertificateRevokedEmailHtml(
+            String fullName,
+            String courseTitle,
+            String credentialId,
+            String reason,
+            String verifyUrl) {
+        return """
+                <!DOCTYPE html>
+                <html>
+                <head><meta charset="UTF-8"></head>
+                <body style="margin:0;padding:0;background-color:#f4f6f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif">
+                <table role="presentation" style="width:100%%;background-color:#f4f6f9;padding:32px 16px">
+                <tr><td align="center">
+                <table role="presentation" style="max-width:560px;width:100%%;background-color:#ffffff;border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,0.06)">
+                <tr><td style="padding:36px">
+                <h1 style="font-size:22px;font-weight:700;color:#991b1b;margin:0 0 12px">Thông báo thu hồi chứng chỉ</h1>
+                <p style="font-size:15px;color:#334155;line-height:1.6;margin:0 0 12px">Chào %s,</p>
+                <p style="font-size:15px;color:#64748b;line-height:1.6;margin:0 0 8px">Chứng chỉ của bạn cho khóa học sau đã bị thu hồi:</p>
+                <p style="font-size:17px;color:#0f172a;font-weight:700;margin:0 0 12px">%s</p>
+                <p style="font-size:14px;color:#64748b;margin:0 0 12px">Mã chứng chỉ: <strong style="color:#0f172a">%s</strong></p>
+                <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:12px;padding:14px 16px;color:#991b1b;font-size:14px;line-height:1.6;margin:16px 0 22px">
+                <strong>Lý do thu hồi:</strong><br>%s
+                </div>
+                <a href="%s" style="display:inline-block;background-color:#991b1b;color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;padding:14px 28px;border-radius:10px">Xem trạng thái chứng chỉ</a>
+                <p style="font-size:13px;color:#94a3b8;margin:24px 0 0;line-height:1.5">Nếu bạn cần hỗ trợ thêm, vui lòng liên hệ quản trị viên Rikkei Edu.</p>
+                </td></tr>
+                </table>
+                </td></tr>
+                </table>
+                </body>
+                </html>
+                """.formatted(fullName, courseTitle, credentialId, reason, verifyUrl);
     }
 
     public void sendAdminPasswordResetMail(String to, String fullName, String temporaryPassword) {

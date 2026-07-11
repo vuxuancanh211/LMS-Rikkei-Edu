@@ -5,6 +5,7 @@
 (function () {
   const { useState, useEffect, useCallback, useRef } = React;
   const Ic = window.Icon;
+  const api = window.httpClient;
   const { Avatar, Status, Search, Tabs, Select, Section, Modal, ModalHead, Empty, PageBar, ConfirmModal } = window;
 
   const {
@@ -31,6 +32,12 @@
 
   // Số câu tối đa sinh được trong 1 lần gọi AI — khớp @Max(40) ở AiGenerateQuestionsRequest phía BE
   const AI_MAX_QUESTIONS_PER_GEN = 40;
+
+  // Bài tập tự luận (assignment) — nhãn trạng thái + phạm vi áp dụng, khớp AssignmentStatus/
+  // AssignmentScope phía BE (modules/assignment/enums).
+  const ASSIGN_STATUS_LABEL = { DRAFT: 'Nháp', PUBLISHED: 'Đã đăng', CLOSED: 'Đã đóng' };
+  const ASSIGN_STATUS_CHIP  = { DRAFT: 'neutral', PUBLISHED: 'success', CLOSED: 'neutral' };
+  const ASSIGN_SCOPE_LABEL  = { ALL_GROUPS: 'Tất cả nhóm', SPECIFIC_GROUPS: 'Nhóm cụ thể' };
 
   // Thứ tự các bước sinh câu hỏi AI — dùng để hiện tiến trình + chấm tròn highlight bước đang chạy
   const GEN_STEP_ORDER = ['RETRIEVING_CONTEXT', 'GENERATING', 'CHECKING_DUPLICATES'];
@@ -91,11 +98,12 @@
         .finally(() => setCoursesLoading(false));
     }, []);
 
-    // Khởi tạo tab từ URL (?tab=bank) — nếu không, tab luôn khởi tạo cứng về 'quiz' nên F5 lúc đang
-    // ở tab Ngân hàng câu hỏi sẽ bị đẩy về tab Đề trắc nghiệm.
-    const [tab, setTab] = useState(() => (
-      new URLSearchParams(window.location.search).get('tab') === 'bank' ? 'bank' : 'quiz'
-    ));
+    // Khởi tạo tab từ URL (?tab=bank|assign) — nếu không, tab luôn khởi tạo cứng về 'quiz' nên F5 lúc
+    // đang ở tab khác sẽ bị đẩy về tab Đề trắc nghiệm.
+    const [tab, setTab] = useState(() => {
+      const t = new URLSearchParams(window.location.search).get('tab');
+      return t === 'bank' ? 'bank' : t === 'assign' ? 'assign' : 'quiz';
+    });
     const [q, setQ] = useState('');
     const [toast, setToast] = useState(null);
 
@@ -201,10 +209,44 @@
     const [importPreview, setImportPreview] = useState(null);
     const [importStep, setImportStep] = useState('pick'); // pick | preview | done
 
+    // Bài tập tự luận (assignment) — CRUD qua CreateAssignmentModal dùng chung với phía học viên
+    // (modules/assignment phía BE), gọi thẳng qua httpClient vì module này chưa có service riêng
+    // như quiz/course/ai.
+    const [assignments, setAssignments] = useState([]);
+    const [assignmentsLoading, setAssignmentsLoading] = useState(false);
+    const [createAssignOpen, setCreateAssignOpen] = useState(false);
+    const [editAssignment, setEditAssignment] = useState(null);
+
     const showToast = useCallback((msg, type = 'success') => {
       setToast({ msg, type });
       setTimeout(() => setToast(null), 4000);
     }, []);
+
+    /* ── Fetch bài tập tự luận của khóa học đang chọn ── */
+    const fetchAssignments = useCallback(async () => {
+      if (!activeCourseId) return;
+      setAssignmentsLoading(true);
+      try {
+        const res = await api.get(`/instructor/courses/${activeCourseId}/assignments`);
+        const data = res.data || res;
+        setAssignments(Array.isArray(data) ? data : []);
+      } catch (err) {
+        showToast(extractError(err), 'error');
+      } finally {
+        setAssignmentsLoading(false);
+      }
+    }, [activeCourseId, showToast]);
+
+    useEffect(() => { fetchAssignments(); }, [fetchAssignments]);
+
+    async function handleEditAssignment(a) {
+      try {
+        const res = await api.get(`/instructor/courses/${a.courseId}/assignments/${a.id}`);
+        setEditAssignment(res.data || res);
+      } catch (err) {
+        showToast(extractError(err), 'error');
+      }
+    }
 
     // Mở sẵn quiz được deep-link tới (quizId trên URL, vd từ "Soạn câu hỏi cho đề này" ở
     // CourseContentTab) sau khi đã chuyển đúng khóa học — chỉ chạy 1 lần cho mỗi quizId để
@@ -585,6 +627,11 @@
       }
     }, [activeCourseId, importPreview, fetchBank, showToast]);
 
+    // Phân trang phía client cho bài tập tự luận — danh sách tải 1 lần/khóa học (không phân trang
+    // server như quiz/bank vì BE trả về nguyên mảng), lọc theo ô tìm kiếm dùng chung `q`.
+    const filteredAssignments = assignments.filter(a => !q || a.title.toLowerCase().includes(q.toLowerCase()));
+    const pgAssign = window.usePaged(filteredAssignments, 10);
+
     /* ─── Render ─────────────────────────────────────────────── */
     return (
       <div className="page fade-in">
@@ -610,7 +657,7 @@
               ) : (
                 <Select
                   value={selectedCourseId || ''}
-                  onChange={v => { setSelectedCourseId(v); setQuizzes([]); setBankList([]); setBankFilter('ALL'); setBankStatusFilter('ALL'); }}
+                  onChange={v => { setSelectedCourseId(v); setQuizzes([]); setBankList([]); setBankFilter('ALL'); setBankStatusFilter('ALL'); setAssignments([]); }}
                   options={courses.map(c => ({ v: c.id, label: c.title }))}
                   style={{ width: 280, flex: 'none' }}
                 />
@@ -618,6 +665,11 @@
             </div>
           </div>
           <div className="row gap-10">
+            {tab === 'assign' && (
+              <button className="btn btn-primary" onClick={() => { setEditAssignment(null); setCreateAssignOpen(true); }}>
+                <Ic n="plus" size={17} />Tạo bài tập
+              </button>
+            )}
             {tab === 'quiz' && (
               <button className="btn btn-primary" onClick={() => {
                 setQzTitle(''); setQzType('STATIC'); setQzDuration(45);
@@ -653,6 +705,7 @@
         <div className="toolbar">
           <Tabs
             items={[
+              { v: 'assign', label: 'Bài tập tự luận', count: assignments.length },
               { v: 'quiz', label: 'Đề trắc nghiệm', count: quizTotalElements },
               { v: 'bank', label: 'Ngân hàng câu hỏi', count: bankTotalElements },
             ]}
@@ -687,6 +740,63 @@
           )}
           <Search placeholder="Tìm theo tên..." value={q} onChange={setQ} style={{ width: 240, flex: 'none' }} />
         </div>
+
+        {/* ── ASSIGN TAB (bài tập tự luận) ── */}
+        {tab === 'assign' && (
+          <Section pad={false}>
+            {assignmentsLoading && assignments.length === 0 ? (
+              <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-2)' }}>Đang tải...</div>
+            ) : pgAssign.slice.length === 0 ? (
+              <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-2)' }}>
+                <Ic n="file" size={36} style={{ marginBottom: 10, opacity: 0.3 }} />
+                <p>Chưa có bài tập nào. Nhấn "Tạo bài tập" để bắt đầu.</p>
+              </div>
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table className="tbl">
+                  <thead>
+                    <tr>
+                      <th>Tên bài tập</th>
+                      <th>Phạm vi</th>
+                      <th>Hạn nộp</th>
+                      <th>Điểm tối đa</th>
+                      <th>Trạng thái</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pgAssign.slice.map(a => (
+                      <tr key={a.id} style={{ cursor: 'pointer' }} onClick={() => handleEditAssignment(a)}>
+                        <td>
+                          <div className="row gap-10">
+                            <div className="stat-ic" style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--surface-3)', color: 'var(--text-2)' }}>
+                              <Ic n="file" size={17} />
+                            </div>
+                            <b style={{ fontSize: 13.5, display: 'block', maxWidth: 220 }} className="truncate">{a.title}</b>
+                          </div>
+                        </td>
+                        <td className="muted">{ASSIGN_SCOPE_LABEL[a.scope] || a.scope}</td>
+                        <td className="muted">{a.deadline ? formatDate(a.deadline) : '—'}</td>
+                        <td><b>{a.maxScore ?? '—'}</b></td>
+                        <td>
+                          <span className={`chip chip-${ASSIGN_STATUS_CHIP[a.status] || 'neutral'}`}>
+                            {ASSIGN_STATUS_LABEL[a.status] || a.status}
+                          </span>
+                        </td>
+                        <td onClick={e => e.stopPropagation()}>
+                          <button className="btn btn-ghost btn-sm" onClick={() => handleEditAssignment(a)}>
+                            <Ic n="edit" size={14} />Sửa
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Section>
+        )}
+        {tab === 'assign' && <PageBar pg={pgAssign} unit="bài tập" />}
 
         {/* ── QUIZ TAB ── */}
         {tab === 'quiz' && (
@@ -973,6 +1083,21 @@
             </button>
           </div>
         </Modal>
+
+        {/* ═══ Modal: Tạo bài tập tự luận ═══ */}
+        {createAssignOpen && window.CreateAssignmentModal && React.createElement(window.CreateAssignmentModal, {
+          courseId: activeCourseId,
+          role: 'instructor',
+          onClose: (refreshed) => { setCreateAssignOpen(false); if (refreshed) fetchAssignments(); },
+        })}
+
+        {/* ═══ Modal: Sửa bài tập tự luận ═══ */}
+        {editAssignment && window.CreateAssignmentModal && React.createElement(window.CreateAssignmentModal, {
+          courseId: editAssignment.courseId,
+          assignment: editAssignment,
+          role: 'instructor',
+          onClose: (refreshed) => { setEditAssignment(null); if (refreshed) fetchAssignments(); },
+        })}
 
         {/* ═══ Modal: Thêm / Sửa câu hỏi bank ═══ */}
         <Modal open={addBankOpen} onClose={() => { setAddBankOpen(false); setEditBankItem(null); }} max={640}>

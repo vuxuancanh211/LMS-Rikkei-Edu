@@ -259,6 +259,10 @@
     const [splitPct,    setSplitPct]    = useState(50);
     const [resUrls,     setResUrls]     = useState({});
 
+    const [sidebarTab,    setSidebarTab]    = useState("lessons");
+    const [assignments,   setAssignments]   = useState([]);
+    const [assignLoading, setAssignLoading] = useState(false);
+
     const contentRef = useRef(null);
 
     const allLessons   = useMemo(() => chapters.flatMap(ch => ch.lessons || []), [chapters]);
@@ -310,6 +314,19 @@
       setViewerA(first);
       if (first && first.resourceType !== "VIDEO_HLS") fetchResUrl(first, active.id);
     }, [active?.id]);
+
+    // Fetch assignments when switching to the "Bài tập" tab
+    useEffect(() => {
+      if (sidebarTab !== "assignments" || !courseId) return;
+      setAssignLoading(true);
+      const ep = role === "admin"
+        ? `/admin/courses/${courseId}/assignments`
+        : `/instructor/courses/${courseId}/assignments`;
+      api.get(ep)
+        .then(r => setAssignments(r.data || []))
+        .catch(() => setAssignments([]))
+        .finally(() => setAssignLoading(false));
+    }, [sidebarTab, courseId, role]);
 
     function fetchResUrl(r, lessonId) {
       if (!r || r.resourceType === "VIDEO_HLS") return;
@@ -588,74 +605,197 @@
               </div>
             </div>
 
-            {/* Chapters & lessons */}
-            <div style={{ flex: 1, overflowY: "auto", padding: "6px 6px 20px" }}>
-              {chapters.map((ch, ci) => {
-                const isOpen = openCh[ch.id];
+            {/* Sidebar tab bar */}
+            <div style={{ flexShrink: 0, display: "flex", borderBottom: "1px solid #e2e8f0" }}>
+              {["lessons", "assignments"].map(tab => {
+                const isAct = sidebarTab === tab;
                 return (
-                  <div key={ch.id} style={{ marginBottom: 2 }}>
-                    <div onClick={() => setOpenCh(p => ({ ...p, [ch.id]: !p[ch.id] }))}
-                      style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px",
-                        borderRadius: 9, cursor: "pointer",
-                        background: isOpen ? "#eff6ff" : "transparent", transition: ".13s" }}
-                      onMouseEnter={e => { if (!isOpen) e.currentTarget.style.background = "#f8fafc"; }}
-                      onMouseLeave={e => { if (!isOpen) e.currentTarget.style.background = "transparent"; }}>
-                      <div style={{ width: 20, height: 20, borderRadius: 5, flexShrink: 0,
-                        background: isOpen ? "#2563eb" : "#f1f5f9",
-                        color: isOpen ? "#fff" : "#94a3b8",
-                        display: "grid", placeItems: "center", fontSize: 10, fontWeight: 700 }}>
-                        {ci + 1}
-                      </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 12.5, fontWeight: 600,
-                          color: isOpen ? "#2563eb" : "#0f172a" }} className="truncate">{ch.title}</div>
-                        <div style={{ fontSize: 10.5, color: "#94a3b8" }}>{ch.lessons?.length || 0} bài</div>
-                      </div>
-                      <Ic n="chevron_down" size={12} style={{
-                        color: isOpen ? "#2563eb" : "#94a3b8", flexShrink: 0,
-                        transform: isOpen ? "rotate(180deg)" : "none", transition: ".2s"
-                      }} />
-                    </div>
-
-                    {isOpen && (ch.lessons || []).map(l => {
-                      const isAct = active?.id === l.id;
-                      return (
-                        <div key={l.id} onClick={() => goLesson(l)}
-                          style={{ display: "flex", alignItems: "center", gap: 8,
-                            padding: "7px 10px 7px 18px", margin: "1px 0 1px 4px",
-                            borderRadius: 8, cursor: "pointer",
-                            background: isAct ? "#eff6ff" : "transparent",
-                            borderLeft: `2px solid ${isAct ? "#2563eb" : "transparent"}`,
-                            transition: ".12s" }}
-                          onMouseEnter={e => { if (!isAct) e.currentTarget.style.background = "#f8fafc"; }}
-                          onMouseLeave={e => { if (!isAct) e.currentTarget.style.background = "transparent"; }}>
-                          <div style={{ width: 26, height: 26, borderRadius: 7, flexShrink: 0,
-                            background: isAct ? "#dbeafe" : "#f1f5f9",
-                            color: isAct ? "#2563eb" : "#94a3b8",
-                            display: "grid", placeItems: "center" }}>
-                            <Ic n={l.lessonType === "VIDEO" ? "video" : "file"} size={12} />
-                          </div>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 12.5, fontWeight: isAct ? 600 : 400,
-                              color: isAct ? "#0f172a" : "#475569", lineHeight: 1.35 }}
-                              className="truncate">{l.title}</div>
-                            <div style={{ fontSize: 10.5, color: "#94a3b8",
-                              display: "flex", alignItems: "center", gap: 3, marginTop: 1 }}>
-                              <span>{l.lessonType === "VIDEO" ? "Video" : "Tài liệu"}</span>
-                              {l.durationSeconds && <><span>·</span><span>{fmtDur(l.durationSeconds)}</span></>}
-                              {l.resources?.length > 0 && (
-                                <><span>·</span><Ic n="paperclip" size={9} /><span>{l.resources.length}</span></>
-                              )}
-                            </div>
-                          </div>
-                          <div style={{ width: 6, height: 6, borderRadius: 999, flexShrink: 0,
-                            background: isAct ? "#2563eb" : "#e2e8f0" }} />
-                        </div>
-                      );
-                    })}
-                  </div>
+                  <button key={tab} onClick={() => setSidebarTab(tab)}
+                    style={{ flex: 1, height: 36, border: "none", background: "transparent",
+                      cursor: "pointer", fontSize: 12.5, fontWeight: 600,
+                      color: isAct ? "#2563eb" : "#94a3b8",
+                      borderBottom: `2px solid ${isAct ? "#2563eb" : "transparent"}`,
+                      transition: ".13s", display: "flex", alignItems: "center",
+                      justifyContent: "center", gap: 5 }}>
+                    <Ic n={tab === "lessons" ? "book" : "clipboard"} size={13} />
+                    {tab === "lessons" ? "Bài học" : "Bài tập"}
+                  </button>
                 );
               })}
+            </div>
+
+            {/* Tab content */}
+            <div style={{ flex: 1, display: "flex", flexDirection: "column",
+              minHeight: 0, overflow: "hidden", padding: "6px 6px 20px" }}>
+
+              {sidebarTab === "lessons" ? (
+                <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
+                {chapters.length === 0 ? (
+                  <div style={{ textAlign: "center", color: "#94a3b8", fontSize: 12, padding: "40px 16px" }}>
+                    Chưa có chương nào trong khóa học
+                  </div>
+                ) : (
+                  chapters.map((ch, ci) => {
+                    const isOpen = openCh[ch.id];
+                    return (
+                      <div key={ch.id} style={{ marginBottom: 2 }}>
+                        <div onClick={() => setOpenCh(p => ({ ...p, [ch.id]: !p[ch.id] }))}
+                          style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px",
+                            borderRadius: 9, cursor: "pointer",
+                            background: isOpen ? "#eff6ff" : "transparent", transition: ".13s" }}
+                          onMouseEnter={e => { if (!isOpen) e.currentTarget.style.background = "#f8fafc"; }}
+                          onMouseLeave={e => { if (!isOpen) e.currentTarget.style.background = "transparent"; }}>
+                          <div style={{ width: 20, height: 20, borderRadius: 5, flexShrink: 0,
+                            background: isOpen ? "#2563eb" : "#f1f5f9",
+                            color: isOpen ? "#fff" : "#94a3b8",
+                            display: "grid", placeItems: "center", fontSize: 10, fontWeight: 700 }}>
+                            {ci + 1}
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 12.5, fontWeight: 600,
+                              color: isOpen ? "#2563eb" : "#0f172a" }} className="truncate">{ch.title}</div>
+                            <div style={{ fontSize: 10.5, color: "#94a3b8" }}>{ch.lessons?.length || 0} bài</div>
+                          </div>
+                          <Ic n="chevron_down" size={12} style={{
+                            color: isOpen ? "#2563eb" : "#94a3b8", flexShrink: 0,
+                            transform: isOpen ? "rotate(180deg)" : "none", transition: ".2s"
+                          }} />
+                        </div>
+
+                        {isOpen && (ch.lessons || []).map(l => {
+                          const isAct = active?.id === l.id;
+                          return (
+                            <div key={l.id} onClick={() => goLesson(l)}
+                              style={{ display: "flex", alignItems: "center", gap: 8,
+                                padding: "7px 10px 7px 18px", margin: "1px 0 1px 4px",
+                                borderRadius: 8, cursor: "pointer",
+                                background: isAct ? "#eff6ff" : "transparent",
+                                borderLeft: `2px solid ${isAct ? "#2563eb" : "transparent"}`,
+                                transition: ".12s" }}
+                              onMouseEnter={e => { if (!isAct) e.currentTarget.style.background = "#f8fafc"; }}
+                              onMouseLeave={e => { if (!isAct) e.currentTarget.style.background = "transparent"; }}>
+                              <div style={{ width: 26, height: 26, borderRadius: 7, flexShrink: 0,
+                                background: isAct ? "#dbeafe" : "#f1f5f9",
+                                color: isAct ? "#2563eb" : "#94a3b8",
+                                display: "grid", placeItems: "center" }}>
+                                <Ic n={l.lessonType === "VIDEO" ? "video" : "file"} size={12} />
+                              </div>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontSize: 12.5, fontWeight: isAct ? 600 : 400,
+                                  color: isAct ? "#0f172a" : "#475569", lineHeight: 1.35 }}
+                                  className="truncate">{l.title}</div>
+                                <div style={{ fontSize: 10.5, color: "#94a3b8",
+                                  display: "flex", alignItems: "center", gap: 3, marginTop: 1 }}>
+                                  <span>{l.lessonType === "VIDEO" ? "Video" : "Tài liệu"}</span>
+                                  {l.durationSeconds && <><span>·</span><span>{fmtDur(l.durationSeconds)}</span></>}
+                                  {l.resources?.length > 0 && (
+                                    <><span>·</span><Ic n="paperclip" size={9} /><span>{l.resources.length}</span></>
+                                  )}
+                                </div>
+                              </div>
+                              <div style={{ width: 6, height: 6, borderRadius: 999, flexShrink: 0,
+                                background: isAct ? "#2563eb" : "#e2e8f0" }} />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })
+                )}
+                </div>
+
+              ) : (
+                <>
+                <div style={{ flexShrink: 0, display: "flex", alignItems: "center",
+                  gap: 6, padding: "8px 10px 4px" }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: "#0f172a", flex: 1 }}>
+                    Bài tập
+                    {assignments.length > 0 && (
+                      <span style={{ fontWeight: 400, color: "#94a3b8", marginLeft: 4 }}>
+                        ({assignments.length})
+                      </span>
+                    )}
+                  </span>
+                  {window.AssignmentDropdown && (
+                    React.createElement(window.AssignmentDropdown, {
+                      courseId,
+                      role,
+                    })
+                  )}
+                </div>
+
+                <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+                  {assignLoading ? (
+                    <div style={{ textAlign: "center", color: "#94a3b8", fontSize: 12, padding: "40px 16px" }}>
+                      Đang tải bài tập...
+                    </div>
+                  ) : assignments.length === 0 ? (
+                    <div style={{ textAlign: "center", color: "#94a3b8", fontSize: 12, padding: "40px 16px" }}>
+                      Chưa có bài tập nào trong khóa học
+                    </div>
+                  ) : (
+                    assignments.map(a => {
+                      const statusColors = {
+                        DRAFT:     { bg: "#f1f5f9", color: "#64748b", label: "Bản nháp" },
+                        PUBLISHED: { bg: "#dcfce7", color: "#16a34a", label: "Đã xuất bản" },
+                        CLOSED:    { bg: "#fef2f2", color: "#dc2626", label: "Đã đóng" },
+                      };
+                      const sc = statusColors[a.status] || statusColors.DRAFT;
+                      const deadline = a.deadline
+                        ? new Date(a.deadline).toLocaleDateString("vi-VN", {
+                            day: "2-digit", month: "2-digit", year: "numeric",
+                            hour: "2-digit", minute: "2-digit",
+                          })
+                        : null;
+                      return (
+                        <div key={a.id}
+                          style={{ display: "flex", alignItems: "flex-start", gap: 8,
+                            padding: "8px 10px", margin: "2px 0", borderRadius: 8,
+                            cursor: "default", transition: ".12s",
+                            background: "transparent" }}
+                          onMouseEnter={e => { e.currentTarget.style.background = "#f8fafc"; }}
+                          onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}>
+                          <div style={{ width: 26, height: 26, borderRadius: 7, flexShrink: 0,
+                            background: "#fef3c7", color: "#d97706",
+                            display: "grid", placeItems: "center" }}>
+                            <Ic n="clipboard" size={12} />
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 12.5, fontWeight: 600, color: "#0f172a",
+                              lineHeight: 1.35, marginBottom: 3 }} className="truncate">{a.title}</div>
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 3 }}>
+                              <span style={{ fontSize: 10, fontWeight: 600, borderRadius: 4,
+                                padding: "1px 6px", background: sc.bg, color: sc.color }}>
+                                {sc.label}
+                              </span>
+                              {a.maxScore != null && (
+                                <span style={{ fontSize: 10, fontWeight: 600, borderRadius: 4,
+                                  padding: "1px 6px", background: "#f0fdf4", color: "#16a34a" }}>
+                                  {a.maxScore} điểm
+                                </span>
+                              )}
+                              {a.scope === "SPECIFIC_GROUPS" && (
+                                <span style={{ fontSize: 10, fontWeight: 600, borderRadius: 4,
+                                  padding: "1px 6px", background: "#eff6ff", color: "#2563eb" }}>
+                                  Theo nhóm
+                                </span>
+                              )}
+                            </div>
+                            {deadline && (
+                              <div style={{ fontSize: 10.5, color: "#94a3b8",
+                                display: "flex", alignItems: "center", gap: 3 }}>
+                                <Ic n="clock" size={9} />
+                                <span>Hạn: {deadline}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </>
+              )}
             </div>
           </div>
         </div>

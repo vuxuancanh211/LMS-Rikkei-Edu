@@ -1,10 +1,12 @@
 import * as userService from './user-service';
 import * as csvImportService from './csv-import-service';
 import * as aiService from './ai-service';
+import * as certificateService from './certificate-service';
 import * as groupService from './group-service';
 import * as courseService from './course-service';
 import * as profileService from './profile-service';
 import * as quizService from './quiz-service';
+import * as dashboardService from './dashboard-service';
 
 Object.assign(window, {
   __userService: userService,
@@ -14,4 +16,6 @@ Object.assign(window, {
   __courseService: courseService,
   __profileService: profileService,
   __quizService: quizService,
+  __dashboardService: dashboardService,
+  __certificateService: certificateService,
 });

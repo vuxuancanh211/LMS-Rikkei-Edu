@@ -3,7 +3,6 @@
   const { useState, useEffect } = React;
   const Ic = window.Icon;
   const { Avatar, StatCard, Search, Section, Empty } = window;
-  const { getStudentGroupDetail } = window.__groupService;
 
   function StuGroupDetail({ nav, groupId }) {
     const [q, setQ] = useState("");
@@ -13,7 +12,11 @@
     useEffect(() => {
       if (!groupId) { setLoading(false); return; }
       setLoading(true);
-      getStudentGroupDetail(groupId)
+      const fetchDetail = window.__groupService && window.__groupService.getStudentGroupDetail
+        ? window.__groupService.getStudentGroupDetail(groupId)
+        : window.httpClient ? window.httpClient.get(`/student/groups/${groupId}`).then(r => r.data) : Promise.resolve(null);
+
+      fetchDetail
         .then(setGroup)
         .catch(() => setGroup(null))
         .finally(() => setLoading(false));

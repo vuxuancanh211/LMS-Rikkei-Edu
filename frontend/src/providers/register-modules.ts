@@ -15,6 +15,7 @@ import '../pages/Student/StuCourses';
 import '../pages/Student/StuTasks';
 import '../pages/Forum/ForumPage';
 import '../pages/Student/StuCerts';
+import '../pages/Student/StuCertDetail';
 
 import '../services/api-registry';
 
@@ -39,6 +40,7 @@ import '../pages/Admin/CsvImportWizard';
 import '../pages/Admin/AdminUsers';
 import '../pages/Admin/AdminCourses';
 import '../pages/Admin/AdminApproval';
+import '../pages/Admin/AdminCertificates';
 import '../pages/Admin/AdminReports';
 import '../pages/Admin/AdminLogs';
 import '../pages/Admin/AdminAiDocs';
@@ -50,5 +52,8 @@ import '../pages/Player/LecturePlayer';
 import '../pages/Player/QuizPlayer';
 import '../pages/Player/QuizResult';
 import '../pages/Player/QuizDryRunPlayer';
+import '../pages/Player/assignment/AssignmentDropdown';
+import '../pages/Player/assignment/CreateAssignmentModal';
+import '../pages/Player/assignment/FilePreview';
 import '../pages/Player/PreviewPlayer';
 import '../pages/Gallery/GalleryPage';

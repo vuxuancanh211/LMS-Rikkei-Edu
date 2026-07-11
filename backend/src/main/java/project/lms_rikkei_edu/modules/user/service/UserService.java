@@ -28,5 +28,5 @@ public interface UserService {
 
     MessageResponse resetPassword(UUID adminId, UUID userId, ResetPasswordRequest request);
 
-    List<UserResponse> batchCreateUsers(UUID adminId, List<AdminUserCreateRequest> requests);
+    List<UserResponse> batchCreateUsers(UUID adminId, List<AdminUserCreateRequest> requests, String courseTitle);
 }
