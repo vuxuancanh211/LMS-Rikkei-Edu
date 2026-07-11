@@ -17,6 +17,11 @@ import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 import project.lms_rikkei_edu.modules.ai.exception.AiSourceNotFoundException;
 import project.lms_rikkei_edu.modules.ai.exception.ConversationNotFoundException;
+import project.lms_rikkei_edu.modules.certificate.exception.CertificateAccessDeniedException;
+import project.lms_rikkei_edu.modules.certificate.exception.CertificateAlreadyIssuedException;
+import project.lms_rikkei_edu.modules.certificate.exception.CertificateNotFoundException;
+import project.lms_rikkei_edu.modules.certificate.exception.CertificatePdfException;
+import project.lms_rikkei_edu.modules.certificate.exception.CertificateStateException;
 import project.lms_rikkei_edu.modules.course.exception.*;
 
 import java.util.Set;
@@ -177,6 +182,40 @@ class GlobalExceptionHandlerTest {
     }
 
     @Nested
+    class CertificateExceptions {
+
+        @Test
+        void certificateNotFound_returns404() throws Exception {
+            mvc.perform(get("/fake/certificate-not-found"))
+                    .andExpect(status().isNotFound());
+        }
+
+        @Test
+        void certificateAlreadyIssued_returns409() throws Exception {
+            mvc.perform(get("/fake/certificate-already-issued"))
+                    .andExpect(status().isConflict());
+        }
+
+        @Test
+        void certificateState_returns409() throws Exception {
+            mvc.perform(get("/fake/certificate-state"))
+                    .andExpect(status().isConflict());
+        }
+
+        @Test
+        void certificateAccessDenied_returns403() throws Exception {
+            mvc.perform(get("/fake/certificate-access-denied"))
+                    .andExpect(status().isForbidden());
+        }
+
+        @Test
+        void certificatePdf_returns500() throws Exception {
+            mvc.perform(get("/fake/certificate-pdf"))
+                    .andExpect(status().isInternalServerError());
+        }
+    }
+
+    @Nested
     class AsyncExceptions {
 
         @Test
@@ -228,6 +267,21 @@ class GlobalExceptionHandlerTest {
 
         @GetMapping("/unhandled")
         void unhandled() throws Exception { throw new Exception("unhandled"); }
+
+        @GetMapping("/certificate-not-found")
+        void certificateNotFound() { throw new CertificateNotFoundException("Certificate not found"); }
+
+        @GetMapping("/certificate-already-issued")
+        void certificateAlreadyIssued() { throw new CertificateAlreadyIssuedException("Already issued"); }
+
+        @GetMapping("/certificate-state")
+        void certificateState() { throw new CertificateStateException("Invalid certificate state"); }
+
+        @GetMapping("/certificate-access-denied")
+        void certificateAccessDenied() { throw new CertificateAccessDeniedException("Access denied"); }
+
+        @GetMapping("/certificate-pdf")
+        void certificatePdf() { throw new CertificatePdfException("PDF generation failed"); }
 
         @PostMapping(value = "/require-json", consumes = MediaType.APPLICATION_JSON_VALUE)
         void requireJson(@RequestBody String body) {}

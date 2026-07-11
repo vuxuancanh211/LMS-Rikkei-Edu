@@ -8,10 +8,14 @@ import project.lms_rikkei_edu.modules.course.dto.response.LessonResourceResponse
 import project.lms_rikkei_edu.modules.course.dto.response.LessonResponse;
 import project.lms_rikkei_edu.modules.course.entity.Lesson;
 import project.lms_rikkei_edu.modules.course.entity.LessonResource;
+import project.lms_rikkei_edu.modules.quiz.entity.QuizEntity;
+import project.lms_rikkei_edu.modules.quiz.enums.QuizStatus;
+import project.lms_rikkei_edu.modules.quiz.repository.QuizRepository;
 
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -25,6 +29,7 @@ import static org.mockito.Mockito.when;
 class LessonMapperTest {
 
     @Mock LessonResourceMapper lessonResourceMapper;
+    @Mock QuizRepository quizRepository;
 
     private LessonMapper mapper() {
         LessonMapper m = new LessonMapper() {
@@ -32,10 +37,13 @@ class LessonMapperTest {
             public LessonResponse toResponse(Lesson lesson) {
                 return LessonResponse.builder()
                         .resources(mapResources(lesson))
+                        .quizTitle(resolveQuizTitle(lesson))
+                        .quizStatus(resolveQuizStatus(lesson))
                         .build();
             }
         };
         m.lessonResourceMapper = lessonResourceMapper;
+        m.quizRepository = quizRepository;
         return m;
     }
 
@@ -90,5 +98,47 @@ class LessonMapperTest {
         List<LessonResourceResponse> result = mapper().toResponse(lesson).getResources();
 
         assertThat(result).containsExactly(resp1, resp2);
+    }
+
+    @Test
+    void resolveQuizTitleAndStatus_returnNull_whenLessonHasNoQuiz() {
+        Lesson lesson = new Lesson();
+        lesson.setQuizId(null);
+
+        LessonResponse result = mapper().toResponse(lesson);
+
+        assertThat(result.getQuizTitle()).isNull();
+        assertThat(result.getQuizStatus()).isNull();
+    }
+
+    @Test
+    void resolveQuizTitleAndStatus_returnQuizData_whenQuizExists() {
+        UUID quizId = UUID.randomUUID();
+        Lesson lesson = new Lesson();
+        lesson.setQuizId(quizId);
+
+        QuizEntity quiz = new QuizEntity();
+        quiz.setId(quizId);
+        quiz.setTitle("Chương 1 Quiz");
+        quiz.setStatus(QuizStatus.PUBLISHED);
+        when(quizRepository.findById(quizId)).thenReturn(Optional.of(quiz));
+
+        LessonResponse result = mapper().toResponse(lesson);
+
+        assertThat(result.getQuizTitle()).isEqualTo("Chương 1 Quiz");
+        assertThat(result.getQuizStatus()).isEqualTo(QuizStatus.PUBLISHED);
+    }
+
+    @Test
+    void resolveQuizTitleAndStatus_returnNull_whenQuizIdPointsToMissingQuiz() {
+        UUID quizId = UUID.randomUUID();
+        Lesson lesson = new Lesson();
+        lesson.setQuizId(quizId);
+        when(quizRepository.findById(quizId)).thenReturn(Optional.empty());
+
+        LessonResponse result = mapper().toResponse(lesson);
+
+        assertThat(result.getQuizTitle()).isNull();
+        assertThat(result.getQuizStatus()).isNull();
     }
 }

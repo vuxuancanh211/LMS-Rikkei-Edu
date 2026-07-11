@@ -188,6 +188,90 @@ class IngestionOrchestratorTest {
         }
     }
 
+    // ── notifyResult (reached via ingest success/failure) ───────────────────────
+
+    @Nested
+    class NotifyResult {
+
+        private final UUID uploaderId = UUID.randomUUID();
+
+        private AiSource buildSourceWithUploader() {
+            AiSource source = buildSource();
+            source.setUploadedBy(uploaderId);
+            return source;
+        }
+
+        @Test
+        void success_prefDisabled_noNotificationCreated() {
+            AiSource source = buildSourceWithUploader();
+            when(sourceRepo.findById(sourceId)).thenReturn(Optional.of(source));
+            DocumentChunk savedChunk = DocumentChunk.builder()
+                    .id(UUID.randomUUID()).sourceId(sourceId).chunkIndex(0)
+                    .createdAt(OffsetDateTime.now()).build();
+            when(chunkRepo.saveAndFlush(any())).thenReturn(savedChunk);
+            when(embeddingService.embedBatch(anyList())).thenReturn(List.of(new float[]{0.1f}));
+            when(sourceRepo.save(any())).thenReturn(source);
+            when(notificationPreferenceService.isInAppEnabled(uploaderId, "AI_SOURCE_INDEXED")).thenReturn(false);
+
+            orchestrator.ingest(sourceId);
+
+            verifyNoInteractions(notificationService);
+        }
+
+        @Test
+        void success_prefEnabled_createsIndexedNotification() {
+            AiSource source = buildSourceWithUploader();
+            when(sourceRepo.findById(sourceId)).thenReturn(Optional.of(source));
+            DocumentChunk savedChunk = DocumentChunk.builder()
+                    .id(UUID.randomUUID()).sourceId(sourceId).chunkIndex(0)
+                    .createdAt(OffsetDateTime.now()).build();
+            when(chunkRepo.saveAndFlush(any())).thenReturn(savedChunk);
+            when(embeddingService.embedBatch(anyList())).thenReturn(List.of(new float[]{0.1f}));
+            when(sourceRepo.save(any())).thenReturn(source);
+            when(notificationPreferenceService.isInAppEnabled(uploaderId, "AI_SOURCE_INDEXED")).thenReturn(true);
+
+            orchestrator.ingest(sourceId);
+
+            verify(notificationService).createNotification(
+                    eq(uploaderId), eq("AI_SOURCE_INDEXED"), anyString(), anyString(),
+                    eq("AI_SOURCE"), eq(sourceId), isNull(), isNull(), anyString());
+        }
+
+        @Test
+        void failure_prefEnabled_createsFailedNotification() {
+            AiSource source = buildSourceWithUploader();
+            source.setSourceType(SourceType.PDF); // no PDF handler registered → ingest fails
+            when(sourceRepo.findById(sourceId)).thenReturn(Optional.of(source));
+            when(sourceRepo.save(any())).thenReturn(source);
+            when(notificationPreferenceService.isInAppEnabled(uploaderId, "AI_SOURCE_FAILED")).thenReturn(true);
+
+            orchestrator.ingest(sourceId);
+
+            assertThat(source.getIngestStatus()).isEqualTo(IngestStatus.FAILED);
+            verify(notificationService).createNotification(
+                    eq(uploaderId), eq("AI_SOURCE_FAILED"), anyString(), anyString(),
+                    eq("AI_SOURCE"), eq(sourceId), isNull(), isNull(), anyString());
+        }
+
+        @Test
+        void notificationCreationThrows_isSwallowed() {
+            AiSource source = buildSourceWithUploader();
+            when(sourceRepo.findById(sourceId)).thenReturn(Optional.of(source));
+            DocumentChunk savedChunk = DocumentChunk.builder()
+                    .id(UUID.randomUUID()).sourceId(sourceId).chunkIndex(0)
+                    .createdAt(OffsetDateTime.now()).build();
+            when(chunkRepo.saveAndFlush(any())).thenReturn(savedChunk);
+            when(embeddingService.embedBatch(anyList())).thenReturn(List.of(new float[]{0.1f}));
+            when(sourceRepo.save(any())).thenReturn(source);
+            when(notificationPreferenceService.isInAppEnabled(any(), anyString())).thenReturn(true);
+            when(notificationService.createNotification(any(), any(), any(), any(), any(), any(), any(), any(), any()))
+                    .thenThrow(new RuntimeException("notification db down"));
+
+            assertThatCode(() -> orchestrator.ingest(sourceId)).doesNotThrowAnyException();
+            assertThat(source.getIngestStatus()).isEqualTo(IngestStatus.INDEXED);
+        }
+    }
+
     // ── reingest ──────────────────────────────────────────────────────────────
 
     @Nested

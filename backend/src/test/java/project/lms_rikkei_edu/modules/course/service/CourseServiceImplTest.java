@@ -421,6 +421,118 @@ class CourseServiceImplTest {
             assertThatThrownBy(() -> courseService.submitForApproval(INSTRUCTOR_ID, COURSE_ID, null))
                     .isInstanceOf(CourseStateException.class);
         }
+
+        // ── validateQuizzesActive ────────────────────────────────────────────
+
+        private Course draftCourseWithQuizLesson(UUID quizId, boolean pendingDeleteChapter, boolean pendingDeleteLesson) {
+            Course course = draftCourse();
+            project.lms_rikkei_edu.modules.course.entity.Lesson lesson =
+                    project.lms_rikkei_edu.modules.course.entity.Lesson.builder()
+                            .id(UUID.randomUUID())
+                            .type(project.lms_rikkei_edu.modules.course.enums.LessonType.QUIZ)
+                            .quizId(quizId)
+                            .pendingDelete(pendingDeleteLesson)
+                            .build();
+            project.lms_rikkei_edu.modules.course.entity.Chapter chapter =
+                    project.lms_rikkei_edu.modules.course.entity.Chapter.builder()
+                            .id(UUID.randomUUID())
+                            .pendingDelete(pendingDeleteChapter)
+                            .lessons(new ArrayList<>(List.of(lesson)))
+                            .build();
+            course.getChapters().add(chapter);
+            return course;
+        }
+
+        @Test
+        void noQuizLessons_passesThrough() throws Exception {
+            Course course = draftCourse();
+            when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.of(course));
+            when(lessonRepository.countByCourseId(COURSE_ID)).thenReturn(1L);
+            when(objectMapper.writeValueAsString(any())).thenReturn("{}");
+            when(courseVersionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+            when(approvalLogRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+            when(courseRepository.save(any())).thenReturn(course);
+            when(courseMapper.toDetailResponse(course)).thenReturn(stubDetailResponse());
+
+            courseService.submitForApproval(INSTRUCTOR_ID, COURSE_ID, "no quiz lessons");
+
+            assertThat(course.getStatus()).isEqualTo(CourseStatus.PENDING);
+            verifyNoInteractions(quizRepository);
+        }
+
+        @Test
+        void quizLessonPublished_passesThrough() throws Exception {
+            UUID quizId = UUID.randomUUID();
+            Course course = draftCourseWithQuizLesson(quizId, false, false);
+            project.lms_rikkei_edu.modules.quiz.entity.QuizEntity quiz =
+                    new project.lms_rikkei_edu.modules.quiz.entity.QuizEntity();
+            quiz.setId(quizId);
+            quiz.setTitle("Quiz 1");
+            quiz.setStatus(project.lms_rikkei_edu.modules.quiz.enums.QuizStatus.PUBLISHED);
+
+            when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.of(course));
+            when(quizRepository.findAllById(List.of(quizId))).thenReturn(List.of(quiz));
+            when(lessonRepository.countByCourseId(COURSE_ID)).thenReturn(1L);
+            when(objectMapper.writeValueAsString(any())).thenReturn("{}");
+            when(courseVersionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+            when(approvalLogRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+            when(courseRepository.save(any())).thenReturn(course);
+            when(courseMapper.toDetailResponse(course)).thenReturn(stubDetailResponse());
+
+            courseService.submitForApproval(INSTRUCTOR_ID, COURSE_ID, "quiz published");
+
+            assertThat(course.getStatus()).isEqualTo(CourseStatus.PENDING);
+        }
+
+        @Test
+        void quizLessonDraft_throwsWithQuizTitle() {
+            UUID quizId = UUID.randomUUID();
+            Course course = draftCourseWithQuizLesson(quizId, false, false);
+            project.lms_rikkei_edu.modules.quiz.entity.QuizEntity quiz =
+                    new project.lms_rikkei_edu.modules.quiz.entity.QuizEntity();
+            quiz.setId(quizId);
+            quiz.setTitle("Unpublished Quiz");
+            quiz.setStatus(project.lms_rikkei_edu.modules.quiz.enums.QuizStatus.DRAFT);
+
+            when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.of(course));
+            when(quizRepository.findAllById(List.of(quizId))).thenReturn(List.of(quiz));
+
+            assertThatThrownBy(() -> courseService.submitForApproval(INSTRUCTOR_ID, COURSE_ID, "x"))
+                    .isInstanceOf(CourseStateException.class)
+                    .hasMessageContaining("Unpublished Quiz");
+        }
+
+        @Test
+        void quizLessonPointsToMissingQuiz_throwsWithPlaceholder() {
+            UUID quizId = UUID.randomUUID();
+            Course course = draftCourseWithQuizLesson(quizId, false, false);
+
+            when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.of(course));
+            when(quizRepository.findAllById(List.of(quizId))).thenReturn(List.of());
+
+            assertThatThrownBy(() -> courseService.submitForApproval(INSTRUCTOR_ID, COURSE_ID, "x"))
+                    .isInstanceOf(CourseStateException.class)
+                    .hasMessageContaining("không tìm thấy đề");
+        }
+
+        @Test
+        void quizLessonInPendingDeleteChapter_isExcludedFromCheck() throws Exception {
+            UUID quizId = UUID.randomUUID();
+            Course course = draftCourseWithQuizLesson(quizId, true, false);
+
+            when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.of(course));
+            when(lessonRepository.countByCourseId(COURSE_ID)).thenReturn(1L);
+            when(objectMapper.writeValueAsString(any())).thenReturn("{}");
+            when(courseVersionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+            when(approvalLogRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+            when(courseRepository.save(any())).thenReturn(course);
+            when(courseMapper.toDetailResponse(course)).thenReturn(stubDetailResponse());
+
+            courseService.submitForApproval(INSTRUCTOR_ID, COURSE_ID, "pending-delete chapter excluded");
+
+            assertThat(course.getStatus()).isEqualTo(CourseStatus.PENDING);
+            verifyNoInteractions(quizRepository);
+        }
     }
 
     // ── withdrawFromReview ────────────────────────────────────────────────────

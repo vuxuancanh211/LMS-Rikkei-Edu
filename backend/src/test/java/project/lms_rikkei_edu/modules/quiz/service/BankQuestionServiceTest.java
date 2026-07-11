@@ -208,6 +208,56 @@ class BankQuestionServiceTest {
         verify(bankQuestionRepository).findByCourseId(courseId);
     }
 
+    // ── ListPaged ─────────────────────────────────────────────────────────────
+
+    @Test
+    void listPaged_explicitStatus_usedAsIs() {
+        var pageable = org.springframework.data.domain.PageRequest.of(0, 10);
+        when(bankQuestionRepository.findByFilters(courseId, QuestionStatus.INACTIVE, null, null, pageable))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of()));
+
+        service.listPaged(courseId, QuestionStatus.INACTIVE, null, null, pageable);
+
+        verify(bankQuestionRepository).findByFilters(courseId, QuestionStatus.INACTIVE, null, null, pageable);
+    }
+
+    @Test
+    void listPaged_noStatusButDifficultyGiven_implicitlyFiltersActive() {
+        var pageable = org.springframework.data.domain.PageRequest.of(0, 10);
+        when(bankQuestionRepository.findByFilters(courseId, QuestionStatus.ACTIVE, QuestionDifficulty.EASY, null, pageable))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of()));
+
+        service.listPaged(courseId, null, QuestionDifficulty.EASY, null, pageable);
+
+        verify(bankQuestionRepository).findByFilters(courseId, QuestionStatus.ACTIVE, QuestionDifficulty.EASY, null, pageable);
+    }
+
+    @Test
+    void listPaged_noStatusButSubjectTagGiven_implicitlyFiltersActive() {
+        var pageable = org.springframework.data.domain.PageRequest.of(0, 10);
+        when(bankQuestionRepository.findByFilters(courseId, QuestionStatus.ACTIVE, null, "Index", pageable))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of()));
+
+        service.listPaged(courseId, null, null, "Index", pageable);
+
+        verify(bankQuestionRepository).findByFilters(courseId, QuestionStatus.ACTIVE, null, "Index", pageable);
+    }
+
+    @Test
+    void listPaged_noFiltersAtAll_noStatusFilter() {
+        var pageable = org.springframework.data.domain.PageRequest.of(0, 10);
+        BankQuestionEntity entity = buildEntity();
+        when(bankQuestionRepository.findByFilters(courseId, null, null, null, pageable))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of(entity)));
+        when(bankOptionRepository.findByBankQuestionIdOrderByOrderIndex(questionId)).thenReturn(List.of());
+        when(bankQuestionRepository.hasQuizReference(questionId)).thenReturn(false);
+
+        var result = service.listPaged(courseId, null, null, null, pageable);
+
+        assertThat(result.getContent()).hasSize(1);
+        verify(bankQuestionRepository).findByFilters(courseId, null, null, null, pageable);
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private BankQuestionRequest buildRequest(QuestionType type, List<BankOptionRequest> options) {
