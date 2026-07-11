@@ -9,6 +9,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.test.util.ReflectionTestUtils;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.Query;
 import project.lms_rikkei_edu.common.exception.BusinessException;
 import project.lms_rikkei_edu.infrastructure.s3.S3Service;
 import project.lms_rikkei_edu.modules.course.dto.request.UpdateProgressRequest;
@@ -48,6 +50,8 @@ class StudentCourseServiceImplTest {
     @Mock private CourseMapper courseMapper;
     @Mock private S3Service s3Service;
     @Mock private UserRepository userRepository;
+    @Mock private EntityManager entityManager;
+    @Mock private Query nativeQuery;
 
     @InjectMocks private StudentCourseServiceImpl studentCourseService;
 
@@ -60,6 +64,10 @@ class StudentCourseServiceImplTest {
     @BeforeEach
     void setUp() {
         ReflectionTestUtils.setField(studentCourseService, "presignedUrlExpiry", 3600L);
+        ReflectionTestUtils.setField(studentCourseService, "entityManager", entityManager);
+        lenient().when(entityManager.createNativeQuery(anyString())).thenReturn(nativeQuery);
+        lenient().when(nativeQuery.setParameter(anyInt(), any())).thenReturn(nativeQuery);
+        lenient().when(nativeQuery.getSingleResult()).thenReturn(1);
         studentId = UUID.randomUUID();
         courseId = UUID.randomUUID();
         lessonId = UUID.randomUUID();

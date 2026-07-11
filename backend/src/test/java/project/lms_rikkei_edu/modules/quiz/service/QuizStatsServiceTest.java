@@ -12,6 +12,7 @@ import project.lms_rikkei_edu.modules.quiz.entity.QuizAttemptEntity;
 import project.lms_rikkei_edu.modules.quiz.entity.QuizEntity;
 import project.lms_rikkei_edu.modules.quiz.entity.QuizQuestionEntity;
 import project.lms_rikkei_edu.modules.quiz.enums.*;
+import project.lms_rikkei_edu.modules.course.repository.CourseEnrollmentRepository;
 import project.lms_rikkei_edu.modules.quiz.repository.*;
 import project.lms_rikkei_edu.modules.quiz.service.impl.QuizStatsServiceImpl;
 
@@ -32,6 +33,7 @@ class QuizStatsServiceTest {
     @Mock private QuizAttemptRepository attemptRepository;
     @Mock private QuizAttemptAnswerRepository answerRepository;
     @Mock private QuizQuestionRepository questionRepository;
+    @Mock private CourseEnrollmentRepository courseEnrollmentRepository;
 
     @InjectMocks
     private QuizStatsServiceImpl statsService;
@@ -132,6 +134,7 @@ class QuizStatsServiceTest {
         QuizAttemptEntity a1 = buildGradedAttempt(1, 70.0);
         QuizAttemptEntity a2 = buildGradedAttempt(2, 85.0);
 
+        when(courseEnrollmentRepository.existsByCourseIdAndStudentId(courseId, studentId)).thenReturn(true);
         when(quizRepository.findByIdAndCourseId(quizId, courseId)).thenReturn(Optional.of(quiz));
         when(attemptRepository.findByQuizIdAndStudentIdOrderByAttemptNumber(quizId, studentId))
                 .thenReturn(List.of(a1, a2));
@@ -146,6 +149,7 @@ class QuizStatsServiceTest {
     @Test
     void getStudentAttemptHistory_noAttempts_returnsEmptyList() {
         QuizEntity quiz = buildQuiz();
+        when(courseEnrollmentRepository.existsByCourseIdAndStudentId(courseId, studentId)).thenReturn(true);
         when(quizRepository.findByIdAndCourseId(quizId, courseId)).thenReturn(Optional.of(quiz));
         when(attemptRepository.findByQuizIdAndStudentIdOrderByAttemptNumber(quizId, studentId))
                 .thenReturn(List.of());
@@ -160,10 +164,9 @@ class QuizStatsServiceTest {
     @Test
     void getStudentCourseProgress_noAttempts_returnsCanRetryTrue() {
         QuizEntity quiz = buildQuiz();
+        when(courseEnrollmentRepository.existsByCourseIdAndStudentId(courseId, studentId)).thenReturn(true);
         when(quizRepository.findByCourseId(courseId)).thenReturn(List.of(quiz));
-        when(attemptRepository.countByQuizIdAndStudentId(quizId, studentId)).thenReturn(0L);
-        when(attemptRepository.findBestAttemptByQuizIdAndStudentId(quizId, studentId))
-                .thenReturn(Optional.empty());
+        when(attemptRepository.findByQuizIdInAndStudentId(List.of(quizId), studentId)).thenReturn(List.of());
 
         List<StudentQuizProgressEntry> result = statsService.getStudentCourseProgress(courseId, studentId);
 
@@ -176,13 +179,15 @@ class QuizStatsServiceTest {
     void getStudentCourseProgress_maxAttemptsReached_canRetryFalse() {
         QuizEntity quiz = buildQuiz();
         quiz.setMaxAttempts(3);
+        QuizAttemptEntity a1 = buildGradedAttempt(1, 60.0);
+        QuizAttemptEntity a2 = buildGradedAttempt(2, 60.0);
         QuizAttemptEntity latest = buildGradedAttempt(3, 60.0);
         latest.setSubmittedAt(OffsetDateTime.now().minusHours(2));
 
+        when(courseEnrollmentRepository.existsByCourseIdAndStudentId(courseId, studentId)).thenReturn(true);
         when(quizRepository.findByCourseId(courseId)).thenReturn(List.of(quiz));
-        when(attemptRepository.countByQuizIdAndStudentId(quizId, studentId)).thenReturn(3L);
-        when(attemptRepository.findBestAttemptByQuizIdAndStudentId(quizId, studentId))
-                .thenReturn(Optional.of(latest));
+        when(attemptRepository.findByQuizIdInAndStudentId(List.of(quizId), studentId))
+                .thenReturn(List.of(a1, a2, latest));
 
         List<StudentQuizProgressEntry> result = statsService.getStudentCourseProgress(courseId, studentId);
 
@@ -199,12 +204,10 @@ class QuizStatsServiceTest {
         QuizAttemptEntity latest = buildGradedAttempt(1, 70.0);
         latest.setSubmittedAt(OffsetDateTime.now().minusMinutes(5)); // mới nộp 5 phút trước
 
+        when(courseEnrollmentRepository.existsByCourseIdAndStudentId(courseId, studentId)).thenReturn(true);
         when(quizRepository.findByCourseId(courseId)).thenReturn(List.of(quiz));
-        when(attemptRepository.countByQuizIdAndStudentId(quizId, studentId)).thenReturn(1L);
-        when(attemptRepository.findBestAttemptByQuizIdAndStudentId(quizId, studentId))
-                .thenReturn(Optional.of(latest));
-        when(attemptRepository.findLatestByQuizIdAndStudentId(quizId, studentId))
-                .thenReturn(Optional.of(latest));
+        when(attemptRepository.findByQuizIdInAndStudentId(List.of(quizId), studentId))
+                .thenReturn(List.of(latest));
 
         List<StudentQuizProgressEntry> result = statsService.getStudentCourseProgress(courseId, studentId);
 
@@ -220,12 +223,10 @@ class QuizStatsServiceTest {
         QuizAttemptEntity latest = buildGradedAttempt(1, 70.0);
         latest.setSubmittedAt(OffsetDateTime.now().minusMinutes(30)); // đã qua 30 phút
 
+        when(courseEnrollmentRepository.existsByCourseIdAndStudentId(courseId, studentId)).thenReturn(true);
         when(quizRepository.findByCourseId(courseId)).thenReturn(List.of(quiz));
-        when(attemptRepository.countByQuizIdAndStudentId(quizId, studentId)).thenReturn(1L);
-        when(attemptRepository.findBestAttemptByQuizIdAndStudentId(quizId, studentId))
-                .thenReturn(Optional.of(latest));
-        when(attemptRepository.findLatestByQuizIdAndStudentId(quizId, studentId))
-                .thenReturn(Optional.of(latest));
+        when(attemptRepository.findByQuizIdInAndStudentId(List.of(quizId), studentId))
+                .thenReturn(List.of(latest));
 
         List<StudentQuizProgressEntry> result = statsService.getStudentCourseProgress(courseId, studentId);
 
@@ -289,7 +290,6 @@ class QuizStatsServiceTest {
         q.setQuestionText("Sample question?");
         q.setQuestionType(QuestionType.SINGLE_CHOICE);
         q.setDifficulty(QuestionDifficulty.MEDIUM);
-        q.setPoints(BigDecimal.ONE);
         q.setOrderIndex(0);
         return q;
     }

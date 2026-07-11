@@ -7,6 +7,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import project.lms_rikkei_edu.common.exception.BusinessException;
+import project.lms_rikkei_edu.modules.ai.config.OpenAiProperties;
 import project.lms_rikkei_edu.modules.quiz.dto.request.BankOptionRequest;
 import project.lms_rikkei_edu.modules.quiz.dto.request.BankQuestionRequest;
 import project.lms_rikkei_edu.modules.quiz.dto.response.BankQuestionResponse;
@@ -35,6 +36,8 @@ class BankQuestionServiceTest {
     @Mock BankQuestionRepository bankQuestionRepository;
     @Mock BankOptionRepository bankOptionRepository;
     @Mock RedisService redisService;
+    @Mock BankQuestionEmbeddingService embeddingService;
+    @Mock OpenAiProperties openAiProperties;
 
     @InjectMocks BankQuestionServiceImpl service;
 
@@ -46,7 +49,7 @@ class BankQuestionServiceTest {
     void setUp() {
         // ObjectMapper cần inject thủ công vì @InjectMocks không inject final field
         service = new BankQuestionServiceImpl(bankQuestionRepository, bankOptionRepository,
-                redisService, new ObjectMapper());
+                redisService, new ObjectMapper(), embeddingService, openAiProperties);
         courseId = UUID.randomUUID();
         instructorId = UUID.randomUUID();
         questionId = UUID.randomUUID();
@@ -58,14 +61,14 @@ class BankQuestionServiceTest {
     void create_singleChoice_withOneCorrectAnswer_success() {
         BankQuestionRequest request = buildRequest(QuestionType.SINGLE_CHOICE,
                 List.of(option("A", true), option("B", false), option("C", false)));
-        when(bankQuestionRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+        when(bankQuestionRepository.saveAndFlush(any())).thenAnswer(i -> i.getArgument(0));
         when(bankOptionRepository.findByBankQuestionIdOrderByOrderIndex(any())).thenReturn(List.of());
         when(bankQuestionRepository.hasQuizReference(any())).thenReturn(false);
 
         BankQuestionResponse response = service.create(courseId, instructorId, request);
 
         assertThat(response).isNotNull();
-        verify(bankQuestionRepository).save(any());
+        verify(bankQuestionRepository).saveAndFlush(any());
         verify(bankOptionRepository, times(3)).save(any());
     }
 
@@ -103,7 +106,7 @@ class BankQuestionServiceTest {
     void create_trueFalse_withOneCorrectAnswer_success() {
         BankQuestionRequest request = buildRequest(QuestionType.TRUE_FALSE,
                 List.of(option("True", true), option("False", false)));
-        when(bankQuestionRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+        when(bankQuestionRepository.saveAndFlush(any())).thenAnswer(i -> i.getArgument(0));
         when(bankOptionRepository.findByBankQuestionIdOrderByOrderIndex(any())).thenReturn(List.of());
         when(bankQuestionRepository.hasQuizReference(any())).thenReturn(false);
 

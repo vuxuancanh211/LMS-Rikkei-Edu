@@ -8,7 +8,7 @@
 -- hard-delete câu hỏi không cần code dọn dẹp — soft-delete (INACTIVE) giữ embedding có chủ đích.
 CREATE EXTENSION IF NOT EXISTS vector;
 
-CREATE TABLE "bank_question_embeddings" (
+CREATE TABLE IF NOT EXISTS "bank_question_embeddings" (
     "question_id" uuid PRIMARY KEY REFERENCES "bank_questions"("id") ON DELETE CASCADE,
     "embedding"   vector(1024) NOT NULL,
     "updated_at"  timestamptz NOT NULL DEFAULT now()

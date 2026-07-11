@@ -1,13 +1,19 @@
 package project.lms_rikkei_edu.modules.quiz.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.Query;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 import project.lms_rikkei_edu.common.exception.BusinessException;
 import project.lms_rikkei_edu.infrastructure.redis.RedisService;
+import project.lms_rikkei_edu.modules.course.repository.CourseEnrollmentRepository;
+import project.lms_rikkei_edu.modules.course.repository.LessonRepository;
+import project.lms_rikkei_edu.modules.course.service.StudentCourseService;
 import project.lms_rikkei_edu.modules.quiz.dto.request.AutosaveRequest;
 import project.lms_rikkei_edu.modules.quiz.dto.request.SubmitAttemptRequest;
 import project.lms_rikkei_edu.modules.quiz.dto.response.AttemptResultResponse;
@@ -36,6 +42,11 @@ class QuizAttemptServiceTest {
     @Mock private BankQuestionRepository bankQuestionRepository;
     @Mock private BankOptionRepository bankOptionRepository;
     @Mock private RedisService redisService;
+    @Mock private LessonRepository lessonRepository;
+    @Mock private StudentCourseService studentCourseService;
+    @Mock private CourseEnrollmentRepository courseEnrollmentRepository;
+    @Mock private EntityManager entityManager;
+    @Mock private Query nativeQuery;
 
     private QuizAttemptServiceImpl service;
 
@@ -46,8 +57,14 @@ class QuizAttemptServiceTest {
         service = new QuizAttemptServiceImpl(
                 quizRepository, attemptRepository, answerRepository,
                 questionRepository, optionRepository, bankQuestionRepository,
-                bankOptionRepository, redisService, new ObjectMapper()
+                bankOptionRepository, redisService, new ObjectMapper(),
+                lessonRepository, studentCourseService, courseEnrollmentRepository
         );
+        ReflectionTestUtils.setField(service, "entityManager", entityManager);
+        lenient().when(entityManager.createNativeQuery(anyString())).thenReturn(nativeQuery);
+        lenient().when(nativeQuery.setParameter(anyInt(), any())).thenReturn(nativeQuery);
+        lenient().when(nativeQuery.getSingleResult()).thenReturn(1);
+        lenient().when(courseEnrollmentRepository.existsByCourseIdAndStudentId(any(), any())).thenReturn(true);
         courseId = UUID.randomUUID();
         quizId = UUID.randomUUID();
         studentId = UUID.randomUUID();
@@ -67,7 +84,6 @@ class QuizAttemptServiceTest {
         when(attemptRepository.countByQuizIdAndStudentId(quizId, studentId)).thenReturn(0L);
         when(attemptRepository.findLatestByQuizIdAndStudentId(quizId, studentId)).thenReturn(Optional.empty());
         when(questionRepository.findByQuizIdOrderByOrderIndex(quizId)).thenReturn(List.of(q));
-        when(optionRepository.findByQuestionIdOrderByOrderIndex(q.getId())).thenReturn(List.of());
         when(attemptRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         StartAttemptResponse result = service.startAttempt(courseId, quizId, studentId, "127.0.0.1");
@@ -171,7 +187,7 @@ class QuizAttemptServiceTest {
 
         when(attemptRepository.findById(attemptId)).thenReturn(Optional.of(attempt));
         when(questionRepository.findByQuizIdOrderByOrderIndex(quizId)).thenReturn(List.of(q));
-        when(optionRepository.findByQuestionIdOrderByOrderIndex(q.getId()))
+        when(optionRepository.findByQuestionIdInOrderByOrderIndex(List.of(q.getId())))
                 .thenReturn(List.of(correctOpt, wrongOpt));
         when(quizRepository.findById(quizId)).thenReturn(Optional.of(quiz));
         when(answerRepository.saveAll(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -201,7 +217,7 @@ class QuizAttemptServiceTest {
 
         when(attemptRepository.findById(attemptId)).thenReturn(Optional.of(attempt));
         when(questionRepository.findByQuizIdOrderByOrderIndex(quizId)).thenReturn(List.of(q));
-        when(optionRepository.findByQuestionIdOrderByOrderIndex(q.getId()))
+        when(optionRepository.findByQuestionIdInOrderByOrderIndex(List.of(q.getId())))
                 .thenReturn(List.of(correctOpt, wrongOpt));
         when(quizRepository.findById(quizId)).thenReturn(Optional.of(quiz));
         when(answerRepository.saveAll(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -226,7 +242,7 @@ class QuizAttemptServiceTest {
 
         when(attemptRepository.findById(attemptId)).thenReturn(Optional.of(attempt));
         when(questionRepository.findByQuizIdOrderByOrderIndex(quizId)).thenReturn(List.of(q));
-        when(optionRepository.findByQuestionIdOrderByOrderIndex(q.getId())).thenReturn(List.of(correctOpt));
+        when(optionRepository.findByQuestionIdInOrderByOrderIndex(List.of(q.getId()))).thenReturn(List.of(correctOpt));
         when(quizRepository.findById(quizId)).thenReturn(Optional.of(quiz));
         when(answerRepository.saveAll(any())).thenAnswer(inv -> inv.getArgument(0));
         when(attemptRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -262,7 +278,7 @@ class QuizAttemptServiceTest {
 
         when(attemptRepository.findById(attemptId)).thenReturn(Optional.of(attempt));
         when(questionRepository.findByQuizIdOrderByOrderIndex(quizId)).thenReturn(List.of(q));
-        when(optionRepository.findByQuestionIdOrderByOrderIndex(q.getId())).thenReturn(List.of(opt));
+        when(optionRepository.findByQuestionIdInOrderByOrderIndex(List.of(q.getId()))).thenReturn(List.of(opt));
         when(quizRepository.findById(quizId)).thenReturn(Optional.of(quiz));
         when(answerRepository.saveAll(any())).thenAnswer(inv -> inv.getArgument(0));
         when(attemptRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -336,7 +352,6 @@ class QuizAttemptServiceTest {
         q.setQuestionText("What is 1+1?");
         q.setQuestionType(QuestionType.SINGLE_CHOICE);
         q.setDifficulty(QuestionDifficulty.EASY);
-        q.setPoints(BigDecimal.ONE);
         q.setOrderIndex(0);
         return q;
     }

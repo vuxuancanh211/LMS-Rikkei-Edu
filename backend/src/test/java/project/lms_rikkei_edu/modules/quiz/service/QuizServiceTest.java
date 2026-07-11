@@ -7,6 +7,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import project.lms_rikkei_edu.common.exception.BusinessException;
+import project.lms_rikkei_edu.modules.course.repository.LessonRepository;
 import project.lms_rikkei_edu.modules.quiz.dto.request.*;
 import project.lms_rikkei_edu.modules.quiz.dto.response.*;
 import project.lms_rikkei_edu.modules.quiz.entity.*;
@@ -30,6 +31,7 @@ class QuizServiceTest {
     @Mock private QuizOptionRepository quizOptionRepository;
     @Mock private BankQuestionRepository bankQuestionRepository;
     @Mock private BankOptionRepository bankOptionRepository;
+    @Mock private LessonRepository lessonRepository;
 
     @InjectMocks
     private QuizServiceImpl quizService;
@@ -93,6 +95,7 @@ class QuizServiceTest {
     void delete_draftQuiz_deletedSuccessfully() {
         QuizEntity quiz = buildDraftQuiz();
         when(quizRepository.findByIdAndCourseId(quizId, courseId)).thenReturn(Optional.of(quiz));
+        when(lessonRepository.findByQuizId(quizId)).thenReturn(Optional.empty());
         doNothing().when(quizQuestionRepository).deleteByQuizId(quizId);
 
         quizService.delete(courseId, quizId);
@@ -250,14 +253,15 @@ class QuizServiceTest {
     }
 
     @Test
-    void dryRun_publishedQuiz_throwsException() {
+    void dryRun_publishedQuiz_returnsQuestions() {
         QuizEntity quiz = buildDraftQuiz();
         quiz.setStatus(QuizStatus.PUBLISHED);
         when(quizRepository.findByIdAndCourseId(quizId, courseId)).thenReturn(Optional.of(quiz));
+        when(quizQuestionRepository.findByQuizIdOrderByOrderIndex(quizId)).thenReturn(List.of());
 
-        assertThatThrownBy(() -> quizService.dryRun(courseId, quizId))
-                .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("DRAFT");
+        DryRunResponse result = quizService.dryRun(courseId, quizId);
+
+        assertThat(result.getNote()).contains("xem thử");
     }
 
     // ── AutoArchive ───────────────────────────────────────────────────────────
@@ -338,7 +342,6 @@ class QuizServiceTest {
         q.setQuestionText("Sample question?");
         q.setQuestionType(QuestionType.SINGLE_CHOICE);
         q.setDifficulty(QuestionDifficulty.MEDIUM);
-        q.setPoints(BigDecimal.ONE);
         q.setStatus(QuestionStatus.ACTIVE);
         return q;
     }

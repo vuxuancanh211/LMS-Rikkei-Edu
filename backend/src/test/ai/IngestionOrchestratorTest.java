@@ -23,6 +23,8 @@ import project.lms_rikkei_edu.modules.ai.service.ingestion.IngestionOrchestrator
 import project.lms_rikkei_edu.modules.ai.service.ingestion.SourceIngestionHandler;
 import project.lms_rikkei_edu.modules.ai.service.ingestion.TextChunker;
 import project.lms_rikkei_edu.modules.ai.service.retrieval.VectorSearchService;
+import project.lms_rikkei_edu.modules.notification.service.NotificationPreferenceService;
+import project.lms_rikkei_edu.modules.notification.service.NotificationService;
 
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -42,6 +44,8 @@ class IngestionOrchestratorTest {
     @Mock DocumentChunkRepository chunkRepo;
     @Mock EmbeddingService embeddingService;
     @Mock VectorSearchService vectorSearch;
+    @Mock NotificationService notificationService;
+    @Mock NotificationPreferenceService notificationPreferenceService;
 
     IngestionOrchestrator orchestrator;
     TextChunker chunker = new TextChunker();
@@ -63,6 +67,7 @@ class IngestionOrchestratorTest {
 
         orchestrator = new IngestionOrchestrator(
                 sourceRepo, jobRepo, chunkRepo, embeddingService, vectorSearch, chunker,
+                notificationService, notificationPreferenceService,
                 List.of(textHandler));
 
         AiIngestionJob job = AiIngestionJob.builder()
@@ -138,6 +143,7 @@ class IngestionOrchestratorTest {
 
             IngestionOrchestrator failOrchestrator = new IngestionOrchestrator(
                     sourceRepo, jobRepo, chunkRepo, embeddingService, vectorSearch, chunker,
+                    notificationService, notificationPreferenceService,
                     List.of(failingHandler));
             when(sourceRepo.save(any())).thenReturn(source);
 
@@ -159,6 +165,7 @@ class IngestionOrchestratorTest {
 
             IngestionOrchestrator emptyOrchestrator = new IngestionOrchestrator(
                     sourceRepo, jobRepo, chunkRepo, embeddingService, vectorSearch, chunker,
+                    notificationService, notificationPreferenceService,
                     List.of(emptyHandler));
             when(sourceRepo.save(any())).thenReturn(source);
 
@@ -202,7 +209,8 @@ class IngestionOrchestratorTest {
             when(embeddingService.embedBatch(anyList())).thenReturn(List.of(new float[]{0.1f}));
             when(sourceRepo.save(any())).thenReturn(source);
 
-            orchestrator.reingest(sourceId);
+            orchestrator.resetForReingest(sourceId);
+            orchestrator.ingest(sourceId);
 
             verify(chunkRepo).deleteBySourceId(sourceId);
         }
@@ -211,7 +219,7 @@ class IngestionOrchestratorTest {
         void throws_whenSourceNotFoundOnReingest() {
             when(sourceRepo.findById(sourceId)).thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> orchestrator.reingest(sourceId))
+            assertThatThrownBy(() -> orchestrator.resetForReingest(sourceId))
                     .isInstanceOf(AiSourceNotFoundException.class);
         }
     }
