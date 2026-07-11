@@ -94,6 +94,12 @@ public class QuizAttemptServiceImpl implements QuizAttemptService {
 
         // Rút câu hỏi
         List<QuizQuestionEntity> rawQuestions = drawQuestions(quiz, courseId);
+        // Chặn trước khi tạo attempt — quiz RANDOM_DRAW có thể rút ra 0 câu nếu bank đã bị xóa/đổi
+        // trạng thái sau khi cấu hình (chỉ validate đủ số lượng lúc configureRandomDraw, không
+        // re-check lúc rút thật). Nếu không chặn ở đây, attempt vẫn được tạo+lưu và tính vào
+        // maxAttempts dù học viên chưa từng thấy câu hỏi nào — mất 1 lượt thi oan.
+        if (rawQuestions.isEmpty())
+            throw new BusinessException("Đề thi hiện không có câu hỏi nào khả dụng, vui lòng liên hệ giảng viên");
 
         // Shuffle nếu cần
         List<UUID> questionOrder = rawQuestions.stream().map(QuizQuestionEntity::getId).collect(Collectors.toList());

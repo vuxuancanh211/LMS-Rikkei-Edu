@@ -274,15 +274,17 @@
         });
         onSubmit(att.attemptId, courseId, quizId);
       } catch (err) {
-        submittingRef.current = false;
         // err.response chỉ có khi server đã thực sự phản hồi (VD: 400 "đã nộp rồi") — lỗi KHÔNG
         // phải do mất mạng nên thử lại vô ích. Trường hợp này thường do một lần nộp khác đã thành
         // công trước đó (VD: submitAttemptOnExit bắn lúc rời trang) — cứ điều hướng sang xem kết
-        // quả luôn, vì bài gần như chắc chắn đã được chấm.
+        // quả luôn, vì bài gần như chắc chắn đã được chấm. Giữ nguyên submittingRef=true (không
+        // reset) để effect cleanup lúc unmount không tưởng chưa nộp mà bắn submitAttemptOnExit
+        // lần 2 (gây lỗi 400 lặp lại y hệt).
         if (err?.response) {
           onSubmit(att.attemptId, courseId, quizId);
           return;
         }
+        submittingRef.current = false;
         if (auto) {
           // Không có phản hồi — mất mạng đúng lúc hết giờ/bị khóa do vi phạm, không có đường
           // "làm tiếp" để quay lại nên tự thử nộp lại ngầm (giữ màn "Đang nộp bài...") cho tới
@@ -392,7 +394,7 @@
                 return (
                   <label
                     key={opt.id}
-                    className="row gap-14"
+                    className="row gap-16"
                     style={{
                       padding: '15px 18px', borderRadius: 13, cursor: 'pointer',
                       background: selected ? 'var(--accent-soft)' : '#fff',
@@ -419,7 +421,7 @@
                       fontSize: 15, fontWeight: selected ? 600 : 500,
                       color: selected ? 'var(--accent)' : 'var(--text)',
                     }}>
-                      <b style={{ color: 'var(--text-3)', marginRight: 8 }}>{String.fromCharCode(65 + i)}.</b>
+                      <b style={{ color: 'var(--text-3)' }}>{String.fromCharCode(65 + i)}.</b>{' '}
                       {opt.optionText}
                     </span>
                   </label>

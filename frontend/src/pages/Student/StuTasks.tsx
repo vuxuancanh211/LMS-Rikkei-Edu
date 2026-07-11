@@ -15,19 +15,31 @@
   const QUIZ_TYPE_LABEL  = { STATIC: 'Cố định', SHUFFLED_POOL: 'Xáo câu', RANDOM_DRAW: 'Ngẫu nhiên' };
 
   /* ─── Tab: Trắc nghiệm (API thực) ──────────────────────── */
-  function QuizTab({ nav, courses }) {
-    const [courseId, setCourseId] = useState(courses[0]?.id || null);
+  function QuizTab({ nav, courses, initialCourseId }) {
+    const [courseId, setCourseId] = useState(initialCourseId || courses[0]?.id || null);
     const [quizList, setQuizList] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [q, setQ] = useState('');
     const [historyQuiz, setHistoryQuiz] = useState(null); // { quizId, quizTitle } — quiz đang xem lịch sử làm bài
 
-    // Courses tải bất đồng bộ ở component cha (StuTasks) — chọn khóa đầu tiên
-    // ngay khi danh sách thực về, vì lúc mount courses vẫn còn rỗng.
+    // Courses tải bất đồng bộ ở component cha (StuTasks) — chọn khóa đầu tiên ngay khi danh sách
+    // thực về, vì lúc mount courses vẫn còn rỗng. Ưu tiên courseId trên URL (initialCourseId) nếu
+    // nó thuộc danh sách khóa đã đăng ký — để F5 lại trang vẫn giữ đúng khóa học đang xem thay vì
+    // luôn nhảy về khóa đầu tiên.
     useEffect(() => {
-      if (!courseId && courses.length > 0) setCourseId(courses[0].id);
-    }, [courses, courseId]);
+      if (courseId || courses.length === 0) return;
+      const fromUrl = initialCourseId && courses.some(c => c.id === initialCourseId);
+      setCourseId(fromUrl ? initialCourseId : courses[0].id);
+    }, [courses, courseId, initialCourseId]);
+
+    // Đồng bộ courseId đang chọn lên URL (?courseId=...) — để F5 hoặc chia sẻ link vẫn mở đúng
+    // khóa học đang xem, thay vì luôn quay về khóa đầu tiên như trước đây.
+    const selectCourse = v => {
+      setCourseId(v);
+      setQuizList([]);
+      nav('tasks', { courseId: v });
+    };
 
     const fetchProgress = useCallback(async () => {
       if (!courseId) return;
@@ -55,7 +67,7 @@
         <div className="toolbar" style={{ marginBottom: 0 }}>
           <Sl
             value={courseId || ''}
-            onChange={v => { setCourseId(v); setQuizList([]); }}
+            onChange={selectCourse}
             options={courses.map(c => ({ v: c.id, label: c.title }))}
             style={{ width: 260, flex: 'none' }}
           />
@@ -339,7 +351,7 @@
   }
 
   /* ─── Main StuTasks ─────────────────────────────────────── */
-  function StuTasks({ nav }) {
+  function StuTasks({ nav, courseId }) {
     const [tab, setTab] = useState('quiz');
     const [courses, setCourses] = useState([]);
 
@@ -382,7 +394,7 @@
           />
         </div>
 
-        {tab === 'quiz'   && <QuizTab nav={nav} courses={courses} />}
+        {tab === 'quiz'   && <QuizTab nav={nav} courses={courses} initialCourseId={courseId} />}
         {tab === 'assign' && <AssignTab />}
       </div>
     );

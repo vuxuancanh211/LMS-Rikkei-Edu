@@ -6,6 +6,161 @@
   const { useState, useEffect, useRef, useMemo, useCallback } = React;
   const Ic  = window.Icon, api = window.httpClient;
   const Av  = window.Avatar;
+  const Md  = window.Modal, MH = window.ModalHead;
+  const { getStudentCourseProgress, getMyAttempts, getQuizDetail } = window.__quizService;
+
+  function fmtCountdown(ms) {
+    const total = Math.max(0, Math.ceil(ms / 1000));
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    return h > 0
+      ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
+      : `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  }
+
+  /* ─── Popup xác nhận trước khi vào làm quiz ───────────────
+     Hiện lịch sử làm bài, số lần còn lại, điểm cao nhất so với điểm cần pass.
+     Nếu đang trong thời gian cooldown (sau lần nộp gần nhất), nút bắt đầu bị
+     khóa và thay bằng đồng hồ đếm ngược tới lúc được làm lại. */
+  function QuizConfirmModal({ lesson, courseId, onClose, onStart }) {
+    const [detail, setDetail] = useState(null);
+    const [progress, setProgress] = useState(null);
+    const [attempts, setAttempts] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState("");
+    const [now, setNow] = useState(Date.now());
+
+    useEffect(() => {
+      if (!lesson) return;
+      setLoading(true);
+      setError("");
+      Promise.all([
+        getQuizDetail(courseId, lesson.quizId),
+        getStudentCourseProgress(courseId),
+        getMyAttempts(courseId, lesson.quizId),
+      ])
+        .then(([quizDetail, progressList, attemptList]) => {
+          setDetail(quizDetail);
+          setProgress((progressList || []).find(p => p.quizId === lesson.quizId) || null);
+          setAttempts([...(attemptList || [])].sort((a, b) => b.attemptNumber - a.attemptNumber));
+        })
+        .catch(err => setError(err?.response?.data?.message || "Không thể tải thông tin đề trắc nghiệm."))
+        .finally(() => setLoading(false));
+    }, [lesson, courseId]);
+
+    // Đếm ngược cooldown — tick mỗi giây, chỉ chạy khi thực sự đang khóa.
+    const latestSubmitted = attempts.find(a => a.submittedAt)?.submittedAt;
+    const cooldownMinutes = detail?.cooldownMinutes != null ? detail.cooldownMinutes : 20;
+    const retryAt = latestSubmitted ? new Date(latestSubmitted).getTime() + cooldownMinutes * 60000 : null;
+    const inCooldown = !!(retryAt && now < retryAt);
+
+    useEffect(() => {
+      if (!inCooldown) return;
+      const t = setInterval(() => setNow(Date.now()), 1000);
+      return () => clearInterval(t);
+    }, [inCooldown]);
+
+    if (!lesson) return null;
+
+    const hasInProgress = attempts.some(a => a.status === "IN_PROGRESS");
+    const remaining = detail?.maxAttempts != null ? Math.max(0, detail.maxAttempts - attempts.length) : null;
+    const outOfAttempts = remaining != null && remaining <= 0 && !hasInProgress;
+    const canStart = !loading && !error && !inCooldown && !outOfAttempts;
+    const bestPct = progress?.bestScorePercentage;
+
+    return (
+      <Md open={!!lesson} onClose={onClose} max={640}>
+        <MH title={lesson.title} sub="Xác nhận làm bài" icon="clipboard" iconBg="#eaf1ff" iconColor="#2563eb" onClose={onClose} />
+        <div className="modal-body">
+          {loading ? (
+            <div style={{ padding: 40, textAlign: "center", color: "var(--text-2)" }}>Đang tải...</div>
+          ) : error ? (
+            <div style={{ padding: 40, textAlign: "center", color: "var(--error)" }}>{error}</div>
+          ) : (
+            <>
+              <div className="grid" style={{ gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 18 }}>
+                <div className="card" style={{ padding: 14, textAlign: "center" }}>
+                  <div className="t-xs muted">Số lần còn lại</div>
+                  <div style={{ fontSize: 20, fontWeight: 700, marginTop: 4 }}>
+                    {remaining == null ? "Không giới hạn" : `${remaining} / ${detail.maxAttempts}`}
+                  </div>
+                </div>
+                <div className="card" style={{ padding: 14, textAlign: "center" }}>
+                  <div className="t-xs muted">Điểm cao nhất</div>
+                  <div style={{ fontSize: 20, fontWeight: 700, marginTop: 4,
+                    color: progress?.passed ? "var(--success)" : "var(--text)" }}>
+                    {bestPct != null ? `${Number(bestPct).toFixed(1)}%` : "—"}
+                  </div>
+                </div>
+                <div className="card" style={{ padding: 14, textAlign: "center" }}>
+                  <div className="t-xs muted">Điểm cần đạt</div>
+                  <div style={{ fontSize: 20, fontWeight: 700, marginTop: 4 }}>
+                    {detail?.passScore != null ? `${Number(detail.passScore).toFixed(1)}%` : "—"}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>Lịch sử làm bài</div>
+              {attempts.length === 0 ? (
+                <div style={{ padding: 24, textAlign: "center", color: "var(--text-2)", background: "var(--bg-2, #f8fafc)", borderRadius: 10 }}>
+                  Bạn chưa làm bài này lần nào.
+                </div>
+              ) : (
+                <div style={{ overflowX: "auto" }}>
+                  <table className="tbl">
+                    <thead>
+                      <tr><th>Lần</th><th>Ngày nộp</th><th>Điểm</th><th>Kết quả</th></tr>
+                    </thead>
+                    <tbody>
+                      {attempts.map(a => (
+                        <tr key={a.attemptId}>
+                          <td style={{ fontWeight: 700 }}>#{a.attemptNumber}</td>
+                          <td className="muted">{a.submittedAt ? new Date(a.submittedAt).toLocaleString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"}</td>
+                          <td style={{ fontWeight: 700 }}>
+                            {a.scorePercentage != null
+                              ? <span style={{ color: a.isPassed ? "var(--success)" : "var(--error)" }}>{Number(a.scorePercentage).toFixed(1)}%</span>
+                              : <span className="muted">—</span>}
+                          </td>
+                          <td>
+                            {a.status === "IN_PROGRESS" ? (
+                              <span className="chip chip-neutral" style={{ fontSize: 11 }}>Đang làm</span>
+                            ) : a.isPassed ? (
+                              <span className="chip chip-success" style={{ fontSize: 11 }}>Đạt</span>
+                            ) : (
+                              <span className="chip chip-error" style={{ fontSize: 11 }}>Chưa đạt</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {outOfAttempts && (
+                <div className="t-sm" style={{ color: "var(--error)", marginTop: 14 }}>
+                  Bạn đã sử dụng hết số lần làm bài cho đề này.
+                </div>
+              )}
+            </>
+          )}
+        </div>
+        <div className="modal-foot">
+          <button className="btn btn-ghost" onClick={onClose}>Đóng</button>
+          {inCooldown ? (
+            <button className="btn btn-primary" disabled style={{ opacity: .7, cursor: "not-allowed" }}>
+              Còn lại {fmtCountdown(retryAt - now)}
+            </button>
+          ) : (
+            <button className="btn btn-primary" disabled={!canStart} onClick={onStart}>
+              {hasInProgress ? "Tiếp tục làm bài" : attempts.length > 0 ? "Làm lại" : "Bắt đầu làm bài"}
+            </button>
+          )}
+        </div>
+      </Md>
+    );
+  }
 
   /* Resource meta */
   const RS = {
@@ -225,6 +380,7 @@
     const [notifLoading, setNotifLoading] = useState(false);
     const [userMenu, setUserMenu] = useState(false);
     const [userName, setUserName] = useState("Học viên");
+    const [confirmQuiz, setConfirmQuiz] = useState(null); // lesson QUIZ đang chờ xác nhận trước khi vào làm bài
     
     /* State từ dev: quản lý gửi tin nhắn AI Chatbot thật */
     const [sending, setSending] = useState(false);
@@ -834,8 +990,7 @@
                             onClick={() => {
                               if (quizLocked) return;
                               if (isQuiz) {
-                                const url = `/player/quiz?courseId=${courseId}&quizId=${l.quizId}&from=lecture&lessonId=${l.id}`;
-                                if (navigate) navigate(url); else window.location.href = url;
+                                setConfirmQuiz(l);
                                 return;
                               }
                               goLesson(l);
@@ -958,6 +1113,17 @@
             zIndex: 71, transition: ".2s" }}>
           <Ic n={chat ? "x" : "sparkles"} size={26} />
         </button>
+
+        <QuizConfirmModal
+          lesson={confirmQuiz}
+          courseId={courseId}
+          onClose={() => setConfirmQuiz(null)}
+          onStart={() => {
+            const url = `/player/quiz?courseId=${courseId}&quizId=${confirmQuiz.quizId}&from=lecture&lessonId=${confirmQuiz.id}`;
+            setConfirmQuiz(null);
+            if (navigate) navigate(url); else window.location.href = url;
+          }}
+        />
       </div>
     );
   }
