@@ -129,6 +129,55 @@ class VectorSearchServiceTest {
             assertThat(results).isEmpty();
         }
 
+        @Test
+        @SuppressWarnings("unchecked")
+        void withSourceIdsAndCourseId_appendsSourceFilterToSql() {
+            List<UUID> sourceIds = List.of(UUID.randomUUID(), UUID.randomUUID());
+            when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class)))
+                    .thenReturn(List.of());
+
+            ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
+            ArgumentCaptor<Object[]> paramsCaptor = ArgumentCaptor.forClass(Object[].class);
+
+            service.search(courseId, sourceIds, queryEmbedding, 5, 0.7);
+
+            verify(jdbc).query(sqlCaptor.capture(), any(RowMapper.class), paramsCaptor.capture());
+            assertThat(sqlCaptor.getValue()).contains("dc.source_id IN (?,?)");
+            // vecStr, courseId, vecStr, minSimilarity, sourceId1, sourceId2, vecStr, topK
+            assertThat(paramsCaptor.getValue()).hasSize(8);
+        }
+
+        @Test
+        @SuppressWarnings("unchecked")
+        void withSourceIdsAndNullCourseId_appendsSourceFilterToSql() {
+            List<UUID> sourceIds = List.of(UUID.randomUUID());
+            when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class)))
+                    .thenReturn(List.of());
+
+            ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
+            ArgumentCaptor<Object[]> paramsCaptor = ArgumentCaptor.forClass(Object[].class);
+
+            service.search(null, sourceIds, queryEmbedding, 5, 0.7);
+
+            verify(jdbc).query(sqlCaptor.capture(), any(RowMapper.class), paramsCaptor.capture());
+            assertThat(sqlCaptor.getValue()).contains("dc.course_id IS NULL").contains("dc.source_id IN (?)");
+            // vecStr, vecStr, minSimilarity, sourceId1, vecStr, topK
+            assertThat(paramsCaptor.getValue()).hasSize(6);
+        }
+
+        @Test
+        @SuppressWarnings("unchecked")
+        void withEmptySourceIds_noSourceFilterAppended() {
+            when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class)))
+                    .thenReturn(List.of());
+
+            service.search(courseId, List.of(), queryEmbedding, 5, 0.7);
+
+            ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
+            verify(jdbc).query(sqlCaptor.capture(), any(RowMapper.class), any(Object[].class));
+            assertThat(sqlCaptor.getValue()).doesNotContain("dc.source_id IN");
+        }
+
         /**
          * Captures the actual RowMapper lambda and invokes it against a mocked ResultSet
          * so that the rs.getObject / rs.getString / rs.getDouble lines are executed.

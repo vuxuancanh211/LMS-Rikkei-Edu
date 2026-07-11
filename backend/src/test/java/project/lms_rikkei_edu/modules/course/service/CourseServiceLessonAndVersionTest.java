@@ -5,11 +5,13 @@ import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import project.lms_rikkei_edu.common.exception.BusinessException;
 import project.lms_rikkei_edu.infrastructure.s3.S3Service;
 import project.lms_rikkei_edu.modules.course.dto.request.CreateLessonRequest;
 import project.lms_rikkei_edu.modules.course.dto.request.UpdateLessonRequest;
@@ -23,7 +25,13 @@ import project.lms_rikkei_edu.modules.course.mapper.ChapterMapper;
 import project.lms_rikkei_edu.modules.course.mapper.CourseMapper;
 import project.lms_rikkei_edu.modules.course.mapper.LessonMapper;
 import project.lms_rikkei_edu.modules.course.repository.*;
+import project.lms_rikkei_edu.modules.course.service.StudentCourseService;
 import project.lms_rikkei_edu.modules.course.service.impl.CourseServiceImpl;
+import project.lms_rikkei_edu.modules.quiz.dto.request.QuizMetadataRequest;
+import project.lms_rikkei_edu.modules.quiz.dto.response.QuizSummaryResponse;
+import project.lms_rikkei_edu.modules.quiz.entity.QuizEntity;
+import project.lms_rikkei_edu.modules.quiz.repository.QuizRepository;
+import project.lms_rikkei_edu.modules.quiz.service.QuizService;
 
 import java.time.Instant;
 import java.util.*;
@@ -51,6 +59,9 @@ class CourseServiceLessonAndVersionTest {
     @Mock private LessonMapper lessonMapper;
     @Mock private EntityManager entityManager;
     @Mock private S3Service s3Service;
+    @Mock private QuizService quizService;
+    @Mock private QuizRepository quizRepository;
+    @Mock private StudentCourseService studentCourseService;
 
     @InjectMocks private CourseServiceImpl courseService;
 
@@ -343,5 +354,297 @@ class CourseServiceLessonAndVersionTest {
         assertThat(course.getDraftTitle()).isEqualTo("Old Title");
         assertThat(course.getDraftDescription()).isEqualTo("Old Desc");
         assertThat(course.getDraftLevel()).isEqualTo(CourseLevel.ADVANCED);
+    }
+
+    // ── reorderChapters ──────────────────────────────────────────────────────
+
+    @Test
+    void reorderChapters_success_setsOrderIndexPerRequestedOrder() {
+        when(courseRepository.findByIdWithCategory(courseId)).thenReturn(Optional.of(course));
+
+        UUID c1 = UUID.randomUUID();
+        UUID c2 = UUID.randomUUID();
+        Chapter chapter1 = new Chapter();
+        chapter1.setId(c1);
+        Chapter chapter2 = new Chapter();
+        chapter2.setId(c2);
+        when(chapterRepository.findAllByCourseIdOrderByOrderIndexAsc(courseId))
+                .thenReturn(List.of(chapter1, chapter2));
+        when(chapterMapper.toResponse(any())).thenReturn(ChapterResponse.builder().build());
+
+        List<ChapterResponse> result = courseService.reorderChapters(instructorId, courseId, List.of(c2, c1));
+
+        assertThat(result).hasSize(2);
+        assertThat(chapter2.getOrderIndex()).isEqualTo(1);
+        assertThat(chapter1.getOrderIndex()).isEqualTo(2);
+        verify(chapterRepository).saveAll(List.of(chapter1, chapter2));
+    }
+
+    @Test
+    void reorderChapters_mismatchedIdSet_throwsBusinessException() {
+        when(courseRepository.findByIdWithCategory(courseId)).thenReturn(Optional.of(course));
+
+        Chapter chapter1 = new Chapter();
+        chapter1.setId(UUID.randomUUID());
+        when(chapterRepository.findAllByCourseIdOrderByOrderIndexAsc(courseId)).thenReturn(List.of(chapter1));
+
+        assertThatThrownBy(() -> courseService.reorderChapters(instructorId, courseId, List.of(UUID.randomUUID())))
+                .isInstanceOf(BusinessException.class);
+    }
+
+    @Test
+    void reorderChapters_pendingCourse_throwsCourseStateException() {
+        course.setStatus(CourseStatus.PENDING);
+        when(courseRepository.findByIdWithCategory(courseId)).thenReturn(Optional.of(course));
+
+        assertThatThrownBy(() -> courseService.reorderChapters(instructorId, courseId, List.of()))
+                .isInstanceOf(CourseStateException.class);
+        verifyNoInteractions(chapterRepository);
+    }
+
+    // ── reorderLessons ───────────────────────────────────────────────────────
+
+    @Test
+    void reorderLessons_success_setsOrderIndexPerRequestedOrder() {
+        when(courseRepository.findByIdWithCategory(courseId)).thenReturn(Optional.of(course));
+        when(chapterRepository.findByIdAndCourseId(chapterId, courseId)).thenReturn(Optional.of(new Chapter()));
+
+        UUID l1 = UUID.randomUUID();
+        UUID l2 = UUID.randomUUID();
+        Lesson lesson1 = new Lesson();
+        lesson1.setId(l1);
+        Lesson lesson2 = new Lesson();
+        lesson2.setId(l2);
+        when(lessonRepository.findAllByChapterIdOrderByOrderIndexAsc(chapterId))
+                .thenReturn(List.of(lesson1, lesson2));
+        when(lessonMapper.toResponse(any())).thenReturn(LessonResponse.builder().build());
+
+        List<LessonResponse> result = courseService.reorderLessons(instructorId, courseId, chapterId, List.of(l2, l1));
+
+        assertThat(result).hasSize(2);
+        assertThat(lesson2.getOrderIndex()).isEqualTo(1);
+        assertThat(lesson1.getOrderIndex()).isEqualTo(2);
+        verify(lessonRepository).saveAll(List.of(lesson1, lesson2));
+    }
+
+    @Test
+    void reorderLessons_mismatchedIdSet_throwsBusinessException() {
+        when(courseRepository.findByIdWithCategory(courseId)).thenReturn(Optional.of(course));
+        when(chapterRepository.findByIdAndCourseId(chapterId, courseId)).thenReturn(Optional.of(new Chapter()));
+
+        Lesson lesson1 = new Lesson();
+        lesson1.setId(UUID.randomUUID());
+        when(lessonRepository.findAllByChapterIdOrderByOrderIndexAsc(chapterId)).thenReturn(List.of(lesson1));
+
+        assertThatThrownBy(() -> courseService.reorderLessons(instructorId, courseId, chapterId, List.of(UUID.randomUUID())))
+                .isInstanceOf(BusinessException.class);
+    }
+
+    @Test
+    void reorderLessons_chapterNotInCourse_throwsChapterNotFoundException() {
+        when(courseRepository.findByIdWithCategory(courseId)).thenReturn(Optional.of(course));
+        when(chapterRepository.findByIdAndCourseId(chapterId, courseId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> courseService.reorderLessons(instructorId, courseId, chapterId, List.of()))
+                .isInstanceOf(ChapterNotFoundException.class);
+    }
+
+    // ── addLesson: QUIZ type / resolveQuizForLesson ─────────────────────────
+
+    @Test
+    void addLesson_quizTypeWithExistingQuizId_attachesQuiz() {
+        when(courseRepository.findByIdWithCategory(courseId)).thenReturn(Optional.of(course));
+        Chapter ch = new Chapter();
+        ch.setId(chapterId);
+        when(chapterRepository.findByIdAndCourseId(chapterId, courseId)).thenReturn(Optional.of(ch));
+        when(lessonRepository.findMaxOrderIndexByChapterId(chapterId)).thenReturn(0);
+
+        UUID quizId = UUID.randomUUID();
+        when(quizRepository.findByIdAndCourseId(quizId, courseId)).thenReturn(Optional.of(new QuizEntity()));
+        when(lessonRepository.findByQuizId(quizId)).thenReturn(Optional.empty());
+        when(lessonRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(lessonMapper.toResponse(any())).thenAnswer(inv -> {
+            Lesson saved = inv.getArgument(0);
+            return LessonResponse.builder().id(saved.getId()).title(saved.getTitle()).build();
+        });
+
+        CreateLessonRequest req = new CreateLessonRequest();
+        req.setTitle("Quiz Lesson");
+        req.setType(LessonType.QUIZ);
+        req.setQuizId(quizId);
+
+        courseService.addLesson(instructorId, courseId, chapterId, req);
+
+        ArgumentCaptor<Lesson> captor = ArgumentCaptor.forClass(Lesson.class);
+        verify(lessonRepository).save(captor.capture());
+        assertThat(captor.getValue().getQuizId()).isEqualTo(quizId);
+        verifyNoInteractions(quizService);
+    }
+
+    @Test
+    void addLesson_quizTypeWithNewQuiz_createsQuizAndAttaches() {
+        when(courseRepository.findByIdWithCategory(courseId)).thenReturn(Optional.of(course));
+        Chapter ch = new Chapter();
+        ch.setId(chapterId);
+        when(chapterRepository.findByIdAndCourseId(chapterId, courseId)).thenReturn(Optional.of(ch));
+        when(lessonRepository.findMaxOrderIndexByChapterId(chapterId)).thenReturn(0);
+
+        UUID createdQuizId = UUID.randomUUID();
+        when(quizService.create(eq(courseId), eq(instructorId), any(QuizMetadataRequest.class)))
+                .thenReturn(QuizSummaryResponse.builder().id(createdQuizId).build());
+        when(lessonRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(lessonMapper.toResponse(any())).thenReturn(LessonResponse.builder().build());
+
+        CreateLessonRequest req = new CreateLessonRequest();
+        req.setTitle("Quiz Lesson");
+        req.setType(LessonType.QUIZ);
+        req.setNewQuiz(new QuizMetadataRequest());
+
+        courseService.addLesson(instructorId, courseId, chapterId, req);
+
+        ArgumentCaptor<Lesson> captor = ArgumentCaptor.forClass(Lesson.class);
+        verify(lessonRepository).save(captor.capture());
+        assertThat(captor.getValue().getQuizId()).isEqualTo(createdQuizId);
+        verifyNoInteractions(quizRepository);
+    }
+
+    @Test
+    void addLesson_quizTypeWithBothQuizIdAndNewQuiz_throwsBusinessException() {
+        when(courseRepository.findByIdWithCategory(courseId)).thenReturn(Optional.of(course));
+        when(chapterRepository.findByIdAndCourseId(chapterId, courseId)).thenReturn(Optional.of(new Chapter()));
+
+        CreateLessonRequest req = new CreateLessonRequest();
+        req.setTitle("Quiz Lesson");
+        req.setType(LessonType.QUIZ);
+        req.setQuizId(UUID.randomUUID());
+        req.setNewQuiz(new QuizMetadataRequest());
+
+        assertThatThrownBy(() -> courseService.addLesson(instructorId, courseId, chapterId, req))
+                .isInstanceOf(BusinessException.class);
+    }
+
+    @Test
+    void addLesson_quizTypeWithNeitherQuizIdNorNewQuiz_throwsBusinessException() {
+        when(courseRepository.findByIdWithCategory(courseId)).thenReturn(Optional.of(course));
+        when(chapterRepository.findByIdAndCourseId(chapterId, courseId)).thenReturn(Optional.of(new Chapter()));
+
+        CreateLessonRequest req = new CreateLessonRequest();
+        req.setTitle("Quiz Lesson");
+        req.setType(LessonType.QUIZ);
+
+        assertThatThrownBy(() -> courseService.addLesson(instructorId, courseId, chapterId, req))
+                .isInstanceOf(BusinessException.class);
+    }
+
+    @Test
+    void addLesson_quizIdNotInCourse_throwsBusinessException() {
+        when(courseRepository.findByIdWithCategory(courseId)).thenReturn(Optional.of(course));
+        when(chapterRepository.findByIdAndCourseId(chapterId, courseId)).thenReturn(Optional.of(new Chapter()));
+
+        UUID quizId = UUID.randomUUID();
+        when(quizRepository.findByIdAndCourseId(quizId, courseId)).thenReturn(Optional.empty());
+
+        CreateLessonRequest req = new CreateLessonRequest();
+        req.setTitle("Quiz Lesson");
+        req.setType(LessonType.QUIZ);
+        req.setQuizId(quizId);
+
+        assertThatThrownBy(() -> courseService.addLesson(instructorId, courseId, chapterId, req))
+                .isInstanceOf(BusinessException.class);
+    }
+
+    @Test
+    void addLesson_quizAlreadyAttachedToAnotherLesson_throwsBusinessException() {
+        when(courseRepository.findByIdWithCategory(courseId)).thenReturn(Optional.of(course));
+        when(chapterRepository.findByIdAndCourseId(chapterId, courseId)).thenReturn(Optional.of(new Chapter()));
+
+        UUID quizId = UUID.randomUUID();
+        when(quizRepository.findByIdAndCourseId(quizId, courseId)).thenReturn(Optional.of(new QuizEntity()));
+        Lesson otherLesson = new Lesson();
+        otherLesson.setId(UUID.randomUUID());
+        when(lessonRepository.findByQuizId(quizId)).thenReturn(Optional.of(otherLesson));
+
+        CreateLessonRequest req = new CreateLessonRequest();
+        req.setTitle("Quiz Lesson");
+        req.setType(LessonType.QUIZ);
+        req.setQuizId(quizId);
+
+        assertThatThrownBy(() -> courseService.addLesson(instructorId, courseId, chapterId, req))
+                .isInstanceOf(BusinessException.class);
+    }
+
+    // ── updateLesson: QUIZ reassignment ─────────────────────────────────────
+
+    @Test
+    void updateLesson_quizType_reassignsQuizId() {
+        when(courseRepository.findByIdWithCategory(courseId)).thenReturn(Optional.of(course));
+        when(chapterRepository.findByIdAndCourseId(chapterId, courseId)).thenReturn(Optional.of(new Chapter()));
+
+        Lesson lesson = new Lesson();
+        lesson.setId(lessonId);
+        lesson.setType(LessonType.QUIZ);
+        lesson.setQuizId(UUID.randomUUID());
+        when(lessonRepository.findByIdAndCourseId(lessonId, courseId)).thenReturn(Optional.of(lesson));
+
+        UUID newQuizId = UUID.randomUUID();
+        when(quizRepository.findByIdAndCourseId(newQuizId, courseId)).thenReturn(Optional.of(new QuizEntity()));
+        when(lessonRepository.findByQuizId(newQuizId)).thenReturn(Optional.empty());
+        when(lessonRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(lessonMapper.toResponse(any())).thenReturn(LessonResponse.builder().build());
+
+        UpdateLessonRequest req = new UpdateLessonRequest();
+        req.setQuizId(newQuizId);
+
+        courseService.updateLesson(instructorId, courseId, chapterId, lessonId, req);
+
+        assertThat(lesson.getQuizId()).isEqualTo(newQuizId);
+        verifyNoInteractions(studentCourseService);
+    }
+
+    @Test
+    void updateLesson_quizReassignmentWithResetFlag_resetsInProgressStudents() {
+        when(courseRepository.findByIdWithCategory(courseId)).thenReturn(Optional.of(course));
+        when(chapterRepository.findByIdAndCourseId(chapterId, courseId)).thenReturn(Optional.of(new Chapter()));
+
+        Lesson lesson = new Lesson();
+        lesson.setId(lessonId);
+        lesson.setType(LessonType.QUIZ);
+        lesson.setQuizId(UUID.randomUUID());
+        when(lessonRepository.findByIdAndCourseId(lessonId, courseId)).thenReturn(Optional.of(lesson));
+
+        UUID newQuizId = UUID.randomUUID();
+        when(quizRepository.findByIdAndCourseId(newQuizId, courseId)).thenReturn(Optional.of(new QuizEntity()));
+        when(lessonRepository.findByQuizId(newQuizId)).thenReturn(Optional.empty());
+        when(lessonRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(lessonMapper.toResponse(any())).thenReturn(LessonResponse.builder().build());
+
+        UpdateLessonRequest req = new UpdateLessonRequest();
+        req.setQuizId(newQuizId);
+        req.setResetProgressForInProgressStudents(true);
+
+        courseService.updateLesson(instructorId, courseId, chapterId, lessonId, req);
+
+        verify(studentCourseService).resetLessonProgressForInProgressStudents(courseId, lessonId);
+    }
+
+    @Test
+    void updateLesson_quizTypeWithNoQuizChangeRequested_doesNotTouchQuizRepository() {
+        when(courseRepository.findByIdWithCategory(courseId)).thenReturn(Optional.of(course));
+        when(chapterRepository.findByIdAndCourseId(chapterId, courseId)).thenReturn(Optional.of(new Chapter()));
+
+        Lesson lesson = new Lesson();
+        lesson.setId(lessonId);
+        lesson.setType(LessonType.QUIZ);
+        lesson.setQuizId(UUID.randomUUID());
+        when(lessonRepository.findByIdAndCourseId(lessonId, courseId)).thenReturn(Optional.of(lesson));
+        when(lessonRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(lessonMapper.toResponse(any())).thenReturn(LessonResponse.builder().build());
+
+        UpdateLessonRequest req = new UpdateLessonRequest();
+        req.setTitle("Renamed");
+
+        courseService.updateLesson(instructorId, courseId, chapterId, lessonId, req);
+
+        verifyNoInteractions(quizRepository, quizService, studentCourseService);
     }
 }

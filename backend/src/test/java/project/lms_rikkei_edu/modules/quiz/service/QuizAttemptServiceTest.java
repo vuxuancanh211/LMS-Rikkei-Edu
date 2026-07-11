@@ -129,6 +129,22 @@ class QuizAttemptServiceTest {
     }
 
     @Test
+    void startAttempt_noQuestionsDrawn_throwsExceptionWithoutSavingAttempt() {
+        QuizEntity quiz = buildPublishedQuiz();
+        when(quizRepository.findByIdAndCourseId(quizId, courseId)).thenReturn(Optional.of(quiz));
+        when(attemptRepository.findByQuizIdAndStudentIdAndStatus(quizId, studentId, AttemptStatus.IN_PROGRESS))
+                .thenReturn(Optional.empty());
+        when(attemptRepository.countByQuizIdAndStudentId(quizId, studentId)).thenReturn(0L);
+        when(attemptRepository.findLatestByQuizIdAndStudentId(quizId, studentId)).thenReturn(Optional.empty());
+        when(questionRepository.findByQuizIdOrderByOrderIndex(quizId)).thenReturn(List.of());
+
+        assertThatThrownBy(() -> service.startAttempt(courseId, quizId, studentId, "127.0.0.1"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("không có câu hỏi nào khả dụng");
+        verify(attemptRepository, never()).save(any());
+    }
+
+    @Test
     void startAttempt_cooldownNotPassed_throwsException() {
         QuizEntity quiz = buildPublishedQuiz();
         quiz.setCooldownMinutes(20);

@@ -22,7 +22,12 @@ import project.lms_rikkei_edu.modules.certificate.exception.CertificateAlreadyIs
 import project.lms_rikkei_edu.modules.certificate.exception.CertificateNotFoundException;
 import project.lms_rikkei_edu.modules.certificate.exception.CertificatePdfException;
 import project.lms_rikkei_edu.modules.certificate.exception.CertificateStateException;
+import project.lms_rikkei_edu.modules.chat.exception.ChatAccessDeniedException;
+import project.lms_rikkei_edu.modules.chat.exception.ChatMessageNotFoundException;
+import project.lms_rikkei_edu.modules.chat.exception.ChatRoomNotFoundException;
 import project.lms_rikkei_edu.modules.course.exception.*;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
 
 import java.util.Set;
 import java.util.UUID;
@@ -223,6 +228,92 @@ class GlobalExceptionHandlerTest {
             mvc.perform(get("/fake/async-timeout"))
                     .andExpect(status().isOk());
         }
+
+        @Test
+        void asyncRequestNotUsable_isSwallowedSilently() throws Exception {
+            mvc.perform(get("/fake/async-not-usable"))
+                    .andExpect(status().isOk());
+        }
+    }
+
+    @Nested
+    class ChatExceptions {
+
+        @Test
+        void chatRoomNotFound_returns404() throws Exception {
+            mvc.perform(get("/fake/chat-room-not-found"))
+                    .andExpect(status().isNotFound());
+        }
+
+        @Test
+        void chatMessageNotFound_returns404() throws Exception {
+            mvc.perform(get("/fake/chat-message-not-found"))
+                    .andExpect(status().isNotFound());
+        }
+
+        @Test
+        void chatAccessDenied_returns403() throws Exception {
+            mvc.perform(get("/fake/chat-access-denied"))
+                    .andExpect(status().isForbidden());
+        }
+    }
+
+    @Nested
+    class ValidationAndRequestExceptions {
+
+        @Test
+        void methodArgumentNotValid_returns400WithFieldErrors() throws Exception {
+            mvc.perform(post("/fake/validated")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{}"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.message").value("Dữ liệu nhập không hợp lệ"))
+                    .andExpect(jsonPath("$.validationErrors.name").exists());
+        }
+
+        @Test
+        void missingRequestParameter_returns400() throws Exception {
+            mvc.perform(get("/fake/required-param"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("id")));
+        }
+
+        @Test
+        void malformedRequestBody_returns400() throws Exception {
+            mvc.perform(post("/fake/validated")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{not valid json"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.message").value("Request body is invalid or malformed"));
+        }
+    }
+
+    @Nested
+    class UnhandledExceptionSpecialCases {
+
+        @Test
+        void httpMessageNotWritable_returns204() throws Exception {
+            mvc.perform(get("/fake/message-not-writable"))
+                    .andExpect(status().isNoContent());
+        }
+
+        @Test
+        void ioException_returns204() throws Exception {
+            mvc.perform(get("/fake/io-exception"))
+                    .andExpect(status().isNoContent());
+        }
+
+        @Test
+        void unhandledWithSseAcceptHeader_returns204() throws Exception {
+            mvc.perform(get("/fake/unhandled").accept("text/event-stream"))
+                    .andExpect(status().isNoContent());
+        }
+
+        @Test
+        void unhandledOnNotificationsConnectUri_returns204() throws Exception {
+            mvc.perform(get("/fake/notifications/connect"))
+                    .andExpect(status().isNoContent());
+        }
     }
 
     // ── Fake controller that throws each exception type ───────────────────────
@@ -311,6 +402,49 @@ class GlobalExceptionHandlerTest {
         @GetMapping("/async-timeout")
         void asyncTimeout() throws AsyncRequestTimeoutException {
             throw new AsyncRequestTimeoutException();
+        }
+
+        @GetMapping("/async-not-usable")
+        void asyncNotUsable() throws org.springframework.web.context.request.async.AsyncRequestNotUsableException {
+            throw new org.springframework.web.context.request.async.AsyncRequestNotUsableException(
+                    "client disconnected", new java.io.IOException("broken pipe"));
+        }
+
+        @GetMapping("/chat-room-not-found")
+        void chatRoomNotFound() { throw new ChatRoomNotFoundException(UUID.randomUUID()); }
+
+        @GetMapping("/chat-message-not-found")
+        void chatMessageNotFound() { throw new ChatMessageNotFoundException(UUID.randomUUID()); }
+
+        @GetMapping("/chat-access-denied")
+        void chatAccessDenied() { throw new ChatAccessDeniedException("Không có quyền truy cập"); }
+
+        @PostMapping(value = "/validated", consumes = MediaType.APPLICATION_JSON_VALUE)
+        void validated(@Valid @RequestBody ValidatedRequest body) {}
+
+        @GetMapping("/required-param")
+        void requiredParam(@RequestParam UUID id) {}
+
+        @GetMapping("/message-not-writable")
+        void messageNotWritable() throws org.springframework.http.converter.HttpMessageNotWritableException {
+            throw new org.springframework.http.converter.HttpMessageNotWritableException("cannot write");
+        }
+
+        @GetMapping("/io-exception")
+        void ioException() throws java.io.IOException {
+            throw new java.io.IOException("broken pipe");
+        }
+
+        @GetMapping("/notifications/connect")
+        void notificationsConnect() throws Exception {
+            throw new Exception("sse stream error");
+        }
+
+        static class ValidatedRequest {
+            @NotBlank
+            private String name;
+            public String getName() { return name; }
+            public void setName(String name) { this.name = name; }
         }
 
         private static ConstraintViolation<?> mockViolation(String field, String message) {

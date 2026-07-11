@@ -1,16 +1,25 @@
 package project.lms_rikkei_edu.modules.quiz.service;
 
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.mock.web.MockMultipartFile;
 import project.lms_rikkei_edu.common.exception.BusinessException;
 import project.lms_rikkei_edu.modules.ai.config.OpenAiProperties;
 import project.lms_rikkei_edu.modules.quiz.dto.request.BankOptionRequest;
+import project.lms_rikkei_edu.modules.quiz.dto.request.BankQuestionImportConfirmRequest;
 import project.lms_rikkei_edu.modules.quiz.dto.request.BankQuestionRequest;
+import project.lms_rikkei_edu.modules.quiz.dto.response.BankQuestionImportPreviewResponse;
+import project.lms_rikkei_edu.modules.quiz.dto.response.BankQuestionImportConfirmResponse;
+import project.lms_rikkei_edu.modules.quiz.dto.response.BankQuestionImportRowResult;
 import project.lms_rikkei_edu.modules.quiz.dto.response.BankQuestionResponse;
+import project.lms_rikkei_edu.modules.quiz.dto.response.BankQuestionSearchHit;
 import project.lms_rikkei_edu.modules.quiz.entity.BankOptionEntity;
 import project.lms_rikkei_edu.modules.quiz.entity.BankQuestionEntity;
 import project.lms_rikkei_edu.modules.quiz.enums.QuestionDifficulty;
@@ -18,12 +27,16 @@ import project.lms_rikkei_edu.modules.quiz.enums.QuestionStatus;
 import project.lms_rikkei_edu.modules.quiz.enums.QuestionType;
 import project.lms_rikkei_edu.modules.quiz.repository.BankOptionRepository;
 import project.lms_rikkei_edu.modules.quiz.repository.BankQuestionRepository;
+import project.lms_rikkei_edu.modules.quiz.service.BankQuestionEmbeddingService.SemanticHit;
 import project.lms_rikkei_edu.modules.quiz.service.impl.BankQuestionServiceImpl;
 import project.lms_rikkei_edu.infrastructure.redis.RedisService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import java.io.ByteArrayOutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.*;
@@ -256,6 +269,382 @@ class BankQuestionServiceTest {
 
         assertThat(result.getContent()).hasSize(1);
         verify(bankQuestionRepository).findByFilters(courseId, null, null, null, pageable);
+    }
+
+    // ── Update ────────────────────────────────────────────────────────────────
+
+    @Test
+    void update_textChanged_reEmbeds() {
+        BankQuestionEntity q = buildEntity();
+        q.setQuestionText("Old text");
+        when(bankQuestionRepository.findById(questionId)).thenReturn(Optional.of(q));
+        when(bankOptionRepository.findByBankQuestionIdOrderByOrderIndex(questionId)).thenReturn(List.of());
+        when(bankQuestionRepository.hasQuizReference(questionId)).thenReturn(false);
+
+        BankQuestionRequest request = buildRequest(QuestionType.SINGLE_CHOICE,
+                List.of(option("A", true), option("B", false)));
+        request.setQuestionText("New text");
+
+        service.update(courseId, questionId, request);
+
+        assertThat(q.getQuestionText()).isEqualTo("New text");
+        verify(bankOptionRepository).deleteByBankQuestionId(questionId);
+        verify(embeddingService).embedAndSaveSafe(questionId, "New text");
+    }
+
+    @Test
+    void update_textUnchanged_doesNotReEmbed() {
+        BankQuestionEntity q = buildEntity();
+        q.setQuestionText("Same text");
+        when(bankQuestionRepository.findById(questionId)).thenReturn(Optional.of(q));
+        when(bankOptionRepository.findByBankQuestionIdOrderByOrderIndex(questionId)).thenReturn(List.of());
+        when(bankQuestionRepository.hasQuizReference(questionId)).thenReturn(false);
+
+        BankQuestionRequest request = buildRequest(QuestionType.SINGLE_CHOICE,
+                List.of(option("A", true), option("B", false)));
+        request.setQuestionText("Same text");
+
+        service.update(courseId, questionId, request);
+
+        verify(embeddingService, never()).embedAndSaveSafe(any(), any());
+    }
+
+    @Test
+    void update_questionNotFound_throwsException() {
+        when(bankQuestionRepository.findById(questionId)).thenReturn(Optional.empty());
+        BankQuestionRequest request = buildRequest(QuestionType.SINGLE_CHOICE,
+                List.of(option("A", true), option("B", false)));
+
+        assertThatThrownBy(() -> service.update(courseId, questionId, request))
+                .isInstanceOf(BusinessException.class);
+    }
+
+    // ── GetById ───────────────────────────────────────────────────────────────
+
+    @Test
+    void getById_found_returnsResponse() {
+        BankQuestionEntity q = buildEntity();
+        when(bankQuestionRepository.findById(questionId)).thenReturn(Optional.of(q));
+        when(bankOptionRepository.findByBankQuestionIdOrderByOrderIndex(questionId)).thenReturn(List.of());
+        when(bankQuestionRepository.hasQuizReference(questionId)).thenReturn(true);
+
+        BankQuestionResponse response = service.getById(courseId, questionId);
+
+        assertThat(response.getId()).isEqualTo(questionId);
+        assertThat(response.getQuizUsageCount()).isEqualTo(1);
+    }
+
+    @Test
+    void getById_wrongCourse_throwsException() {
+        BankQuestionEntity q = buildEntity();
+        q.setCourseId(UUID.randomUUID());
+        when(bankQuestionRepository.findById(questionId)).thenReturn(Optional.of(q));
+
+        assertThatThrownBy(() -> service.getById(courseId, questionId))
+                .isInstanceOf(BusinessException.class);
+    }
+
+    // ── List additional branches ─────────────────────────────────────────────
+
+    @Test
+    void list_subjectTagOnly_callsCorrectRepository() {
+        when(bankQuestionRepository.findByCourseIdAndStatusAndSubjectTag(courseId, QuestionStatus.ACTIVE, "Math"))
+                .thenReturn(List.of());
+
+        service.list(courseId, null, null, "Math");
+
+        verify(bankQuestionRepository).findByCourseIdAndStatusAndSubjectTag(courseId, QuestionStatus.ACTIVE, "Math");
+    }
+
+    @Test
+    void list_statusOnly_callsCorrectRepository() {
+        when(bankQuestionRepository.findByCourseIdAndStatus(courseId, QuestionStatus.INACTIVE)).thenReturn(List.of());
+
+        service.list(courseId, QuestionStatus.INACTIVE, null, null);
+
+        verify(bankQuestionRepository).findByCourseIdAndStatus(courseId, QuestionStatus.INACTIVE);
+    }
+
+    @Test
+    void list_difficultyAndSubjectTag_filtersInMemoryByMatchingTag() {
+        BankQuestionEntity matching = buildEntity();
+        matching.setSubjectTag("Math");
+        BankQuestionEntity nonMatching = buildEntity();
+        nonMatching.setId(UUID.randomUUID());
+        nonMatching.setSubjectTag("Science");
+        when(bankQuestionRepository.findByCourseIdAndStatusAndDifficulty(courseId, QuestionStatus.ACTIVE, QuestionDifficulty.EASY))
+                .thenReturn(List.of(matching, nonMatching));
+        when(bankOptionRepository.findByBankQuestionIdOrderByOrderIndex(any())).thenReturn(List.of());
+        when(bankQuestionRepository.hasQuizReference(any())).thenReturn(false);
+
+        List<BankQuestionResponse> result = service.list(courseId, null, QuestionDifficulty.EASY, "Math");
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getSubjectTag()).isEqualTo("Math");
+    }
+
+    // ── Search ────────────────────────────────────────────────────────────────
+
+    @Test
+    void search_blankQuery_returnsEmptyWithNoRepositoryCalls() {
+        List<BankQuestionSearchHit> result = service.search(courseId, "   ", null, null, null);
+
+        assertThat(result).isEmpty();
+        verifyNoInteractions(bankQuestionRepository, embeddingService);
+    }
+
+    @Test
+    void search_nullQuery_returnsEmpty() {
+        List<BankQuestionSearchHit> result = service.search(courseId, null, null, null, null);
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    void search_textAndSemanticHits_combinesResultsTextFirst() {
+        BankQuestionEntity textMatch = buildEntity();
+        textMatch.setQuestionText("Capital of France");
+        when(bankQuestionRepository.findByCourseId(courseId)).thenReturn(List.of(textMatch));
+        when(bankOptionRepository.findByBankQuestionIdOrderByOrderIndex(any())).thenReturn(List.of());
+        when(bankQuestionRepository.hasQuizReference(any())).thenReturn(false);
+        when(openAiProperties.getSearchTopK()).thenReturn(20);
+        when(openAiProperties.getSearchSimilarityThreshold()).thenReturn(0.4);
+
+        UUID semanticQuestionId = UUID.randomUUID();
+        BankQuestionEntity semanticEntity = buildEntity();
+        semanticEntity.setId(semanticQuestionId);
+        when(bankQuestionRepository.findById(semanticQuestionId)).thenReturn(Optional.of(semanticEntity));
+        when(embeddingService.searchSimilar(eq(courseId), eq("France"), isNull(), isNull(), isNull(),
+                anySet(), eq(20), eq(0.4)))
+                .thenReturn(List.of(new SemanticHit(semanticQuestionId, 0.85)));
+
+        List<BankQuestionSearchHit> result = service.search(courseId, "France", null, null, null);
+
+        assertThat(result).hasSize(2);
+        assertThat(result.get(0).getMatchType()).isEqualTo("TEXT");
+        assertThat(result.get(1).getMatchType()).isEqualTo("SEMANTIC");
+        assertThat(result.get(1).getSimilarity()).isEqualTo(0.85);
+    }
+
+    @Test
+    void search_semanticHitQuestionNotFound_isDropped() {
+        when(bankQuestionRepository.findByCourseId(courseId)).thenReturn(List.of());
+        when(openAiProperties.getSearchTopK()).thenReturn(20);
+        when(openAiProperties.getSearchSimilarityThreshold()).thenReturn(0.4);
+
+        UUID missingId = UUID.randomUUID();
+        when(embeddingService.searchSimilar(any(), any(), any(), any(), any(), anySet(), anyInt(), anyDouble()))
+                .thenReturn(List.of(new SemanticHit(missingId, 0.9)));
+        when(bankQuestionRepository.findById(missingId)).thenReturn(Optional.empty());
+
+        List<BankQuestionSearchHit> result = service.search(courseId, "query", null, null, null);
+
+        assertThat(result).isEmpty();
+    }
+
+    // ── Import preview ───────────────────────────────────────────────────────
+
+    @Test
+    void importPreview_csv_classifiesNewDuplicateAndErrorRows() {
+        String csv = "question_text,question_type,difficulty,subject_tag,option_a,option_b,correct_answers\n"
+                + "New question?,SINGLE_CHOICE,EASY,Math,A,B,A\n"
+                + "Dup question?,SINGLE_CHOICE,EASY,Math,A,B,A\n"
+                + ",SINGLE_CHOICE,EASY,Math,A,B,A\n";
+        MockMultipartFile file = new MockMultipartFile("file", "questions.csv", "text/csv",
+                csv.getBytes(StandardCharsets.UTF_8));
+
+        when(bankQuestionRepository.existsByCourseIdAndQuestionText(courseId, "New question?")).thenReturn(false);
+        when(bankQuestionRepository.existsByCourseIdAndQuestionText(courseId, "Dup question?")).thenReturn(true);
+
+        BankQuestionImportPreviewResponse response = service.importPreview(courseId, file);
+
+        assertThat(response.getTotalRows()).isEqualTo(3);
+        assertThat(response.getNewCount()).isEqualTo(1);
+        assertThat(response.getDuplicateCount()).isEqualTo(1);
+        assertThat(response.getErrorCount()).isEqualTo(1);
+        assertThat(response.getToken()).isNotBlank();
+        verify(redisService).set(startsWith("quiz:bank:import:"), any(), eq(1800L));
+    }
+
+    @Test
+    void importPreview_emptyFile_throwsBusinessException() {
+        MockMultipartFile file = new MockMultipartFile("file", "empty.csv", "text/csv", new byte[0]);
+
+        assertThatThrownBy(() -> service.importPreview(courseId, file))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("không có dữ liệu");
+    }
+
+    @Test
+    void importPreview_tooManyRows_throwsBusinessException() {
+        StringBuilder csv = new StringBuilder("question_text,question_type,difficulty,option_a,option_b,correct_answers\n");
+        for (int i = 0; i < 501; i++) {
+            csv.append("Q").append(i).append(",SINGLE_CHOICE,EASY,A,B,A\n");
+        }
+        MockMultipartFile file = new MockMultipartFile("file", "big.csv", "text/csv",
+                csv.toString().getBytes(StandardCharsets.UTF_8));
+
+        assertThatThrownBy(() -> service.importPreview(courseId, file))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("vượt quá");
+    }
+
+    @Test
+    void importPreview_excel_parsesRowsCorrectly() throws Exception {
+        byte[] bytes;
+        try (XSSFWorkbook wb = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            Sheet sheet = wb.createSheet("Questions");
+            Row header = sheet.createRow(0);
+            String[] headers = {"question_text", "question_type", "difficulty", "subject_tag",
+                    "option_a", "option_b", "option_c", "option_d", "correct_answers"};
+            for (int i = 0; i < headers.length; i++) header.createCell(i).setCellValue(headers[i]);
+
+            Row row1 = sheet.createRow(1);
+            row1.createCell(0).setCellValue("Excel question?");
+            row1.createCell(1).setCellValue("SINGLE_CHOICE");
+            row1.createCell(2).setCellValue("EASY");
+            row1.createCell(3).setCellValue("Math");
+            row1.createCell(4).setCellValue("A");
+            row1.createCell(5).setCellValue("B");
+            row1.createCell(8).setCellValue("A");
+
+            wb.write(out);
+            bytes = out.toByteArray();
+        }
+        MockMultipartFile file = new MockMultipartFile("file", "questions.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", bytes);
+
+        when(bankQuestionRepository.existsByCourseIdAndQuestionText(courseId, "Excel question?")).thenReturn(false);
+
+        BankQuestionImportPreviewResponse response = service.importPreview(courseId, file);
+
+        assertThat(response.getTotalRows()).isEqualTo(1);
+        assertThat(response.getNewCount()).isEqualTo(1);
+        assertThat(response.getRows().get(0).getQuestionText()).isEqualTo("Excel question?");
+    }
+
+    // ── Import confirm ────────────────────────────────────────────────────────
+
+    @Test
+    void importConfirm_expiredToken_throwsBusinessException() {
+        when(redisService.get(anyString())).thenReturn(Optional.empty());
+
+        BankQuestionImportConfirmRequest request = new BankQuestionImportConfirmRequest();
+        request.setToken("missing-token");
+
+        assertThatThrownBy(() -> service.importConfirm(courseId, instructorId, request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("hết hạn");
+    }
+
+    @Test
+    void importConfirm_malformedJson_throwsBusinessException() {
+        when(redisService.get(anyString())).thenReturn(Optional.of((Object) "not-json"));
+
+        BankQuestionImportConfirmRequest request = new BankQuestionImportConfirmRequest();
+        request.setToken("bad-token");
+
+        assertThatThrownBy(() -> service.importConfirm(courseId, instructorId, request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("không hợp lệ");
+    }
+
+    @Test
+    void importConfirm_mixedRows_importsSelectedAndSkipsRest() throws Exception {
+        // BankQuestionImportRowResult has no no-args constructor/setters and no Jackson creator
+        // annotations, so a bare ObjectMapper (as used in production's JacksonConfig, with no
+        // parameter-names module registered) cannot actually round-trip it through JSON — see
+        // importConfirm_realObjectMapper_alwaysThrowsDueToMissingJacksonCreator below. Mock
+        // ObjectMapper#readValue directly here to exercise importConfirm's row-classification and
+        // counting logic in isolation from that pre-existing (de)serialization limitation.
+        List<BankQuestionImportRowResult> preview = List.of(
+                BankQuestionImportRowResult.builder().rowNumber(1).questionText("New Q").questionType(QuestionType.SINGLE_CHOICE)
+                        .difficulty(QuestionDifficulty.EASY).status("NEW").errors(List.of()).build(),
+                BankQuestionImportRowResult.builder().rowNumber(2).questionText("Dup Selected").questionType(QuestionType.SINGLE_CHOICE)
+                        .difficulty(QuestionDifficulty.EASY).status("DUPLICATE").errors(List.of()).build(),
+                BankQuestionImportRowResult.builder().rowNumber(3).questionText("Dup Unselected").questionType(QuestionType.SINGLE_CHOICE)
+                        .difficulty(QuestionDifficulty.EASY).status("DUPLICATE").errors(List.of()).build(),
+                BankQuestionImportRowResult.builder().rowNumber(4).questionText("Bad Q").questionType(null)
+                        .difficulty(null).status("ERROR").errors(List.of("Thiếu nội dung câu hỏi")).build()
+        );
+        ObjectMapper mockMapper = mock(ObjectMapper.class);
+        when(mockMapper.getTypeFactory()).thenReturn(com.fasterxml.jackson.databind.type.TypeFactory.defaultInstance());
+        when(mockMapper.readValue(anyString(), any(com.fasterxml.jackson.databind.JavaType.class))).thenReturn(preview);
+        BankQuestionServiceImpl serviceWithMockMapper = new BankQuestionServiceImpl(
+                bankQuestionRepository, bankOptionRepository, redisService, mockMapper, embeddingService, openAiProperties);
+
+        when(redisService.get("quiz:bank:import:tok123")).thenReturn(Optional.of((Object) "irrelevant-json"));
+        when(bankQuestionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        BankQuestionImportConfirmRequest request = new BankQuestionImportConfirmRequest();
+        request.setToken("tok123");
+        request.setSelectedDuplicateRows(List.of(2));
+
+        BankQuestionImportConfirmResponse response = serviceWithMockMapper.importConfirm(courseId, instructorId, request);
+
+        assertThat(response.getTotalImported()).isEqualTo(2); // NEW + selected DUPLICATE
+        assertThat(response.getSkippedCount()).isEqualTo(2); // unselected DUPLICATE + ERROR
+        verify(bankQuestionRepository, times(2)).save(any());
+        verify(bankQuestionRepository).flush();
+        verify(embeddingService).embedAndSaveBatchSafe(argThat(list -> list.size() == 2));
+        verify(redisService).delete("quiz:bank:import:tok123");
+    }
+
+    @Test
+    void importConfirm_realObjectMapper_alwaysThrowsDueToMissingJacksonCreator() {
+        // Documents current production behavior: BankQuestionImportRowResult (@Getter @Builder,
+        // no @NoArgsConstructor/@AllArgsConstructor(access=...)/@Jacksonized, and the project has
+        // no jackson-module-parameter-names dependency) cannot be deserialized by a bare
+        // ObjectMapper — the exact kind built in JacksonConfig. Every real importConfirm call
+        // currently fails with this message regardless of a valid token/preview.
+        List<BankQuestionImportRowResult> preview = List.of(
+                BankQuestionImportRowResult.builder().rowNumber(1).questionText("New Q")
+                        .questionType(QuestionType.SINGLE_CHOICE).difficulty(QuestionDifficulty.EASY)
+                        .status("NEW").errors(List.of()).build()
+        );
+        try {
+            String json = new ObjectMapper().writeValueAsString(preview);
+            when(redisService.get("quiz:bank:import:tok123")).thenReturn(Optional.of((Object) json));
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+
+        BankQuestionImportConfirmRequest request = new BankQuestionImportConfirmRequest();
+        request.setToken("tok123");
+
+        assertThatThrownBy(() -> service.importConfirm(courseId, instructorId, request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("không hợp lệ");
+    }
+
+    // ── Export ────────────────────────────────────────────────────────────────
+
+    @Test
+    void export_csvFormat_returnsCsvBytes() {
+        BankQuestionEntity q = buildEntity();
+        when(bankQuestionRepository.findByCourseId(courseId)).thenReturn(List.of(q));
+        BankOptionEntity opt = new BankOptionEntity();
+        opt.setOptionText("A");
+        opt.setIsCorrect(true);
+        when(bankOptionRepository.findByBankQuestionIdOrderByOrderIndex(questionId)).thenReturn(List.of(opt));
+
+        byte[] result = service.export(courseId, "csv");
+
+        String content = new String(result, StandardCharsets.UTF_8);
+        assertThat(content).startsWith("question_text,question_type");
+        assertThat(content).contains("Test?");
+    }
+
+    @Test
+    void export_nonCsvFormat_returnsExcelBytes() {
+        when(bankQuestionRepository.findByCourseId(courseId)).thenReturn(List.of());
+
+        byte[] result = service.export(courseId, "xlsx");
+
+        assertThat(result).isNotEmpty();
+        // XLSX files are zip archives starting with the "PK" magic bytes
+        assertThat(result[0]).isEqualTo((byte) 'P');
+        assertThat(result[1]).isEqualTo((byte) 'K');
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
