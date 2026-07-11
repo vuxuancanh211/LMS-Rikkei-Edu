@@ -204,19 +204,35 @@ function PlayerRoute({ name }: { name: string }) {
 
   const params = Object.fromEntries(new URLSearchParams(location.search));
 
+  // Quiz đang làm/kết quả có thể được mở từ giữa bài giảng (LecturePlayer) hoặc từ trang
+  // Bài tập & Bài kiểm tra (StuTasks) — "from"/"lessonId" được truyền xuyên suốt qua các URL
+  // quiz → quiz-result để khi thoát/nộp xong, học viên quay lại đúng nơi xuất phát và trang đó
+  // tự remount (route khác nhau) nên dữ liệu (tiến độ bài học / danh sách quiz) được tải lại mới.
+  let returnPath = '/student/courses';
+  if (name === 'QuizPlayer' || name === 'QuizResult') {
+    returnPath = params.from === 'lecture' && params.courseId
+      ? `/player/lecture?courseId=${params.courseId}${params.lessonId ? '&lessonId=' + params.lessonId : ''}`
+      : '/student/tasks';
+  }
+
   return (
     <div className="app">
       <Comp
         {...params}
         proctoringEnabled={params.proctoringEnabled === 'true'}
         authUser={authUser}
-        onBack={() => navigate('/student/courses')}
+        onBack={() => navigate(returnPath)}
         onDashboard={() => navigate('/student/dashboard')}
         onSettings={() => navigate('/settings')}
         onLogout={handleLogout}
         navigate={navigate}
-        onSubmit={(attemptId: string, courseId: string, quizId: string) =>
-          navigate(`/player/quiz-result?attemptId=${attemptId}&courseId=${courseId}&quizId=${quizId}`)}
+        onSubmit={(attemptId: string, courseId: string, quizId: string) => {
+          const extra = [
+            params.from ? `from=${params.from}` : '',
+            params.lessonId ? `lessonId=${params.lessonId}` : '',
+          ].filter(Boolean).join('&');
+          navigate(`/player/quiz-result?attemptId=${attemptId}&courseId=${courseId}&quizId=${quizId}${extra ? '&' + extra : ''}`);
+        }}
       />
     </div>
   );

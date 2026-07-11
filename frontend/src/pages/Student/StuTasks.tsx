@@ -63,107 +63,112 @@
           <Se placeholder="Tìm quiz..." value={q} onChange={setQ} style={{ width: 220, flex: 'none' }} />
         </div>
 
-        <Sn pad={false} style={{ marginTop: 16 }}>
-          {loading ? (
+        {loading ? (
+          <Sn pad={false} style={{ marginTop: 16 }}>
             <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-2)' }}>
               Đang tải...
             </div>
-          ) : error ? (
+          </Sn>
+        ) : error ? (
+          <Sn pad={false} style={{ marginTop: 16 }}>
             <div style={{ padding: 40, textAlign: 'center', color: 'var(--error)' }}>
               {error}
               <br />
               <button className="btn btn-ghost btn-sm" style={{ marginTop: 10 }} onClick={fetchProgress}>Thử lại</button>
             </div>
-          ) : filtered.length === 0 ? (
+          </Sn>
+        ) : filtered.length === 0 ? (
+          <Sn pad={false} style={{ marginTop: 16 }}>
             <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-2)' }}>
               <Ic n="clipboard" size={34} style={{ marginBottom: 10, opacity: 0.3 }} />
               <p>{quizList.length === 0 ? 'Chưa có quiz nào trong khóa học này.' : 'Không tìm thấy quiz.'}</p>
             </div>
-          ) : (
-            <div style={{ overflowX: 'auto' }}>
-              <table className="tbl">
-                <thead>
-                  <tr>
-                    <th>Tên quiz</th>
-                    <th>Loại</th>
-                    <th>Đã làm</th>
-                    <th>Điểm tốt nhất</th>
-                    <th>Kết quả</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map(quiz => (
-                    <tr key={quiz.quizId}>
-                      <td>
-                        <div className="row gap-10">
-                          <div className="stat-ic" style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--surface-3)', color: 'var(--text-2)' }}>
-                            <Ic n="clipboard" size={17} />
-                          </div>
-                          <div style={{ fontWeight: 600, maxWidth: 220 }} className="truncate">
-                            {quiz.quizTitle}
-                          </div>
-                        </div>
-                      </td>
-                      <td>
-                        <span className="chip chip-neutral">{QUIZ_TYPE_LABEL[quiz.quizType] || quiz.quizType}</span>
-                      </td>
-                      <td className="muted">
-                        {quiz.attemptsUsed} / {quiz.maxAttempts != null ? quiz.maxAttempts : '∞'} lần
-                      </td>
-                      <td style={{ fontWeight: 700 }}>
-                        {quiz.bestScorePercentage != null
-                          ? <span style={{ color: quiz.passed ? 'var(--success)' : 'var(--error)' }}>
-                              {Number(quiz.bestScorePercentage).toFixed(1)}%
-                            </span>
-                          : <span className="muted">—</span>}
-                      </td>
-                      <td>
-                        {quiz.attemptsUsed === 0 ? (
-                          <span className="chip chip-neutral">Chưa làm</span>
+          </Sn>
+        ) : (
+          <div className="grid grid-cards" style={{ marginTop: 16 }}>
+            {filtered.map(quiz => {
+              const locked = quiz.quizStatus !== 'PUBLISHED';
+              const notStarted = quiz.attemptsUsed === 0;
+              const scorePct = quiz.bestScorePercentage != null ? Number(quiz.bestScorePercentage) : null;
+              const barColor = quiz.passed ? 'var(--success)' : 'var(--error)';
+
+              return (
+                <div key={quiz.quizId} className="card card-pad quiz-card">
+                  <div className="row gap-10" style={{ alignItems: 'flex-start' }}>
+                    <div className="stat-ic" style={{ width: 44, height: 44, borderRadius: 12, background: 'var(--accent-soft)', color: 'var(--accent)', flex: 'none' }}>
+                      <Ic n="clipboard" size={20} />
+                    </div>
+                    <div className="grow" style={{ minWidth: 0 }}>
+                      <div className="truncate" style={{ fontWeight: 700, fontSize: 15 }} title={quiz.quizTitle}>
+                        {quiz.quizTitle}
+                      </div>
+                      <div className="row gap-6 wrap" style={{ marginTop: 6 }}>
+                        <span className="chip chip-neutral" style={{ fontSize: 11 }}>
+                          {QUIZ_TYPE_LABEL[quiz.quizType] || quiz.quizType}
+                        </span>
+                        {locked ? (
+                          <span className="chip chip-neutral" style={{ fontSize: 11 }}>Chưa mở</span>
+                        ) : notStarted ? (
+                          <span className="chip chip-neutral" style={{ fontSize: 11 }}>Chưa làm</span>
                         ) : quiz.passed ? (
-                          <span className="chip chip-success"><Ic n="check" size={12} />Đạt</span>
+                          <span className="chip chip-success" style={{ fontSize: 11 }}><Ic n="check" size={11} />Đạt</span>
                         ) : (
-                          <span className="chip chip-error"><Ic n="x" size={12} />Chưa đạt</span>
+                          <span className="chip chip-error" style={{ fontSize: 11 }}><Ic n="x" size={11} />Chưa đạt</span>
                         )}
-                      </td>
-                      <td>
-                        <div className="row gap-6" style={{ justifyContent: 'flex-end' }}>
-                          {quiz.attemptsUsed > 0 && (
-                            <button
-                              className="btn btn-ghost btn-sm"
-                              title="Xem lịch sử làm bài"
-                              onClick={() => setHistoryQuiz({ quizId: quiz.quizId, quizTitle: quiz.quizTitle })}
-                            >
-                              <Ic n="clock" size={14} />Lịch sử
-                            </button>
-                          )}
-                          {quiz.quizStatus !== 'PUBLISHED' ? (
-                            <span className="chip chip-neutral" style={{ fontSize: 11 }}>Chưa mở</span>
-                          ) : quiz.canRetry ? (
-                            <button
-                              className="btn btn-primary btn-sm"
-                              onClick={() => nav('quiz', { courseId, quizId: quiz.quizId })}
-                            >
-                              <Ic n="play" size={14} />
-                              {quiz.attemptsUsed === 0 ? 'Làm bài' : 'Làm lại'}
-                            </button>
-                          ) : (
-                            <button className="btn btn-ghost btn-sm" disabled>
-                              {quiz.maxAttempts != null && quiz.attemptsUsed >= quiz.maxAttempts
-                                ? 'Hết lượt'
-                                : 'Chờ cooldown'}
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Sn>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ margin: '18px 0' }}>
+                    <div className="between" style={{ marginBottom: 8 }}>
+                      <span className="t-xs muted">
+                        Đã làm {quiz.attemptsUsed} / {quiz.maxAttempts != null ? quiz.maxAttempts : '∞'} lần
+                      </span>
+                      {scorePct != null && (
+                        <span style={{ fontWeight: 800, fontSize: 19, color: barColor }}>
+                          {scorePct.toFixed(1)}%
+                        </span>
+                      )}
+                    </div>
+                    <div className={`bar ${quiz.passed ? 'is-done' : ''}`}>
+                      <span style={{ width: `${scorePct != null ? Math.min(100, scorePct) : 0}%`, background: scorePct != null ? barColor : undefined }} />
+                    </div>
+                  </div>
+
+                  <div className="row gap-8" style={{ justifyContent: 'space-between' }}>
+                    {quiz.attemptsUsed > 0 ? (
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        title="Xem lịch sử làm bài"
+                        onClick={() => setHistoryQuiz({ quizId: quiz.quizId, quizTitle: quiz.quizTitle })}
+                      >
+                        <Ic n="clock" size={14} />Lịch sử
+                      </button>
+                    ) : <span />}
+
+                    {locked ? (
+                      <span className="chip chip-neutral" style={{ fontSize: 11 }}>Chưa mở</span>
+                    ) : quiz.canRetry ? (
+                      <button
+                        className="btn btn-primary btn-sm"
+                        onClick={() => nav('quiz', { courseId, quizId: quiz.quizId, from: 'tasks' })}
+                      >
+                        <Ic n="play" size={14} />
+                        {notStarted ? 'Làm bài' : 'Làm lại'}
+                      </button>
+                    ) : (
+                      <button className="btn btn-ghost btn-sm" disabled>
+                        {quiz.maxAttempts != null && quiz.attemptsUsed >= quiz.maxAttempts
+                          ? 'Hết lượt'
+                          : 'Chờ cooldown'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         <AttemptHistoryModal
           quiz={historyQuiz}

@@ -73,6 +73,7 @@
     const [warnViolation, setWarnViolation] = useState(null); // { order, total }
     const [lockoutModal, setLockoutModal] = useState(false);
     const [confirmSubmit, setConfirmSubmit] = useState(false);
+    const [confirmExit, setConfirmExit] = useState(false);
 
     const autosaveTimer = useRef(null);
     const attemptRef = useRef(null);
@@ -190,6 +191,21 @@
       };
     }, [courseId, quizId]);
 
+    /* ── Chặn nút back của trình duyệt / cử chỉ vuốt back ──────── */
+    // popstate không unmount component (React Router chặn điều hướng SPA), nên phải tự bắt và
+    // "hủy" thao tác back bằng cách đẩy lại 1 state giống hệt, rồi hiện popup xác nhận thay vì
+    // rời trang ngay — tránh học viên bấm back nhầm mà mất bài đang làm dở mà không hay biết.
+    useEffect(() => {
+      if (phase !== 'playing') return;
+      window.history.pushState(null, '', window.location.href);
+      function handlePopState() {
+        window.history.pushState(null, '', window.location.href);
+        setConfirmExit(true);
+      }
+      window.addEventListener('popstate', handlePopState);
+      return () => window.removeEventListener('popstate', handlePopState);
+    }, [phase]);
+
     /* ── Theo dõi mất/có mạng ─────────────────────────────────── */
     useEffect(() => {
       function goOnline() {
@@ -283,6 +299,7 @@
 
     function handleAutoSubmit() { doSubmit(true); }
     function handleManualSubmit() { setConfirmSubmit(true); }
+    function handleBackClick() { setConfirmExit(true); }
 
     /* ── Answer selection ───────────────────────────────────── */
     function toggleAnswer(questionId, optionId, isMultiple) {
@@ -332,7 +349,7 @@
     return (
       <div className="main" style={{ minHeight: '100vh', background: '#eef2f7' }}>
         <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-        <PlayerTop onBack={onBack} authUser={authUser} />
+        <PlayerTop onBack={handleBackClick} authUser={authUser} />
 
         <div style={{ display: 'flex', gap: 0, flex: 1, alignItems: 'stretch' }}>
 
@@ -568,6 +585,30 @@
               <button className="btn btn-ghost" onClick={() => setConfirmSubmit(false)}>Tiếp tục làm</button>
               <button className="btn btn-success" onClick={() => { setConfirmSubmit(false); doSubmit(false); }}>
                 <Ic n="send" size={16} />Nộp bài
+              </button>
+            </div>
+          </div>
+        </Modal>
+
+        {/* ═══ Modal: Xác nhận thoát bài thi ═══ */}
+        <Modal open={confirmExit} onClose={() => setConfirmExit(false)} max={440}>
+          <div style={{ padding: '28px 26px 22px', textAlign: 'center' }}>
+            <div style={{
+              width: 68, height: 68, borderRadius: 999,
+              background: 'var(--chip-error-bg)', display: 'grid',
+              placeItems: 'center', margin: '0 auto 16px',
+            }}>
+              <Ic n="warn" size={32} style={{ color: 'var(--error)' }} />
+            </div>
+            <h2 className="t-h2" style={{ margin: '0 0 8px' }}>Thoát bài thi?</h2>
+            <p className="muted" style={{ margin: '0 0 6px', lineHeight: 1.6 }}>
+              Bạn đã trả lời <b style={{ color: 'var(--text)' }}>{answeredCount}/{questions.length}</b> câu.
+              Nếu thoát bây giờ, bài làm sẽ được <b style={{ color: 'var(--text)' }}>nộp ngay với các câu đã trả lời</b> — bạn sẽ không thể quay lại làm tiếp.
+            </p>
+            <div className="row gap-10" style={{ marginTop: 22, justifyContent: 'center' }}>
+              <button className="btn btn-ghost" onClick={() => setConfirmExit(false)}>Tiếp tục làm bài</button>
+              <button className="btn btn-danger" onClick={() => { setConfirmExit(false); onBack(); }}>
+                <Ic n="arrow_left" size={16} />Thoát và nộp bài
               </button>
             </div>
           </div>

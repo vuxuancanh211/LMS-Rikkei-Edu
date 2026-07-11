@@ -834,7 +834,7 @@
                             onClick={() => {
                               if (quizLocked) return;
                               if (isQuiz) {
-                                const url = `/player/quiz?courseId=${courseId}&quizId=${l.quizId}`;
+                                const url = `/player/quiz?courseId=${courseId}&quizId=${l.quizId}&from=lecture&lessonId=${l.id}`;
                                 if (navigate) navigate(url); else window.location.href = url;
                                 return;
                               }

@@ -8,7 +8,7 @@
   const { Avatar, Status, Search, Tabs, Select, Section, Modal, ModalHead, Empty, PageBar, ConfirmModal } = window;
 
   const {
-    listQuizzes, createQuiz, updateQuiz, publishQuiz, archiveQuiz, deleteQuiz,
+    listQuizzes, createQuiz, updateQuiz, publishQuiz, archiveQuiz, unarchiveQuiz, deleteQuiz,
     listBankQuestions, searchBankQuestions, createBankQuestion, updateBankQuestion, deleteBankQuestion,
     toggleBankQuestionStatus, previewBankImport, confirmBankImport, exportBankQuestions,
     getQuizStats, getAllAttemptsForQuiz, getViolations, reorderQuizQuestions,
@@ -22,8 +22,11 @@
 
   const DIFF_LABEL = { EASY: 'Dễ', MEDIUM: 'Trung bình', HARD: 'Khó' };
   const DIFF_CHIP  = { EASY: 'success', MEDIUM: 'warning', HARD: 'error' };
-  const STATUS_LABEL = { DRAFT: 'Nháp', PUBLISHED: 'Công khai', ARCHIVED: 'Lưu trữ' };
-  const STATUS_CHIP  = { DRAFT: 'neutral', PUBLISHED: 'success', ARCHIVED: 'muted' };
+  // DRAFT (chưa từng xuất bản) và ARCHIVED (đã xuất bản rồi lưu trữ lại) đều khiến quiz bị khóa với
+  // học viên như nhau (xem LecturePlayer: quizLocked khi quizStatus !== PUBLISHED) — gộp chung nhãn
+  // "Tắt" cho cả 2, chỉ PUBLISHED mới là "Bật" (khớp cách cột "Giám sát" cùng bảng dùng Bật/Tắt).
+  const STATUS_LABEL = { DRAFT: 'Tắt', PUBLISHED: 'Bật', ARCHIVED: 'Tắt' };
+  const STATUS_CHIP  = { DRAFT: 'neutral', PUBLISHED: 'success', ARCHIVED: 'neutral' };
   const TYPE_LABEL = { STATIC: 'Cố định', SHUFFLED_POOL: 'Xáo câu', RANDOM_DRAW: 'Ngẫu nhiên' };
 
   // Số câu tối đa sinh được trong 1 lần gọi AI — khớp @Max(40) ở AiGenerateQuestionsRequest phía BE
@@ -62,6 +65,19 @@
       if (courseId) setSelectedCourseId(courseId);
     }, [courseId]);
 
+    // Ghi lại khóa học đang chọn vào URL — nếu không, đổi khóa học qua dropdown (không phải deep-link
+    // có sẵn ?courseId=) sẽ không được lưu, F5 sẽ mất lựa chọn và rơi về khóa học đầu tiên trong danh
+    // sách (xem effect load courses bên dưới: fallback list[0] khi !selectedCourseId && !courseId).
+    useEffect(() => {
+      if (!selectedCourseId) return;
+      try {
+        const url = new URL(window.location.href);
+        if (url.searchParams.get('courseId') === selectedCourseId) return;
+        url.searchParams.set('courseId', selectedCourseId);
+        window.history.replaceState(null, '', url.pathname + url.search);
+      } catch { /* ignore */ }
+    }, [selectedCourseId]);
+
     useEffect(() => {
       getMyCourses()
         .then(page => {
@@ -75,7 +91,11 @@
         .finally(() => setCoursesLoading(false));
     }, []);
 
-    const [tab, setTab] = useState('quiz');
+    // Khởi tạo tab từ URL (?tab=bank) — nếu không, tab luôn khởi tạo cứng về 'quiz' nên F5 lúc đang
+    // ở tab Ngân hàng câu hỏi sẽ bị đẩy về tab Đề trắc nghiệm.
+    const [tab, setTab] = useState(() => (
+      new URLSearchParams(window.location.search).get('tab') === 'bank' ? 'bank' : 'quiz'
+    ));
     const [q, setQ] = useState('');
     const [toast, setToast] = useState(null);
 
@@ -83,7 +103,14 @@
     const QUIZ_PAGE_SIZE = 10;
     const [quizzes, setQuizzes] = useState([]);
     const [quizLoading, setQuizLoading] = useState(false);
-    const [quizPageNum, setQuizPageNum] = useState(1); // 1-based (khớp Pager component)
+    // Khởi tạo trang từ URL (?page=) — chỉ áp dụng nếu tab lúc F5 chính là 'quiz', tránh áp nhầm
+    // số trang của tab kia.
+    const [quizPageNum, setQuizPageNum] = useState(() => {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('tab') === 'bank') return 1;
+      const p = Number(params.get('page'));
+      return p > 0 ? p : 1;
+    }); // 1-based (khớp Pager component)
     const [quizTotalElements, setQuizTotalElements] = useState(0);
     const [quizTotalPages, setQuizTotalPages] = useState(1);
     const [debouncedQuizSearch, setDebouncedQuizSearch] = useState('');
@@ -96,9 +123,26 @@
     const [bankLoading, setBankLoading] = useState(false);
     const [bankFilter, setBankFilter] = useState('ALL');
     const [bankStatusFilter, setBankStatusFilter] = useState('ALL');
-    const [bankPageNum, setBankPageNum] = useState(1); // 1-based (khớp Pager component)
+    const [bankPageNum, setBankPageNum] = useState(() => {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('tab') !== 'bank') return 1;
+      const p = Number(params.get('page'));
+      return p > 0 ? p : 1;
+    }); // 1-based (khớp Pager component)
     const [bankTotalElements, setBankTotalElements] = useState(0);
     const [bankTotalPages, setBankTotalPages] = useState(1);
+
+    // Ghi lại tab đang xem + trang phân trang hiện tại (của đúng tab đó) vào URL — F5 sẽ khôi phục
+    // lại đúng tab/trang thay vì luôn về tab "Đề trắc nghiệm" trang 1 (tab/page trước đây khởi tạo
+    // cứng, không đọc URL).
+    useEffect(() => {
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.set('tab', tab);
+        url.searchParams.set('page', String(tab === 'bank' ? bankPageNum : quizPageNum));
+        window.history.replaceState(null, '', url.pathname + url.search);
+      } catch { /* ignore */ }
+    }, [tab, quizPageNum, bankPageNum]);
 
     // Chế độ tìm kiếm (hybrid) — khớp chữ xếp trước, tương đồng ngữ nghĩa nối sau
     const [searchHits, setSearchHits] = useState([]);
@@ -112,6 +156,7 @@
     const [editBankItem, setEditBankItem] = useState(null);
     const [importOpen, setImportOpen] = useState(false);
     const [submitting, setSubmitting] = useState(false);
+    const [togglingId, setTogglingId] = useState(null); // quizId đang publish/archive dở — chặn bấm đúp
 
     // Stats modal state
     const [statsQuiz, setStatsQuiz] = useState(null);
@@ -211,8 +256,16 @@
       return () => clearTimeout(timer);
     }, [q, tab]);
 
-    // Đổi khóa học → về trang 1
-    useEffect(() => { setQuizPageNum(1); }, [activeCourseId]);
+    // Đổi khóa học → về trang 1 — chỉ reset khi activeCourseId THỰC SỰ đổi so với lần trước, tránh
+    // dùng cờ "bỏ qua lần đầu" kiểu boolean vì React StrictMode (dev) chạy effect 2 lần lúc mount
+    // (mount → cleanup → mount) khiến cờ bị tiêu thụ ở lần đầu rồi "mở khoá" ngay ở lần thứ hai —
+    // vẫn trong cùng lần mount ban đầu — làm mất số trang vừa khôi phục từ URL lúc F5.
+    const lastQuizResetCourseId = useRef(activeCourseId);
+    useEffect(() => {
+      if (lastQuizResetCourseId.current === activeCourseId) return;
+      lastQuizResetCourseId.current = activeCourseId;
+      setQuizPageNum(1);
+    }, [activeCourseId]);
 
     /* ── Fetch bank questions — chế độ duyệt (phân trang), chỉ chạy khi KHÔNG tìm kiếm ── */
     const fetchBank = useCallback(async () => {
@@ -240,8 +293,14 @@
       if (q.trim().length < 3) fetchBank();
     }, [fetchBank, q]);
 
-    // Đổi khóa học/bộ lọc → về trang 1
-    useEffect(() => { setBankPageNum(1); }, [activeCourseId, bankFilter, bankStatusFilter]);
+    // Đổi khóa học/bộ lọc → về trang 1 — lý do dùng key-comparison thay vì cờ boolean tương tự trên.
+    const lastBankResetKey = useRef(`${activeCourseId}:${bankFilter}:${bankStatusFilter}`);
+    useEffect(() => {
+      const key = `${activeCourseId}:${bankFilter}:${bankStatusFilter}`;
+      if (lastBankResetKey.current === key) return;
+      lastBankResetKey.current = key;
+      setBankPageNum(1);
+    }, [activeCourseId, bankFilter, bankStatusFilter]);
 
     /* ── Chế độ tìm kiếm (hybrid, debounce 400ms) — thay hẳn cho danh sách phân trang ── */
     useEffect(() => {
@@ -376,19 +435,30 @@
 
     /* ── Publish / Archive quiz ── */
     const handlePublish = useCallback(async (quiz) => {
+      // Chặn bấm đúp/bấm lại khi request trước chưa xong — nếu không, lần bấm thứ 2 vẫn dùng
+      // "quiz.status" cũ (chưa kịp refetch) nên gọi lại publish/archive lần nữa và bị 400 dù
+      // lần bấm đầu đã thành công, khiến người dùng tưởng nhầm là lỗi hệ thống.
+      if (togglingId === quiz.id) return;
+      setTogglingId(quiz.id);
       try {
         if (quiz.status === 'DRAFT') {
           await publishQuiz(activeCourseId, quiz.id);
-          showToast(`Đã xuất bản "${quiz.title}"`);
+          showToast(`Đã bật "${quiz.title}"`);
         } else if (quiz.status === 'PUBLISHED') {
           await archiveQuiz(activeCourseId, quiz.id);
-          showToast(`Đã lưu trữ "${quiz.title}"`);
+          showToast(`Đã tắt "${quiz.title}"`);
+        } else if (quiz.status === 'ARCHIVED') {
+          // Bật lại quiz đã lưu trữ — publish() chỉ cho DRAFT→PUBLISHED, ARCHIVED phải qua unarchive().
+          await unarchiveQuiz(activeCourseId, quiz.id);
+          showToast(`Đã bật lại "${quiz.title}"`);
         }
         fetchQuizzes();
       } catch (err) {
         showToast(extractError(err), 'error');
+      } finally {
+        setTogglingId(null);
       }
-    }, [activeCourseId, fetchQuizzes, showToast]);
+    }, [activeCourseId, fetchQuizzes, showToast, togglingId]);
 
     /* ── Delete quiz ── */
     const handleDeleteQuiz = useCallback((quiz) => {
@@ -621,7 +691,10 @@
         {/* ── QUIZ TAB ── */}
         {tab === 'quiz' && (
           <Section pad={false}>
-            {quizLoading ? (
+            {/* Chỉ thay cả bảng bằng "Đang tải..." lúc tải lần đầu (chưa có dữ liệu) — các lần
+                refetch sau (VD sau khi xuất bản/lưu trữ) giữ nguyên bảng cũ, tránh bảng biến mất
+                rồi hiện lại làm trang giật/nhảy lên đầu mỗi lần thao tác. */}
+            {quizLoading && quizzes.length === 0 ? (
               <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-2)' }}>Đang tải...</div>
             ) : quizzes.length === 0 ? (
               <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-2)' }}>
@@ -681,15 +754,14 @@
                             >
                               <Ic n="bar_chart" size={16} />
                             </button>
-                            {quiz.status !== 'ARCHIVED' && (
-                              <button
-                                className={`btn btn-sm ${quiz.status === 'DRAFT' ? 'btn-success' : 'btn-ghost'}`}
-                                style={{ fontSize: 12, padding: '4px 10px' }}
-                                onClick={() => handlePublish(quiz)}
-                              >
-                                {quiz.status === 'DRAFT' ? 'Xuất bản' : 'Lưu trữ'}
-                              </button>
-                            )}
+                            <button
+                              className={`btn btn-sm ${quiz.status === 'PUBLISHED' ? 'btn-ghost' : 'btn-success'}`}
+                              style={{ fontSize: 12, padding: '4px 10px' }}
+                              disabled={togglingId === quiz.id}
+                              onClick={() => handlePublish(quiz)}
+                            >
+                              {togglingId === quiz.id ? 'Đang xử lý...' : quiz.status === 'PUBLISHED' ? 'Tắt' : 'Bật'}
+                            </button>
                             <button className="icon-btn" style={{ width: 34, height: 34, color: 'var(--error)' }}
                               onClick={() => handleDeleteQuiz(quiz)}>
                               <Ic n="x" size={16} />

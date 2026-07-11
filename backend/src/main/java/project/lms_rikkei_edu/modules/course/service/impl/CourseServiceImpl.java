@@ -31,6 +31,8 @@ import project.lms_rikkei_edu.modules.course.service.StudentCourseService;
 import project.lms_rikkei_edu.infrastructure.s3.S3Service;
 import project.lms_rikkei_edu.modules.quiz.dto.request.QuizMetadataRequest;
 import project.lms_rikkei_edu.modules.quiz.dto.response.QuizSummaryResponse;
+import project.lms_rikkei_edu.modules.quiz.entity.QuizEntity;
+import project.lms_rikkei_edu.modules.quiz.enums.QuizStatus;
 import project.lms_rikkei_edu.modules.quiz.repository.QuizRepository;
 import project.lms_rikkei_edu.modules.quiz.service.QuizService;
 
@@ -144,6 +146,11 @@ public class CourseServiceImpl implements CourseService {
         // Force-load toàn bộ nội dung để build snapshot
         course.getChapters().forEach(ch -> ch.getLessons().forEach(l -> l.getResources().size()));
 
+        // Bài học loại quiz phải trỏ tới 1 đề đã Hoạt động (PUBLISHED) — nếu không, học viên sẽ vào
+        // được khóa học đã duyệt nhưng gặp bài học quiz bị khóa (xem LecturePlayer: quizLocked khi
+        // quizStatus !== PUBLISHED). Áp dụng cho cả 3 nhánh gửi duyệt bên dưới.
+        validateQuizzesActive(course);
+
         if (course.getStatus() == CourseStatus.DRAFT || course.getStatus() == CourseStatus.REJECTED) {
             long lessonCount = lessonRepository.countByCourseId(courseId);
             if (lessonCount == 0) {
@@ -184,6 +191,33 @@ public class CourseServiceImpl implements CourseService {
         }
 
         return courseMapper.toDetailResponse(courseRepository.save(course));
+    }
+
+    // Chặn gửi duyệt nếu còn bài học loại quiz trỏ tới đề chưa Hoạt động (DRAFT) hoặc đã Lưu trữ
+    // (ARCHIVED) — cả 2 trạng thái đều khiến học viên gặp bài học bị khóa dù khóa học đã duyệt.
+    private void validateQuizzesActive(Course course) {
+        List<UUID> quizIds = course.getChapters().stream()
+                .filter(ch -> !Boolean.TRUE.equals(ch.getPendingDelete()))
+                .flatMap(ch -> ch.getLessons().stream())
+                .filter(l -> !Boolean.TRUE.equals(l.getPendingDelete())
+                        && l.getType() == LessonType.QUIZ && l.getQuizId() != null)
+                .map(Lesson::getQuizId)
+                .distinct()
+                .toList();
+        if (quizIds.isEmpty()) return;
+
+        Map<UUID, QuizEntity> quizMap = quizRepository.findAllById(quizIds).stream()
+                .collect(Collectors.toMap(QuizEntity::getId, q -> q));
+        List<String> notActive = quizIds.stream()
+                .map(quizMap::get)
+                .filter(quiz -> quiz == null || quiz.getStatus() != QuizStatus.PUBLISHED)
+                .map(quiz -> quiz != null ? quiz.getTitle() : "(không tìm thấy đề)")
+                .toList();
+
+        if (!notActive.isEmpty()) {
+            throw new CourseStateException("Còn đề trắc nghiệm chưa Hoạt động: " + String.join(", ", notActive)
+                    + ". Vui lòng chuyển các đề này sang Hoạt động trước khi gửi duyệt khóa học.");
+        }
     }
 
     @Override
