@@ -4,7 +4,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -67,6 +70,7 @@ public class CourseServiceImpl implements CourseService {
     private final QuizService quizService;
     private final QuizRepository quizRepository;
     private final StudentCourseService studentCourseService;
+    private final CourseListCacheGateway courseListCacheGateway;
 
     @Override
     public CourseResponse createCourse(UUID instructorId, CreateCourseRequest request) {
@@ -90,25 +94,48 @@ public class CourseServiceImpl implements CourseService {
 
     @Override
     @Transactional(readOnly = true)
+    @Cacheable(value = "course-detail", key = "#courseId + '_' + #instructorId")
     public CourseDetailResponse getCourseDetail(UUID instructorId, UUID courseId) {
-        Course course = courseRepository.findByIdWithCategory(courseId)
+        Course course = courseRepository.findByIdWithFullContent(courseId)
                 .orElseThrow(() -> new CourseNotFoundException(courseId));
         assertOwner(course, instructorId);
-        // Trigger lazy load resources (deleted_at IS NULL filtered by @Where on entity)
-        course.getChapters().forEach(ch ->
-            ch.getLessons().forEach(l -> l.getResources().size())
-        );
+        hydrateChaptersLessonsResources(course);
         return courseMapper.toDetailResponse(course);
     }
 
     @Override
     @Transactional(readOnly = true)
-    public Page<CourseResponse> listCourses(UUID instructorId, Pageable pageable) {
-        return courseRepository.findAllByInstructorId(instructorId, pageable)
-                .map(courseMapper::toResponse);
+    @Cacheable(value = "course-detail", key = "#slug + '_' + #instructorId")
+    public CourseDetailResponse getCourseDetailBySlug(UUID instructorId, String slug) {
+        Course course = courseRepository.findBySlugWithFullContent(slug)
+                .orElseThrow(() -> new CourseNotFoundException(slug));
+        assertOwner(course, instructorId);
+        hydrateChaptersLessonsResources(course);
+        return courseMapper.toDetailResponse(course);
+    }
+
+    /**
+     * Nạp lessons + resources bằng 2 query riêng (thay vì JOIN FETCH cả 2 tầng trong 1 query)
+     * vì Hibernate không cho JOIN FETCH nhiều hơn 1 collection List (bag) cùng lúc —
+     * {@code chapters}/{@code lessons}/{@code resources} đều là List nên chỉ 1 trong 3 được
+     * fetch cùng query gốc (xem CourseRepository.findByIdWithFullContent). Cùng persistence
+     * context (@Transactional) nên Hibernate tự gắn kết quả vào đúng entity Chapter/Lesson đã
+     * có trong {@code course.getChapters()} — không tạo thêm bản sao, không lazy-load per-row.
+     */
+    private void hydrateChaptersLessonsResources(Course course) {
+        chapterRepository.findAllWithLessonsByCourseId(course.getId());
+        lessonRepository.findAllWithResourcesByCourseId(course.getId());
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public Page<CourseResponse> listCourses(UUID instructorId, Pageable pageable, String keyword) {
+        CourseListCacheGateway.Entry entry = courseListCacheGateway.find(instructorId, pageable, keyword);
+        return new PageImpl<>(entry.getContent(), pageable, entry.getTotalElements());
+    }
+
+    @Override
+    @CacheEvict(value = "course-detail", key = "#courseId + '_' + #instructorId")
     public CourseResponse updateCourse(UUID instructorId, UUID courseId, UpdateCourseRequest request) {
         Course course = loadOwnedCourse(instructorId, courseId);
         if (course.getStatus() == CourseStatus.ARCHIVED) {
@@ -130,6 +157,7 @@ public class CourseServiceImpl implements CourseService {
     }
 
     @Override
+    @CacheEvict(value = "course-detail", key = "#courseId + '_' + #instructorId")
     public void deleteCourse(UUID instructorId, UUID courseId) {
         Course course = loadOwnedCourse(instructorId, courseId);
         if (course.getStatus() == CourseStatus.PUBLISHED) {
@@ -140,6 +168,7 @@ public class CourseServiceImpl implements CourseService {
     }
 
     @Override
+    @CacheEvict(value = "course-detail", key = "#courseId + '_' + #instructorId")
     public CourseDetailResponse submitForApproval(UUID instructorId, UUID courseId, String changeSummary) {
         Course course = loadOwnedCourse(instructorId, courseId);
 
@@ -221,6 +250,7 @@ public class CourseServiceImpl implements CourseService {
     }
 
     @Override
+    @CacheEvict(value = "course-detail", key = "#courseId + '_' + #instructorId")
     public CourseDetailResponse withdrawFromReview(UUID instructorId, UUID courseId) {
         Course course = loadOwnedCourse(instructorId, courseId);
 
@@ -272,6 +302,7 @@ public class CourseServiceImpl implements CourseService {
     }
 
     @Override
+    @CacheEvict(value = "course-detail", key = "#courseId + '_' + #instructorId")
     public ChapterResponse addChapter(UUID instructorId, UUID courseId, CreateChapterRequest request) {
         Course course = loadOwnedCourse(instructorId, courseId);
         assertEditable(course);
@@ -291,6 +322,7 @@ public class CourseServiceImpl implements CourseService {
     }
 
     @Override
+    @CacheEvict(value = "course-detail", key = "#courseId + '_' + #instructorId")
     public ChapterResponse updateChapter(UUID instructorId, UUID courseId, UUID chapterId, UpdateChapterRequest request) {
         Course course = loadOwnedCourse(instructorId, courseId);
         assertEditable(course);
@@ -306,6 +338,7 @@ public class CourseServiceImpl implements CourseService {
     }
 
     @Override
+    @CacheEvict(value = "course-detail", key = "#courseId + '_' + #instructorId")
     public void deleteChapter(UUID instructorId, UUID courseId, UUID chapterId) {
         Course course = loadOwnedCourse(instructorId, courseId);
         assertEditable(course);
@@ -328,6 +361,7 @@ public class CourseServiceImpl implements CourseService {
     }
 
     @Override
+    @CacheEvict(value = "course-detail", key = "#courseId + '_' + #instructorId")
     public List<ChapterResponse> reorderChapters(UUID instructorId, UUID courseId, List<UUID> chapterIds) {
         Course course = loadOwnedCourse(instructorId, courseId);
         assertEditable(course);
@@ -353,6 +387,7 @@ public class CourseServiceImpl implements CourseService {
     }
 
     @Override
+    @CacheEvict(value = "course-detail", key = "#courseId + '_' + #instructorId")
     public LessonResponse addLesson(UUID instructorId, UUID courseId, UUID chapterId, CreateLessonRequest request) {
         Course course = loadOwnedCourse(instructorId, courseId);
         assertEditable(course);
@@ -407,6 +442,7 @@ public class CourseServiceImpl implements CourseService {
     }
 
     @Override
+    @CacheEvict(value = "course-detail", key = "#courseId + '_' + #instructorId")
     public LessonResponse updateLesson(UUID instructorId, UUID courseId, UUID chapterId, UUID lessonId, UpdateLessonRequest request) {
         Course course = loadOwnedCourse(instructorId, courseId);
         assertEditable(course);
@@ -446,6 +482,7 @@ public class CourseServiceImpl implements CourseService {
     }
 
     @Override
+    @CacheEvict(value = "course-detail", key = "#courseId + '_' + #instructorId")
     public List<LessonResponse> reorderLessons(UUID instructorId, UUID courseId, UUID chapterId, List<UUID> lessonIds) {
         Course course = loadOwnedCourse(instructorId, courseId);
         assertEditable(course);
@@ -467,6 +504,7 @@ public class CourseServiceImpl implements CourseService {
     }
 
     @Override
+    @CacheEvict(value = "course-detail", key = "#courseId + '_' + #instructorId")
     public void deleteLesson(UUID instructorId, UUID courseId, UUID chapterId, UUID lessonId) {
         Course course = loadOwnedCourse(instructorId, courseId);
         assertEditable(course);
@@ -691,6 +729,7 @@ public class CourseServiceImpl implements CourseService {
     }
 
     @Override
+    @CacheEvict(value = "course-detail", key = "#courseId + '_' + #instructorId")
     public CourseDetailResponse rollbackToVersion(UUID instructorId, UUID courseId, UUID versionId) {
         Course course = loadOwnedCourse(instructorId, courseId);
 

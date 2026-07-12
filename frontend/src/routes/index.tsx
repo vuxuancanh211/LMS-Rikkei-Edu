@@ -23,7 +23,7 @@ const roleRoutes = {
   instructor: {
     dashboard: '/instructor/dashboard',
     courses: '/instructor/courses',
-    courseDetail: '/instructor/courses/detail',
+    courseDetail: '/instructor/courses',
     groups: '/instructor/groups',
     groupDetail: '/instructor/groups/detail',
     assess: '/instructor/assess',
@@ -136,6 +136,10 @@ function RoutedShell({ role, route }: { role: keyof typeof roleRoutes; route: st
       onNavigate={(nextRole: keyof typeof roleRoutes, nextRoute: string, extra?: Record<string, string>) => {
         if (nextRole === 'student' && nextRoute === 'certDetail' && extra?.certificateId) {
           navigate(`/student/certs/${encodeURIComponent(extra.certificateId)}`);
+          return;
+        }
+        if (nextRole === 'instructor' && nextRoute === 'courseDetail' && extra?.slug) {
+          navigate(`/instructor/courses/${encodeURIComponent(extra.slug)}`);
           return;
         }
         const path = roleRoutes[nextRole]?.[nextRoute as keyof (typeof roleRoutes)[typeof nextRole]];
@@ -269,7 +273,7 @@ export const router = createBrowserRouter([
   { path: '/student/groups/detail', element: <RequireAuth><RoutedShell role="student" route="groupDetail" /></RequireAuth> },
   { path: '/instructor/dashboard', element: <RequireAuth><RoutedShell role="instructor" route="dashboard" /></RequireAuth> },
   { path: '/instructor/courses', element: <RequireAuth><RoutedShell role="instructor" route="courses" /></RequireAuth> },
-  { path: '/instructor/courses/detail', element: <RequireAuth><RoutedShell role="instructor" route="courseDetail" /></RequireAuth> },
+  { path: '/instructor/courses/:slug', element: <RequireAuth><RoutedShell role="instructor" route="courseDetail" /></RequireAuth> },
   { path: '/instructor/groups', element: <RequireAuth><RoutedShell role="instructor" route="groups" /></RequireAuth> },
   { path: '/instructor/groups/detail', element: <RequireAuth><RoutedShell role="instructor" route="groupDetail" /></RequireAuth> },
   { path: '/instructor/assess', element: <RequireAuth><RoutedShell role="instructor" route="assess" /></RequireAuth> },

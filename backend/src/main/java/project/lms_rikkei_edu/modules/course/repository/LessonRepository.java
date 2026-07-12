@@ -21,4 +21,8 @@ public interface LessonRepository extends JpaRepository<Lesson, UUID> {
     long countByCourseId(UUID courseId);
 
     Optional<Lesson> findByQuizId(UUID quizId);
+
+    /** Nạp thêm resources cho các lesson đã load sẵn của 1 khóa học — xem ghi chú ở CourseRepository.findByIdWithFullContent. */
+    @Query("SELECT DISTINCT l FROM Lesson l LEFT JOIN FETCH l.resources WHERE l.courseId = :courseId")
+    List<Lesson> findAllWithResourcesByCourseId(@Param("courseId") UUID courseId);
 }

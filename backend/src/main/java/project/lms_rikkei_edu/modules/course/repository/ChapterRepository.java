@@ -17,4 +17,8 @@ public interface ChapterRepository extends JpaRepository<Chapter, UUID> {
     int findMaxOrderIndexByCourseId(@Param("courseId") UUID courseId);
 
     Optional<Chapter> findByIdAndCourseId(UUID id, UUID courseId);
+
+    /** Nạp thêm lessons cho các chapter đã load sẵn của 1 khóa học — xem ghi chú ở CourseRepository.findByIdWithFullContent. */
+    @Query("SELECT DISTINCT ch FROM Chapter ch LEFT JOIN FETCH ch.lessons WHERE ch.course.id = :courseId")
+    List<Chapter> findAllWithLessonsByCourseId(@Param("courseId") UUID courseId);
 }

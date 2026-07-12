@@ -21,6 +21,7 @@ import project.lms_rikkei_edu.modules.course.mapper.ChapterMapper;
 import project.lms_rikkei_edu.modules.course.mapper.CourseMapper;
 import project.lms_rikkei_edu.modules.course.mapper.LessonMapper;
 import project.lms_rikkei_edu.modules.course.repository.*;
+import project.lms_rikkei_edu.modules.course.service.impl.CourseListCacheGateway;
 import project.lms_rikkei_edu.modules.course.service.impl.CourseServiceImpl;
 import project.lms_rikkei_edu.modules.quiz.repository.QuizRepository;
 import project.lms_rikkei_edu.modules.quiz.service.QuizService;
@@ -71,7 +72,8 @@ class CourseLessonAndVersionServiceImplTest {
                 lessonResourceRepository, categoryRepository,
                 approvalLogRepository, courseVersionRepository,
                 courseMapper, objectMapper, chapterMapper, lessonMapper,
-                entityManager, s3Service, quizService, quizRepository, studentCourseService
+                entityManager, s3Service, quizService, quizRepository, studentCourseService,
+                new CourseListCacheGateway(courseRepository, courseMapper)
         );
     }
 

@@ -62,8 +62,15 @@ public class CourseController {
 
     @GetMapping
     public ResponseEntity<Page<CourseResponse>> listCourses(
-            @PageableDefault(size = 20, sort = "createdAt") Pageable pageable) {
-        return ResponseEntity.ok(courseService.listCourses(currentUserId(), pageable));
+            @PageableDefault(size = 20, sort = "createdAt") Pageable pageable,
+            @RequestParam(required = false) String keyword) {
+        return ResponseEntity.ok(courseService.listCourses(currentUserId(), pageable, keyword));
+    }
+
+    @GetMapping("/by-slug/{slug}")
+    public ResponseEntity<CourseDetailResponse> getCourseDetailBySlug(
+            @PathVariable String slug) {
+        return ResponseEntity.ok(courseService.getCourseDetailBySlug(currentUserId(), slug));
     }
 
     @GetMapping("/{courseId}")

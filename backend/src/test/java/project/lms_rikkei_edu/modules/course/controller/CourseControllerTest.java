@@ -144,7 +144,7 @@ class CourseControllerTest {
             CourseResponse c1 = courseResponse(courseId, "Course 1", CourseStatus.DRAFT);
             CourseResponse c2 = courseResponse(UUID.randomUUID(), "Course 2", CourseStatus.PUBLISHED);
 
-            when(courseService.listCourses(eq(instructorId), any()))
+            when(courseService.listCourses(eq(instructorId), any(), any()))
                     .thenReturn(new PageImpl<>(List.of(c1, c2), PageRequest.of(0, 20), 2));
 
             mockMvc.perform(get("/api/instructor/courses"))
@@ -156,7 +156,7 @@ class CourseControllerTest {
 
         @Test
         void returnsEmptyPage_whenNoCoursesExist() throws Exception {
-            when(courseService.listCourses(eq(instructorId), any()))
+            when(courseService.listCourses(eq(instructorId), any(), any()))
                     .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 20), 0));
 
             mockMvc.perform(get("/api/instructor/courses"))

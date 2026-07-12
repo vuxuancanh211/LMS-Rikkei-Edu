@@ -275,7 +275,7 @@ function registerGalleryPage() {
               )}
             </div>
           </header>
-          <main style={{ flex: 1 }}><Comp nav={go} persona={persona} demo={demo} groupId={routeParams?.groupId} courseId={routeParams?.courseId} quizId={routeParams?.quizId} /></main>
+          <main style={{ flex: 1 }}><Comp nav={go} persona={persona} demo={demo} groupId={routeParams?.groupId} courseId={routeParams?.courseId} slug={routeParams?.slug} quizId={routeParams?.quizId} /></main>
         </div>
         {(role === "student" || role === "instructor") && <window.AIChatbot />}
       </div>

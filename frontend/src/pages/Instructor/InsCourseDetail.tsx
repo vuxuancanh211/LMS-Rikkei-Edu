@@ -137,8 +137,8 @@
     );
   }
 
-  function InsCourseDetail({ nav }) {
-    const courseId = window.__selectedCourseId || sessionStorage.getItem("selectedCourseId") || null;
+  function InsCourseDetail({ nav, slug }) {
+    const [courseId, setCourseId] = useState(null);
 
     const [course, setCourse]     = useState(null);
     const [chapters, setChapters] = useState([]);
@@ -200,13 +200,24 @@
     const showAlert   = (message, opts?)           => setAlertState({ message, ...opts });
 
     function loadCourse(silent = false) {
-      if (!courseId) { setLoading(false); return; }
+      if (!slug) { setLoading(false); return; }
       if (!silent) { setLoading(true); setErr(null); }
       const scrollEl = document.querySelector(".page");
       const savedScroll = scrollEl?.scrollTop ?? 0;
-      api.get(`/instructor/courses/${courseId}`)
+      // Sau lần tải đầu tiên đã biết courseId thật — dùng lại nó cho các lần tải ngầm
+      // (sau khi sửa) thay vì tra lại theo slug, vì đổi tên khóa học sẽ sinh slug mới
+      // khiến slug cũ trên URL không còn khớp dữ liệu (dù URL chưa được cập nhật).
+      const request = courseId
+        ? api.get(`/instructor/courses/${courseId}`)
+        : api.get(`/instructor/courses/by-slug/${encodeURIComponent(slug)}`);
+      request
         .then(r => {
           setCourse(r.data);
+          setCourseId(r.data.id);
+          // AIChatbot/LecturePlayer đọc khóa học "đang mở" qua kênh này — giữ để
+          // không phá vỡ các nơi đó, dù trang này giờ không còn phụ thuộc vào nó nữa.
+          window.__selectedCourseId = r.data.id;
+          sessionStorage.setItem("selectedCourseId", r.data.id);
           setChapters(mapCourse(r.data));
           setEditTitle(r.data.title || "");
           setEditDesc(r.data.description || "");
@@ -219,7 +230,7 @@
         .catch(e => setErr(e?.response?.data?.message || "Không thể tải khóa học"))
         .finally(() => { if (!silent) setLoading(false); });
     }
-    useEffect(() => { loadCourse(); setViewingVersion(null); }, [courseId]);
+    useEffect(() => { loadCourse(); setViewingVersion(null); }, [slug]);
     useEffect(() => {
       api.get("/instructor/courses/categories").then(r => setCategories(r.data || [])).catch(() => {});
     }, []);
@@ -506,7 +517,7 @@
     }
 
     /* guards */
-    if (!courseId) return (
+    if (!slug) return (
       <div className="page fade-in">
         <div className="page-head"><h1 className="t-h1">Chi tiết Khóa học</h1></div>
         <Empty icon="book" title="Chưa chọn khóa học" sub="Quay lại danh sách và chọn một khóa học." />

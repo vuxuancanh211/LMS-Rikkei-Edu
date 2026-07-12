@@ -16,6 +16,7 @@ import project.lms_rikkei_edu.modules.course.entity.*;
 import project.lms_rikkei_edu.modules.course.enums.CourseStatus;
 import project.lms_rikkei_edu.modules.course.mapper.*;
 import project.lms_rikkei_edu.modules.course.repository.*;
+import project.lms_rikkei_edu.modules.course.service.impl.CourseListCacheGateway;
 import project.lms_rikkei_edu.modules.course.service.impl.CourseServiceImpl;
 import project.lms_rikkei_edu.modules.quiz.repository.QuizRepository;
 import project.lms_rikkei_edu.modules.quiz.service.QuizService;
@@ -62,7 +63,8 @@ class CourseServiceImplExt2Test {
                 lessonResourceRepository, categoryRepository,
                 approvalLogRepository, courseVersionRepository,
                 courseMapper, objectMapper, chapterMapper, lessonMapper,
-                entityManager, s3Service, quizService, quizRepository, studentCourseService
+                entityManager, s3Service, quizService, quizRepository, studentCourseService,
+                new CourseListCacheGateway(courseRepository, courseMapper)
         );
     }
 
@@ -119,7 +121,7 @@ class CourseServiceImplExt2Test {
             Chapter ch = chapter(false, false, List.of(l));
             Course c = course(CourseStatus.DRAFT, List.of(ch));
 
-            when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.of(c));
+            when(courseRepository.findByIdWithFullContent(COURSE_ID)).thenReturn(Optional.of(c));
             when(courseMapper.toDetailResponse(c)).thenReturn(detailResponse());
 
             CourseDetailResponse result = service.getCourseDetail(INSTRUCTOR_ID, COURSE_ID);

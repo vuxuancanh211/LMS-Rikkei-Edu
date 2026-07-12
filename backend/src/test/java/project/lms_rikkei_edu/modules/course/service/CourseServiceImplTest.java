@@ -25,6 +25,7 @@ import project.lms_rikkei_edu.modules.course.mapper.ChapterMapper;
 import project.lms_rikkei_edu.modules.course.mapper.CourseMapper;
 import project.lms_rikkei_edu.modules.course.mapper.LessonMapper;
 import project.lms_rikkei_edu.modules.course.repository.*;
+import project.lms_rikkei_edu.modules.course.service.impl.CourseListCacheGateway;
 import project.lms_rikkei_edu.modules.course.service.impl.CourseServiceImpl;
 import project.lms_rikkei_edu.modules.quiz.repository.QuizRepository;
 import project.lms_rikkei_edu.modules.quiz.service.QuizService;
@@ -72,7 +73,8 @@ class CourseServiceImplTest {
                 lessonResourceRepository, categoryRepository,
                 approvalLogRepository, courseVersionRepository,
                 courseMapper, objectMapper, chapterMapper, lessonMapper,
-                entityManager, s3Service, quizService, quizRepository, studentCourseService
+                entityManager, s3Service, quizService, quizRepository, studentCourseService,
+                new CourseListCacheGateway(courseRepository, courseMapper)
         );
     }
 
@@ -193,7 +195,7 @@ class CourseServiceImplTest {
 
         @Test
         void throwsCourseNotFoundException_whenCourseDoesNotExist() {
-            when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.empty());
+            when(courseRepository.findByIdWithFullContent(COURSE_ID)).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> courseService.getCourseDetail(INSTRUCTOR_ID, COURSE_ID))
                     .isInstanceOf(CourseNotFoundException.class);
@@ -204,7 +206,7 @@ class CourseServiceImplTest {
             Course course = draftCourse();
             course.setInstructorId(UUID.randomUUID());
 
-            when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.of(course));
+            when(courseRepository.findByIdWithFullContent(COURSE_ID)).thenReturn(Optional.of(course));
 
             assertThatThrownBy(() -> courseService.getCourseDetail(INSTRUCTOR_ID, COURSE_ID))
                     .isInstanceOf(CourseNotOwnedException.class);
@@ -215,7 +217,7 @@ class CourseServiceImplTest {
             Course course = draftCourse();
             CourseDetailResponse detail = stubDetailResponse();
 
-            when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.of(course));
+            when(courseRepository.findByIdWithFullContent(COURSE_ID)).thenReturn(Optional.of(course));
             when(courseMapper.toDetailResponse(course)).thenReturn(detail);
 
             CourseDetailResponse result = courseService.getCourseDetail(INSTRUCTOR_ID, COURSE_ID);
@@ -239,7 +241,7 @@ class CourseServiceImplTest {
             when(courseMapper.toResponse(course))
                     .thenReturn(stubCourseResponse(COURSE_ID, CourseStatus.DRAFT));
 
-            Page<CourseResponse> result = courseService.listCourses(INSTRUCTOR_ID, pageable);
+            Page<CourseResponse> result = courseService.listCourses(INSTRUCTOR_ID, pageable, null);
 
             assertThat(result.getTotalElements()).isEqualTo(1);
             assertThat(result.getContent().get(0).getId()).isEqualTo(COURSE_ID);
@@ -251,7 +253,7 @@ class CourseServiceImplTest {
             when(courseRepository.findAllByInstructorId(INSTRUCTOR_ID, pageable))
                     .thenReturn(Page.empty());
 
-            Page<CourseResponse> result = courseService.listCourses(INSTRUCTOR_ID, pageable);
+            Page<CourseResponse> result = courseService.listCourses(INSTRUCTOR_ID, pageable, null);
 
             assertThat(result.getTotalElements()).isZero();
         }
