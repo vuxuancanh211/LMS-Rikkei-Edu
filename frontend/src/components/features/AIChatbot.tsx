@@ -175,7 +175,6 @@
                       ).filter(Boolean))].join(" · ")}
                     </div>
                   )}
-                  {!m.me && i > 0 && <div className="row gap-6" style={{ marginTop: 6 }}><button className="icon-btn" style={{ width: 28, height: 28, color: "var(--text-3)" }}><Ic n="thumbs_up" size={14} /></button><button className="icon-btn" style={{ width: 28, height: 28, color: "var(--text-3)" }}><Ic n="thumbs_down" size={14} /></button></div>}
                 </div>
               ))}
               {sending && (
