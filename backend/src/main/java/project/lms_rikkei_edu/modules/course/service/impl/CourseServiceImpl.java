@@ -203,14 +203,6 @@ public class CourseServiceImpl implements CourseService {
             createCourseVersion(instructorId, courseId, changeSummary, course);
             saveLogWithSnapshot(instructorId, courseId, "SUBMITTED_FIRST", course);
 
-        } else if (course.getStatus() == CourseStatus.PENDING_UPDATE) {
-            revertPendingVersionsToDraft(courseId);
-            course.setChangeSummary(changeSummary);
-            course.setSubmittedAt(Instant.now());
-            course.setDraftRejectionReason(null);
-            createCourseVersion(instructorId, courseId, changeSummary, course);
-            saveLogWithSnapshot(instructorId, courseId, "SUBMITTED_UPDATE", course);
-
         } else if (course.getStatus() == CourseStatus.PUBLISHED) {
             boolean hasDraftChanges = course.isHasPendingDraft();
             boolean hasResourceChanges = lessonResourceRepository.existsByCourseIdAndIsNewInUpdateTrue(courseId)
@@ -227,6 +219,8 @@ public class CourseServiceImpl implements CourseService {
             createCourseVersion(instructorId, courseId, changeSummary, course);
             saveLogWithSnapshot(instructorId, courseId, "SUBMITTED_UPDATE", course);
 
+        } else if (course.getStatus() == CourseStatus.PENDING_UPDATE) {
+            throw new CourseStateException("Cập nhật đang chờ admin duyệt — không thể gửi lại. Hãy đợi admin xử lý hoặc hủy cập nhật trước.");
         } else {
             throw new CourseStateException("Course cannot be submitted in current status: " + course.getStatus());
         }
@@ -1099,8 +1093,14 @@ public class CourseServiceImpl implements CourseService {
 
     @Override
     @Transactional
+    @CacheEvict(value = "course-detail", key = "#courseId + '_' + #instructorId")
     public CourseVersionResponse submitVersion(UUID instructorId, UUID courseId, UUID versionId) {
-        loadOwnedCourse(instructorId, courseId);
+        Course course = loadOwnedCourse(instructorId, courseId);
+
+        if (course.getStatus() != CourseStatus.DRAFT && course.getStatus() != CourseStatus.REJECTED
+                && course.getStatus() != CourseStatus.PUBLISHED && course.getStatus() != CourseStatus.PENDING_UPDATE) {
+            throw new CourseStateException("Không thể nộp duyệt phiên bản khi khóa học đang ở trạng thái: " + course.getStatus());
+        }
 
         CourseVersion target = courseVersionRepository.findById(versionId)
                 .filter(v -> v.getCourseId().equals(courseId))
@@ -1119,6 +1119,22 @@ public class CourseServiceImpl implements CourseService {
         target.setVersionNumber(nextNum);
         target.setSubmittedAt(Instant.now());
         courseVersionRepository.save(target);
+
+        // Trước đây method này chỉ đổi CourseVersion mà không đụng course.status — submit xong,
+        // course vẫn PUBLISHED/DRAFT như cũ: admin không thấy khóa học trong hàng chờ duyệt, và
+        // nút "Gửi cập nhật" ở màn hình chính vẫn hiện ra như chưa gửi gì, cho phép gửi trùng
+        // qua 2 đường khác nhau (đây là nguyên nhân "gửi cập nhật xong vẫn gửi tiếp được").
+        if (course.getStatus() == CourseStatus.DRAFT || course.getStatus() == CourseStatus.REJECTED) {
+            course.setStatus(CourseStatus.PENDING);
+            course.setSubmittedAt(Instant.now());
+            course.setRejectionReason(null);
+        } else {
+            course.setStatus(CourseStatus.PENDING_UPDATE);
+            course.setPendingUpdateAt(Instant.now());
+            course.setSubmittedAt(Instant.now());
+            course.setDraftRejectionReason(null);
+        }
+        courseRepository.save(course);
 
         return CourseVersionResponse.builder()
                 .id(target.getId())

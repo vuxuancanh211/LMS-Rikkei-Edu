@@ -688,7 +688,7 @@
             })()}
           </div>
           <div className="row gap-10">
-            <button className="btn btn-ghost btn-sm" onClick={() => setShowPreview(true)}><Ic n="eye" size={15} />Xem trước</button>
+            <button className="btn btn-ghost btn-sm" onClick={() => { window.__previewCourse = { courseId, role: "instructor" }; setShowPreview(true); }}><Ic n="eye" size={15} />Xem trước</button>
             {!viewingVersion && (course?.status === "DRAFT" || course?.status === "REJECTED") && (
               <button className="btn btn-success btn-sm" disabled={submitting} onClick={handleSubmit}><Ic n="send" size={15} />{submitting ? "Đang gửi..." : "Gửi duyệt"}</button>
             )}
@@ -703,9 +703,6 @@
             )}
             {!viewingVersion && course?.status === "PUBLISHED" && hasPendingChanges && (
               <button className="btn btn-ghost btn-sm" disabled={submitting} onClick={handleWithdraw}>Hủy thay đổi</button>
-            )}
-            {!viewingVersion && course?.status === "PENDING_UPDATE" && (
-              <button className="btn btn-success btn-sm" disabled={submitting} onClick={handleSubmit}><Ic n="send" size={15} />{submitting ? "Đang gửi..." : "Gửi cập nhật"}</button>
             )}
             {!viewingVersion && (course?.status === "PENDING" || course?.status === "PENDING_UPDATE") && (
               <button className="btn btn-ghost btn-sm" disabled={submitting} onClick={handleWithdraw}>
@@ -1169,13 +1166,29 @@
                   setThumbUploading(true); setThumbProgress(0);
                   try {
                     const { data } = await api.post(`/instructor/courses/presign-thumbnail?mimeType=${encodeURIComponent(thumbModalFile.type)}`);
+                    // XHR mặc định không có timeout — nếu kết nối treo (không byte nào đi tiếp)
+                    // promise sẽ không bao giờ resolve/reject, kẹt ở "Đang upload... 0%" mãi mãi.
+                    // Đồng hồ "stall" reset mỗi lần có tiến độ mới, chỉ hủy khi thực sự đứng yên.
                     await new Promise<void>((resolve, reject) => {
                       const xhr = new XMLHttpRequest();
                       xhr.open("PUT", data.uploadUrl);
                       xhr.setRequestHeader("Content-Type", thumbModalFile.type);
-                      xhr.upload.onprogress = e => { if (e.lengthComputable) setThumbProgress(Math.round(e.loaded / e.total * 100)); };
-                      xhr.onload  = () => xhr.status < 300 ? resolve() : reject(new Error("Upload thất bại"));
-                      xhr.onerror = () => reject(new Error("Mất kết nối"));
+                      const STALL_TIMEOUT_MS = 30000;
+                      let stallTimer: any;
+                      const resetStallTimer = () => {
+                        clearTimeout(stallTimer);
+                        stallTimer = setTimeout(() => {
+                          xhr.abort();
+                          reject(new Error("Upload bị treo do mất kết nối — vui lòng thử lại."));
+                        }, STALL_TIMEOUT_MS);
+                      };
+                      resetStallTimer();
+                      xhr.upload.onprogress = e => {
+                        resetStallTimer();
+                        if (e.lengthComputable) setThumbProgress(Math.round(e.loaded / e.total * 100));
+                      };
+                      xhr.onload  = () => { clearTimeout(stallTimer); xhr.status < 300 ? resolve() : reject(new Error("Upload thất bại")); };
+                      xhr.onerror = () => { clearTimeout(stallTimer); reject(new Error("Mất kết nối")); };
                       xhr.send(thumbModalFile);
                     });
                     await api.put(`/instructor/courses/${courseId}`, { thumbnailUrl: data.viewUrl });

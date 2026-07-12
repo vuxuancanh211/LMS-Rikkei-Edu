@@ -11,7 +11,10 @@ import org.springframework.transaction.annotation.Transactional;
 import project.lms_rikkei_edu.common.exception.BusinessException;
 import project.lms_rikkei_edu.infrastructure.s3.S3Service;
 import project.lms_rikkei_edu.modules.course.dto.request.UpdateProgressRequest;
+import project.lms_rikkei_edu.modules.course.dto.response.ChapterResponse;
 import project.lms_rikkei_edu.modules.course.dto.response.CourseDetailResponse;
+import project.lms_rikkei_edu.modules.course.dto.response.LessonResourceResponse;
+import project.lms_rikkei_edu.modules.course.dto.response.LessonResponse;
 import project.lms_rikkei_edu.modules.course.dto.response.ResourceDownloadUrlResponse;
 import project.lms_rikkei_edu.modules.course.dto.response.StudentCourseResponse;
 import project.lms_rikkei_edu.modules.course.entity.Chapter;
@@ -36,6 +39,7 @@ import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequ
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -165,6 +169,14 @@ public class StudentCourseServiceImpl implements StudentCourseService {
         }
 
         CourseDetailResponse response = courseMapper.toDetailResponse(course);
+
+        // Học viên chỉ được thấy nội dung ĐANG LIVE — courseMapper.toDetailResponse() dùng
+        // chung cho cả giảng viên (cần thấy toàn bộ, kể cả draft chưa duyệt, để hiển thị badge
+        // "Mới"/"Chờ xóa") lẫn học viên, nên trước đây chương/bài mới thêm (isDraft=true, chưa
+        // duyệt) và tài liệu vừa upload trong lần cập nhật đang chờ (isNewInUpdate=true, chưa
+        // duyệt) bị lộ thẳng cho học viên dù nội dung publish chưa hề có. pendingDelete KHÔNG bị
+        // lọc ở đây vì nội dung đó vẫn đang live cho tới khi admin duyệt xóa thật.
+        filterToLiveContentOnly(response);
 
         // Attach lesson progress + lessonPercentage
         List<LessonProgressEntity> lessonProgressList = lessonProgressRepository
@@ -376,6 +388,30 @@ public class StudentCourseServiceImpl implements StudentCourseService {
         }
     }
 
+    private void filterToLiveContentOnly(CourseDetailResponse response) {
+        if (response.getChapters() == null) return;
+        // Danh sách từ mapper có thể bất biến (List.of / Collections.unmodifiableList) — copy
+        // sang ArrayList trước khi lọc, rồi gán ngược lại qua setter.
+        List<ChapterResponse> chapters = new ArrayList<>(response.getChapters());
+        chapters.removeIf(ch -> Boolean.TRUE.equals(ch.getIsDraft()));
+        for (ChapterResponse ch : chapters) {
+            if (ch.getLessons() == null) continue;
+            List<LessonResponse> lessons = new ArrayList<>(ch.getLessons());
+            lessons.removeIf(l -> Boolean.TRUE.equals(l.getIsDraft()));
+            for (LessonResponse lesson : lessons) {
+                lesson.setDraftTitle(null);
+                lesson.setDraftContentText(null);
+                if (lesson.getResources() != null) {
+                    List<LessonResourceResponse> resources = new ArrayList<>(lesson.getResources());
+                    resources.removeIf(r -> Boolean.TRUE.equals(r.getIsNewInUpdate()));
+                    lesson.setResources(resources);
+                }
+            }
+            ch.setLessons(lessons);
+        }
+        response.setChapters(chapters);
+    }
+
     private boolean hasVideoContent(Lesson lesson) {
         if (lesson.getHlsManifestUrl() != null) return true;
         if (lesson.getResources() != null) {
@@ -457,9 +493,20 @@ public class StudentCourseServiceImpl implements StudentCourseService {
         Lesson lesson = lessonRepository.findById(lessonId)
                 .orElseThrow(() -> new BusinessException("Không tìm thấy bài học"));
 
-        return lesson.getResources().stream()
+        LessonResource resource = lesson.getResources().stream()
                 .filter(r -> r.getId().equals(resourceId))
                 .findFirst()
                 .orElseThrow(() -> new BusinessException("Không tìm thấy tài liệu"));
+
+        // Chặn truy cập trực tiếp bằng resourceId vào nội dung chưa từng publish — không chỉ lọc
+        // ở danh sách hiển thị (getCourseDetail), vì học viên vẫn có thể gọi thẳng endpoint này
+        // nếu biết resourceId (VD: cache cũ ở client, DevTools network tab).
+        if (Boolean.TRUE.equals(resource.getIsNewInUpdate())
+                || Boolean.TRUE.equals(lesson.getIsDraft())
+                || (lesson.getChapter() != null && Boolean.TRUE.equals(lesson.getChapter().getIsDraft()))) {
+            throw new BusinessException("Không tìm thấy tài liệu");
+        }
+
+        return resource;
     }
 }

@@ -226,6 +226,55 @@ class CourseServiceImplTest {
         }
     }
 
+    // ── getCourseDetailBySlug ─────────────────────────────────────────────────
+    // Regression: getCourseDetailBySlug() phải resolve slug -> courseId rồi gọi getCourseDetail()
+    // QUA self-proxy để dùng chung 1 cache entry "course-detail" theo courseId (xem field `self`
+    // trong CourseServiceImpl) — trước đây cache riêng theo slug nên @CacheEvict(key=courseId) ở
+    // các thao tác sửa không xóa được, khiến trang chi tiết hiện dữ liệu cũ sau khi F5.
+
+    @Nested
+    class GetCourseDetailBySlug {
+
+        @BeforeEach
+        void wireSelfProxy() {
+            // Spring thật inject field `self` bằng @Autowired @Lazy lúc runtime; test dựng bean
+            // thủ công (new CourseServiceImpl(...)) nên phải gán tay để mô phỏng đúng self-proxy.
+            org.springframework.test.util.ReflectionTestUtils.setField(courseService, "self", courseService);
+        }
+
+        @Test
+        void throwsCourseNotFoundException_whenSlugDoesNotExist() {
+            when(courseRepository.findBySlug("missing-slug")).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> courseService.getCourseDetailBySlug(INSTRUCTOR_ID, "missing-slug"))
+                    .isInstanceOf(CourseNotFoundException.class);
+        }
+
+        @Test
+        void throwsCourseNotOwnedException_whenInstructorIsNotOwner() {
+            Course course = draftCourse();
+            course.setInstructorId(UUID.randomUUID());
+            when(courseRepository.findBySlug("test-course")).thenReturn(Optional.of(course));
+
+            assertThatThrownBy(() -> courseService.getCourseDetailBySlug(INSTRUCTOR_ID, "test-course"))
+                    .isInstanceOf(CourseNotOwnedException.class);
+        }
+
+        @Test
+        void delegatesToGetCourseDetail_andReturnsSameResult() {
+            Course course = draftCourse();
+            CourseDetailResponse detail = stubDetailResponse();
+            when(courseRepository.findBySlug("test-course")).thenReturn(Optional.of(course));
+            when(courseRepository.findByIdWithFullContent(COURSE_ID)).thenReturn(Optional.of(course));
+            when(courseMapper.toDetailResponse(course)).thenReturn(detail);
+
+            CourseDetailResponse result = courseService.getCourseDetailBySlug(INSTRUCTOR_ID, "test-course");
+
+            assertThat(result.getId()).isEqualTo(COURSE_ID);
+            verify(courseRepository).findByIdWithFullContent(COURSE_ID);
+        }
+    }
+
     // ── listCourses ───────────────────────────────────────────────────────────
 
     @Nested

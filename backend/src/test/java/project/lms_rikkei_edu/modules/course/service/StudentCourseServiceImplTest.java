@@ -187,6 +187,63 @@ class StudentCourseServiceImplTest {
     }
 
     @Test
+    void getCourseDetail_filtersOutDraftChaptersLessonsAndNeverPublishedResources() {
+        // Regression: học viên trước đây thấy cả chương/bài mới thêm (isDraft=true, chưa duyệt)
+        // và tài liệu vừa upload trong bản cập nhật đang chờ (isNewInUpdate=true, chưa duyệt) vì
+        // getCourseDetail() dùng chung mapper với giảng viên mà không lọc.
+        Course course = new Course();
+        course.setId(courseId);
+        course.setStatus(CourseStatus.PUBLISHED);
+        when(courseRepository.findByIdWithCategory(courseId)).thenReturn(Optional.of(course));
+        when(courseEnrollmentRepository.existsByCourseIdAndStudentId(courseId, studentId)).thenReturn(true);
+        when(lessonProgressRepository.findByStudentIdAndCourseId(studentId, courseId)).thenReturn(List.of());
+
+        UUID liveLessonId = UUID.randomUUID();
+        UUID draftLessonId = UUID.randomUUID();
+        LessonResourceResponse liveRes = LessonResourceResponse.builder().id(UUID.randomUUID()).isNewInUpdate(false).build();
+        LessonResourceResponse newRes = LessonResourceResponse.builder().id(UUID.randomUUID()).isNewInUpdate(true).build();
+        LessonResponse liveLesson = LessonResponse.builder().id(liveLessonId).isDraft(false).build();
+        ReflectionTestUtils.setField(liveLesson, "resources", new ArrayList<>(List.of(liveRes, newRes)));
+        LessonResponse draftLesson = LessonResponse.builder().id(draftLessonId).isDraft(true).build();
+
+        ChapterResponse liveChapter = ChapterResponse.builder().isDraft(false).build();
+        ReflectionTestUtils.setField(liveChapter, "lessons", new ArrayList<>(List.of(liveLesson, draftLesson)));
+        ChapterResponse draftChapter = ChapterResponse.builder().isDraft(true).build();
+
+        CourseDetailResponse detailResp = CourseDetailResponse.builder()
+                .id(courseId)
+                .chapters(new ArrayList<>(List.of(liveChapter, draftChapter)))
+                .build();
+        when(courseMapper.toDetailResponse(course)).thenReturn(detailResp);
+
+        CourseDetailResponse result = studentCourseService.getCourseDetail(studentId, courseId);
+
+        assertThat(result.getChapters()).hasSize(1);
+        assertThat(result.getChapters().get(0).getLessons()).hasSize(1);
+        assertThat(result.getChapters().get(0).getLessons().get(0).getId()).isEqualTo(liveLessonId);
+        assertThat(result.getChapters().get(0).getLessons().get(0).getResources()).hasSize(1);
+        assertThat(result.getChapters().get(0).getLessons().get(0).getResources().get(0).getIsNewInUpdate()).isFalse();
+    }
+
+    @Test
+    void getResourceViewUrl_neverPublishedResource_throws() {
+        // Regression: chặn truy cập trực tiếp bằng resourceId vào tài liệu chưa từng publish,
+        // kể cả khi không đi qua danh sách đã lọc ở getCourseDetail().
+        when(courseEnrollmentRepository.existsByCourseIdAndStudentId(courseId, studentId)).thenReturn(true);
+        Lesson lesson = new Lesson();
+        lesson.setId(lessonId);
+        LessonResource res = new LessonResource();
+        res.setId(resourceId);
+        res.setIsNewInUpdate(true);
+        lesson.setResources(List.of(res));
+        when(lessonRepository.findById(lessonId)).thenReturn(Optional.of(lesson));
+
+        assertThatThrownBy(() -> studentCourseService.getResourceViewUrl(studentId, courseId, lessonId, resourceId))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("Không tìm thấy tài liệu");
+    }
+
+    @Test
     void getResourceViewUrl_extUrl_returnsDirectUrl() {
         when(courseEnrollmentRepository.existsByCourseIdAndStudentId(courseId, studentId)).thenReturn(true);
         Lesson lesson = new Lesson();

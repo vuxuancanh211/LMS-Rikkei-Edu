@@ -14,6 +14,7 @@ import project.lms_rikkei_edu.infrastructure.s3.S3Service;
 import project.lms_rikkei_edu.modules.course.dto.response.CourseDetailResponse;
 import project.lms_rikkei_edu.modules.course.entity.*;
 import project.lms_rikkei_edu.modules.course.enums.CourseStatus;
+import project.lms_rikkei_edu.modules.course.exception.CourseStateException;
 import project.lms_rikkei_edu.modules.course.mapper.*;
 import project.lms_rikkei_edu.modules.course.repository.*;
 import project.lms_rikkei_edu.modules.course.service.impl.CourseListCacheGateway;
@@ -27,6 +28,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -145,18 +147,14 @@ class CourseServiceImplExt2Test {
 
         // lines 150–155: PENDING_UPDATE branch
         @Test
-        void submits_whenStatusIsPendingUpdate() throws Exception {
+        void throwsCourseStateException_whenStatusIsPendingUpdate() {
             Course c = course(CourseStatus.PENDING_UPDATE, List.of());
             when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.of(c));
-            when(courseRepository.save(c)).thenReturn(c);
-            when(courseMapper.toDetailResponse(c)).thenReturn(detailResponse());
-            stubVersionRepos();
 
-            service.submitForApproval(INSTRUCTOR_ID, COURSE_ID, "Re-submit after rejection");
+            assertThatThrownBy(() -> service.submitForApproval(INSTRUCTOR_ID, COURSE_ID, "Re-submit while still pending"))
+                    .isInstanceOf(CourseStateException.class);
 
-            assertThat(c.getChangeSummary()).isEqualTo("Re-submit after rejection");
-            assertThat(c.getDraftRejectionReason()).isNull();
-            verify(approvalLogRepository).save(argThat(log -> "SUBMITTED_UPDATE".equals(log.getAction())));
+            verifyNoInteractions(approvalLogRepository);
         }
 
         // lines 164–171: PUBLISHED branch with hasDraftChanges=true
@@ -182,7 +180,8 @@ class CourseServiceImplExt2Test {
         // lines 483–484: saveLogWithSnapshot catch when objectMapper throws
         @Test
         void logsWarn_whenObjectMapperThrowsInSaveLogWithSnapshot() throws Exception {
-            Course c = course(CourseStatus.PENDING_UPDATE, List.of());
+            Chapter draftCh = chapter(true, false, List.of());
+            Course c = course(CourseStatus.PUBLISHED, List.of(draftCh));
             when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.of(c));
             when(courseRepository.save(c)).thenReturn(c);
             when(courseMapper.toDetailResponse(c)).thenReturn(detailResponse());

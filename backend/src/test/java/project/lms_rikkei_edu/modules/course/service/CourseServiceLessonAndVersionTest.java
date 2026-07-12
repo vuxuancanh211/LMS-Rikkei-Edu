@@ -308,16 +308,47 @@ class CourseServiceLessonAndVersionTest {
 
     @Test
     void submitVersion_successAndValidations() {
+        // course status DRAFT (mặc định từ @BeforeEach) → submit lần đầu, course phải chuyển PENDING
         when(courseRepository.findByIdWithCategory(courseId)).thenReturn(Optional.of(course));
         CourseVersion target = CourseVersion.builder().id(versionId).courseId(courseId).status("DRAFT").snapshot("{}").build();
         when(courseVersionRepository.findById(versionId)).thenReturn(Optional.of(target));
         when(courseVersionRepository.findMaxVersionNumberByCourseId(courseId)).thenReturn(2);
         when(courseVersionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(courseRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         CourseVersionResponse resp = courseService.submitVersion(instructorId, courseId, versionId);
         assertThat(resp).isNotNull();
         assertThat(resp.getStatus()).isEqualTo("PENDING");
         assertThat(resp.getVersionNumber()).isEqualTo(3);
+        assertThat(course.getStatus()).isEqualTo(CourseStatus.PENDING);
+    }
+
+    @Test
+    void submitVersion_whenCoursePublished_transitionsCourseToPendingUpdate() {
+        // Regression: submitVersion() trước đây chỉ đổi CourseVersion mà không đụng course.status
+        // — khiến course vẫn PUBLISHED sau khi submit, admin không thấy trong hàng chờ duyệt, và
+        // nút "Gửi cập nhật" ở màn hình chính vẫn hiện ra như chưa gửi gì.
+        course.setStatus(CourseStatus.PUBLISHED);
+        when(courseRepository.findByIdWithCategory(courseId)).thenReturn(Optional.of(course));
+        CourseVersion target = CourseVersion.builder().id(versionId).courseId(courseId).status("DRAFT").snapshot("{}").build();
+        when(courseVersionRepository.findById(versionId)).thenReturn(Optional.of(target));
+        when(courseVersionRepository.findMaxVersionNumberByCourseId(courseId)).thenReturn(2);
+        when(courseVersionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(courseRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        courseService.submitVersion(instructorId, courseId, versionId);
+
+        assertThat(course.getStatus()).isEqualTo(CourseStatus.PENDING_UPDATE);
+        assertThat(course.getPendingUpdateAt()).isNotNull();
+    }
+
+    @Test
+    void submitVersion_whenCoursePending_throws() {
+        course.setStatus(CourseStatus.PENDING);
+        when(courseRepository.findByIdWithCategory(courseId)).thenReturn(Optional.of(course));
+
+        assertThatThrownBy(() -> courseService.submitVersion(instructorId, courseId, versionId))
+                .isInstanceOf(CourseStateException.class);
     }
 
     @Test

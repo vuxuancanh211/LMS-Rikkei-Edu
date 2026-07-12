@@ -14,6 +14,37 @@
     OTHER: { ic: "file",   bg: "#f1f5f9", fg: "#475569" },
   };
 
+  /* Upload thẳng lên presigned URL bằng XHR để lấy progress — XHR mặc định KHÔNG có
+     timeout, nên nếu kết nối treo (mất mạng, presigned host không phản hồi...) mà
+     không có byte nào được gửi tiếp, promise sẽ không bao giờ resolve/reject: UI kẹt ở
+     "Đang upload... 0%" mãi mãi, chỉ thoát được bằng cách F5 lại trang. Đồng hồ "stall"
+     dưới đây tự reset mỗi khi có tiến độ mới nên không giết oan các upload lớn/chậm
+     nhưng vẫn đang chạy — chỉ hủy khi thực sự không còn tiến triển gì. */
+  function uploadWithProgress(url: string, file: any, contentType: string, onProgress: (pct: number) => void) {
+    const STALL_TIMEOUT_MS = 30000;
+    return new Promise((res, rej) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("PUT", url);
+      xhr.setRequestHeader("Content-Type", contentType);
+      let stallTimer: any;
+      const resetStallTimer = () => {
+        clearTimeout(stallTimer);
+        stallTimer = setTimeout(() => {
+          xhr.abort();
+          rej(new Error("Upload bị treo do mất kết nối — vui lòng thử lại."));
+        }, STALL_TIMEOUT_MS);
+      };
+      resetStallTimer();
+      xhr.upload.onprogress = (e: any) => {
+        resetStallTimer();
+        if (e.lengthComputable) onProgress(Math.round(e.loaded / e.total * 100));
+      };
+      xhr.onload = () => { clearTimeout(stallTimer); xhr.status < 300 ? res(null) : rej(new Error("Upload thất bại")); };
+      xhr.onerror = () => { clearTimeout(stallTimer); rej(new Error("Mất kết nối")); };
+      xhr.send(file);
+    });
+  }
+
   /* ── UI primitives (local copies) ── */
   function Field({ label, children, full }: any) {
     return (
@@ -444,13 +475,7 @@
             const displayName = videoName.trim() || videoFile.name.replace(/\.[^.]+$/, "");
             const { data: p } = await api.post(`/instructor/courses/${courseId}/lessons/${lessonId}/resources/presign-upload`,
               { originalFilename: videoFile.name, mimeType: videoFile.type || "video/mp4", fileSizeBytes: videoFile.size, resourceType: "VIDEO", displayName });
-            await new Promise((res, rej) => {
-              const xhr = new XMLHttpRequest();
-              xhr.open("PUT", p.presignedUrl); xhr.setRequestHeader("Content-Type", videoFile.type || "video/mp4");
-              xhr.upload.onprogress = (e: any) => { if (e.lengthComputable) setProgress(Math.round(e.loaded / e.total * 100)); };
-              xhr.onload = () => xhr.status < 300 ? res(null) : rej(new Error("Upload thất bại"));
-              xhr.onerror = () => rej(new Error("Mất kết nối")); xhr.send(videoFile);
-            });
+            await uploadWithProgress(p.presignedUrl, videoFile, videoFile.type || "video/mp4", setProgress);
             await api.post(`/instructor/courses/${courseId}/lessons/${lessonId}/resources/confirm-upload`,
               { s3Key: p.s3Key, originalFilename: videoFile.name, resourceType: "VIDEO", displayName });
           } else {
@@ -465,13 +490,7 @@
             : (ext === "ppt" || ext === "pptx") ? "SLIDE" : (["png","jpg","jpeg","gif"].includes(ext)) ? "IMAGE" : "OTHER";
           const { data: p } = await api.post(`/instructor/courses/${courseId}/lessons/${lessonId}/resources/presign-upload`,
             { originalFilename: docFile.name, mimeType: docFile.type || "application/octet-stream", fileSizeBytes: docFile.size, resourceType, displayName: docName.trim() });
-          await new Promise((res, rej) => {
-            const xhr = new XMLHttpRequest();
-            xhr.open("PUT", p.presignedUrl); xhr.setRequestHeader("Content-Type", docFile.type || "application/octet-stream");
-            xhr.upload.onprogress = (e: any) => { if (e.lengthComputable) setProgress(Math.round(e.loaded / e.total * 100)); };
-            xhr.onload = () => xhr.status < 300 ? res(null) : rej(new Error("Upload thất bại"));
-            xhr.onerror = () => rej(new Error("Mất kết nối")); xhr.send(docFile);
-          });
+          await uploadWithProgress(p.presignedUrl, docFile, docFile.type || "application/octet-stream", setProgress);
           await api.post(`/instructor/courses/${courseId}/lessons/${lessonId}/resources/confirm-upload`,
             { s3Key: p.s3Key, originalFilename: docFile.name, resourceType, displayName: docName.trim() });
         }
@@ -657,15 +676,7 @@
             const detectedType = detectResourceType(newFile);
             const { data: p } = await api.post(`/instructor/courses/${courseId}/lessons/${s.lessonId}/resources/presign-upload`,
               { originalFilename: newFile.name, mimeType: newFile.type || "application/octet-stream", fileSizeBytes: newFile.size, resourceType: detectedType, displayName: name.trim() });
-            await new Promise((res, rej) => {
-              const xhr = new XMLHttpRequest();
-              xhr.open("PUT", p.presignedUrl);
-              xhr.setRequestHeader("Content-Type", newFile.type || "application/octet-stream");
-              xhr.upload.onprogress = (e: any) => { if (e.lengthComputable) setProgress(Math.round(e.loaded / e.total * 100)); };
-              xhr.onload = () => xhr.status < 300 ? res(null) : rej(new Error("Upload thất bại"));
-              xhr.onerror = () => rej(new Error("Mất kết nối"));
-              xhr.send(newFile);
-            });
+            await uploadWithProgress(p.presignedUrl, newFile, newFile.type || "application/octet-stream", setProgress);
             await api.post(`/instructor/courses/${courseId}/lessons/${s.lessonId}/resources/confirm-upload`,
               { s3Key: p.s3Key, originalFilename: newFile.name, resourceType: detectedType, displayName: name.trim() });
             await api.delete(`/instructor/courses/${courseId}/lessons/${s.lessonId}/resources/${s.resourceId}`);
