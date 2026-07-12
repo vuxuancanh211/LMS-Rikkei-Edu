@@ -49,7 +49,6 @@
     const [level, setLevel]                   = useState(LEVELS[1].value);
     const [categoryId, setCategoryId]         = useState(null);
     const [duration, setDuration]             = useState("");
-    const [prereq, setPrereq]                 = useState("");
     const [categories, setCategories]         = useState([]);
     const [thumbFile, setThumbFile]           = useState(null);
     const [thumbPreview, setThumbPreview]     = useState(null);
@@ -69,7 +68,7 @@
 
     const reset = () => {
       setStep(1); setTitle(""); setDesc(""); setLevel(LEVELS[1].value);
-      setCategoryId(null); setDuration(""); setPrereq(""); setErr(null);
+      setCategoryId(null); setDuration(""); setErr(null);
       setThumbFile(null); setThumbPreview(null); setThumbUrl(null); setThumbProgress(0);
     };
     const close = () => { reset(); onClose(); };
@@ -204,18 +203,6 @@
                 <span style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", color: "var(--text-3)", fontSize: 14, pointerEvents: "none", userSelect: "none" }}>giờ</span>
               </div>
             </Field>
-            <Field label="Yêu cầu đầu vào">
-              <input className="input" value={prereq} onChange={e => setPrereq(e.target.value)} placeholder="VD: Đã biết JavaScript cơ bản" />
-            </Field>
-
-            <label className="row gap-10" style={{ gridColumn: "1/-1", padding: "12px 14px", background: "var(--chip-info-bg)", borderRadius: 11, cursor: "pointer" }}>
-              <input type="checkbox" style={{ width: 18, height: 18 }} defaultChecked />
-              <div>
-                <div style={{ fontWeight: 600, fontSize: 13.5, color: "var(--chip-info-fg)" }}>Gửi duyệt ngay sau khi tạo</div>
-                <div className="t-xs" style={{ color: "var(--chip-info-fg)", opacity: .8 }}>Khóa học sẽ chuyển tới Quản trị viên để phê duyệt</div>
-              </div>
-            </label>
-
             {err && <div style={{ gridColumn: "1/-1", color: "var(--error)", fontSize: 13 }}>{err}</div>}
           </>)}
         </div>

@@ -1,7 +1,9 @@
 package project.lms_rikkei_edu.modules.course.service.impl;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import project.lms_rikkei_edu.infrastructure.s3.S3Service;
@@ -33,6 +35,7 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 @Transactional
+@Slf4j
 public class LessonResourceServiceImpl implements LessonResourceService {
 
     private static final long MAX_VIDEO_SIZE_BYTES  = 2L  * 1024 * 1024 * 1024; // 2GB
@@ -76,6 +79,7 @@ public class LessonResourceServiceImpl implements LessonResourceService {
     }
 
     @Override
+    @CacheEvict(value = "course-detail", key = "#courseId + '_' + #instructorId")
     public LessonResourceResponse confirmUpload(UUID instructorId, UUID courseId, UUID lessonId,
                                                 ResourceConfirmUploadRequest request) {
         Lesson lesson = loadOwnedLesson(instructorId, courseId, lessonId);
@@ -182,6 +186,7 @@ public class LessonResourceServiceImpl implements LessonResourceService {
     }
 
     @Override
+    @CacheEvict(value = "course-detail", key = "#courseId + '_' + #instructorId")
     public void deleteResource(UUID instructorId, UUID courseId, UUID lessonId, UUID resourceId) {
         loadOwnedLesson(instructorId, courseId, lessonId);
 
@@ -211,14 +216,17 @@ public class LessonResourceServiceImpl implements LessonResourceService {
         resource.setStatus("DELETED");
         lessonResourceRepository.save(resource);
 
-        // Xóa thật trên S3 (bỏ qua external URL)
+        // Xóa thật trên S3 (bỏ qua external URL). Không để lỗi S3 (network, config...) làm
+        // rollback bản ghi DB đã xóa ở trên — DB là nguồn sự thật, S3 chỉ dọn rác best-effort.
         String s3Key = resource.getS3Key();
         if (s3Key != null && !s3Key.startsWith("ext://")) {
-            s3Service.deleteObject(s3Key);
+            try { s3Service.deleteObject(s3Key); }
+            catch (Exception e) { log.warn("Không thể xóa S3 key {}: {}", s3Key, e.getMessage()); }
         }
     }
 
     @Override
+    @CacheEvict(value = "course-detail", key = "#courseId + '_' + #instructorId")
     public LessonResourceResponse renameResource(UUID instructorId, UUID courseId, UUID lessonId, UUID resourceId, String displayName) {
         loadOwnedLesson(instructorId, courseId, lessonId);
 

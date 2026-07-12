@@ -9,6 +9,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import org.springframework.cache.CacheManager;
 import project.lms_rikkei_edu.infrastructure.s3.S3Service;
 import project.lms_rikkei_edu.modules.course.dto.response.CourseDiffResponse;
 import project.lms_rikkei_edu.modules.course.dto.response.CourseDetailResponse;
@@ -34,6 +35,7 @@ class AdminCourseServiceImplExtTest {
     @Mock LessonResourceRepository lessonResourceRepo;
     @Mock CourseVersionRepository courseVersionRepo;
     @Mock S3Service s3Service;
+    @Mock CacheManager cacheManager;
 
     AdminCourseServiceImpl service;
 
@@ -45,7 +47,7 @@ class AdminCourseServiceImplExtTest {
         service = new AdminCourseServiceImpl(
                 courseRepo, courseMapper,
                 approvalLogRepo, lessonResourceRepo, courseVersionRepo,
-                s3Service, new ObjectMapper()
+                s3Service, new ObjectMapper(), cacheManager
         );
     }
 

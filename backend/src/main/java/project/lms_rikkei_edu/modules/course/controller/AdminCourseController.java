@@ -12,6 +12,7 @@ import project.lms_rikkei_edu.common.exception.BusinessException;
 import project.lms_rikkei_edu.common.security.CurrentUserProvider;
 import project.lms_rikkei_edu.modules.course.dto.request.CourseRejectRequest;
 import project.lms_rikkei_edu.modules.course.dto.response.*;
+import project.lms_rikkei_edu.modules.course.enums.CourseStatus;
 import project.lms_rikkei_edu.modules.course.service.AdminCourseService;
 
 import java.util.UUID;
@@ -36,8 +37,10 @@ public class AdminCourseController {
     }
 
     @GetMapping
-    public ResponseEntity<Page<CourseResponse>> listAll(Pageable pageable) {
-        return ResponseEntity.ok(adminCourseService.listAllCourses(pageable));
+    public ResponseEntity<Page<CourseResponse>> listAll(
+            Pageable pageable,
+            @RequestParam(required = false) CourseStatus status) {
+        return ResponseEntity.ok(adminCourseService.listAllCourses(pageable, status));
     }
 
     @GetMapping("/{courseId}")

@@ -246,13 +246,17 @@ class CourseServiceImplExt2Test {
 
         // lines 206–222: resource flags reset in PUBLISHED branch
         @Test
-        void resetsResourceFlags_whenStatusIsPublishedWithResourceChanges() {
+        void deletesNeverLiveResource_andRestoresPendingDeleteResource_whenStatusIsPublishedWithResourceChanges() {
             // hasDraft=false, but hasResourceChanges=true
             Course c = course(CourseStatus.PUBLISHED, List.of());
 
+            // Resource thêm trong lần sửa này, CHƯA TỪNG lên live — "hủy thay đổi" phải xóa hẳn,
+            // không chỉ gỡ cờ (nếu chỉ gỡ cờ, file chưa từng được duyệt sẽ biến thành "đang live").
             LessonResource newResource = new LessonResource();
             newResource.setIsNewInUpdate(true);
+            newResource.setS3Key("ext://placeholder"); // external → không gọi S3 thật
 
+            // Resource này VẪN đang live, chỉ bị đánh dấu chờ xóa — hủy thay đổi = bỏ đánh dấu, giữ lại.
             LessonResource pendingDeleteResource = new LessonResource();
             pendingDeleteResource.setPendingDelete(true);
 
@@ -267,7 +271,8 @@ class CourseServiceImplExt2Test {
 
             service.withdrawFromReview(INSTRUCTOR_ID, COURSE_ID);
 
-            assertThat(newResource.getIsNewInUpdate()).isFalse();
+            assertThat(newResource.getDeletedAt()).isNotNull();
+            assertThat(newResource.getStatus()).isEqualTo("DELETED");
             assertThat(pendingDeleteResource.getPendingDelete()).isFalse();
             assertThat(pendingDeleteResource.getStatus()).isEqualTo("ACTIVE");
         }

@@ -25,6 +25,8 @@ public interface CourseRepository extends JpaRepository<Course, UUID>, JpaSpecif
 
     boolean existsBySlugAndIdNot(String slug, UUID id);
 
+    Optional<Course> findBySlug(String slug);
+
     Page<Course> findAllByStatusIn(List<CourseStatus> statuses, Pageable pageable);
 
     @Query("SELECT c FROM Course c LEFT JOIN FETCH c.category WHERE c.id = :id")
@@ -57,7 +59,4 @@ public interface CourseRepository extends JpaRepository<Course, UUID>, JpaSpecif
        tự gắn kết quả vào đúng entity Chapter/Lesson đã load ở đây). */
     @Query("SELECT DISTINCT c FROM Course c LEFT JOIN FETCH c.category LEFT JOIN FETCH c.chapters WHERE c.id = :id AND c.deletedAt IS NULL")
     Optional<Course> findByIdWithFullContent(@Param("id") UUID id);
-
-    @Query("SELECT DISTINCT c FROM Course c LEFT JOIN FETCH c.category LEFT JOIN FETCH c.chapters WHERE c.slug = :slug AND c.deletedAt IS NULL")
-    Optional<Course> findBySlugWithFullContent(@Param("slug") String slug);
 }

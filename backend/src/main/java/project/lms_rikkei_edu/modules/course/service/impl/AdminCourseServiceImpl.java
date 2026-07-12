@@ -3,6 +3,8 @@ package project.lms_rikkei_edu.modules.course.service.impl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -40,6 +42,19 @@ public class AdminCourseServiceImpl implements AdminCourseService {
     private final CourseVersionRepository courseVersionRepo;
     private final S3Service s3Service;
     private final ObjectMapper objectMapper;
+    private final CacheManager cacheManager;
+
+    /* Cache "course-detail" key theo courseId + INSTRUCTOR id (xem CourseServiceImpl), nhưng
+       admin action chỉ có adminId trong tham số nên không thể evict bằng @CacheEvict(key=...)
+       declaratively. Phải evict thủ công bằng instructorId đọc được từ chính course sau khi
+       load — nếu không, sau khi admin duyệt/từ chối, instructor vẫn thấy trạng thái/nội dung
+       cũ trên trang chi tiết khóa học cho tới khi cache tự hết hạn (TTL 10 phút). */
+    private void evictCourseDetailCache(Course course) {
+        Cache cache = cacheManager.getCache("course-detail");
+        if (cache != null) {
+            cache.evict(course.getId() + "_" + course.getInstructorId());
+        }
+    }
 
     @Override
     @Transactional(readOnly = true)
@@ -51,10 +66,12 @@ public class AdminCourseServiceImpl implements AdminCourseService {
 
     @Override
     @Transactional(readOnly = true)
-    public Page<CourseResponse> listAllCourses(Pageable pageable) {
-        return courseRepo.findAllByStatusIn(
-                List.of(CourseStatus.DRAFT, CourseStatus.PENDING, CourseStatus.PENDING_UPDATE,
-                        CourseStatus.PUBLISHED, CourseStatus.REJECTED, CourseStatus.ARCHIVED), pageable)
+    public Page<CourseResponse> listAllCourses(Pageable pageable, CourseStatus status) {
+        List<CourseStatus> statuses = status != null
+                ? List.of(status)
+                : List.of(CourseStatus.DRAFT, CourseStatus.PENDING, CourseStatus.PENDING_UPDATE,
+                        CourseStatus.PUBLISHED, CourseStatus.REJECTED, CourseStatus.ARCHIVED);
+        return courseRepo.findAllByStatusIn(statuses, pageable)
                 .map(courseMapper::toResponse);
     }
 
@@ -103,6 +120,7 @@ public class AdminCourseServiceImpl implements AdminCourseService {
         });
 
         saveLog(adminId, courseId, "APPROVED_FIRST", null);
+        evictCourseDetailCache(course);
 
         log.info("Course approved: courseId={}, adminId={}", courseId, adminId);
 
@@ -130,6 +148,7 @@ public class AdminCourseServiceImpl implements AdminCourseService {
         });
 
         saveLog(adminId, courseId, VERSION_REJECTED, reason);
+        evictCourseDetailCache(course);
         log.info("Course rejected: courseId={}, adminId={}", courseId, adminId);
 
         return courseMapper.toDetailResponse(course);
@@ -223,6 +242,7 @@ public class AdminCourseServiceImpl implements AdminCourseService {
         });
 
         saveLog(adminId, courseId, "APPROVED_UPDATE", null);
+        evictCourseDetailCache(course);
 
         log.info("Course update approved: courseId={}, adminId={}", courseId, adminId);
 
@@ -237,12 +257,12 @@ public class AdminCourseServiceImpl implements AdminCourseService {
             throw new CourseStateException("Only PENDING_UPDATE courses can have updates rejected. Current status: " + course.getStatus());
         }
 
-        // Khôi phục resources bị đánh dấu pending_delete (giữ draft để instructor xem lại)
-        lessonResourceRepo.findAllByCourseIdAndPendingDeleteTrue(courseId)
-                .forEach(r -> { r.setPendingDelete(false); r.setStatus("ACTIVE"); lessonResourceRepo.save(r); });
-        // Reset flag isNewInUpdate — resources mới thêm vẫn giữ nguyên nhưng không còn "mới"
-        lessonResourceRepo.findAllByCourseIdAndIsNewInUpdateTrue(courseId)
-                .forEach(r -> { r.setIsNewInUpdate(false); lessonResourceRepo.save(r); });
+        // KHÔNG đụng vào pendingDelete/isNewInUpdate của resources — reject nghĩa là chưa có gì
+        // được duyệt, giữ nguyên y hệt draft instructor đã để lại (đúng tinh thần comment dưới đây).
+        // Trước đây code reset isNewInUpdate=false ở đây (copy từ approveUpdate, sai ngữ cảnh):
+        // resource vừa thêm trong draft này CHƯA từng lên live, reset cờ khiến deleteResource()
+        // tưởng nó đã live nên xóa lần sau lại đi nhánh "đánh dấu chờ xóa" thay vì xóa thật ngay —
+        // tạo cảm giác "xóa mà vẫn hiện cần gửi cập nhật" dù file đó đã bị rejected chưa từng publish.
 
         // Giữ lại toàn bộ draft — instructor có thể xem thay đổi bị từ chối và sửa lại
         course.setDraftRejectionReason(reason);
@@ -261,6 +281,7 @@ public class AdminCourseServiceImpl implements AdminCourseService {
         });
 
         saveLog(adminId, courseId, "REJECTED_UPDATE", reason);
+        evictCourseDetailCache(course);
         log.info("Course update rejected (drafts kept): courseId={}, adminId={}, reason={}", courseId, adminId, reason);
 
         return courseMapper.toDetailResponse(course);

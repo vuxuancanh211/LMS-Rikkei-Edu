@@ -45,6 +45,40 @@
     );
   }
 
+  function DocViewer({ url, type, height = 300 }: any) {
+    if (!url) return null;
+    if (type === "PDF") return (
+      <div style={{ position: "relative", width: "100%", height }}>
+        <iframe src={`${url}#toolbar=0&navpanes=0&scrollbar=0`} style={{ width: "100%", height, border: "none", display: "block" }} title="preview" />
+        <div style={{ position: "absolute", top: 0, right: 0, width: 180, height: 50, zIndex: 10, background: "transparent" }}
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); }} />
+      </div>
+    );
+    if (type === "SLIDE" || type === "DOC") {
+      const isLocal = url.includes("localhost") || url.includes("127.0.0.1") || url.startsWith("/");
+      if (isLocal) {
+        return (
+          <div style={{ height, background: "var(--surface-2)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 20, textAlign: "center", gap: 10 }}>
+            <Ic n="book" size={28} style={{ color: "var(--muted)" }} />
+            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--fg)" }}>Tài liệu {type === "SLIDE" ? "Slide PowerPoint" : "Word / Docx"}</div>
+            <div style={{ fontSize: 12, color: "var(--muted)", maxWidth: 380, lineHeight: 1.5 }}>Trình xem trực tuyến không kết nối được Localhost. Tài liệu sẽ hiển thị trực tiếp khi chạy trên máy chủ chính thức.</div>
+          </div>
+        );
+      }
+      return (
+        <div style={{ position: "relative", width: "100%", height }}>
+          <iframe src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}&wdDownloadButton=False&wdPrint=0`}
+            style={{ width: "100%", height, border: "none", display: "block" }} title="preview" />
+          <div style={{ position: "absolute", top: 0, right: 0, width: 160, height: 48, zIndex: 10, background: "transparent" }}
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); }} />
+          <div style={{ position: "absolute", bottom: 0, right: 0, width: 200, height: 44, zIndex: 10, background: "transparent" }}
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); }} />
+        </div>
+      );
+    }
+    return null;
+  }
+
   /* ── AddChapterModal ── */
   function AddChapterModal({ open, onClose, courseId, onAdded }: any) {
     const [title, setTitle]   = useState("");
@@ -576,40 +610,6 @@
       return b < 1024 * 1024 ? (b / 1024).toFixed(1) + " KB" : (b / (1024 * 1024)).toFixed(1) + " MB";
     }
 
-    function DocViewer({ url, type, height = 300 }: any) {
-      if (!url) return null;
-      if (type === "PDF") return (
-        <div style={{ position: "relative", width: "100%", height }}>
-          <iframe src={`${url}#toolbar=0&navpanes=0&scrollbar=0`} style={{ width: "100%", height, border: "none", display: "block" }} title="preview" />
-          <div style={{ position: "absolute", top: 0, right: 0, width: 180, height: 50, zIndex: 10, background: "transparent" }}
-            onClick={(e) => { e.preventDefault(); e.stopPropagation(); }} />
-        </div>
-      );
-      if (type === "SLIDE" || type === "DOC") {
-        const isLocal = url.includes("localhost") || url.includes("127.0.0.1") || url.startsWith("/");
-        if (isLocal) {
-          return (
-            <div style={{ height, background: "var(--surface-2)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 20, textAlign: "center", gap: 10 }}>
-              <Ic n="book" size={28} style={{ color: "var(--muted)" }} />
-              <div style={{ fontSize: 13, fontWeight: 600, color: "var(--fg)" }}>Tài liệu {type === "SLIDE" ? "Slide PowerPoint" : "Word / Docx"}</div>
-              <div style={{ fontSize: 12, color: "var(--muted)", maxWidth: 380, lineHeight: 1.5 }}>Trình xem trực tuyến không kết nối được Localhost. Tài liệu sẽ hiển thị trực tiếp khi chạy trên máy chủ chính thức.</div>
-            </div>
-          );
-        }
-        return (
-          <div style={{ position: "relative", width: "100%", height }}>
-            <iframe src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}&wdDownloadButton=False&wdPrint=0`}
-              style={{ width: "100%", height, border: "none", display: "block" }} title="preview" />
-            <div style={{ position: "absolute", top: 0, right: 0, width: 160, height: 48, zIndex: 10, background: "transparent" }}
-              onClick={(e) => { e.preventDefault(); e.stopPropagation(); }} />
-            <div style={{ position: "absolute", bottom: 0, right: 0, width: 200, height: 44, zIndex: 10, background: "transparent" }}
-              onClick={(e) => { e.preventDefault(); e.stopPropagation(); }} />
-          </div>
-        );
-      }
-      return null;
-    }
-
     function NewFilePreview() {
       if (!newFile || !newFileUrl) return null;
       const detectedType = detectResourceType(newFile);
@@ -825,7 +825,7 @@
                     : loading ? loadingNode : errorNode
           ) : (isSlide || isPdf || isDoc) ? (
             loading ? loadingNode : viewUrl
-              ? <DocViewer url={viewUrl} type={s.resourceType} height={iframeH} />
+              ? <DocViewer url={viewUrl} type={resourceType} height={iframeH} />
               : errorNode
           ) : (
             <div className="row gap-12" style={{ padding: "28px 20px" }}>

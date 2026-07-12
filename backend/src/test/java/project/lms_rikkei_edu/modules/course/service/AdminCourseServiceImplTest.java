@@ -9,6 +9,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import org.springframework.cache.CacheManager;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
@@ -42,6 +43,7 @@ class AdminCourseServiceImplTest {
     @Mock LessonResourceRepository lessonResourceRepo;
     @Mock CourseVersionRepository courseVersionRepo;
     @Mock S3Service s3Service;
+    @Mock CacheManager cacheManager;
 
     AdminCourseServiceImpl adminCourseService;
 
@@ -53,7 +55,7 @@ class AdminCourseServiceImplTest {
         adminCourseService = new AdminCourseServiceImpl(
                 courseRepo, courseMapper,
                 approvalLogRepo, lessonResourceRepo, courseVersionRepo,
-                s3Service, new ObjectMapper()
+                s3Service, new ObjectMapper(), cacheManager
         );
     }
 
@@ -120,9 +122,22 @@ class AdminCourseServiceImplTest {
             when(courseRepo.findAllByStatusIn(anyList(), any())).thenReturn(page);
             when(courseMapper.toResponse(c)).thenReturn(courseResponse());
 
-            Page<CourseResponse> result = adminCourseService.listAllCourses(PageRequest.of(0, 20));
+            Page<CourseResponse> result = adminCourseService.listAllCourses(PageRequest.of(0, 20), null);
 
             assertThat(result.getTotalElements()).isEqualTo(1);
+        }
+
+        @Test
+        void filtersByStatus_whenProvided() {
+            Course c = courseWithStatus(CourseStatus.REJECTED);
+            PageImpl<Course> page = new PageImpl<>(List.of(c), PageRequest.of(0, 20), 1);
+            when(courseRepo.findAllByStatusIn(List.of(CourseStatus.REJECTED), PageRequest.of(0, 20))).thenReturn(page);
+            when(courseMapper.toResponse(c)).thenReturn(courseResponse());
+
+            Page<CourseResponse> result = adminCourseService.listAllCourses(PageRequest.of(0, 20), CourseStatus.REJECTED);
+
+            assertThat(result.getTotalElements()).isEqualTo(1);
+            verify(courseRepo).findAllByStatusIn(List.of(CourseStatus.REJECTED), PageRequest.of(0, 20));
         }
     }
 
@@ -393,24 +408,21 @@ class AdminCourseServiceImplTest {
         }
 
         @Test
-        void restoresPendingDeleteResources() {
+        void leavesResourceDraftFlagsUntouched() {
+            // Reject nghĩa là chưa có gì được duyệt — pendingDelete/isNewInUpdate của resources phải
+            // giữ nguyên y hệt draft instructor để lại (không reset như approve), để lần xóa sau vẫn
+            // phân biệt đúng "resource chưa từng lên live" (xem AdminCourseServiceImpl.rejectUpdate).
             Course c = courseWithStatus(CourseStatus.PENDING_UPDATE);
-            LessonResource r = new LessonResource();
-            r.setPendingDelete(true);
 
             when(courseRepo.findByIdWithCategory(courseId)).thenReturn(Optional.of(c));
-            when(lessonResourceRepo.findAllByCourseIdAndPendingDeleteTrue(courseId))
-                    .thenReturn(List.of(r));
-            when(lessonResourceRepo.findAllByCourseIdAndIsNewInUpdateTrue(courseId))
-                    .thenReturn(List.of());
             when(courseVersionRepo.findFirstByCourseIdAndStatus(courseId, "PENDING"))
                     .thenReturn(Optional.empty());
             when(courseMapper.toDetailResponse(c)).thenReturn(detailResponse());
 
             adminCourseService.rejectUpdate(adminId, courseId, "reason");
 
-            assertThat(r.getPendingDelete()).isFalse();
-            assertThat(r.getStatus()).isEqualTo("ACTIVE");
+            verify(lessonResourceRepo, never()).findAllByCourseIdAndPendingDeleteTrue(any());
+            verify(lessonResourceRepo, never()).findAllByCourseIdAndIsNewInUpdateTrue(any());
         }
 
         @Test

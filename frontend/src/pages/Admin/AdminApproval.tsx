@@ -708,22 +708,25 @@
         let url;
         if (tab === "pending") {
           url = `/admin/courses/pending?page=${page}&size=10`;
+        } else if (tab === "approved") {
+          // Lọc theo status ngay ở backend (query DB) — KHÔNG lọc lại ở FE sau khi đã
+          // phân trang, vì mỗi trang chỉ có 10 bản ghi thô, số khớp filter mỗi trang
+          // không đều (có trang 0 kết quả dù totalPages vẫn tính trên tập chưa lọc).
+          url = `/admin/courses?page=${page}&size=10&status=PUBLISHED`;
+        } else if (tab === "rejected") {
+          url = `/admin/courses?page=${page}&size=10&status=REJECTED`;
         } else {
           url = `/admin/courses?page=${page}&size=10`;
         }
         const res = await http.get(url);
         const data = res.data;
-        let items = data.content || data || [];
-
-        // Filter theo tab trên frontend (backend trả tất cả)
-        if (tab === "approved") items = items.filter(c => c.status === "PUBLISHED");
-        if (tab === "rejected") items = items.filter(c => c.status === "REJECTED");
+        const items = data.content || data || [];
 
         setList(items);
         setTotalPages(data.totalPages || 1);
-        if (tab === "pending")  setStats(st => ({ ...st, pending:  data.totalElements || items.length }));
-        if (tab === "approved") setStats(st => ({ ...st, approved: items.length }));
-        if (tab === "rejected") setStats(st => ({ ...st, rejected: items.length }));
+        if (tab === "pending")  setStats(st => ({ ...st, pending:  data.totalElements ?? items.length }));
+        if (tab === "approved") setStats(st => ({ ...st, approved: data.totalElements ?? items.length }));
+        if (tab === "rejected") setStats(st => ({ ...st, rejected: data.totalElements ?? items.length }));
       } catch (e) {
         console.error(e);
       } finally {

@@ -4,8 +4,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
@@ -72,6 +74,16 @@ public class CourseServiceImpl implements CourseService {
     private final StudentCourseService studentCourseService;
     private final CourseListCacheGateway courseListCacheGateway;
 
+    /* Self-proxy để getCourseDetailBySlug() gọi lại getCourseDetail() QUA proxy Spring AOP —
+       gọi trực tiếp (this.getCourseDetail(...)) sẽ bỏ qua @Cacheable vì Spring cache dựa trên
+       proxy, không chặn được self-invocation. Cần proxy để 2 đường vào (theo id / theo slug)
+       dùng chung đúng 1 cache entry (key theo courseId) — trước đây cache riêng theo slug nên
+       @CacheEvict(key = courseId) ở các thao tác sửa (thêm chương/bài/tài liệu...) không xóa
+       được entry theo slug, khiến trang chi tiết khóa học hiện dữ liệu cũ sau khi F5. */
+    @Autowired
+    @Lazy
+    private CourseService self;
+
     @Override
     public CourseResponse createCourse(UUID instructorId, CreateCourseRequest request) {
         CourseCategory category = resolveCategory(request.getCategoryId());
@@ -105,13 +117,13 @@ public class CourseServiceImpl implements CourseService {
 
     @Override
     @Transactional(readOnly = true)
-    @Cacheable(value = "course-detail", key = "#slug + '_' + #instructorId")
     public CourseDetailResponse getCourseDetailBySlug(UUID instructorId, String slug) {
-        Course course = courseRepository.findBySlugWithFullContent(slug)
+        Course course = courseRepository.findBySlug(slug)
                 .orElseThrow(() -> new CourseNotFoundException(slug));
         assertOwner(course, instructorId);
-        hydrateChaptersLessonsResources(course);
-        return courseMapper.toDetailResponse(course);
+        // Gọi qua self-proxy để dùng chung cache "course-detail" key theo courseId — xem
+        // ghi chú ở field `self` phía trên.
+        return self.getCourseDetail(instructorId, course.getId());
     }
 
     /**
@@ -283,12 +295,25 @@ public class CourseServiceImpl implements CourseService {
             if (!hasDraft && !hasResourceChanges) {
                 throw new CourseStateException("No pending draft to withdraw");
             }
-            // Hủy toàn bộ draft (kể cả resource changes)
+            // Hủy toàn bộ draft (kể cả resource changes). clearAllDrafts() đã xóa hẳn resources
+            // thuộc các chapter/lesson DRAFT (chưa từng live) — vòng lặp dưới đây xử lý phần còn
+            // lại: resource được thêm/xóa ngay trên chapter/lesson ĐANG LIVE.
             initChapters(course);
             clearAllDrafts(course);
-            // Reset resource flags
-            lessonResourceRepository.findAllByCourseIdAndIsNewInUpdateTrue(courseId)
-                    .forEach(r -> { r.setIsNewInUpdate(false); lessonResourceRepository.save(r); });
+            // Resource vừa thêm (isNewInUpdate) CHƯA TỪNG lên live — "hủy thay đổi" phải xóa hẳn,
+            // không chỉ gỡ cờ (gỡ cờ mà giữ lại sẽ biến 1 file chưa từng được duyệt thành "đang live"
+            // — cùng lớp bug đã sửa ở AdminCourseServiceImpl.rejectUpdate).
+            lessonResourceRepository.findAllByCourseIdAndIsNewInUpdateTrue(courseId).forEach(r -> {
+                r.setDeletedAt(Instant.now());
+                r.setStatus("DELETED");
+                lessonResourceRepository.save(r);
+                String s3Key = r.getS3Key();
+                if (s3Key != null && !s3Key.startsWith("ext://")) {
+                    try { s3Service.deleteObject(s3Key); }
+                    catch (Exception e) { log.warn("Không thể xóa S3 key {}: {}", s3Key, e.getMessage()); }
+                }
+            });
+            // Resource này VẪN đang live, chỉ bị đánh dấu chờ xóa — hủy thay đổi = bỏ đánh dấu, giữ lại.
             lessonResourceRepository.findAllByCourseIdAndPendingDeleteTrue(courseId)
                     .forEach(r -> { r.setPendingDelete(false); r.setStatus("ACTIVE"); lessonResourceRepository.save(r); });
             course.setPendingUpdateAt(null);
@@ -759,10 +784,20 @@ public class CourseServiceImpl implements CourseService {
         // Force-load toàn bộ nội dung hiện tại
         initChapters(course);
 
-        // 1. Xóa draft cũ nếu có
+        // 1. Xóa draft cũ nếu có — resource thêm trong draft hiện tại (isNewInUpdate) chưa từng lên
+        // live nên phải xóa hẳn (không chỉ gỡ cờ, xem ghi chú ở withdrawFromReview/rejectUpdate);
+        // resource đang live chỉ bị đánh dấu chờ xóa (pendingDelete) thì gỡ đánh dấu, giữ lại.
         clearAllDrafts(course);
-        lessonResourceRepository.findAllByCourseIdAndIsNewInUpdateTrue(courseId)
-                .forEach(r -> { r.setIsNewInUpdate(false); lessonResourceRepository.save(r); });
+        lessonResourceRepository.findAllByCourseIdAndIsNewInUpdateTrue(courseId).forEach(r -> {
+            r.setDeletedAt(Instant.now());
+            r.setStatus("DELETED");
+            lessonResourceRepository.save(r);
+            String s3Key = r.getS3Key();
+            if (s3Key != null && !s3Key.startsWith("ext://")) {
+                try { s3Service.deleteObject(s3Key); }
+                catch (Exception e) { log.warn("Không thể xóa S3 key {}: {}", s3Key, e.getMessage()); }
+            }
+        });
         lessonResourceRepository.findAllByCourseIdAndPendingDeleteTrue(courseId)
                 .forEach(r -> { r.setPendingDelete(false); r.setStatus("ACTIVE"); lessonResourceRepository.save(r); });
 
