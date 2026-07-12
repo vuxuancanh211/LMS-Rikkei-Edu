@@ -136,4 +136,52 @@ class OpenAiLlmServiceTest {
         // content already non-blank, so no follow-up call is made even without a uiRender.
         verify(uriSpec, times(1)).uri("/chat/completions");
     }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void completeForJson_returnsContent_withJsonResponseFormatAndGpt5Params() {
+        when(responseSpec.body(Map.class)).thenReturn(chatResponse("{\"questions\":[]}", null, 10, 5, 15));
+
+        String result = service.completeForJson("system prompt", "generate questions");
+
+        assertThat(result).isEqualTo("{\"questions\":[]}");
+        verify(bodySpec).body(org.mockito.ArgumentMatchers.argThat((Object body) -> {
+            Map<String, Object> map = (Map<String, Object>) body;
+            Map<String, Object> responseFormat = (Map<String, Object>) map.get("response_format");
+            // default OpenAiProperties.chatModel = "gpt-5-mini" — GPT-5 family branch.
+            return "json_object".equals(responseFormat.get("type"))
+                    && map.containsKey("max_completion_tokens")
+                    && "minimal".equals(map.get("reasoning_effort"))
+                    && !map.containsKey("temperature")
+                    && !map.containsKey("max_tokens");
+        }));
+    }
+
+    @Test
+    void completeForJson_emptyContent_returnsBlankWithoutThrowing() {
+        when(responseSpec.body(Map.class)).thenReturn(chatResponse("", null, 10, 0, 10));
+
+        String result = service.completeForJson("system prompt", "generate questions");
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void completeForJson_nonGpt5Model_usesTemperatureAndMaxTokens() {
+        OpenAiProperties gpt4Props = new OpenAiProperties();
+        gpt4Props.setChatModel("gpt-4o-mini");
+        OpenAiLlmService gpt4Service = new OpenAiLlmService(restClient, gpt4Props, new ObjectMapper());
+        when(responseSpec.body(Map.class)).thenReturn(chatResponse("{}", null, 10, 5, 15));
+
+        gpt4Service.completeForJson("system prompt", "generate questions");
+
+        verify(bodySpec).body(org.mockito.ArgumentMatchers.argThat((Object body) -> {
+            Map<String, Object> map = (Map<String, Object>) body;
+            return map.containsKey("temperature")
+                    && map.containsKey("max_tokens")
+                    && !map.containsKey("max_completion_tokens")
+                    && !map.containsKey("reasoning_effort");
+        }));
+    }
 }

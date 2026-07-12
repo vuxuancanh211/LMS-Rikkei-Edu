@@ -144,3 +144,4 @@ jobs:
           severity: HIGH,CRITICAL
           exit-code: '1'
           ignore-unfixed: true
+          timeout: 15m0s

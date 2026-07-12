@@ -138,7 +138,7 @@ public class UserContextService {
                 SELECT q.title      AS quiz_title,
                        c.title      AS course_name,
                        qa.score,
-                       q.total_points AS max_score,
+                       (qa.correct_count + qa.incorrect_count + qa.unanswered_count) AS total_questions,
                        qa.is_passed,
                        TO_CHAR(qa.submitted_at, 'DD/MM/YYYY HH24:MI') AS submitted_at
                 FROM quiz_attempts qa
@@ -154,7 +154,7 @@ public class UserContextService {
                         rs.getString("quiz_title"),
                         rs.getString("course_name"),
                         rs.getDouble("score"),
-                        rs.getDouble("max_score"),
+                        rs.getInt("total_questions"),
                         rs.getBoolean("is_passed"),
                         rs.getString("submitted_at")),
                 studentId);

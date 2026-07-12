@@ -43,8 +43,17 @@ public class AiSourceService {
     private final CourseRepository courseRepo;
     private final S3Service s3Service;
 
-    /** Register a new source and immediately start ingestion. */
-    @Transactional
+    /**
+     * Register a new source and immediately start ingestion.
+     *
+     * <p>Intentionally NOT {@code @Transactional}: {@code orchestrator.ingestAsync(...)} below
+     * dispatches to a background thread synchronously (before this method returns), but a
+     * surrounding transaction here wouldn't commit until AFTER that dispatch — the async thread
+     * could then query the just-created row before it's actually committed and visible, and fail
+     * immediately with "source not found". {@code sourceRepo.save(...)} already commits on its
+     * own (Spring Data JPA default per-call transaction), so by the time we call ingestAsync the
+     * row is guaranteed visible.
+     */
     public SourceResponse ingest(SourceIngestRequest req) {
         Map<String, Object> meta = new HashMap<>();
         if (req.metadata() != null) meta.putAll(req.metadata());
@@ -68,11 +77,10 @@ public class AiSourceService {
 
         source = sourceRepo.save(source);
 
-        // Run synchronously for now; wrap in @Async / queue for production scale.
-        orchestrator.ingest(source.getId());
+        // Ingestion runs on the async task executor — return immediately with PENDING status
+        // rather than blocking the request thread for the whole embed pipeline.
+        orchestrator.ingestAsync(source.getId());
 
-        // Reload to get the updated status after ingestion.
-        source = sourceRepo.findById(source.getId()).orElseThrow();
         return SourceResponse.from(source, courseOf(source.getCourseId()));
     }
 
@@ -150,10 +158,14 @@ public class AiSourceService {
         sourceRepo.save(source);
     }
 
-    /** Delete existing chunks and re-run ingestion. */
-    @Transactional
+    /**
+     * Delete existing chunks and re-run ingestion (async — returns immediately with PENDING status).
+     * Not {@code @Transactional} — same reasoning as {@link #ingest}: avoid the async job racing
+     * an uncommitted outer transaction.
+     */
     public SourceResponse reingest(UUID id) {
-        orchestrator.reingest(id);
+        orchestrator.resetForReingest(id);
+        orchestrator.ingestAsync(id);
         AiSource source = sourceRepo.findById(id).orElseThrow();
         return SourceResponse.from(source, courseOf(source.getCourseId()));
     }
@@ -195,8 +207,11 @@ public class AiSourceService {
         );
     }
 
-    /** Add already-uploaded lesson resources to the AI knowledge base, reusing {@link CourseEmbeddingService}. */
-    @Transactional
+    /**
+     * Add already-uploaded lesson resources to the AI knowledge base, reusing {@link CourseEmbeddingService}.
+     * Not {@code @Transactional} — same reasoning as {@link #ingest}: each iteration's async
+     * ingestAsync dispatch must not race an uncommitted outer transaction.
+     */
     public List<SourceResponse> ingestFromResources(UUID courseId, List<UUID> resourceIds) {
         Course course = courseOf(courseId);
         List<SourceResponse> results = new java.util.ArrayList<>();
@@ -210,13 +225,13 @@ public class AiSourceService {
             if (mimeType == null) {
                 throw new IllegalArgumentException("Định dạng file không hỗ trợ đưa vào AI: " + resourceId);
             }
-            courseEmbeddingService.embedResource(
+            // Upsert the AiSource row synchronously (fast) so we can return it right away;
+            // the actual embed pipeline runs on the async task executor.
+            AiSource created = courseEmbeddingService.upsertResourceSource(
                     courseId, resourceId, resource.getS3Key(), mimeType,
                     resource.getDisplayName() != null ? resource.getDisplayName() : resource.getOriginalFilename());
+            orchestrator.ingestAsync(created.getId());
 
-            AiSource created = sourceRepo.findByResourceIdAndDeletedAtIsNull(resourceId).stream()
-                    .findFirst()
-                    .orElseThrow();
             results.add(SourceResponse.from(created, course));
         }
         return results;

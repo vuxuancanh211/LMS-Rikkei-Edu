@@ -15,6 +15,7 @@ import project.lms_rikkei_edu.common.exception.GlobalExceptionHandler;
 import project.lms_rikkei_edu.common.security.CurrentUserProvider;
 import project.lms_rikkei_edu.modules.course.dto.request.CreateChapterRequest;
 import project.lms_rikkei_edu.modules.course.dto.request.CreateCourseRequest;
+import project.lms_rikkei_edu.modules.course.dto.request.ReorderRequest;
 import project.lms_rikkei_edu.modules.course.dto.request.UpdateCourseRequest;
 import project.lms_rikkei_edu.modules.course.dto.response.*;
 import project.lms_rikkei_edu.modules.course.enums.CourseLevel;
@@ -355,6 +356,62 @@ class CourseControllerTest {
 
             mockMvc.perform(delete("/api/instructor/courses/{cId}/chapters/{chId}", courseId, chapterId))
                     .andExpect(status().isNotFound());
+        }
+    }
+
+    // ── PUT /api/instructor/courses/{courseId}/chapters/reorder ────────────────
+
+    @Nested
+    class ReorderChapters {
+
+        @Test
+        void returnsReorderedChapters() throws Exception {
+            UUID chapterId1 = UUID.randomUUID();
+            UUID chapterId2 = UUID.randomUUID();
+            ReorderRequest request = new ReorderRequest();
+            request.setIds(List.of(chapterId1, chapterId2));
+
+            List<ChapterResponse> reordered = List.of(
+                    ChapterResponse.builder().id(chapterId1).orderIndex(0).build(),
+                    ChapterResponse.builder().id(chapterId2).orderIndex(1).build());
+            when(courseService.reorderChapters(instructorId, courseId, request.getIds()))
+                    .thenReturn(reordered);
+
+            mockMvc.perform(put("/api/instructor/courses/{courseId}/chapters/reorder", courseId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.length()").value(2))
+                    .andExpect(jsonPath("$[0].id").value(chapterId1.toString()));
+        }
+    }
+
+    // ── PUT /api/instructor/courses/{courseId}/chapters/{chapterId}/lessons/reorder ──
+
+    @Nested
+    class ReorderLessons {
+
+        @Test
+        void returnsReorderedLessons() throws Exception {
+            UUID chapterId = UUID.randomUUID();
+            UUID lessonId1 = UUID.randomUUID();
+            UUID lessonId2 = UUID.randomUUID();
+            ReorderRequest request = new ReorderRequest();
+            request.setIds(List.of(lessonId1, lessonId2));
+
+            List<LessonResponse> reordered = List.of(
+                    LessonResponse.builder().id(lessonId1).orderIndex(0).build(),
+                    LessonResponse.builder().id(lessonId2).orderIndex(1).build());
+            when(courseService.reorderLessons(instructorId, courseId, chapterId, request.getIds()))
+                    .thenReturn(reordered);
+
+            mockMvc.perform(put("/api/instructor/courses/{courseId}/chapters/{chapterId}/lessons/reorder",
+                            courseId, chapterId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.length()").value(2))
+                    .andExpect(jsonPath("$[0].id").value(lessonId1.toString()));
         }
     }
 }

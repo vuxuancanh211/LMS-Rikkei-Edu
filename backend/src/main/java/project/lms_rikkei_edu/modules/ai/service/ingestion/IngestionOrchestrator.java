@@ -1,8 +1,8 @@
 package project.lms_rikkei_edu.modules.ai.service.ingestion;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import project.lms_rikkei_edu.modules.ai.entity.AiIngestionJob;
 import project.lms_rikkei_edu.modules.ai.entity.AiSource;
 import project.lms_rikkei_edu.modules.ai.entity.DocumentChunk;
@@ -15,6 +15,9 @@ import project.lms_rikkei_edu.modules.ai.service.embedding.EmbeddingService;
 import project.lms_rikkei_edu.modules.ai.exception.AiSourceNotFoundException;
 import project.lms_rikkei_edu.modules.ai.exception.IngestionException;
 import project.lms_rikkei_edu.modules.ai.service.retrieval.VectorSearchService;
+import project.lms_rikkei_edu.modules.notification.enums.NotificationType;
+import project.lms_rikkei_edu.modules.notification.service.NotificationPreferenceService;
+import project.lms_rikkei_edu.modules.notification.service.NotificationService;
 
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -42,6 +45,8 @@ public class IngestionOrchestrator {
     private final EmbeddingService         embeddingService;
     private final VectorSearchService      vectorSearch;
     private final TextChunker              chunker;
+    private final NotificationService              notificationService;
+    private final NotificationPreferenceService     notificationPreferenceService;
 
     /** Handler registry: sourceType → handler, built once at startup. */
     private final Map<String, SourceIngestionHandler> handlers;
@@ -53,6 +58,8 @@ public class IngestionOrchestrator {
             EmbeddingService embeddingService,
             VectorSearchService vectorSearch,
             TextChunker chunker,
+            NotificationService notificationService,
+            NotificationPreferenceService notificationPreferenceService,
             List<SourceIngestionHandler> handlerList
     ) {
         this.sourceRepo       = sourceRepo;
@@ -61,19 +68,26 @@ public class IngestionOrchestrator {
         this.embeddingService = embeddingService;
         this.vectorSearch     = vectorSearch;
         this.chunker          = chunker;
+        this.notificationService = notificationService;
+        this.notificationPreferenceService = notificationPreferenceService;
         this.handlers         = handlerList.stream()
                 .collect(Collectors.toMap(h -> h.supportedType().name(), Function.identity()));
         log.info("Registered ingestion handlers: {}", this.handlers.keySet());
     }
 
     /**
-     * Run the full ingestion pipeline for the given source.
+     * Run the full ingestion pipeline for the given source, synchronously on the calling thread.
      * Creates an {@link AiIngestionJob} to track progress.
+     *
+     * <p>Intentionally NOT {@code @Transactional}: this method spans a slow external OpenAI
+     * embeddings call (up to ~45s), and holding a pooled DB connection open for that whole
+     * duration is wasteful. Each individual repository call below is already transactional on
+     * its own (Spring Data JPA default), so atomicity per-call is preserved; we just don't need
+     * one giant transaction wrapping the external HTTP call too.
      *
      * @param sourceId UUID of an existing, non-deleted {@link AiSource}
      * @throws IllegalArgumentException if the source is not found or has no handler
      */
-    @Transactional
     public void ingest(UUID sourceId) {
         AiSource source = sourceRepo.findById(sourceId)
                 .orElseThrow(() -> new AiSourceNotFoundException(sourceId));
@@ -123,31 +137,68 @@ public class IngestionOrchestrator {
 
             completeJob(job, JobStatus.COMPLETED, null);
             log.info("Ingestion complete: sourceId={}, chunks={}", sourceId, allChunks.size());
+            notifyResult(source, job, true);
 
         } catch (Exception ex) {
             log.error("Ingestion failed for sourceId={}: {}", sourceId, ex.getMessage(), ex);
 
+            // Clean up any chunks partially saved before the failure — avoid orphaned rows
+            // for a source that's marked FAILED (e.g. error mid-loop after chunk 0..k already saved).
+            chunkRepo.deleteBySourceId(sourceId);
+
             source.setIngestStatus(IngestStatus.FAILED);
+            source.setChunkCount(null);
             source.setErrorMessage(truncate(ex.getMessage(), 500));
             sourceRepo.save(source);
 
             completeJob(job, JobStatus.FAILED, ex.getMessage());
+            notifyResult(source, job, false);
         }
     }
 
+    /** Fire-and-forget entry point — runs {@link #ingest(UUID)} on the async task executor. */
+    @Async
+    public void ingestAsync(UUID sourceId) {
+        ingest(sourceId);
+    }
+
     /**
-     * Delete all chunks for a source and reset its ingest status to PENDING,
-     * then re-run ingestion. Useful after updating source content.
+     * Delete all chunks for a source and reset its ingest status to PENDING.
+     * Fast, synchronous — call {@link #ingest} or {@link #ingestAsync} separately afterward
+     * to actually re-run the pipeline. Split out so callers can return a response reflecting
+     * the PENDING status immediately, before the (possibly async) ingestion runs.
      */
-    @Transactional
-    public void reingest(UUID sourceId) {
+    public void resetForReingest(UUID sourceId) {
         chunkRepo.deleteBySourceId(sourceId);
         AiSource source = sourceRepo.findById(sourceId)
                 .orElseThrow(() -> new AiSourceNotFoundException(sourceId));
         source.setIngestStatus(IngestStatus.PENDING);
         source.setChunkCount(null);
+        source.setErrorMessage(null);
         sourceRepo.save(source);
-        ingest(sourceId);
+    }
+
+    /** Notify the uploader that their document finished processing (success or failure). */
+    private void notifyResult(AiSource source, AiIngestionJob job, boolean success) {
+        UUID recipientId = source.getUploadedBy();
+        if (recipientId == null) return; // e.g. ingested from an existing lesson resource, no uploader tracked
+
+        NotificationType type = success ? NotificationType.AI_SOURCE_INDEXED : NotificationType.AI_SOURCE_FAILED;
+        if (!notificationPreferenceService.isInAppEnabled(recipientId, type.name())) return;
+
+        String title = success ? "Tài liệu AI đã xử lý xong" : "Xử lý tài liệu AI thất bại";
+        String body = success
+                ? "\"%s\" đã được index thành công (%d đoạn nội dung).".formatted(source.getSourceName(), source.getChunkCount())
+                : "\"%s\" xử lý thất bại: %s".formatted(source.getSourceName(), truncate(source.getErrorMessage(), 200));
+
+        try {
+            notificationService.createNotification(
+                    recipientId, type.name(), title, body,
+                    "AI_SOURCE", source.getId(), null, null,
+                    "ai-ingest-" + job.getId());
+        } catch (Exception ex) {
+            log.warn("Failed to create ingestion notification for sourceId={}: {}", source.getId(), ex.getMessage());
+        }
     }
 
     // ── private helpers ───────────────────────────────────────────────────────

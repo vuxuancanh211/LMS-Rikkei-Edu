@@ -64,7 +64,7 @@ function registerGalleryPage() {
     instructor: { dashboard: "InsDashboard", courses: "InsCourses", courseDetail: "InsCourseDetail", groups: "InsGroups", groupDetail: "InsGroupDetail", assess: "InsAssess", grading: "InsGrading", students: "InsStudents", forum: "ForumPage", chat: "ChatScreen", aiDocs: "InsAiDocs", settings: "Settings", notifications: "NotificationsPage" },
     admin: { dashboard: "AdminDashboard", users: "AdminUsers", courses: "AdminCourses", approval: "AdminApproval", certificates: "AdminCertificates", reports: "AdminReports", logs: "AdminLogs", aiDocs: "AdminAiDocs", settings: "Settings", notifications: "NotificationsPage" },
   };
-  const FULLBARE = { player: "LecturePlayer", quiz: "QuizPlayer", result: "QuizResult", preview: "PreviewPlayer" };
+  const FULLBARE = { player: "LecturePlayer", quiz: "QuizPlayer", result: "QuizResult", preview: "PreviewPlayer", dryRun: "QuizDryRunPlayer" };
   const ROLES = [["student", "Học viên"], ["instructor", "Giảng viên"], ["admin", "Quản trị"]];
   const ALIAS = { groupDetail: "groups", courseDetail: "courses", certDetail: "certs" };
 
@@ -275,7 +275,7 @@ function registerGalleryPage() {
               )}
             </div>
           </header>
-          <main style={{ flex: 1 }}><Comp nav={go} persona={persona} demo={demo} groupId={routeParams.groupId} /></main>
+          <main style={{ flex: 1 }}><Comp nav={go} persona={persona} demo={demo} groupId={routeParams?.groupId} courseId={routeParams?.courseId} quizId={routeParams?.quizId} /></main>
         </div>
         {(role === "student" || role === "instructor") && <window.AIChatbot />}
       </div>

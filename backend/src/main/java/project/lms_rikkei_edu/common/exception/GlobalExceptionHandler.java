@@ -100,7 +100,7 @@ public class GlobalExceptionHandler {
 
     // ── AI module exceptions ──────────────────────────────────────────────────
 
-    @ExceptionHandler({AiSourceNotFoundException.class, ConversationNotFoundException.class})
+    @ExceptionHandler({ AiSourceNotFoundException.class, ConversationNotFoundException.class })
     public ResponseEntity<ErrorResponse> handleAiNotFound(
             RuntimeException ex,
             HttpServletRequest request) {
@@ -227,8 +227,9 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(AsyncRequestNotUsableException.class)
-    public void handleAsyncRequestNotUsableException() {
-        // Client disconnected from SSE; emitter cleanup handles stale connections.
+    public void handleAsyncRequestNotUsableException(AsyncRequestNotUsableException ex) {
+        // SSE client disconnected — benign, no response to write
+        log.debug("SSE client disconnected: {}", ex.getMessage());
     }
 
     @ExceptionHandler(Exception.class)

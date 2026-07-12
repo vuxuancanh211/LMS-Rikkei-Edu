@@ -6,6 +6,8 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.StringJoiner;
 import java.util.UUID;
@@ -51,10 +53,24 @@ public class VectorSearchService {
      * @return chunks ordered by descending similarity
      */
     public List<ScoredChunk> search(UUID courseId, float[] queryEmbedding, int topK, double minSimilarity) {
+        return search(courseId, null, queryEmbedding, topK, minSimilarity);
+    }
+
+    /**
+     * Cosine-similarity search, có thể giới hạn thêm vào danh sách {@code sourceIds} cụ thể
+     * (ai_sources.id) thay vì toàn bộ tài liệu đã index của khóa học.
+     *
+     * @param sourceIds nếu null/rỗng thì không giới hạn (tìm trên toàn bộ tài liệu — hành vi cũ)
+     */
+    public List<ScoredChunk> search(UUID courseId, List<UUID> sourceIds, float[] queryEmbedding, int topK, double minSimilarity) {
         String vecStr = toVectorString(queryEmbedding);
+        boolean hasSourceFilter = sourceIds != null && !sourceIds.isEmpty();
+        String sourceFilterSql = hasSourceFilter
+                ? "AND dc.source_id IN (" + String.join(",", Collections.nCopies(sourceIds.size(), "?")) + ")\n"
+                : "";
 
         String sql;
-        Object[] params;
+        List<Object> params = new ArrayList<>();
 
         if (courseId != null) {
             sql = """
@@ -65,10 +81,13 @@ public class VectorSearchService {
                   WHERE dc.course_id = ?
                     AND dc.embedding IS NOT NULL
                     AND 1 - (dc.embedding <=> ?::vector) >= ?
+                    """ + sourceFilterSql + """
                   ORDER BY dc.embedding <=> ?::vector
                   LIMIT ?
                   """;
-            params = new Object[]{vecStr, courseId, vecStr, minSimilarity, vecStr, topK};
+            params.add(vecStr); params.add(courseId); params.add(vecStr); params.add(minSimilarity);
+            if (hasSourceFilter) params.addAll(sourceIds);
+            params.add(vecStr); params.add(topK);
         } else {
             // system documents (course_id IS NULL)
             sql = """
@@ -79,10 +98,13 @@ public class VectorSearchService {
                   WHERE dc.course_id IS NULL
                     AND dc.embedding IS NOT NULL
                     AND 1 - (dc.embedding <=> ?::vector) >= ?
+                    """ + sourceFilterSql + """
                   ORDER BY dc.embedding <=> ?::vector
                   LIMIT ?
                   """;
-            params = new Object[]{vecStr, vecStr, minSimilarity, vecStr, topK};
+            params.add(vecStr); params.add(vecStr); params.add(minSimilarity);
+            if (hasSourceFilter) params.addAll(sourceIds);
+            params.add(vecStr); params.add(topK);
         }
 
         try {
@@ -96,7 +118,7 @@ public class VectorSearchService {
                             rs.getString("chunk_text"),
                             rs.getDouble("similarity")
                     ),
-                    params
+                    params.toArray()
             );
         } catch (DataAccessException ex) {
             log.warn("Vector search unavailable for courseId={}: {}. " +

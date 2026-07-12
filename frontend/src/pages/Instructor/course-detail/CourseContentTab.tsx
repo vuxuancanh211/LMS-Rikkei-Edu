@@ -52,7 +52,15 @@
     setRenameLessonState, setEditResourceState,
     handleRenameChapter, handleRenameLesson,
     handleDeleteChapter, handleDeleteLesson, handleDeleteResource,
+    handleReorderChapter, handleReorderLesson,
+    setChangeQuizState,
   }: any) {
+    // Kéo-thả sắp xếp lại chương/bài giảng — chỉ 1 thứ đang kéo tại 1 thời điểm
+    const [dragChapterIdx, setDragChapterIdx] = useState(null);
+    const [dragOverChapterIdx, setDragOverChapterIdx] = useState(null);
+    const [dragLesson, setDragLesson] = useState(null); // { chapterId, index }
+    const [dragOverLesson, setDragOverLesson] = useState(null); // { chapterId, index }
+
     return (
       <Section>
         <div className="between" style={{ marginBottom: 16 }}>
@@ -69,11 +77,20 @@
         )}
 
         {chapters.map((ch: any, ci: number) => (
-          <div key={ch.id} style={{
-            border: "1px solid var(--border)", borderRadius: 12, marginBottom: 10,
-            opacity: ch.pendingDelete ? 0.55 : 1,
-            outline: ch.isDraft ? "2px solid #22c55e" : ch.pendingDelete ? "2px solid #ef4444" : "none",
-          }}>
+          <div key={ch.id}
+            onDragOver={e => { if (dragChapterIdx !== null) { e.preventDefault(); if (dragOverChapterIdx !== ci) setDragOverChapterIdx(ci); } }}
+            onDragLeave={() => { if (dragOverChapterIdx === ci) setDragOverChapterIdx(null); }}
+            onDrop={e => {
+              e.preventDefault();
+              if (dragChapterIdx !== null && dragChapterIdx !== ci) handleReorderChapter(dragChapterIdx, ci);
+              setDragChapterIdx(null); setDragOverChapterIdx(null);
+            }}
+            style={{
+              border: dragOverChapterIdx === ci ? "1px solid var(--accent)" : "1px solid var(--border)", borderRadius: 12, marginBottom: 10,
+              opacity: ch.pendingDelete ? 0.55 : dragChapterIdx === ci ? 0.4 : 1,
+              outline: ch.isDraft ? "2px solid #22c55e" : ch.pendingDelete ? "2px solid #ef4444" : "none",
+              transition: "opacity .12s, border-color .12s",
+            }}>
             {/* Chapter header */}
             <div className="row gap-12" style={{ padding: "12px 16px", background: "var(--surface-2)", cursor: "pointer", userSelect: "none" }}
               onClick={() => setOpen(open === ci ? -1 : ci)}>
@@ -87,10 +104,19 @@
               </div>
               <span className="muted t-xs">{ch.items.length} bài giảng</span>
               {canEdit && (
-                <button className="icon-btn" style={{ width: 34, height: 34, color: "var(--error)" }}
-                  onClick={e => { e.stopPropagation(); handleDeleteChapter(ch.id); }}>
-                  <Ic n="x" size={15} />
-                </button>
+                <div className="row gap-4" onClick={e => e.stopPropagation()}>
+                  <div draggable
+                    onDragStart={e => { setDragChapterIdx(ci); e.dataTransfer.effectAllowed = "move"; }}
+                    onDragEnd={() => { setDragChapterIdx(null); setDragOverChapterIdx(null); }}
+                    style={{ width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center", cursor: "grab", color: "var(--text-3)" }}
+                    title="Kéo để sắp xếp lại">
+                    <Ic n="menu" size={16} />
+                  </div>
+                  <button className="icon-btn" style={{ width: 34, height: 34, color: "var(--error)" }}
+                    onClick={() => handleDeleteChapter(ch.id)}>
+                    <Ic n="x" size={15} />
+                  </button>
+                </div>
               )}
             </div>
 
@@ -99,18 +125,34 @@
                 {ch.items.length === 0 && (
                   <div className="muted t-xs" style={{ padding: "12px 24px" }}>Chưa có bài giảng nào.</div>
                 )}
-                {ch.items.map((lesson: any) => {
+                {ch.items.map((lesson: any, li: number) => {
                   const videoCount   = (lesson.resources || []).filter(r => r.resourceType === "VIDEO").length;
                   const docCount     = (lesson.resources || []).filter(r => r.resourceType !== "VIDEO").length;
                   const lessonOpen   = openLessons[lesson.lessonId] !== false;
-                  const hasResources = lesson.resources?.length > 0;
+                  const isQuiz       = lesson.lessonType === "QUIZ";
+                  const hasResources = !isQuiz && lesson.resources?.length > 0;
+                  const isDraggingThis = dragLesson?.chapterId === ch.id && dragLesson?.index === li;
+                  const isDragOverThis = dragOverLesson?.chapterId === ch.id && dragOverLesson?.index === li;
                   return (
-                    <div key={lesson.lessonId} style={{
+                    <div key={lesson.lessonId}
+                      onDragOver={e => {
+                        if (dragLesson?.chapterId !== ch.id) return;
+                        e.preventDefault();
+                        if (!isDragOverThis) setDragOverLesson({ chapterId: ch.id, index: li });
+                      }}
+                      onDragLeave={() => { if (isDragOverThis) setDragOverLesson(null); }}
+                      onDrop={e => {
+                        e.preventDefault();
+                        if (dragLesson?.chapterId === ch.id && dragLesson.index !== li) handleReorderLesson(ch.id, dragLesson.index, li);
+                        setDragLesson(null); setDragOverLesson(null);
+                      }}
+                      style={{
                       margin: "0 10px 8px",
-                      border: lesson.pendingDelete ? "1px dashed #fca5a5" : lesson.isDraft ? "1px solid #86efac" : "1px solid var(--border-soft, #e5e7eb)",
+                      border: isDragOverThis ? "1px solid var(--accent)" : lesson.pendingDelete ? "1px dashed #fca5a5" : lesson.isDraft ? "1px solid #86efac" : "1px solid var(--border-soft, #e5e7eb)",
                       borderRadius: 10,
-                      opacity: lesson.pendingDelete ? 0.6 : 1,
+                      opacity: lesson.pendingDelete ? 0.6 : isDraggingThis ? 0.4 : 1,
                       background: "var(--surface)",
+                      transition: "opacity .12s, border-color .12s",
                     }}>
                       {/* Lesson header */}
                       <div className="row gap-12" style={{
@@ -123,8 +165,9 @@
                         {hasResources
                           ? <Ic n="chevron_down" size={15} style={{ transform: lessonOpen ? "none" : "rotate(-90deg)", transition: ".18s", color: "var(--text-3)", flex: "none" }} />
                           : <div style={{ width: 15, flex: "none" }} />}
-                        <div className="stat-ic" style={{ width: 34, height: 34, borderRadius: 8, background: "#f0fdf4", color: "#16a34a", flex: "none" }}>
-                          <Ic n="book" size={15} />
+                        <div className="stat-ic" style={{ width: 34, height: 34, borderRadius: 8,
+                          background: isQuiz ? "#eaf1ff" : "#f0fdf4", color: isQuiz ? "#2563eb" : "#16a34a", flex: "none" }}>
+                          <Ic n={isQuiz ? "clipboard" : "book"} size={15} />
                         </div>
                         <div className="grow" style={{ minWidth: 0 }}>
                           <div style={{ fontWeight: 500, fontSize: 13.5, display: "flex", alignItems: "center", gap: 7 }} className="truncate"
@@ -141,22 +184,57 @@
                             </div>
                           )}
                           <div className="row gap-6 wrap" style={{ marginTop: 2 }}>
-                            <span className="chip" style={{ background: "#f0fdf4", color: "#16a34a", fontSize: 10.5, padding: "1px 7px" }}>Bài giảng</span>
-                            {videoCount > 0 && <span className="muted t-xs">{videoCount} video</span>}
-                            {docCount > 0   && <span className="muted t-xs">{docCount} tài liệu</span>}
-                            {lesson.dur     && <span className="muted t-xs">{lesson.dur}</span>}
+                            {isQuiz ? (
+                              <>
+                                <span className="chip" style={{ background: "#eaf1ff", color: "#2563eb", fontSize: 10.5, padding: "1px 7px" }}>Đề trắc nghiệm</span>
+                                <span className={`chip ${lesson.quizStatus === "PUBLISHED" ? "" : ""}`}
+                                  style={{ fontSize: 10.5, padding: "1px 7px",
+                                    background: lesson.quizStatus === "PUBLISHED" ? "#dcfce7" : "#fef3c7",
+                                    color: lesson.quizStatus === "PUBLISHED" ? "#16a34a" : "#b45309" }}>
+                                  {lesson.quizStatus === "PUBLISHED" ? "Đã xuất bản" : "Nháp"}
+                                </span>
+                                {lesson.quizTitle && <span className="muted t-xs truncate" style={{ maxWidth: 180 }}>{lesson.quizTitle}</span>}
+                              </>
+                            ) : (
+                              <>
+                                <span className="chip" style={{ background: "#f0fdf4", color: "#16a34a", fontSize: 10.5, padding: "1px 7px" }}>Bài giảng</span>
+                                {videoCount > 0 && <span className="muted t-xs">{videoCount} video</span>}
+                                {docCount > 0   && <span className="muted t-xs">{docCount} tài liệu</span>}
+                                {lesson.dur     && <span className="muted t-xs">{lesson.dur}</span>}
+                              </>
+                            )}
                           </div>
                         </div>
                         <div className="row gap-4" onClick={e => e.stopPropagation()}>
                           {canEdit && <>
+                            <div draggable
+                              onDragStart={e => { setDragLesson({ chapterId: ch.id, index: li }); e.dataTransfer.effectAllowed = "move"; }}
+                              onDragEnd={() => { setDragLesson(null); setDragOverLesson(null); }}
+                              style={{ width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center", cursor: "grab", color: "var(--text-3)" }}
+                              title="Kéo để sắp xếp lại">
+                              <Ic n="menu" size={14} />
+                            </div>
                             <button className="icon-btn" style={{ width: 30, height: 30 }} title="Đổi tên bài giảng"
                               onClick={() => setRenameLessonState({ chapterId: ch.id, lessonId: lesson.lessonId, title: lesson.title })}>
                               <Ic n="edit" size={14} />
                             </button>
-                            <button className="icon-btn" style={{ width: 30, height: 30, color: "#16a34a" }} title="Thêm nội dung"
-                              onClick={() => setAddResourceState({ lessonId: lesson.lessonId, lessonTitle: lesson.title })}>
-                              <Ic n="plus" size={14} />
-                            </button>
+                            {isQuiz ? (
+                              <>
+                                <button className="icon-btn" style={{ width: 30, height: 30, color: "#2563eb" }} title="Soạn câu hỏi cho đề này"
+                                  onClick={() => { window.location.href = `/instructor/assess?courseId=${courseId}&quizId=${lesson.quizId}`; }}>
+                                  <Ic n="file_text" size={14} />
+                                </button>
+                                <button className="icon-btn" style={{ width: 30, height: 30, color: "#d97706" }} title="Đổi đề trắc nghiệm"
+                                  onClick={() => setChangeQuizState({ chapterId: ch.id, lessonId: lesson.lessonId, currentQuizId: lesson.quizId })}>
+                                  <Ic n="rotate_ccw" size={14} />
+                                </button>
+                              </>
+                            ) : (
+                              <button className="icon-btn" style={{ width: 30, height: 30, color: "#16a34a" }} title="Thêm nội dung"
+                                onClick={() => setAddResourceState({ lessonId: lesson.lessonId, lessonTitle: lesson.title })}>
+                                <Ic n="plus" size={14} />
+                              </button>
+                            )}
                             <button className="icon-btn" style={{ width: 30, height: 30, color: "var(--error)" }} title="Xóa bài giảng"
                               onClick={() => handleDeleteLesson(ch.id, lesson.lessonId)}>
                               <Ic n="x" size={14} />

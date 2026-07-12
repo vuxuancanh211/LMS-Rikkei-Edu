@@ -54,6 +54,7 @@ const playerRoutes = {
   quiz: '/player/quiz',
   result: '/player/quiz-result',
   preview: '/player/preview',
+  dryRun: '/player/quiz-dry-run',
 };
 
 function dashboardForRole(role: keyof typeof roleRoutes | null) {
@@ -199,6 +200,8 @@ function NotificationsRoute() {
 
 function PlayerRoute({ name }: { name: string }) {
   const navigate = useNavigate();
+  const location = useLocation();
+  const authUser = useAuthStore((state) => state.user);
   const Comp = window[name];
 
   if (!Comp) return <MissingRuntime name={name} />;
@@ -211,15 +214,37 @@ function PlayerRoute({ name }: { name: string }) {
     }
   };
 
+  const params = Object.fromEntries(new URLSearchParams(location.search));
+
+  // Quiz đang làm/kết quả có thể được mở từ giữa bài giảng (LecturePlayer) hoặc từ trang
+  // Bài tập & Bài kiểm tra (StuTasks) — "from"/"lessonId" được truyền xuyên suốt qua các URL
+  // quiz → quiz-result để khi thoát/nộp xong, học viên quay lại đúng nơi xuất phát và trang đó
+  // tự remount (route khác nhau) nên dữ liệu (tiến độ bài học / danh sách quiz) được tải lại mới.
+  let returnPath = '/student/courses';
+  if (name === 'QuizPlayer' || name === 'QuizResult') {
+    returnPath = params.from === 'lecture' && params.courseId
+      ? `/player/lecture?courseId=${params.courseId}${params.lessonId ? '&lessonId=' + params.lessonId : ''}`
+      : '/student/tasks';
+  }
+
   return (
     <div className="app">
       <Comp
-        onBack={() => navigate('/student/courses')}
+        {...params}
+        proctoringEnabled={params.proctoringEnabled === 'true'}
+        authUser={authUser}
+        onBack={() => navigate(returnPath)}
         onDashboard={() => navigate('/student/dashboard')}
         onSettings={() => navigate('/settings')}
         onLogout={handleLogout}
         navigate={navigate}
-        onSubmit={() => navigate('/player/quiz-result')}
+        onSubmit={(attemptId: string, courseId: string, quizId: string) => {
+          const extra = [
+            params.from ? `from=${params.from}` : '',
+            params.lessonId ? `lessonId=${params.lessonId}` : '',
+          ].filter(Boolean).join('&');
+          navigate(`/player/quiz-result?attemptId=${attemptId}&courseId=${courseId}&quizId=${quizId}${extra ? '&' + extra : ''}`);
+        }}
       />
     </div>
   );
@@ -266,5 +291,6 @@ export const router = createBrowserRouter([
   { path: '/player/quiz', element: <RequireAuth><PlayerRoute name="QuizPlayer" /></RequireAuth> },
   { path: '/player/quiz-result', element: <RequireAuth><PlayerRoute name="QuizResult" /></RequireAuth> },
   { path: '/player/preview', element: <RequireAuth><PlayerRoute name="PreviewPlayer" /></RequireAuth> },
+  { path: '/player/quiz-dry-run', element: <RequireAuth><PlayerRoute name="QuizDryRunPlayer" /></RequireAuth> },
   { path: '*', element: <Navigate to="/login" replace /> },
 ]);

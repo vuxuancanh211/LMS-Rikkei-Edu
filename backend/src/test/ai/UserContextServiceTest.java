@@ -237,7 +237,7 @@ class UserContextServiceTest {
             when(rs.getString("quiz_title")).thenReturn("Quiz Chương 1");
             when(rs.getString("course_name")).thenReturn("ReactJS Nâng cao");
             when(rs.getDouble("score")).thenReturn(8.0);
-            when(rs.getDouble("max_score")).thenReturn(10.0);
+            when(rs.getInt("total_questions")).thenReturn(10);
             when(rs.getBoolean("is_passed")).thenReturn(true);
             when(rs.getString("submitted_at")).thenReturn("01/07/2026 11:00");
 
@@ -249,6 +249,7 @@ class UserContextServiceTest {
             assertThat(ctx.recentQuizResults()).hasSize(1);
             var q = ctx.recentQuizResults().get(0);
             assertThat(q.quizTitle()).isEqualTo("Quiz Chương 1");
+            assertThat(q.totalQuestions()).isEqualTo(10);
             assertThat(q.isPassed()).isTrue();
         }
 

@@ -99,7 +99,7 @@ class AiSourceServiceTest {
             SourceResponse result = service.ingest(req);
 
             verify(sourceRepo).save(any(AiSource.class));
-            verify(orchestrator).ingest(sourceId);
+            verify(orchestrator).ingestAsync(sourceId);
             assertThat(result.id()).isEqualTo(sourceId);
             assertThat(result.ingestStatus()).isEqualTo(IngestStatus.INDEXED);
         }
@@ -361,7 +361,8 @@ class AiSourceServiceTest {
 
             SourceResponse resp = service.reingest(sourceId);
 
-            verify(orchestrator).reingest(sourceId);
+            verify(orchestrator).resetForReingest(sourceId);
+            verify(orchestrator).ingestAsync(sourceId);
             assertThat(resp.id()).isEqualTo(sourceId);
         }
     }
@@ -444,11 +445,12 @@ class AiSourceServiceTest {
 
             AiSource created = buildSource(UUID.randomUUID());
             created.setResourceId(resourceId);
-            when(sourceRepo.findByResourceIdAndDeletedAtIsNull(resourceId)).thenReturn(List.of(created));
+            when(courseEmbeddingService.upsertResourceSource(courseId, resourceId, "courses/slide.pdf", "application/pdf", "Slide.pdf"))
+                    .thenReturn(created);
 
             List<SourceResponse> result = service.ingestFromResources(courseId, List.of(resourceId));
 
-            verify(courseEmbeddingService).embedResource(courseId, resourceId, "courses/slide.pdf", "application/pdf", "Slide.pdf");
+            verify(orchestrator).ingestAsync(created.getId());
             assertThat(result).hasSize(1);
             assertThat(result.get(0).id()).isEqualTo(created.getId());
         }
@@ -478,11 +480,12 @@ class AiSourceServiceTest {
                     .build();
             when(lessonResourceRepo.findById(resourceId)).thenReturn(Optional.of(resource));
             AiSource created = buildSource(UUID.randomUUID());
-            when(sourceRepo.findByResourceIdAndDeletedAtIsNull(resourceId)).thenReturn(List.of(created));
+            when(courseEmbeddingService.upsertResourceSource(courseId, resourceId, "courses/slide.docx", "application/msword", "Slide.docx"))
+                    .thenReturn(created);
 
             service.ingestFromResources(courseId, List.of(resourceId));
 
-            verify(courseEmbeddingService).embedResource(courseId, resourceId, "courses/slide.docx", "application/msword", "Slide.docx");
+            verify(orchestrator).ingestAsync(created.getId());
         }
 
         @Test

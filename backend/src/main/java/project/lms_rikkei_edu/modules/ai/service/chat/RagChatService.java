@@ -57,19 +57,22 @@ public class RagChatService {
 
     private static final String LLM_PROVIDER = "openai";
 
-    /** Simple keyword heuristic — not real intent classification, see {@link #detectStructuredData}. */
+    /**
+     * Simple keyword heuristic — not real intent classification, see
+     * {@link #detectStructuredData}.
+     */
     private static final List<String> COURSE_LIST_KEYWORDS = List.of("khóa học", "khoá học", "course");
 
-    private final AiConversationRepository  conversationRepo;
-    private final AiMessageRepository       messageRepo;
-    private final AiMessageDebugRepository  debugRepo;
-    private final AiSourceRepository        sourceRepo;
-    private final EmbeddingService          embeddingService;
-    private final VectorSearchService       vectorSearch;
-    private final LlmService                llmService;
-    private final OpenAiProperties          props;
-    private final ObjectMapper              objectMapper;
-    private final UserContextService        userContextService;
+    private final AiConversationRepository conversationRepo;
+    private final AiMessageRepository messageRepo;
+    private final AiMessageDebugRepository debugRepo;
+    private final AiSourceRepository sourceRepo;
+    private final EmbeddingService embeddingService;
+    private final VectorSearchService vectorSearch;
+    private final LlmService llmService;
+    private final OpenAiProperties props;
+    private final ObjectMapper objectMapper;
+    private final UserContextService userContextService;
 
     @Transactional
     public ChatResponse chat(ChatRequest req) {
@@ -83,13 +86,15 @@ public class RagChatService {
         List<AiMessage> history = loadHistory(conversation.getId());
         List<ChatMessage> llmHistory = toLlmHistory(history);
 
-        // 4. Retrieve relevant chunks — course-scoped (if any) plus system-wide docs, merged by similarity
+        // 4. Retrieve relevant chunks — course-scoped (if any) plus system-wide docs,
+        // merged by similarity
         float[] queryEmbedding = embeddingService.embed(req.message());
         UUID searchCourseId = resolveSearchCourse(req, userCtx);
         List<ScoredChunk> courseChunks = (searchCourseId != null)
                 ? vectorSearch.search(searchCourseId, queryEmbedding, props.getTopK(), props.getSimilarityThreshold())
                 : List.of();
-        List<ScoredChunk> systemChunks = vectorSearch.search(null, queryEmbedding, props.getTopK(), props.getSimilarityThreshold());
+        List<ScoredChunk> systemChunks = vectorSearch.search(null, queryEmbedding, props.getTopK(),
+                props.getSimilarityThreshold());
         List<ScoredChunk> chunks = Stream.concat(courseChunks.stream(), systemChunks.stream())
                 .sorted(Comparator.comparingDouble(ScoredChunk::similarity).reversed())
                 .limit(props.getTopK())
@@ -128,15 +133,15 @@ public class RagChatService {
                 sources,
                 llmResp.totalTokens(),
                 structuredData,
-                llmResp.uiRender()
-        );
+                llmResp.uiRender());
     }
 
     /**
      * Heuristic keyword match — not a real intent classifier. Covers the
      * instructor "how many/which courses do I have" case.
      *
-     * <p>Naively matching on "khóa học" also fires for questions that merely
+     * <p>
+     * Naively matching on "khóa học" also fires for questions that merely
      * mention a course in passing while actually asking about one of its
      * sub-resources (e.g. "khóa học X có bao nhiêu chương?" — asking about
      * chapters, not requesting the course list). To avoid that false
@@ -161,7 +166,8 @@ public class RagChatService {
             return null;
         }
         List<StructuredData.CourseListItem> items = ctx.courses().stream()
-                .map(c -> new StructuredData.CourseListItem(c.courseId(), c.title(), c.progressStatus(), c.progressPct()))
+                .map(c -> new StructuredData.CourseListItem(c.courseId(), c.title(), c.progressStatus(),
+                        c.progressPct()))
                 .toList();
         return new StructuredData("COURSE_LIST", items);
     }
@@ -188,23 +194,31 @@ public class RagChatService {
     }
 
     /**
-     * Returns the course to scope vector search: explicit courseId (if the user actually has
+     * Returns the course to scope vector search: explicit courseId (if the user
+     * actually has
      * access to it) > first enrolled/owned course > null.
      *
-     * <p>If the client sends a courseId the user has no access to (not enrolled as student, not
-     * the owning instructor), we don't error out and don't silently substitute a different course
-     * of theirs — we just treat it as "no course scope", so no chunks are retrieved and the LLM
-     * falls back to general knowledge / role context only. ADMIN bypasses this check (same as
+     * <p>
+     * If the client sends a courseId the user has no access to (not enrolled as
+     * student, not
+     * the owning instructor), we don't error out and don't silently substitute a
+     * different course
+     * of theirs — we just treat it as "no course scope", so no chunks are retrieved
+     * and the LLM
+     * falls back to general knowledge / role context only. ADMIN bypasses this
+     * check (same as
      * {@code AiSourceController.verifyCourseOwnership}).
      */
     private UUID resolveSearchCourse(ChatRequest req, UserContext ctx) {
         if (req.courseId() != null) {
-            if (ctx.role() == UserContext.UserRole.ADMIN) return req.courseId();
+            if (ctx.role() == UserContext.UserRole.ADMIN)
+                return req.courseId();
             boolean hasAccess = ctx.courses().stream()
                     .anyMatch(c -> c.courseId().equals(req.courseId()));
             return hasAccess ? req.courseId() : null;
         }
-        if (!ctx.courses().isEmpty()) return ctx.courses().get(0).courseId();
+        if (!ctx.courses().isEmpty())
+            return ctx.courses().get(0).courseId();
         return null;
     }
 
@@ -247,9 +261,9 @@ public class RagChatService {
         sb.append("\n=== THÔNG TIN NGƯỜI DÙNG ===\n");
         sb.append("Tên: ").append(ctx.fullName()).append("\n");
         sb.append("Vai trò: ").append(switch (ctx.role()) {
-            case STUDENT    -> "Học viên";
+            case STUDENT -> "Học viên";
             case INSTRUCTOR -> "Giảng viên";
-            case ADMIN      -> "Quản trị viên";
+            case ADMIN -> "Quản trị viên";
         }).append("\n");
 
         // ── STUDENT sections ──────────────────────────────────────────────────
@@ -258,60 +272,62 @@ public class RagChatService {
                 sb.append("\nKHÓA HỌC ĐANG HỌC:\n");
                 for (var c : ctx.courses()) {
                     sb.append("  - ").append(c.title())
-                      .append(" — tiến độ: ").append(String.format("%.1f", c.progressPct())).append("%")
-                      .append(" [").append(c.progressStatus()).append("]\n");
+                            .append(" — tiến độ: ").append(String.format("%.1f", c.progressPct())).append("%")
+                            .append(" [").append(c.progressStatus()).append("]\n");
                 }
             }
 
-            if (!ctx.recentLessons().isEmpty()) {                                   // A1
+            if (!ctx.recentLessons().isEmpty()) { // A1
                 sb.append("\nBÀI HỌC GẦN NHẤT:\n");
                 for (var l : ctx.recentLessons()) {
                     sb.append("  - ").append(l.lessonTitle())
-                      .append(" (").append(l.chapterTitle()).append(" / ").append(l.courseName()).append(")")
-                      .append(" — ").append(l.status())
-                      .append(" — ").append(l.lastAccessedAt()).append("\n");
+                            .append(" (").append(l.chapterTitle()).append(" / ").append(l.courseName()).append(")")
+                            .append(" — ").append(l.status())
+                            .append(" — ").append(l.lastAccessedAt()).append("\n");
                 }
             }
 
-            if (!ctx.recentQuizResults().isEmpty()) {                               // A2
+            if (!ctx.recentQuizResults().isEmpty()) { // A2
                 sb.append("\nKẾT QUẢ QUIZ GẦN NHẤT:\n");
                 for (var q : ctx.recentQuizResults()) {
                     sb.append("  - ").append(q.quizTitle())
-                      .append(" [").append(q.courseName()).append("]")
-                      .append(" — ").append(q.score()).append("/").append(q.maxScore())
-                      .append(q.isPassed() ? " ✓ ĐẠT" : " ✗ CHƯA ĐẠT")
-                      .append(" — ").append(q.submittedAt()).append("\n");
+                            .append(" [").append(q.courseName()).append("]")
+                            .append(" — ").append(q.score().intValue()).append("/").append(q.totalQuestions())
+                            .append(" câu đúng")
+                            .append(q.isPassed() ? " ✓ ĐẠT" : " ✗ CHƯA ĐẠT")
+                            .append(" — ").append(q.submittedAt()).append("\n");
                 }
             }
 
-            if (!ctx.unsubmittedAssignments().isEmpty()) {                          // A3
+            if (!ctx.unsubmittedAssignments().isEmpty()) { // A3
                 sb.append("\nBÀI TẬP CHƯA NỘP:\n");
                 for (var a : ctx.unsubmittedAssignments()) {
                     sb.append("  - ").append(a.assignmentTitle())
-                      .append(" [").append(a.courseName()).append("]")
-                      .append(" — hạn: ").append(a.deadline());
-                    if (a.isOverdue()) sb.append(" ⚠️ ĐÃ QUÁ HẠN");
+                            .append(" [").append(a.courseName()).append("]")
+                            .append(" — hạn: ").append(a.deadline());
+                    if (a.isOverdue())
+                        sb.append(" ⚠️ ĐÃ QUÁ HẠN");
                     sb.append("\n");
                 }
             }
 
-            if (!ctx.chapterProgress().isEmpty()) {                                 // B1
+            if (!ctx.chapterProgress().isEmpty()) { // B1
                 sb.append("\nTIẾN ĐỘ THEO CHƯƠNG:\n");
                 for (var p : ctx.chapterProgress()) {
                     sb.append("  - [").append(p.courseName()).append("] ")
-                      .append(p.chapterTitle())
-                      .append(" — ").append(p.completedLessons()).append("/").append(p.totalLessons())
-                      .append(" bài học hoàn thành\n");
+                            .append(p.chapterTitle())
+                            .append(" — ").append(p.completedLessons()).append("/").append(p.totalLessons())
+                            .append(" bài học hoàn thành\n");
                 }
             }
 
-            if (!ctx.assignmentScores().isEmpty()) {                                // B2
+            if (!ctx.assignmentScores().isEmpty()) { // B2
                 sb.append("\nĐIỂM BÀI TẬP ĐÃ CHẤM:\n");
                 for (var s : ctx.assignmentScores()) {
                     sb.append("  - ").append(s.assignmentTitle())
-                      .append(" [").append(s.courseName()).append("]")
-                      .append(" — ").append(s.score()).append("/").append(s.maxScore())
-                      .append(" — chấm lúc ").append(s.gradedAt()).append("\n");
+                            .append(" [").append(s.courseName()).append("]")
+                            .append(" — ").append(s.score()).append("/").append(s.maxScore())
+                            .append(" — chấm lúc ").append(s.gradedAt()).append("\n");
                 }
             }
 
@@ -319,7 +335,7 @@ public class RagChatService {
                 sb.append("\nNHÓM HỌC:\n");
                 for (var g : ctx.groups()) {
                     sb.append("  - ").append(g.groupName())
-                      .append(" (").append(g.courseName()).append(")\n");
+                            .append(" (").append(g.courseName()).append(")\n");
                 }
             }
 
@@ -327,9 +343,10 @@ public class RagChatService {
                 sb.append("\nDEADLINE SẮP ĐẾN:\n");
                 for (var d : ctx.upcomingDeadlines()) {
                     sb.append("  - [").append(d.courseName()).append("] ")
-                      .append(d.assignmentTitle())
-                      .append(" — hạn: ").append(d.deadline());
-                    if (d.isLate()) sb.append(" ⚠️ ĐÃ QUÁ HẠN");
+                            .append(d.assignmentTitle())
+                            .append(" — hạn: ").append(d.deadline());
+                    if (d.isLate())
+                        sb.append(" ⚠️ ĐÃ QUÁ HẠN");
                     sb.append("\n");
                 }
             }
@@ -341,8 +358,8 @@ public class RagChatService {
                 sb.append("\nKHÓA HỌC ĐANG QUẢN LÝ:\n");
                 for (var c : ctx.courses()) {
                     sb.append("  - ").append(c.title())
-                      .append(" [").append(c.progressStatus()).append("]")
-                      .append(" (").append(c.progressPct().intValue()).append(" học viên)\n");
+                            .append(" [").append(c.progressStatus()).append("]")
+                            .append(" (").append(c.progressPct().intValue()).append(" học viên)\n");
                 }
             }
 
@@ -350,7 +367,7 @@ public class RagChatService {
                 sb.append("\nNHÓM ĐANG QUẢN LÝ:\n");
                 for (var g : ctx.groups()) {
                     sb.append("  - ").append(g.groupName())
-                      .append(" (").append(g.courseName()).append(")\n");
+                            .append(" (").append(g.courseName()).append(")\n");
                 }
             }
 
@@ -358,72 +375,74 @@ public class RagChatService {
                 sb.append("\nBÀI TẬP SẮP ĐẾN HẠN:\n");
                 for (var d : ctx.upcomingDeadlines()) {
                     sb.append("  - [").append(d.courseName()).append("] ")
-                      .append(d.assignmentTitle())
-                      .append(" — hạn: ").append(d.deadline());
-                    if (d.isLate()) sb.append(" ⚠️ ĐÃ QUÁ HẠN");
+                            .append(d.assignmentTitle())
+                            .append(" — hạn: ").append(d.deadline());
+                    if (d.isLate())
+                        sb.append(" ⚠️ ĐÃ QUÁ HẠN");
                     sb.append("\n");
                 }
             }
 
-            if (!ctx.submissionGaps().isEmpty()) {                                  // A4
+            if (!ctx.submissionGaps().isEmpty()) { // A4
                 sb.append("\nTỈNH TRẠNG NỘP BÀI:\n");
                 for (var s : ctx.submissionGaps()) {
                     sb.append("  - ").append(s.assignmentTitle())
-                      .append(" [").append(s.courseName()).append("]")
-                      .append(" — đã nộp: ").append(s.submitted()).append("/").append(s.totalEnrolled())
-                      .append(", chưa nộp: ").append(s.notSubmitted())
-                      .append(" — hạn: ").append(s.deadline()).append("\n");
+                            .append(" [").append(s.courseName()).append("]")
+                            .append(" — đã nộp: ").append(s.submitted()).append("/").append(s.totalEnrolled())
+                            .append(", chưa nộp: ").append(s.notSubmitted())
+                            .append(" — hạn: ").append(s.deadline()).append("\n");
                 }
             }
 
-            if (!ctx.atRiskStudents().isEmpty()) {                                  // A5
+            if (!ctx.atRiskStudents().isEmpty()) { // A5
                 sb.append("\nHỌC VIÊN CÓ TIẾN ĐỘ THẤP (< 20%):\n");
                 for (var s : ctx.atRiskStudents()) {
                     sb.append("  - ").append(s.studentName())
-                      .append(" — ").append(s.courseName())
-                      .append(" — tiến độ: ").append(String.format("%.1f", s.progressPct())).append("%")
-                      .append(" — đã đăng ký ").append(s.daysEnrolled()).append(" ngày\n");
+                            .append(" — ").append(s.courseName())
+                            .append(" — tiến độ: ").append(String.format("%.1f", s.progressPct())).append("%")
+                            .append(" — đã đăng ký ").append(s.daysEnrolled()).append(" ngày\n");
                 }
             }
 
-            if (!ctx.quizStats().isEmpty()) {                                       // B3
+            if (!ctx.quizStats().isEmpty()) { // B3
                 sb.append("\nTHỐNG KÊ QUIZ:\n");
                 for (var q : ctx.quizStats()) {
                     sb.append("  - ").append(q.quizTitle())
-                      .append(" [").append(q.courseName()).append("]")
-                      .append(" — điểm TB: ").append(String.format("%.1f", q.avgScore()))
-                      .append(" — tỷ lệ đạt: ").append(String.format("%.0f", q.passRatePercent())).append("%")
-                      .append(" — ").append(q.totalAttempts()).append(" lượt làm\n");
+                            .append(" [").append(q.courseName()).append("]")
+                            .append(" — điểm TB: ").append(String.format("%.1f", q.avgScore()))
+                            .append(" — tỷ lệ đạt: ").append(String.format("%.0f", q.passRatePercent())).append("%")
+                            .append(" — ").append(q.totalAttempts()).append(" lượt làm\n");
                 }
             }
 
-            if (!ctx.topStudents().isEmpty()) {                                     // B4
+            if (!ctx.topStudents().isEmpty()) { // B4
                 sb.append("\nHỌC VIÊN XUẤT SẮC (>= 80%):\n");
                 for (var s : ctx.topStudents()) {
                     sb.append("  - ").append(s.studentName())
-                      .append(" — ").append(s.courseName())
-                      .append(" — tiến độ: ").append(String.format("%.1f", s.progressPct())).append("%\n");
+                            .append(" — ").append(s.courseName())
+                            .append(" — tiến độ: ").append(String.format("%.1f", s.progressPct())).append("%\n");
                 }
             }
 
-            if (!ctx.courseApprovals().isEmpty()) {                                 // B5
+            if (!ctx.courseApprovals().isEmpty()) { // B5
                 sb.append("\nTRẠNG THÁI DUYỆT KHÓA HỌC:\n");
                 for (var c : ctx.courseApprovals()) {
                     sb.append("  - ").append(c.courseName())
-                      .append(" [").append(c.status()).append("]");
-                    if (c.rejectionReason() != null) sb.append(" — lý do từ chối: ").append(c.rejectionReason());
+                            .append(" [").append(c.status()).append("]");
+                    if (c.rejectionReason() != null)
+                        sb.append(" — lý do từ chối: ").append(c.rejectionReason());
                     sb.append("\n");
                 }
             }
         }
 
         // ── Course structure (STUDENT + INSTRUCTOR) ───────────────────────────
-        if (!ctx.courseStructure().isEmpty()) {                                     // B6
+        if (!ctx.courseStructure().isEmpty()) { // B6
             sb.append("\nCẤU TRÚC KHÓA HỌC (số chương/bài học):\n");
             for (var c : ctx.courseStructure()) {
                 sb.append("  - ").append(c.courseName())
-                  .append(" — ").append(c.chapterCount()).append(" chương, ")
-                  .append(c.lessonCount()).append(" bài học\n");
+                        .append(" — ").append(c.chapterCount()).append(" chương, ")
+                        .append(c.lessonCount()).append(" bài học\n");
             }
         }
 
@@ -432,10 +451,10 @@ public class RagChatService {
             var s = ctx.adminStats();
             sb.append("\nTHỐNG KÊ HỆ THỐNG:\n");
             sb.append("  - Tổng người dùng: ").append(s.totalUsers())
-              .append(" (").append(s.totalStudents()).append(" học viên, ")
-              .append(s.totalInstructors()).append(" giảng viên)\n");
+                    .append(" (").append(s.totalStudents()).append(" học viên, ")
+                    .append(s.totalInstructors()).append(" giảng viên)\n");
             sb.append("  - Khóa học: ").append(s.totalCourses())
-              .append(" (đã xuất bản: ").append(s.publishedCourses()).append(")\n");
+                    .append(" (đã xuất bản: ").append(s.publishedCourses()).append(")\n");
             sb.append("  - Tổng đăng ký: ").append(s.totalEnrollments()).append("\n");
             sb.append("  - Cuộc hội thoại AI đang active: ").append(s.activeConversations()).append("\n");
         }
@@ -446,7 +465,8 @@ public class RagChatService {
             for (int i = 0; i < chunks.size(); i++) {
                 ScoredChunk c = chunks.get(i);
                 sb.append("\n[").append(i + 1).append("]");
-                if (c.sectionTitle() != null) sb.append(" ").append(c.sectionTitle());
+                if (c.sectionTitle() != null)
+                    sb.append(" ").append(c.sectionTitle());
                 sb.append("\n").append(c.chunkText()).append("\n");
             }
             sb.append("=== HẾT TÀI LIỆU ===\n");
@@ -476,7 +496,7 @@ public class RagChatService {
     // ── persistence helpers ───────────────────────────────────────────────────
 
     private AiMessage saveMessage(AiConversation conv, MessageRole role, String content,
-                                  String model, Integer responseTimeMs, String provider) {
+            String model, Integer responseTimeMs, String provider) {
         AiMessage msg = AiMessage.builder()
                 .conversationId(conv.getId())
                 .role(role)
@@ -495,9 +515,7 @@ public class RagChatService {
                     chunks.stream().map(c -> Map.of(
                             "chunkId", c.chunkId(),
                             "similarity", c.similarity(),
-                            "excerpt", truncate(c.chunkText(), 200)
-                    )).toList()
-            );
+                            "excerpt", truncate(c.chunkText(), 200))).toList());
             AiMessageDebug debug = AiMessageDebug.builder()
                     .messageId(messageId)
                     .retrievedChunks(chunksJson)
@@ -516,7 +534,7 @@ public class RagChatService {
 
     private List<SourceReference> buildSourceReferences(List<ScoredChunk> chunks, UserContext ctx) {
         Map<UUID, String> sourceNames = sourceRepo.findAllById(
-                        chunks.stream().map(ScoredChunk::sourceId).collect(Collectors.toSet()))
+                chunks.stream().map(ScoredChunk::sourceId).collect(Collectors.toSet()))
                 .stream()
                 .collect(Collectors.toMap(AiSource::getId, AiSource::getSourceName));
 
@@ -531,15 +549,15 @@ public class RagChatService {
                         sourceNames.get(c.sourceId()),
                         c.sectionTitle(),
                         truncate(c.chunkText(), 200),
-                        c.similarity()
-                ))
+                        c.similarity()))
                 .toList();
     }
 
     // ── utils ─────────────────────────────────────────────────────────────────
 
     private static String truncate(String s, int max) {
-        if (s == null) return null;
+        if (s == null)
+            return null;
         return s.length() <= max ? s : s.substring(0, max);
     }
 }

@@ -6,7 +6,7 @@
   const { useState, useEffect, useRef } = React;
   const Ic = window.Icon;
   const { Status, StatCard, Tabs, Select, Section, Modal, ModalHead, Empty } = window;
-  const { AddChapterModal, AddLessonModal, AddResourceModal, ResourcePreviewModal, CourseContentTab, CourseVersionsTab, CourseHistoryTab, AiDocsTab } = window;
+  const { AddChapterModal, AddLessonModal, ChangeQuizModal, AddResourceModal, ResourcePreviewModal, CourseContentTab, CourseVersionsTab, CourseHistoryTab, AiDocsTab } = window;
   const EditResourceInner = window.EditResourceModal;
   const api = window.httpClient;
 
@@ -64,6 +64,9 @@
         pendingDelete:    l.pendingDelete    || false,
         draftTitle:       l.draftTitle       || null,
         draftContentText: l.draftContentText || null,
+        quizId:           l.quizId    || null,
+        quizTitle:        l.quizTitle || null,
+        quizStatus:       l.quizStatus || null,
         resources:        (l.resources || []).map(r => ({
           resourceId:    r.id,
           title:         r.displayName || r.originalFilename,
@@ -167,6 +170,7 @@
     const [addLessonState,    setAddLessonState]    = useState(null);
     const [addResourceState,  setAddResourceState]  = useState(null);
     const [renameLessonState, setRenameLessonState] = useState(null);
+    const [changeQuizState,   setChangeQuizState]   = useState(null); // { chapterId, lessonId, currentQuizId }
     const [editResourceState, setEditResourceState] = useState(null);
     const [showPreview,       setShowPreview]       = useState(false);
     const [history,           setHistory]           = useState([]);
@@ -482,6 +486,23 @@
     async function handleRenameResource(lessonId, resourceId, newTitle) {
       try { await api.patch(`/instructor/courses/${courseId}/lessons/${lessonId}/resources/${resourceId}`, { displayName: newTitle }); loadCourse(true); }
       catch (e) { showAlert(e?.response?.data?.message || "Đổi tên thất bại", { title: "Lỗi" }); }
+    }
+    async function handleReorderChapter(fromIndex, toIndex) {
+      if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0) return;
+      const ids = chapters.map(c => c.id);
+      const [moved] = ids.splice(fromIndex, 1);
+      ids.splice(toIndex, 0, moved);
+      try { await api.put(`/instructor/courses/${courseId}/chapters/reorder`, { ids }); loadCourse(true); }
+      catch (e) { showAlert(e?.response?.data?.message || "Sắp xếp lại chương thất bại", { title: "Lỗi" }); }
+    }
+    async function handleReorderLesson(chapterId, fromIndex, toIndex) {
+      const chapter = chapters.find(c => c.id === chapterId);
+      if (!chapter || fromIndex === toIndex || fromIndex < 0 || toIndex < 0) return;
+      const ids = chapter.items.map(l => l.lessonId);
+      const [moved] = ids.splice(fromIndex, 1);
+      ids.splice(toIndex, 0, moved);
+      try { await api.put(`/instructor/courses/${courseId}/chapters/${chapterId}/lessons/reorder`, { ids }); loadCourse(true); }
+      catch (e) { showAlert(e?.response?.data?.message || "Sắp xếp lại bài giảng thất bại", { title: "Lỗi" }); }
     }
 
     /* guards */
@@ -989,6 +1010,9 @@
             handleDeleteChapter={handleDeleteChapter}
             handleDeleteLesson={handleDeleteLesson}
             handleDeleteResource={handleDeleteResource}
+            handleReorderChapter={handleReorderChapter}
+            handleReorderLesson={handleReorderLesson}
+            setChangeQuizState={setChangeQuizState}
           />
         )}
 
@@ -1300,6 +1324,7 @@
         <AddChapterModal   open={addChapterOpen}     onClose={() => setAddChapterOpen(false)}   courseId={courseId} onAdded={() => loadCourse(true)} />
         <AddLessonModal    open={!!addLessonState}   onClose={() => setAddLessonState(null)}    courseId={courseId} chapterId={addLessonState?.chapterId} onAdded={() => loadCourse(true)} />
         <AddResourceModal  open={!!addResourceState} onClose={() => setAddResourceState(null)}  courseId={courseId} lessonId={addResourceState?.lessonId} lessonTitle={addResourceState?.lessonTitle} onAdded={() => loadCourse(true)} />
+        <ChangeQuizModal   open={!!changeQuizState}  onClose={() => setChangeQuizState(null)}   courseId={courseId} chapterId={changeQuizState?.chapterId} lessonId={changeQuizState?.lessonId} currentQuizId={changeQuizState?.currentQuizId} onChanged={() => loadCourse(true)} />
 
         {showPreview && React.createElement(window.PreviewPlayer, { onBack: () => setShowPreview(false) })}
 

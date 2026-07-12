@@ -20,6 +20,8 @@ import project.lms_rikkei_edu.modules.course.exception.CourseStateException;
 import project.lms_rikkei_edu.modules.course.mapper.*;
 import project.lms_rikkei_edu.modules.course.repository.*;
 import project.lms_rikkei_edu.modules.course.service.impl.CourseServiceImpl;
+import project.lms_rikkei_edu.modules.quiz.repository.QuizRepository;
+import project.lms_rikkei_edu.modules.quiz.service.QuizService;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -47,6 +49,9 @@ class CourseServiceImplExt3Test {
     @Mock ObjectMapper objectMapper;
     @Mock EntityManager entityManager;
     @Mock S3Service s3Service;
+    @Mock QuizService quizService;
+    @Mock QuizRepository quizRepository;
+    @Mock StudentCourseService studentCourseService;
 
     CourseServiceImpl service;
 
@@ -60,7 +65,7 @@ class CourseServiceImplExt3Test {
                 lessonResourceRepository, categoryRepository,
                 approvalLogRepository, courseVersionRepository,
                 courseMapper, objectMapper, chapterMapper, lessonMapper,
-                entityManager, s3Service
+                entityManager, s3Service, quizService, quizRepository, studentCourseService
         );
     }
 
@@ -279,7 +284,7 @@ class CourseServiceImplExt3Test {
                     lessonResourceRepository, categoryRepository,
                     approvalLogRepository, courseVersionRepository,
                     courseMapper, realMapper, chapterMapper, lessonMapper,
-                    entityManager, s3Service
+                    entityManager, s3Service, quizService, quizRepository, studentCourseService
             );
             when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.of(c));
             when(courseVersionRepository.findById(versionId)).thenReturn(Optional.of(version));

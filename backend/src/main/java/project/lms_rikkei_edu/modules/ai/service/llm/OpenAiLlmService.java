@@ -169,13 +169,39 @@ public class OpenAiLlmService implements LlmService {
         return new LlmResponse(content, usage[0], usage[1], usage[2], elapsed, uiRender);
     }
 
+    @Override
+    @SuppressWarnings("unchecked")
+    public String completeForJson(String systemPrompt, String userMessage) {
+        List<Map<String, Object>> messages = List.of(
+                Map.of("role", "system", "content", systemPrompt),
+                Map.of("role", "user",   "content", userMessage)
+        );
+        Map<String, Object> body = new HashMap<>();
+        applyModelParams(body, props.getJsonMaxTokens());
+        body.put("messages",        messages);
+        body.put("response_format", Map.of("type", "json_object"));
+        Map<String, Object> response = restClient.post()
+                .uri("/chat/completions").body(body).retrieve()
+                .body(Map.class);
+        Map<String, Object> messageObj = firstMessage(response);
+        String content = (String) messageObj.get("content");
+        String finishReason = extractFinishReason(response);
+        Map<String, Object> usage = (Map<String, Object>) response.get("usage");
+        log.info("completeForJson: model={}, finishReason={}, usage={}, contentLength={}",
+                props.getChatModel(), finishReason, usage, content == null ? 0 : content.length());
+        if (content == null || content.isBlank()) {
+            log.warn("completeForJson returned empty content — full response body: {}", response);
+        } else {
+            log.debug("completeForJson raw content: {}", content);
+        }
+        return content;
+    }
+
     @SuppressWarnings("unchecked")
     private Map<String, Object> callChatCompletions(List<Map<String, Object>> messages, boolean includeTools) {
         Map<String, Object> body = new HashMap<>();
-        body.put("model", props.getChatModel());
+        applyModelParams(body, props.getMaxTokens());
         body.put("messages", messages);
-        body.put("temperature", props.getTemperature());
-        body.put("max_tokens", props.getMaxTokens());
         if (includeTools) {
             body.put("tools", RENDER_TOOLS);
             body.put("tool_choice", "auto");
@@ -183,10 +209,56 @@ public class OpenAiLlmService implements LlmService {
         return restClient.post().uri("/chat/completions").body(body).retrieve().body(Map.class);
     }
 
+    /**
+     * Điền {@code model} + tham số giới hạn token/temperature vào request body.
+     *
+     * <p>Dòng model GPT-5 (gpt-5, gpt-5-mini, gpt-5-nano, ...) trên Chat Completions API
+     * có 3 khác biệt so với gpt-4o-mini trước đây:
+     * <ul>
+     *   <li>Không nhận {@code max_tokens} nữa — phải dùng {@code max_completion_tokens},
+     *       nếu không API trả lỗi 400 "Unsupported parameter".</li>
+     *   <li>Không cho tùy chỉnh {@code temperature} (chỉ chấp nhận giá trị mặc định 1) —
+     *       gửi kèm cũng sẽ bị 400, nên bỏ hẳn tham số này với dòng model GPT-5.</li>
+     *   <li>Là reasoning model — {@code max_completion_tokens} là ngân sách CHUNG cho cả
+     *       reasoning token (ẩn) lẫn output thấy được. Với các tác vụ có cấu trúc rõ ràng
+     *       (JSON, trả lời dựa theo context) không cần suy luận sâu, đặt
+     *       {@code reasoning_effort: "minimal"} để model dồn ngân sách cho output thay vì
+     *       "nghĩ ngầm" — tránh tình trạng content rỗng khi output cần dài (VD sinh 10-20
+     *       câu hỏi JSON cùng lúc), thay vì phải tăng vô hạn max_completion_tokens.</li>
+     * </ul>
+     */
+    private void applyModelParams(Map<String, Object> body, int maxTokens) {
+        String model = props.getChatModel();
+        body.put("model", model);
+        if (isGpt5Family(model)) {
+            body.put("max_completion_tokens", maxTokens);
+            body.put("reasoning_effort", "minimal");
+        } else {
+            body.put("temperature", props.getTemperature());
+            body.put("max_tokens", maxTokens);
+        }
+    }
+
+    private boolean isGpt5Family(String model) {
+        return model != null && model.startsWith("gpt-5");
+    }
+
     @SuppressWarnings("unchecked")
     private Map<String, Object> firstMessage(Map<String, Object> response) {
         List<Map<String, Object>> choices = (List<Map<String, Object>>) response.get("choices");
         return (Map<String, Object>) choices.getFirst().get("message");
+    }
+
+    /**
+     * {@code finish_reason} của lựa chọn đầu tiên — "length" nghĩa là model bị cắt giữa
+     * chừng vì hết {@code max_completion_tokens}, hữu ích để phân biệt với các nguyên nhân
+     * content rỗng khác (model tự chối, lỗi parse...).
+     */
+    @SuppressWarnings("unchecked")
+    private String extractFinishReason(Map<String, Object> response) {
+        List<Map<String, Object>> choices = (List<Map<String, Object>>) response.get("choices");
+        if (choices == null || choices.isEmpty()) return null;
+        return (String) choices.getFirst().get("finish_reason");
     }
 
     @SuppressWarnings("unchecked")

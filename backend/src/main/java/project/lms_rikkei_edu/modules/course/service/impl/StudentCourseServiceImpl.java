@@ -1,9 +1,12 @@
 package project.lms_rikkei_edu.modules.course.service.impl;
 
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import project.lms_rikkei_edu.common.exception.BusinessException;
 import project.lms_rikkei_edu.infrastructure.s3.S3Service;
@@ -18,6 +21,7 @@ import project.lms_rikkei_edu.modules.course.entity.Lesson;
 import project.lms_rikkei_edu.modules.course.entity.LessonProgressEntity;
 import project.lms_rikkei_edu.modules.course.entity.LessonResource;
 import project.lms_rikkei_edu.modules.course.enums.CourseStatus;
+import project.lms_rikkei_edu.modules.course.enums.LessonType;
 import project.lms_rikkei_edu.modules.course.enums.ResourceType;
 import project.lms_rikkei_edu.modules.course.mapper.CourseMapper;
 import project.lms_rikkei_edu.modules.course.repository.CourseEnrollmentRepository;
@@ -55,6 +59,21 @@ public class StudentCourseServiceImpl implements StudentCourseService {
 
     @Value("${app.s3.presigned-url-expiry:3600}")
     private long presignedUrlExpiry;
+
+    @PersistenceContext
+    private EntityManager entityManager;
+
+    /**
+     * Khóa advisory theo cặp (studentId, lessonId) trong phạm vi transaction hiện tại — tránh race
+     * condition khi 2 request cập nhật tiến độ cùng lúc (VD: player gửi progress dồn dập, React
+     * StrictMode gọi effect 2 lần) cùng đọc "chưa có lesson_progress" và cùng cố INSERT, gây vỡ
+     * unique constraint uq_lesson_progress_student_lesson. Lock tự giải phóng khi transaction kết thúc.
+     */
+    private void lockLessonProgress(UUID studentId, UUID lessonId) {
+        entityManager.createNativeQuery("SELECT pg_advisory_xact_lock(hashtext(?1))")
+                .setParameter(1, studentId.toString() + ":" + lessonId.toString())
+                .getSingleResult();
+    }
 
     @Override
     public List<StudentCourseResponse> getEnrolledCourses(UUID studentId) {
@@ -216,9 +235,14 @@ public class StudentCourseServiceImpl implements StudentCourseService {
     @Transactional
     public void updateLessonProgress(UUID studentId, UUID courseId, UUID lessonId, UpdateProgressRequest request) {
         checkEnrollment(studentId, courseId);
+        lockLessonProgress(studentId, lessonId);
 
         Lesson lesson = lessonRepository.findById(lessonId)
                 .orElseThrow(() -> new BusinessException("Không tìm thấy bài học"));
+
+        if (lesson.getType() == LessonType.QUIZ) {
+            throw new BusinessException("Bài học loại đề trắc nghiệm không cập nhật tiến độ qua API này");
+        }
 
         LessonProgressEntity progress = lessonProgressRepository
                 .findByStudentIdAndLessonId(studentId, lessonId)
@@ -287,6 +311,55 @@ public class StudentCourseServiceImpl implements StudentCourseService {
 
         // Always update course-level progress
         updateCourseProgress(studentId, courseId);
+    }
+
+    /**
+     * REQUIRES_NEW — hàm này được gọi fail-soft từ {@code QuizAttemptServiceImpl.doSubmit()} (trong
+     * transaction nộp bài); nếu để propagation mặc định (REQUIRED) thì 1 exception ở đây sẽ đánh dấu
+     * rollback-only cho CẢ transaction nộp bài dù caller có try/catch, khiến việc nộp bài thất bại âm
+     * thầm (UnexpectedRollbackException). Tách transaction riêng để lỗi ở đây không ảnh hưởng nộp bài.
+     */
+    @Override
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void completeQuizLesson(UUID studentId, UUID courseId, UUID lessonId) {
+        lockLessonProgress(studentId, lessonId);
+
+        LessonProgressEntity progress = lessonProgressRepository
+                .findByStudentIdAndLessonId(studentId, lessonId)
+                .orElseGet(() -> {
+                    LessonProgressEntity newProgress = new LessonProgressEntity();
+                    newProgress.setId(UUID.randomUUID());
+                    newProgress.setStudentId(studentId);
+                    newProgress.setLessonId(lessonId);
+                    newProgress.setCourseId(courseId);
+                    newProgress.setFirstAccessedAt(Instant.now());
+                    return newProgress;
+                });
+
+        progress.setStatus("COMPLETED");
+        if (progress.getCompletedAt() == null) {
+            progress.setCompletedAt(Instant.now());
+        }
+        progress.setLastAccessedAt(Instant.now());
+        progress.setLessonPercentage(BigDecimal.valueOf(100));
+        lessonProgressRepository.save(progress);
+
+        updateCourseProgress(studentId, courseId);
+    }
+
+    @Override
+    @Transactional
+    public void resetLessonProgressForInProgressStudents(UUID courseId, UUID lessonId) {
+        List<UUID> inProgressStudentIds = courseProgressRepository.findByCourseId(courseId).stream()
+                .filter(cp -> !"COMPLETED".equals(cp.getStatus()))
+                .map(CourseProgressEntity::getStudentId)
+                .toList();
+
+        for (UUID studentId : inProgressStudentIds) {
+            lessonProgressRepository.findByStudentIdAndLessonId(studentId, lessonId)
+                    .ifPresent(lessonProgressRepository::delete);
+            updateCourseProgress(studentId, courseId);
+        }
     }
 
     /* ── Private helpers ─────────────────────────────────── */

@@ -9,12 +9,15 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.test.util.ReflectionTestUtils;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.Query;
 import project.lms_rikkei_edu.common.exception.BusinessException;
 import project.lms_rikkei_edu.infrastructure.s3.S3Service;
 import project.lms_rikkei_edu.modules.course.dto.request.UpdateProgressRequest;
 import project.lms_rikkei_edu.modules.course.dto.response.*;
 import project.lms_rikkei_edu.modules.course.entity.*;
 import project.lms_rikkei_edu.modules.course.enums.CourseStatus;
+import project.lms_rikkei_edu.modules.course.enums.LessonType;
 import project.lms_rikkei_edu.modules.course.enums.ResourceType;
 import project.lms_rikkei_edu.modules.course.mapper.CourseMapper;
 import project.lms_rikkei_edu.modules.course.repository.*;
@@ -48,6 +51,8 @@ class StudentCourseServiceImplTest {
     @Mock private CourseMapper courseMapper;
     @Mock private S3Service s3Service;
     @Mock private UserRepository userRepository;
+    @Mock private EntityManager entityManager;
+    @Mock private Query nativeQuery;
 
     @InjectMocks private StudentCourseServiceImpl studentCourseService;
 
@@ -60,6 +65,10 @@ class StudentCourseServiceImplTest {
     @BeforeEach
     void setUp() {
         ReflectionTestUtils.setField(studentCourseService, "presignedUrlExpiry", 3600L);
+        ReflectionTestUtils.setField(studentCourseService, "entityManager", entityManager);
+        lenient().when(entityManager.createNativeQuery(anyString())).thenReturn(nativeQuery);
+        lenient().when(nativeQuery.setParameter(anyInt(), any())).thenReturn(nativeQuery);
+        lenient().when(nativeQuery.getSingleResult()).thenReturn(1);
         studentId = UUID.randomUUID();
         courseId = UUID.randomUUID();
         lessonId = UUID.randomUUID();
@@ -450,6 +459,121 @@ class StudentCourseServiceImplTest {
         verify(courseProgressRepository).save(argThat(cp ->
             cp.getTotalLessonsCount() == 1 && cp.getCompletedLessonsCount() == 0
         ));
+    }
+
+    @Test
+    void updateLessonProgress_quizTypeLesson_throwsBusinessException() {
+        when(courseEnrollmentRepository.existsByCourseIdAndStudentId(courseId, studentId)).thenReturn(true);
+        Lesson lesson = new Lesson();
+        lesson.setId(lessonId);
+        lesson.setType(LessonType.QUIZ);
+        when(lessonRepository.findById(lessonId)).thenReturn(Optional.of(lesson));
+
+        UpdateProgressRequest req = new UpdateProgressRequest();
+
+        assertThatThrownBy(() -> studentCourseService.updateLessonProgress(studentId, courseId, lessonId, req))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("đề trắc nghiệm");
+
+        verify(lessonProgressRepository, never()).save(any());
+    }
+
+    @Test
+    void completeQuizLesson_noExistingProgress_createsCompletedProgress() {
+        when(lessonProgressRepository.findByStudentIdAndLessonId(studentId, lessonId)).thenReturn(Optional.empty());
+        Course course = new Course();
+        course.setId(courseId);
+        course.setChapters(List.of());
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(course));
+        when(courseProgressRepository.findByStudentIdAndCourseId(studentId, courseId)).thenReturn(Optional.empty());
+        when(lessonProgressRepository.findByStudentIdAndCourseId(studentId, courseId)).thenReturn(List.of());
+
+        studentCourseService.completeQuizLesson(studentId, courseId, lessonId);
+
+        verify(lessonProgressRepository).save(argThat(p ->
+                p.getLessonId().equals(lessonId) &&
+                p.getStudentId().equals(studentId) &&
+                "COMPLETED".equals(p.getStatus()) &&
+                p.getLessonPercentage().intValue() == 100 &&
+                p.getCompletedAt() != null
+        ));
+        verify(courseProgressRepository).save(any());
+    }
+
+    @Test
+    void completeQuizLesson_existingProgressAlreadyCompleted_keepsOriginalCompletedAt() {
+        Instant originalCompletedAt = Instant.now().minusSeconds(3600);
+        LessonProgressEntity existing = new LessonProgressEntity();
+        existing.setLessonId(lessonId);
+        existing.setStudentId(studentId);
+        existing.setStatus("COMPLETED");
+        existing.setCompletedAt(originalCompletedAt);
+        when(lessonProgressRepository.findByStudentIdAndLessonId(studentId, lessonId)).thenReturn(Optional.of(existing));
+        Course course = new Course();
+        course.setId(courseId);
+        course.setChapters(List.of());
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(course));
+        when(courseProgressRepository.findByStudentIdAndCourseId(studentId, courseId)).thenReturn(Optional.empty());
+        when(lessonProgressRepository.findByStudentIdAndCourseId(studentId, courseId)).thenReturn(List.of(existing));
+
+        studentCourseService.completeQuizLesson(studentId, courseId, lessonId);
+
+        verify(lessonProgressRepository).save(argThat(p -> p.getCompletedAt().equals(originalCompletedAt)));
+    }
+
+    @Test
+    void resetLessonProgressForInProgressStudents_deletesProgressForNonCompletedStudents() {
+        UUID inProgressStudent = UUID.randomUUID();
+        UUID completedStudent = UUID.randomUUID();
+        CourseProgressEntity inProgressCp = new CourseProgressEntity();
+        inProgressCp.setStudentId(inProgressStudent);
+        inProgressCp.setStatus("IN_PROGRESS");
+        CourseProgressEntity completedCp = new CourseProgressEntity();
+        completedCp.setStudentId(completedStudent);
+        completedCp.setStatus("COMPLETED");
+        when(courseProgressRepository.findByCourseId(courseId)).thenReturn(List.of(inProgressCp, completedCp));
+
+        LessonProgressEntity progress = new LessonProgressEntity();
+        progress.setStudentId(inProgressStudent);
+        progress.setLessonId(lessonId);
+        when(lessonProgressRepository.findByStudentIdAndLessonId(inProgressStudent, lessonId))
+                .thenReturn(Optional.of(progress));
+
+        Course course = new Course();
+        course.setId(courseId);
+        course.setChapters(List.of());
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(course));
+        when(courseProgressRepository.findByStudentIdAndCourseId(any(), eq(courseId))).thenReturn(Optional.empty());
+        when(lessonProgressRepository.findByStudentIdAndCourseId(any(), eq(courseId))).thenReturn(List.of());
+
+        studentCourseService.resetLessonProgressForInProgressStudents(courseId, lessonId);
+
+        verify(lessonProgressRepository).delete(progress);
+        verify(lessonProgressRepository, never()).findByStudentIdAndLessonId(completedStudent, lessonId);
+        verify(courseProgressRepository, times(1)).save(any());
+    }
+
+    @Test
+    void resetLessonProgressForInProgressStudents_noExistingLessonProgress_stillUpdatesCourseProgress() {
+        UUID inProgressStudent = UUID.randomUUID();
+        CourseProgressEntity inProgressCp = new CourseProgressEntity();
+        inProgressCp.setStudentId(inProgressStudent);
+        inProgressCp.setStatus("IN_PROGRESS");
+        when(courseProgressRepository.findByCourseId(courseId)).thenReturn(List.of(inProgressCp));
+        when(lessonProgressRepository.findByStudentIdAndLessonId(inProgressStudent, lessonId))
+                .thenReturn(Optional.empty());
+
+        Course course = new Course();
+        course.setId(courseId);
+        course.setChapters(List.of());
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(course));
+        when(courseProgressRepository.findByStudentIdAndCourseId(inProgressStudent, courseId)).thenReturn(Optional.empty());
+        when(lessonProgressRepository.findByStudentIdAndCourseId(inProgressStudent, courseId)).thenReturn(List.of());
+
+        studentCourseService.resetLessonProgressForInProgressStudents(courseId, lessonId);
+
+        verify(lessonProgressRepository, never()).delete(any());
+        verify(courseProgressRepository).save(any());
     }
 
     @Test

@@ -164,24 +164,35 @@ function usePaged(list, size) {
   const slice = list.slice((cur - 1) * size, cur * size);
   return { slice, page: cur, pages, setPage, total: list.length, from: list.length ? (cur - 1) * size + 1 : 0, to: Math.min(cur * size, list.length) };
 }
-function PageBar({ pg, unit }) {
+function PageBar({ pg, unit, forcePager }) {
   if (pg.total === 0) return null;
   return (
     <div className="between wrap pagebar" style={{ gap: 12 }}>
       <span className="t-sm muted">Hiển thị <b style={{ color: "var(--text)" }}>{pg.from}–{pg.to}</b> trong tổng số <b style={{ color: "var(--text)" }}>{pg.total}</b> {unit || "mục"}</span>
-      {pg.pages > 1 && <Pager page={pg.page} pages={pg.pages} onPage={pg.setPage} />}
+      {(forcePager || pg.pages > 1) && <Pager page={pg.page} pages={pg.pages} onPage={pg.setPage} />}
     </div>
   );
 }
 
 function Pager({ page, pages, onPage }) {
+  const windowSize = 5;
+  let start = Math.max(1, page - Math.floor(windowSize / 2));
+  let end = Math.min(pages, start + windowSize - 1);
+  start = Math.max(1, end - windowSize + 1);
   const nums = [];
-  for (let i = 1; i <= Math.min(pages, 5); i++) nums.push(i);
+  for (let i = start; i <= end; i++) nums.push(i);
   return (
     <div className="pager">
       <button onClick={() => onPage(Math.max(1, page - 1))} disabled={page === 1}><I n="chevron_left" size={16} /></button>
+      {start > 1 && <>
+        <button onClick={() => onPage(1)}>1</button>
+        {start > 2 && <span style={{ color: "var(--text-3)", padding: "0 4px" }}>…</span>}
+      </>}
       {nums.map((n) => <button key={n} className={n === page ? "on" : ""} onClick={() => onPage(n)}>{n}</button>)}
-      {pages > 5 && <><span style={{ color: "var(--text-3)", padding: "0 4px" }}>…</span><button onClick={() => onPage(pages)}>{pages}</button></>}
+      {end < pages && <>
+        {end < pages - 1 && <span style={{ color: "var(--text-3)", padding: "0 4px" }}>…</span>}
+        <button onClick={() => onPage(pages)}>{pages}</button>
+      </>}
       <button onClick={() => onPage(Math.min(pages, page + 1))} disabled={page === pages}><I n="chevron_right" size={16} /></button>
     </div>
   );
