@@ -312,7 +312,7 @@
           <Empty icon="book" title="Chưa có khóa học nào" sub={debouncedQ ? "Không tìm thấy kết quả phù hợp." : "Nhấn 'Tạo khóa học' để bắt đầu."} />
         ) : (
           <>
-            <div className="grid grid-cards">
+            <div className="grid grid-cards grid-cards-fixed">
               {list.map(c => {
                 const sc = STATUS_COLOR[c.status] || {};
                 return (

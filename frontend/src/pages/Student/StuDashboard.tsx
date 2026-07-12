@@ -67,7 +67,7 @@ function StuDashboard({ nav }) {
               </div>
             )}
             {!loading && inProgress.map(c => (
-              <div key={c.id} className="row gap-16" style={{ padding: 12, border: "1px solid var(--border)", borderRadius: 14, cursor: "pointer" }} onClick={() => nav("player", { courseId: c.id })}>
+              <div key={c.id} className="row gap-16" style={{ padding: 12, border: "1px solid var(--border)", borderRadius: 14, cursor: "pointer" }} onClick={() => nav("player", { courseId: c.id, from: "dashboard" })}>
                 <div style={{ width: 92, height: 64, borderRadius: 10, backgroundImage: `url(${c.thumbnailUrl || "assets/courses/placeholder.png"})`, backgroundSize: "cover", backgroundPosition: "center", flex: "none" }} />
                 <div className="grow">
                   <div className="t-xs" style={{ color: "var(--accent)", fontWeight: 700, marginBottom: 4 }}>{c.category}</div>

@@ -229,6 +229,16 @@ function PlayerRoute({ name }: { name: string }) {
     returnPath = params.from === 'lecture' && params.courseId
       ? `/player/lecture?courseId=${params.courseId}${params.lessonId ? '&lessonId=' + params.lessonId : ''}`
       : '/student/tasks';
+  } else if (name === 'LecturePlayer') {
+    // Vào từ Dashboard hay từ danh sách Khóa học — StuDashboard/StuCourses truyền "from" tương ứng.
+    returnPath = params.from === 'dashboard' ? '/student/dashboard' : '/student/courses';
+  } else if (name === 'QuizDryRunPlayer') {
+    // "Làm thử" chỉ được mở từ trang Bài tập & Bài kiểm tra của giảng viên (InsAssess) — quay lại
+    // đúng khóa học đang soạn thay vì rơi về /student/courses (sai hẳn khu vực, sai cả role).
+    returnPath = params.courseId ? `/instructor/assess?courseId=${params.courseId}` : '/instructor/assess';
+  } else if (name === 'PreviewPlayer') {
+    // Nút "Xem" chỉ có ở danh sách khóa học của giảng viên (InsCourses) — quay lại đúng đó.
+    returnPath = '/instructor/courses';
   }
 
   return (
