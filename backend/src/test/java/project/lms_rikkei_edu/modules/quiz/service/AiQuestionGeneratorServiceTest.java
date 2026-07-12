@@ -25,6 +25,7 @@ import project.lms_rikkei_edu.modules.quiz.enums.GenerationStep;
 import project.lms_rikkei_edu.modules.quiz.enums.QuestionDifficulty;
 import project.lms_rikkei_edu.modules.quiz.enums.QuestionType;
 import project.lms_rikkei_edu.modules.quiz.repository.AiQuestionGenerationJobRepository;
+import project.lms_rikkei_edu.modules.quiz.service.impl.AiQuestionGeneratorServiceImpl;
 
 import java.util.List;
 import java.util.Map;
@@ -62,7 +63,7 @@ class AiQuestionGeneratorServiceTest {
     void setUp() {
         props = new OpenAiProperties();
         objectMapper = new ObjectMapper();
-        service = new AiQuestionGeneratorService(
+        service = new AiQuestionGeneratorServiceImpl(
                 llmService, embeddingService, vectorSearch, props, objectMapper, jdbc, jobRepo);
         when(jobRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
     }

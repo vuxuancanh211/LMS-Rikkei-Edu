@@ -16,6 +16,7 @@ import project.lms_rikkei_edu.modules.quiz.enums.QuestionDifficulty;
 import project.lms_rikkei_edu.modules.quiz.enums.QuestionStatus;
 import project.lms_rikkei_edu.modules.quiz.service.BankQuestionEmbeddingService.IdText;
 import project.lms_rikkei_edu.modules.quiz.service.BankQuestionEmbeddingService.SemanticHit;
+import project.lms_rikkei_edu.modules.quiz.service.impl.BankQuestionEmbeddingServiceImpl;
 
 import java.sql.PreparedStatement;
 import java.util.List;
@@ -39,7 +40,7 @@ class BankQuestionEmbeddingServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new BankQuestionEmbeddingService(embeddingService, jdbc);
+        service = new BankQuestionEmbeddingServiceImpl(embeddingService, jdbc);
     }
 
     @Nested
