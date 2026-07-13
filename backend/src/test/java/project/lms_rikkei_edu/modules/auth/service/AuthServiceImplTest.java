@@ -82,6 +82,17 @@ class AuthServiceImplTest {
         return r;
     }
 
+    // helper to compute the same SHA-256 hash the service uses
+    private String hashOf(String token) {
+        try {
+            java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(token.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            return java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(hash);
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     // ── login ─────────────────────────────────────────────────────────────────
 
     @Nested
@@ -259,9 +270,6 @@ class AuthServiceImplTest {
             String token = validRefreshToken();
             UserEntity user = activeUser();
 
-            // The stored hash must equal SHA-256 of the token
-            // We can't easily predict hash, so stub getRefreshToken to return any string,
-            // and stub isSameHash by making request hash = stored hash (same input)
             when(redisService.getRefreshToken(userId)).thenReturn(Optional.of(hashOf(token)));
             when(userRepository.findById(userId)).thenReturn(Optional.of(user));
             when(jwtService.generateAccessToken(user)).thenReturn("new-access-token");
@@ -274,6 +282,61 @@ class AuthServiceImplTest {
 
             assertThat(resp.getAccessToken()).isEqualTo("new-access-token");
             assertThat(resp.getRefreshToken()).isNotNull();
+        }
+
+        @Test
+        void returnsNewTokens_whenIsRefreshTokenValidFastPath() {
+            String token = validRefreshToken();
+            UserEntity user = activeUser();
+
+            when(redisService.isRefreshTokenValid(userId, hashOf(token))).thenReturn(true);
+            when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+            when(jwtService.generateAccessToken(user)).thenReturn("fast-access-token");
+            when(jwtService.getAccessTokenExpirationSeconds()).thenReturn(3600L);
+
+            RefreshTokenRequest req = new RefreshTokenRequest();
+            req.setRefreshToken(token);
+
+            RefreshTokenResponse resp = authService.refresh(req);
+
+            assertThat(resp.getAccessToken()).isEqualTo("fast-access-token");
+            verify(redisService, never()).getRefreshToken(any());
+        }
+
+        @Test
+        void throws403_whenUserNotActiveInRefresh() {
+            String token = validRefreshToken();
+            UserEntity user = activeUser();
+            user.setStatus(UserStatus.PENDING_ACTIVATION);
+
+            when(redisService.isRefreshTokenValid(userId, hashOf(token))).thenReturn(true);
+            when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+
+            RefreshTokenRequest req = new RefreshTokenRequest();
+            req.setRefreshToken(token);
+
+            assertThatThrownBy(() -> authService.refresh(req))
+                    .isInstanceOf(BusinessException.class)
+                    .satisfies(e -> assertThat(((BusinessException) e).getStatus()).isEqualTo(HttpStatus.FORBIDDEN));
+
+            verify(redisService).deleteAllRefreshTokens(userId);
+        }
+
+        @Test
+        void throws401_whenUserDeletedInRefresh() {
+            String token = validRefreshToken();
+            UserEntity user = activeUser();
+            user.setDeletedAt(OffsetDateTime.now());
+
+            when(redisService.isRefreshTokenValid(userId, hashOf(token))).thenReturn(true);
+            when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+
+            RefreshTokenRequest req = new RefreshTokenRequest();
+            req.setRefreshToken(token);
+
+            assertThatThrownBy(() -> authService.refresh(req))
+                    .isInstanceOf(BusinessException.class)
+                    .satisfies(e -> assertThat(((BusinessException) e).getStatus()).isEqualTo(HttpStatus.UNAUTHORIZED));
         }
 
         @Test
@@ -318,16 +381,6 @@ class AuthServiceImplTest {
                     .isInstanceOf(BusinessException.class);
         }
 
-        // helper to compute the same SHA-256 hash the service uses
-        private String hashOf(String token) {
-            try {
-                java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
-                byte[] hash = digest.digest(token.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-                return java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(hash);
-            } catch (java.security.NoSuchAlgorithmException e) {
-                throw new RuntimeException(e);
-            }
-        }
     }
 
     // ── logout ────────────────────────────────────────────────────────────────
@@ -370,6 +423,26 @@ class AuthServiceImplTest {
                     .isInstanceOf(BusinessException.class)
                     .satisfies(e -> assertThat(((BusinessException) e).getStatus()).isEqualTo(HttpStatus.UNAUTHORIZED));
         }
+
+        @Test
+        void blacklistsTokenAndDeletesSpecificRefreshToken_whenRequestProvided() {
+            String jti = "jti-456";
+            Date expiry = new Date(System.currentTimeMillis() + 3600_000);
+
+            when(jwtService.resolveToken("Bearer some-token")).thenReturn("some-token");
+            when(jwtService.extractJti("some-token")).thenReturn(jti);
+            when(jwtService.extractExpiration("some-token")).thenReturn(expiry);
+            when(jwtService.extractUserId("some-token")).thenReturn(userId);
+
+            RefreshTokenRequest req = new RefreshTokenRequest();
+            req.setRefreshToken("specific-refresh-token");
+
+            LogoutResponse resp = authService.logout("Bearer some-token", req);
+
+            assertThat(resp.getMessage()).contains("Logout");
+            verify(redisService).deleteRefreshToken(userId, hashOf("specific-refresh-token"));
+        }
+
     }
 
     // ── forgotPassword ────────────────────────────────────────────────────────
@@ -436,6 +509,25 @@ class AuthServiceImplTest {
             // Không được throw ra ngoài dù email lỗi
             ForgotPasswordResponse resp = authService.forgotPassword(req);
             assertThat(resp.getMessage()).isNotNull();
+        }
+
+        @Test
+        void returnsSuccess_whenUserExistsButNotActive() {
+            ForgotPasswordRequest req = new ForgotPasswordRequest();
+            req.setEmail("test@example.com");
+
+            UserEntity user = activeUser();
+            user.setStatus(UserStatus.PENDING_ACTIVATION);
+
+            when(redisService.isRateLimited(anyString())).thenReturn(false);
+            when(userRepository.findByEmailIgnoreCaseAndDeletedAtIsNull("test@example.com"))
+                    .thenReturn(Optional.of(user));
+
+            ForgotPasswordResponse resp = authService.forgotPassword(req);
+
+            assertThat(resp.getMessage()).contains("email exists");
+            verify(emailService, never()).sendPasswordResetMail(any(), any());
+            verify(redisService, never()).savePasswordResetToken(anyString(), any());
         }
     }
 
@@ -582,6 +674,21 @@ class AuthServiceImplTest {
             assertThatThrownBy(() -> authService.activateAccount("token"))
                     .isInstanceOf(BusinessException.class)
                     .hasMessageContaining("disabled");
+        }
+
+        @Test
+        void throws_whenActivationTokenExpiryIsNull() {
+            UserEntity user = activeUser();
+            user.setStatus(UserStatus.PENDING_ACTIVATION);
+            user.setActivationToken("no-expiry-token");
+            user.setActivationTokenExpiresAt(null);
+
+            when(userRepository.findByActivationTokenAndDeletedAtIsNull("no-expiry-token"))
+                    .thenReturn(Optional.of(user));
+
+            assertThatThrownBy(() -> authService.activateAccount("no-expiry-token"))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("invalid or expired");
         }
     }
 }

@@ -29,4 +29,12 @@ public interface StudentCourseService {
      * Học viên đã hoàn thành cả khóa không bị ảnh hưởng.
      */
     void resetLessonProgressForInProgressStudents(UUID courseId, UUID lessonId);
+
+    /**
+     * Reset toàn bộ tiến độ (course_progress, lesson_progress, quiz_attempts) cho danh sách học viên trong khóa học.
+     * Được tự động gọi khi học viên được add/đăng ký vào khóa học để đảm bảo reset tiến độ học tập.
+     */
+    void resetProgressForStudents(UUID courseId, List<UUID> studentIds);
+
+    void resetStudentCourseProgress(UUID courseId, UUID studentId);
 }

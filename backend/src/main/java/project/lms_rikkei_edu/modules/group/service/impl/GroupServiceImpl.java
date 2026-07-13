@@ -20,6 +20,7 @@ import project.lms_rikkei_edu.modules.course.entity.Course;
 import project.lms_rikkei_edu.modules.course.entity.CourseEnrollmentEntity;
 import project.lms_rikkei_edu.modules.course.repository.CourseEnrollmentRepository;
 import project.lms_rikkei_edu.modules.course.repository.CourseRepository;
+import project.lms_rikkei_edu.modules.course.service.StudentCourseService;
 import project.lms_rikkei_edu.modules.group.dto.request.AddGroupMembersRequest;
 import project.lms_rikkei_edu.modules.group.dto.request.CreateGroupRequest;
 import project.lms_rikkei_edu.modules.group.dto.request.UpdateGroupRequest;
@@ -59,6 +60,7 @@ public class GroupServiceImpl implements GroupService {
     private final GroupMemberRepository groupMemberRepository;
     private final CourseRepository courseRepository;
     private final CourseEnrollmentRepository courseEnrollmentRepository;
+    private final StudentCourseService studentCourseService;
     private final UserRepository userRepository;
     private final CurrentUserProvider currentUserProvider;
     private final NotificationService notificationService;
@@ -268,6 +270,9 @@ public class GroupServiceImpl implements GroupService {
                 .toList();
         if (!toCreate.isEmpty()) {
             courseEnrollmentRepository.saveAll(toCreate);
+        }
+        if (studentIds != null && !studentIds.isEmpty()) {
+            studentCourseService.resetProgressForStudents(courseId, studentIds);
         }
     }
 

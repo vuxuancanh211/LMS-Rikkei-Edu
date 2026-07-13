@@ -30,6 +30,10 @@ import project.lms_rikkei_edu.modules.course.repository.CourseRepository;
 import project.lms_rikkei_edu.modules.course.repository.LessonProgressRepository;
 import project.lms_rikkei_edu.modules.course.repository.LessonRepository;
 import project.lms_rikkei_edu.modules.course.service.StudentCourseService;
+import project.lms_rikkei_edu.modules.quiz.entity.QuizAttemptEntity;
+import project.lms_rikkei_edu.modules.quiz.repository.ProctoringViolationLogRepository;
+import project.lms_rikkei_edu.modules.quiz.repository.QuizAttemptAnswerRepository;
+import project.lms_rikkei_edu.modules.quiz.repository.QuizAttemptRepository;
 import project.lms_rikkei_edu.modules.user.entity.UserEntity;
 import project.lms_rikkei_edu.modules.user.repository.UserRepository;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest;
@@ -56,6 +60,9 @@ public class StudentCourseServiceImpl implements StudentCourseService {
     private final CourseMapper courseMapper;
     private final S3Service s3Service;
     private final UserRepository userRepository;
+    private final QuizAttemptRepository quizAttemptRepository;
+    private final QuizAttemptAnswerRepository quizAttemptAnswerRepository;
+    private final ProctoringViolationLogRepository proctoringViolationLogRepository;
 
     @Value("${app.s3.presigned-url-expiry:3600}")
     private long presignedUrlExpiry;
@@ -279,12 +286,17 @@ public class StudentCourseServiceImpl implements StudentCourseService {
         int wp = progress.getWatchedPercentage() != null ? progress.getWatchedPercentage().intValue() : 0;
         int dv = progress.getDocumentViewSeconds() != null ? progress.getDocumentViewSeconds() : 0;
 
-        // Auto-determine completion based on content type
+        // Auto-determine completion based on content type and learning time/scroll depth
         boolean completed = false;
-        if (hasVideo) {
+        if (hasVideo && hasDocument) {
+            // "nếu cả 2 thì tính video và xem 10s tài liệu" -> xem >= 90% video VÀ xem >= 10s tài liệu
+            completed = wp >= 90 && dv >= 10;
+        } else if (hasVideo) {
+            // "xem 90% video"
             completed = wp >= 90;
         } else if (hasDocument) {
-            completed = dv >= 20;
+            // "20s cho tài liệu"
+            completed = dv >= 20 || wp >= 90;
         } else {
             // No video or document — complete on first access
             completed = progress.getStatus() == null || "COMPLETED".equals(progress.getStatus());
@@ -305,7 +317,7 @@ public class StudentCourseServiceImpl implements StudentCourseService {
         }
 
         // Calculate lesson percentage
-        progress.setLessonPercentage(calculateLessonPercentage(wp, dv, hasVideo, hasDocument));
+        progress.setLessonPercentage(calculateLessonPercentage(wp, dv, hasVideo, hasDocument, lesson));
 
         lessonProgressRepository.save(progress);
 
@@ -362,14 +374,48 @@ public class StudentCourseServiceImpl implements StudentCourseService {
         }
     }
 
+    @Override
+    @Transactional
+    public void resetProgressForStudents(UUID courseId, List<UUID> studentIds) {
+        if (courseId == null || studentIds == null || studentIds.isEmpty()) return;
+        try {
+            List<QuizAttemptEntity> attempts = quizAttemptRepository.findByCourseIdAndStudentIdIn(courseId, studentIds);
+            if (!attempts.isEmpty()) {
+                List<UUID> attemptIds = attempts.stream().map(QuizAttemptEntity::getId).toList();
+                quizAttemptAnswerRepository.deleteByAttemptIdIn(attemptIds);
+                proctoringViolationLogRepository.deleteByAttemptIdIn(attemptIds);
+                quizAttemptRepository.deleteByCourseIdAndStudentIdIn(courseId, studentIds);
+            }
+            lessonProgressRepository.deleteByCourseIdAndStudentIdIn(courseId, studentIds);
+            courseProgressRepository.deleteByCourseIdAndStudentIdIn(courseId, studentIds);
+            log.info("Reset progress successfully for {} students in course {}", studentIds.size(), courseId);
+        } catch (Exception e) {
+            log.error("Failed to reset progress for students in course {}: {}", courseId, e.getMessage(), e);
+        }
+    }
+
+    @Override
+    @Transactional
+    public void resetStudentCourseProgress(UUID courseId, UUID studentId) {
+        if (courseId == null || studentId == null) return;
+        resetProgressForStudents(courseId, List.of(studentId));
+    }
+
     /* ── Private helpers ─────────────────────────────────── */
 
-    private BigDecimal calculateLessonPercentage(int wp, int dv, boolean hasVideo, boolean hasDocument) {
-        if (hasVideo) {
+    private BigDecimal calculateLessonPercentage(int wp, int dv, boolean hasVideo, boolean hasDocument, Lesson lesson) {
+        if (hasVideo && hasDocument) {
+            if (wp >= 90 && dv >= 10) return BigDecimal.valueOf(100);
+            double vidScore = Math.min(wp / 90.0, 1.0) * 80.0;
+            double docScore = Math.min(dv / 10.0, 1.0) * 20.0;
+            return BigDecimal.valueOf(Math.round(vidScore + docScore));
+        } else if (hasVideo) {
             return BigDecimal.valueOf(Math.min(wp, 100));
         } else if (hasDocument) {
-            double pct = Math.min(dv * 100.0 / 20, 100);
-            return BigDecimal.valueOf(Math.round(pct));
+            if (dv >= 20 || wp >= 90) return BigDecimal.valueOf(100);
+            double pctByTime = Math.min(dv * 100.0 / 20.0, 100);
+            double finalPct = Math.max(pctByTime, Math.min(wp, 100));
+            return BigDecimal.valueOf(Math.round(finalPct));
         } else {
             // No video or document — immediate 100%
             return BigDecimal.valueOf(100);
@@ -377,18 +423,20 @@ public class StudentCourseServiceImpl implements StudentCourseService {
     }
 
     private boolean hasVideoContent(Lesson lesson) {
-        if (lesson.getHlsManifestUrl() != null) return true;
+        if (lesson.getType() == LessonType.VIDEO) return true;
+        if (lesson.getHlsManifestUrl() != null || lesson.getVideoS3Key() != null) return true;
         if (lesson.getResources() != null) {
             return lesson.getResources().stream()
-                    .anyMatch(r -> r.getResourceType() == ResourceType.VIDEO);
+                    .anyMatch(r -> r.getResourceType() == ResourceType.VIDEO && !Boolean.TRUE.equals(r.getPendingDelete()));
         }
         return false;
     }
 
     private boolean hasDocumentContent(Lesson lesson) {
+        if (lesson.getType() != null && lesson.getType() != LessonType.VIDEO && lesson.getType() != LessonType.QUIZ) return true;
         if (lesson.getResources() != null) {
             return lesson.getResources().stream()
-                    .anyMatch(r -> r.getResourceType() != ResourceType.VIDEO);
+                    .anyMatch(r -> r.getResourceType() != ResourceType.VIDEO && !Boolean.TRUE.equals(r.getPendingDelete()));
         }
         return false;
     }

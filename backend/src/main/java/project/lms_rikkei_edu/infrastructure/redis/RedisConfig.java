@@ -45,13 +45,11 @@ public class RedisConfig {
     }
 
     private GenericJacksonJsonRedisSerializer redisSerializer() {
+        BasicPolymorphicTypeValidator validator = BasicPolymorphicTypeValidator.builder()
+                .allowIfSubType(Object.class)
+                .build();
         ObjectMapper mapper = JsonMapper.builder()
-                .activateDefaultTyping(
-                        BasicPolymorphicTypeValidator.builder()
-                                .allowIfSubType(Object.class)
-                                .build(),
-                        DefaultTyping.NON_FINAL
-                )
+                .activateDefaultTyping(validator, DefaultTyping.NON_FINAL)
                 .build();
         return new GenericJacksonJsonRedisSerializer(mapper);
     }

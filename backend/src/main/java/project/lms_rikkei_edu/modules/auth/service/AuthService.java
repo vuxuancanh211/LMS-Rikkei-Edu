@@ -20,6 +20,8 @@ public interface AuthService {
 
     LogoutResponse logout(String authorizationHeader);
 
+    LogoutResponse logout(String authorizationHeader, RefreshTokenRequest request);
+
     RefreshTokenResponse refresh(RefreshTokenRequest request);
 
     ForgotPasswordResponse forgotPassword(ForgotPasswordRequest request);
