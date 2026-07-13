@@ -65,9 +65,14 @@ public class AdminCourseServiceImpl implements AdminCourseService {
         Map<UUID, String> instructorNames = loadInstructorNames(courses.getContent());
         return courses.map(course -> {
             CourseResponse response = courseMapper.toResponse(course);
-            response.setInstructorName(instructorNames.get(course.getInstructorId()));
+            response.setInstructorName(resolveInstructorName(instructorNames, course));
             return response;
         });
+    }
+
+    private String resolveInstructorName(Map<UUID, String> instructorNames, Course course) {
+        UUID instructorId = course.getInstructorId();
+        return instructorId == null ? null : instructorNames.get(instructorId);
     }
 
     private Map<UUID, String> loadInstructorNames(List<Course> courses) {
@@ -94,7 +99,7 @@ public class AdminCourseServiceImpl implements AdminCourseService {
             ch.getLessons().forEach(l -> l.getResources().size())
         );
         CourseDetailResponse response = courseMapper.toDetailResponse(course);
-        response.setInstructorName(loadInstructorNames(List.of(course)).get(course.getInstructorId()));
+        response.setInstructorName(resolveInstructorName(loadInstructorNames(List.of(course)), course));
         return response;
     }
 
