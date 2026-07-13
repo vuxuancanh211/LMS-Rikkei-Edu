@@ -248,6 +248,10 @@ public class GradingServiceImpl implements GradingService {
             throw new BusinessException("Bạn không có quyền chấm bài nộp này", HttpStatus.FORBIDDEN);
         }
 
+        if (submission.getScorePublishedAt() != null) {
+            throw new BusinessException("Không thể sửa điểm đã công bố", HttpStatus.BAD_REQUEST);
+        }
+
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
         submission.setScore(request.getScore());
         submission.setFeedback(request.getFeedback());

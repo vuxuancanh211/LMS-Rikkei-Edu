@@ -67,7 +67,7 @@ import { createPortal } from 'react-dom';
         console.error("Lỗi tải nhóm:", err?.response?.status, err?.response?.data || err);
         setGroupsLoading(false);
       });
-    }, [effectiveCourseId, scope]);
+    }, [effectiveCourseId, scope, assignment]);
 
     function toggleGroup(id) {
       setSelectedGroupIds(prev =>
@@ -237,6 +237,23 @@ import { createPortal } from 'react-dom';
       }
     }
 
+    async function uploadWithLimit(files, urlPrefix) {
+      const total = files.length;
+      if (total === 0) return;
+      let idx = 0;
+      const workers = Array.from({ length: Math.min(3, total) }, async () => {
+        while (idx < total) {
+          const i = idx++;
+          const formData = new FormData();
+          formData.append("file", files[i]);
+          await api.post(urlPrefix, formData, {
+            headers: { "Content-Type": "multipart/form-data" },
+          });
+        }
+      });
+      await Promise.all(workers);
+    }
+
     async function handleSubmit(publishAfter) {
       setError("");
       if (!title.trim()) { setError("Vui lòng nhập tiêu đề"); return; }
@@ -272,13 +289,7 @@ import { createPortal } from 'react-dom';
         if (isEdit) {
           const ep = `${baseEp}/${assignment.id}`;
           await api.put(ep, payload);
-          for (const file of files) {
-            const formData = new FormData();
-            formData.append("file", file);
-            await api.post(`${ep}/attachments`, formData, {
-              headers: { "Content-Type": "multipart/form-data" },
-            });
-          }
+          await uploadWithLimit(files, `${ep}/attachments`);
           if (publishAfter) {
             await api.put(`${ep}/publish`);
           }
@@ -287,13 +298,7 @@ import { createPortal } from 'react-dom';
           const res = await api.post(baseEp, payload);
           const created = res.data || res;
 
-          for (const file of files) {
-            const formData = new FormData();
-            formData.append("file", file);
-            await api.post(`${baseEp}/${created.id}/attachments`, formData, {
-              headers: { "Content-Type": "multipart/form-data" },
-            });
-          }
+          await uploadWithLimit(files, `${baseEp}/${created.id}/attachments`);
 
           if (publishAfter) {
             await api.put(`${baseEp}/${created.id}/publish`);

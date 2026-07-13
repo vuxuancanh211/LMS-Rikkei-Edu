@@ -199,7 +199,7 @@ class AssignmentServiceImplTest {
     @Test
     void createAssignment_deadlineTooSoon_throws() {
         var request = createRequest(AssignmentScope.ALL_GROUPS);
-        request.setDeadline(futureStartDate);
+        request.setDeadline(OffsetDateTime.now(ZoneOffset.UTC).plusMinutes(1));
         request.setStartDate(null);
         when(courseRepository.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(true);
         when(courseRepository.findById(courseId)).thenReturn(Optional.of(publishedCourse()));

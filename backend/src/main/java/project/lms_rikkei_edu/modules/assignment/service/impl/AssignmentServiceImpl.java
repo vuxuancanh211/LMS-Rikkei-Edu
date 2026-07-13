@@ -535,6 +535,8 @@ public class AssignmentServiceImpl implements AssignmentService {
                 ag.setAssignedAt(now);
                 assignmentGroupRepository.save(ag);
             }
+        } else if (request.getScope() == AssignmentScope.ALL_GROUPS) {
+            assignmentGroupRepository.deleteByAssignmentId(assignment.getId());
         }
     }
 
@@ -560,8 +562,30 @@ public class AssignmentServiceImpl implements AssignmentService {
             hasChanges = true;
         }
 
+        if (request.getScope() != null) {
+            assignment.setScope(request.getScope());
+            hasChanges = true;
+        }
+        if (request.getScope() == AssignmentScope.SPECIFIC_GROUPS && request.getGroupIds() != null) {
+            assignmentGroupRepository.deleteByAssignmentId(assignment.getId());
+            assignmentGroupRepository.flush();
+            OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+            for (UUID groupId : request.getGroupIds()) {
+                AssignmentGroupEntity ag = new AssignmentGroupEntity();
+                ag.setId(UUID.randomUUID());
+                ag.setAssignmentId(assignment.getId());
+                ag.setGroupId(groupId);
+                ag.setAssignedAt(now);
+                assignmentGroupRepository.save(ag);
+            }
+            hasChanges = true;
+        } else if (request.getScope() == AssignmentScope.ALL_GROUPS) {
+            assignmentGroupRepository.deleteByAssignmentId(assignment.getId());
+            hasChanges = true;
+        }
+
         if (!hasChanges) {
-            throw new BusinessException("Sau khi publish chỉ có thể thay đổi deadline, allow_late_submission, late_penalty_percent và max_submissions");
+            throw new BusinessException("Sau khi publish chỉ có thể thay đổi deadline, allow_late_submission, late_penalty_percent, max_submissions, scope và group_ids");
         }
     }
 
@@ -574,9 +598,12 @@ public class AssignmentServiceImpl implements AssignmentService {
                 throw new BusinessException("Ngày bắt đầu phải trước hạn nộp ít nhất 1 phút");
             }
         }
+        if (startDate != null && startDate.isBefore(OffsetDateTime.now(ZoneOffset.UTC).minusMinutes(5))) {
+            throw new BusinessException("Ngày bắt đầu không thể ở quá khứ");
+        }
         if (deadline != null) {
-            if (deadline.isBefore(OffsetDateTime.now(ZoneOffset.UTC).plusHours(1))) {
-                throw new BusinessException("Hạn nộp phải ít nhất 1 giờ sau thời điểm hiện tại");
+            if (deadline.isBefore(OffsetDateTime.now(ZoneOffset.UTC).plusMinutes(2))) {
+                throw new BusinessException("Hạn nộp phải ít nhất 2 phút sau thời điểm hiện tại");
             }
         }
     }
