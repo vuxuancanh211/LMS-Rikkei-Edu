@@ -1092,7 +1092,6 @@
 
         {/* ═══ Modal: Tạo bài tập tự luận ═══ */}
         {createAssignOpen && window.CreateAssignmentModal && React.createElement(window.CreateAssignmentModal, {
-          courseId: activeCourseId,
           role: 'instructor',
           onClose: (refreshed) => { setCreateAssignOpen(false); if (refreshed) fetchAssignments(); },
         })}
