@@ -142,6 +142,22 @@ class GroupServiceImplTest {
     }
 
     @Test
+    void createGroup_allowsAdminToCreateGroupForAnyInstructorCourse() {
+        Course course = courseEntity(otherInstructorId);
+        CreateGroupRequest request = createRequest();
+
+        when(currentUserProvider.getCurrentUser()).thenReturn(Optional.of(principal(instructorId, UserRole.ADMIN)));
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(course));
+        when(userRepository.getReferenceById(instructorId)).thenReturn(instructorUser());
+        when(studyGroupRepository.save(any(StudyGroupEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        GroupResponse result = groupService.createGroup(request);
+
+        assertThat(result).isNotNull();
+        verify(studyGroupRepository).save(any());
+    }
+
+    @Test
     void createGroup_throwsForbidden_whenInstructorCreatesGroupForAnotherInstructorCourse() {
         CreateGroupRequest request = createRequest();
         when(currentUserProvider.getCurrentUser()).thenReturn(Optional.of(principal(instructorId, UserRole.INSTRUCTOR)));
@@ -449,6 +465,48 @@ class GroupServiceImplTest {
 
         assertThat(result).hasSize(1);
         assertThat(result.getFirst().getId()).isEqualTo(groupId);
+    }
+
+    @Test
+    void getStudentGroups_computesActiveStatus_whenEndDateIsNull() {
+        StudyGroupEntity group = groupEntity(groupId, courseEntity(instructorId), instructorUser());
+        group.setEndDate(null);
+        group.setStartDate(LocalDate.now().minusDays(1));
+        when(currentUserProvider.getCurrentUser()).thenReturn(Optional.of(principal(studentId, UserRole.STUDENT)));
+        when(studyGroupRepository.findByStudentId(studentId)).thenReturn(List.of(group));
+
+        List<GroupResponse> result = groupService.getStudentGroups();
+
+        assertThat(result).hasSize(1);
+        assertThat(result.getFirst().getStatus()).isEqualTo("ACTIVE");
+    }
+
+    @Test
+    void getStudentGroups_computesUpcomingStatus_whenStartDateInFuture() {
+        StudyGroupEntity group = groupEntity(groupId, courseEntity(instructorId), instructorUser());
+        group.setStartDate(LocalDate.now().plusDays(1));
+        group.setEndDate(LocalDate.now().plusDays(10));
+        when(currentUserProvider.getCurrentUser()).thenReturn(Optional.of(principal(studentId, UserRole.STUDENT)));
+        when(studyGroupRepository.findByStudentId(studentId)).thenReturn(List.of(group));
+
+        List<GroupResponse> result = groupService.getStudentGroups();
+
+        assertThat(result).hasSize(1);
+        assertThat(result.getFirst().getStatus()).isEqualTo("UPCOMING");
+    }
+
+    @Test
+    void getStudentGroups_computesCompletedStatus_whenEndDateInPast() {
+        StudyGroupEntity group = groupEntity(groupId, courseEntity(instructorId), instructorUser());
+        group.setStartDate(LocalDate.now().minusDays(10));
+        group.setEndDate(LocalDate.now().minusDays(1));
+        when(currentUserProvider.getCurrentUser()).thenReturn(Optional.of(principal(studentId, UserRole.STUDENT)));
+        when(studyGroupRepository.findByStudentId(studentId)).thenReturn(List.of(group));
+
+        List<GroupResponse> result = groupService.getStudentGroups();
+
+        assertThat(result).hasSize(1);
+        assertThat(result.getFirst().getStatus()).isEqualTo("COMPLETED");
     }
 
     @Test

@@ -53,6 +53,9 @@ class StudentCourseServiceImplTest {
     @Mock private UserRepository userRepository;
     @Mock private EntityManager entityManager;
     @Mock private Query nativeQuery;
+    @Mock private project.lms_rikkei_edu.modules.quiz.repository.QuizAttemptRepository quizAttemptRepository;
+    @Mock private project.lms_rikkei_edu.modules.quiz.repository.QuizAttemptAnswerRepository quizAttemptAnswerRepository;
+    @Mock private project.lms_rikkei_edu.modules.quiz.repository.ProctoringViolationLogRepository proctoringViolationLogRepository;
 
     @InjectMocks private StudentCourseServiceImpl studentCourseService;
 
@@ -593,6 +596,89 @@ class StudentCourseServiceImplTest {
         assertThatThrownBy(() -> studentCourseService.getResourceViewUrl(studentId, courseId, lessonId, resourceId))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("Không tìm thấy tài liệu");
+    }
+
+    // ── resetProgressForStudents ───────────────────────────────────────────────
+
+    @Test
+    void resetProgressForStudents_skips_whenCourseIdIsNull() {
+        studentCourseService.resetProgressForStudents(null, List.of(studentId));
+        verify(quizAttemptRepository, never()).findByCourseIdAndStudentIdIn(any(), any());
+    }
+
+    @Test
+    void resetProgressForStudents_skips_whenStudentIdsIsNull() {
+        studentCourseService.resetProgressForStudents(courseId, null);
+        verify(quizAttemptRepository, never()).findByCourseIdAndStudentIdIn(any(), any());
+    }
+
+    @Test
+    void resetProgressForStudents_skips_whenStudentIdsEmpty() {
+        studentCourseService.resetProgressForStudents(courseId, List.of());
+        verify(quizAttemptRepository, never()).findByCourseIdAndStudentIdIn(any(), any());
+    }
+
+    @Test
+    void resetProgressForStudents_deletesQuizAndLessonProgress() {
+        var attempt = new project.lms_rikkei_edu.modules.quiz.entity.QuizAttemptEntity();
+        attempt.setId(UUID.randomUUID());
+        when(quizAttemptRepository.findByCourseIdAndStudentIdIn(courseId, List.of(studentId)))
+                .thenReturn(List.of(attempt));
+
+        studentCourseService.resetProgressForStudents(courseId, List.of(studentId));
+
+        verify(quizAttemptAnswerRepository).deleteByAttemptIdIn(anyList());
+        verify(proctoringViolationLogRepository).deleteByAttemptIdIn(anyList());
+        verify(quizAttemptRepository).deleteByCourseIdAndStudentIdIn(courseId, List.of(studentId));
+        verify(lessonProgressRepository).deleteByCourseIdAndStudentIdIn(courseId, List.of(studentId));
+        verify(courseProgressRepository).deleteByCourseIdAndStudentIdIn(courseId, List.of(studentId));
+    }
+
+    @Test
+    void resetProgressForStudents_skipsQuizDeletion_whenNoAttempts() {
+        when(quizAttemptRepository.findByCourseIdAndStudentIdIn(courseId, List.of(studentId)))
+                .thenReturn(List.of());
+
+        studentCourseService.resetProgressForStudents(courseId, List.of(studentId));
+
+        verify(quizAttemptAnswerRepository, never()).deleteByAttemptIdIn(anyList());
+        verify(proctoringViolationLogRepository, never()).deleteByAttemptIdIn(anyList());
+        verify(quizAttemptRepository, never()).deleteByCourseIdAndStudentIdIn(any(), anyList());
+        verify(lessonProgressRepository).deleteByCourseIdAndStudentIdIn(courseId, List.of(studentId));
+        verify(courseProgressRepository).deleteByCourseIdAndStudentIdIn(courseId, List.of(studentId));
+    }
+
+    @Test
+    void resetProgressForStudents_handlesExceptionGracefully() {
+        when(quizAttemptRepository.findByCourseIdAndStudentIdIn(courseId, List.of(studentId)))
+                .thenThrow(new RuntimeException("DB error"));
+
+        studentCourseService.resetProgressForStudents(courseId, List.of(studentId));
+
+        // Should not propagate exception
+        verify(quizAttemptAnswerRepository, never()).deleteByAttemptIdIn(anyList());
+        verify(lessonProgressRepository, never()).deleteByCourseIdAndStudentIdIn(any(), anyList());
+    }
+
+    @Test
+    void resetStudentCourseProgress_delegatesToResetProgressForStudents() {
+        studentCourseService.resetStudentCourseProgress(courseId, studentId);
+        verify(lessonProgressRepository).deleteByCourseIdAndStudentIdIn(courseId, List.of(studentId));
+        verify(courseProgressRepository).deleteByCourseIdAndStudentIdIn(courseId, List.of(studentId));
+    }
+
+    @Test
+    void resetStudentCourseProgress_skips_whenCourseIdNull() {
+        studentCourseService.resetStudentCourseProgress(null, studentId);
+        verify(quizAttemptRepository, never()).findByCourseIdAndStudentIdIn(any(), any());
+        verify(lessonProgressRepository, never()).deleteByCourseIdAndStudentIdIn(any(), anyList());
+    }
+
+    @Test
+    void resetStudentCourseProgress_skips_whenStudentIdNull() {
+        studentCourseService.resetStudentCourseProgress(courseId, null);
+        verify(quizAttemptRepository, never()).findByCourseIdAndStudentIdIn(any(), any());
+        verify(lessonProgressRepository, never()).deleteByCourseIdAndStudentIdIn(any(), anyList());
     }
 }
 

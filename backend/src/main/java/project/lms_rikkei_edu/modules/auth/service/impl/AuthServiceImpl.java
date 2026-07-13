@@ -113,8 +113,10 @@ public class AuthServiceImpl implements AuthService {
         UUID userId = extractUserIdFromRefreshToken(request.getRefreshToken());
         String requestTokenHash = hashToken(request.getRefreshToken());
         boolean isValid = redisService.isRefreshTokenValid(userId, requestTokenHash);
-        if (!isValid && redisService.getRefreshToken(userId).isPresent()) {
-            isValid = isSameHash(requestTokenHash, redisService.getRefreshToken(userId).get());
+        if (!isValid) {
+            isValid = redisService.getRefreshToken(userId)
+                    .map(savedHash -> isSameHash(requestTokenHash, savedHash))
+                    .orElse(false);
         }
         if (!isValid) {
             throw new BusinessException("Refresh token is invalid or expired", HttpStatus.UNAUTHORIZED);
