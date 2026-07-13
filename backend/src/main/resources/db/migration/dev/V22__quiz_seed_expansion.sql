@@ -17,19 +17,19 @@ WHERE id IN ('60000000-0000-0000-0000-000000000001', '60000000-0000-0000-0000-00
 -- 1. BANK QUESTIONS — Course 2: PostgreSQL Nâng Cao
 --    2 Easy + 2 Medium + 2 Hard (đủ cho random draw BY_DIFFICULTY 2/2/2)
 -- ============================================================
-INSERT INTO bank_questions (id, course_id, created_by, subject_tag, question_text, question_type, difficulty, points, status, created_at) VALUES
+INSERT INTO bank_questions (id, course_id, created_by, subject_tag, question_text, question_type, difficulty, status, created_at) VALUES
     ('61000000-0000-0000-0000-000000000010', '20000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000002',
-     'Index', 'Index mặc định của PostgreSQL sử dụng cấu trúc dữ liệu nào?', 'SINGLE_CHOICE', 'EASY', 2.00, 'ACTIVE', now()),
+     'Index', 'Index mặc định của PostgreSQL sử dụng cấu trúc dữ liệu nào?', 'SINGLE_CHOICE', 'EASY', 'ACTIVE', now()),
     ('61000000-0000-0000-0000-000000000011', '20000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000002',
-     'Index', 'Lệnh nào dùng để xem execution plan của một câu truy vấn?', 'SINGLE_CHOICE', 'EASY', 2.00, 'ACTIVE', now()),
+     'Index', 'Lệnh nào dùng để xem execution plan của một câu truy vấn?', 'SINGLE_CHOICE', 'EASY', 'ACTIVE', now()),
     ('61000000-0000-0000-0000-000000000012', '20000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000002',
-     'Index', 'Khi nào PostgreSQL có thể bỏ qua Index dù đã tạo?', 'MULTIPLE_CHOICE', 'MEDIUM', 4.00, 'ACTIVE', now()),
+     'Index', 'Khi nào PostgreSQL có thể bỏ qua Index dù đã tạo?', 'MULTIPLE_CHOICE', 'MEDIUM', 'ACTIVE', now()),
     ('61000000-0000-0000-0000-000000000013', '20000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000002',
-     'Partitioning', 'Partitioning theo Range phù hợp nhất với loại dữ liệu nào?', 'SINGLE_CHOICE', 'MEDIUM', 4.00, 'ACTIVE', now()),
+     'Partitioning', 'Partitioning theo Range phù hợp nhất với loại dữ liệu nào?', 'SINGLE_CHOICE', 'MEDIUM', 'ACTIVE', now()),
     ('61000000-0000-0000-0000-000000000014', '20000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000002',
-     'Replication', 'Streaming Replication khác Logical Replication ở điểm nào?', 'SINGLE_CHOICE', 'HARD', 6.00, 'ACTIVE', now()),
+     'Replication', 'Streaming Replication khác Logical Replication ở điểm nào?', 'SINGLE_CHOICE', 'HARD', 'ACTIVE', now()),
     ('61000000-0000-0000-0000-000000000015', '20000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000002',
-     'Index', 'Các phát biểu nào đúng về Covering Index?', 'MULTIPLE_CHOICE', 'HARD', 6.00, 'ACTIVE', now());
+     'Index', 'Các phát biểu nào đúng về Covering Index?', 'MULTIPLE_CHOICE', 'HARD', 'ACTIVE', now());
 
 INSERT INTO bank_options (id, bank_question_id, option_text, is_correct, order_index) VALUES
     (gen_random_uuid(), '61000000-0000-0000-0000-000000000010', 'B-Tree', true, 1),
@@ -66,19 +66,19 @@ INSERT INTO bank_options (id, bank_question_id, option_text, is_correct, order_i
 -- 2. BANK QUESTIONS — Course 3: ReactJS & TailwindCSS
 --    6 câu mixed difficulty
 -- ============================================================
-INSERT INTO bank_questions (id, course_id, created_by, subject_tag, question_text, question_type, difficulty, points, status, created_at) VALUES
+INSERT INTO bank_questions (id, course_id, created_by, subject_tag, question_text, question_type, difficulty, status, created_at) VALUES
     ('61000000-0000-0000-0000-000000000020', '20000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000003',
-     'JSX', 'JSX cuối cùng được biên dịch thành lời gọi hàm nào?', 'SINGLE_CHOICE', 'EASY', 2.00, 'ACTIVE', now()),
+     'JSX', 'JSX cuối cùng được biên dịch thành lời gọi hàm nào?', 'SINGLE_CHOICE', 'EASY', 'ACTIVE', now()),
     ('61000000-0000-0000-0000-000000000021', '20000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000003',
-     'Hooks', 'useState trả về giá trị gì?', 'SINGLE_CHOICE', 'EASY', 2.00, 'ACTIVE', now()),
+     'Hooks', 'useState trả về giá trị gì?', 'SINGLE_CHOICE', 'EASY', 'ACTIVE', now()),
     ('61000000-0000-0000-0000-000000000022', '20000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000003',
-     'Hooks', 'useEffect với dependency array rỗng [] chạy khi nào?', 'SINGLE_CHOICE', 'MEDIUM', 3.00, 'ACTIVE', now()),
+     'Hooks', 'useEffect với dependency array rỗng [] chạy khi nào?', 'SINGLE_CHOICE', 'MEDIUM', 'ACTIVE', now()),
     ('61000000-0000-0000-0000-000000000023', '20000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000003',
-     'State', 'Các cách nào sau đây có thể gây re-render không cần thiết?', 'MULTIPLE_CHOICE', 'MEDIUM', 4.00, 'ACTIVE', now()),
+     'State', 'Các cách nào sau đây có thể gây re-render không cần thiết?', 'MULTIPLE_CHOICE', 'MEDIUM', 'ACTIVE', now()),
     ('61000000-0000-0000-0000-000000000024', '20000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000003',
-     'TailwindCSS', 'Class nào của Tailwind dùng để căn giữa cả 2 trục trong flexbox?', 'SINGLE_CHOICE', 'EASY', 2.00, 'ACTIVE', now()),
+     'TailwindCSS', 'Class nào của Tailwind dùng để căn giữa cả 2 trục trong flexbox?', 'SINGLE_CHOICE', 'EASY', 'ACTIVE', now()),
     ('61000000-0000-0000-0000-000000000025', '20000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000003',
-     'Context', 'Context API phù hợp nhất khi nào?', 'SINGLE_CHOICE', 'HARD', 5.00, 'ACTIVE', now());
+     'Context', 'Context API phù hợp nhất khi nào?', 'SINGLE_CHOICE', 'HARD', 'ACTIVE', now());
 
 INSERT INTO bank_options (id, bank_question_id, option_text, is_correct, order_index) VALUES
     (gen_random_uuid(), '61000000-0000-0000-0000-000000000020', 'React.createElement()', true, 1),
@@ -115,19 +115,19 @@ INSERT INTO bank_options (id, bank_question_id, option_text, is_correct, order_i
 -- 3. BANK QUESTIONS — Course 4: Docker & Kubernetes Cơ Bản
 --    6 câu ACTIVE (đủ cho random draw FULLY_RANDOM totalCount=4)
 -- ============================================================
-INSERT INTO bank_questions (id, course_id, created_by, subject_tag, question_text, question_type, difficulty, points, status, created_at) VALUES
+INSERT INTO bank_questions (id, course_id, created_by, subject_tag, question_text, question_type, difficulty, status, created_at) VALUES
     ('61000000-0000-0000-0000-000000000030', '20000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000003',
-     'Docker', 'Lệnh nào dùng để build image từ Dockerfile?', 'SINGLE_CHOICE', 'EASY', 2.00, 'ACTIVE', now()),
+     'Docker', 'Lệnh nào dùng để build image từ Dockerfile?', 'SINGLE_CHOICE', 'EASY', 'ACTIVE', now()),
     ('61000000-0000-0000-0000-000000000031', '20000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000003',
-     'Docker', 'Sự khác biệt giữa CMD và ENTRYPOINT trong Dockerfile?', 'SINGLE_CHOICE', 'MEDIUM', 3.00, 'ACTIVE', now()),
+     'Docker', 'Sự khác biệt giữa CMD và ENTRYPOINT trong Dockerfile?', 'SINGLE_CHOICE', 'MEDIUM', 'ACTIVE', now()),
     ('61000000-0000-0000-0000-000000000032', '20000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000003',
-     'Docker Compose', 'Docker Compose dùng để làm gì?', 'SINGLE_CHOICE', 'EASY', 2.00, 'ACTIVE', now()),
+     'Docker Compose', 'Docker Compose dùng để làm gì?', 'SINGLE_CHOICE', 'EASY', 'ACTIVE', now()),
     ('61000000-0000-0000-0000-000000000033', '20000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000003',
-     'Kubernetes', 'Đơn vị triển khai nhỏ nhất trong Kubernetes là gì?', 'SINGLE_CHOICE', 'MEDIUM', 3.00, 'ACTIVE', now()),
+     'Kubernetes', 'Đơn vị triển khai nhỏ nhất trong Kubernetes là gì?', 'SINGLE_CHOICE', 'MEDIUM', 'ACTIVE', now()),
     ('61000000-0000-0000-0000-000000000034', '20000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000003',
-     'Kubernetes', 'Service loại nào expose ứng dụng ra ngoài cluster qua LoadBalancer?', 'SINGLE_CHOICE', 'HARD', 5.00, 'ACTIVE', now()),
+     'Kubernetes', 'Service loại nào expose ứng dụng ra ngoài cluster qua LoadBalancer?', 'SINGLE_CHOICE', 'HARD', 'ACTIVE', now()),
     ('61000000-0000-0000-0000-000000000035', '20000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000003',
-     'Docker', 'Các phát biểu nào đúng về Docker volume?', 'MULTIPLE_CHOICE', 'HARD', 5.00, 'ACTIVE', now());
+     'Docker', 'Các phát biểu nào đúng về Docker volume?', 'MULTIPLE_CHOICE', 'HARD', 'ACTIVE', now());
 
 INSERT INTO bank_options (id, bank_question_id, option_text, is_correct, order_index) VALUES
     (gen_random_uuid(), '61000000-0000-0000-0000-000000000030', 'docker build', true, 1),
@@ -189,15 +189,15 @@ INSERT INTO quizzes (id, course_id, created_by, title, description, quiz_type, d
      'SHUFFLED_POOL', 15, 3, 60.00, true, true, false, 'PUBLISHED',
      20, now() - interval '4 days', now() - interval '5 days', now());
 
-INSERT INTO quiz_questions (id, quiz_id, bank_question_id, question_text, question_type, difficulty, subject_tag, points, order_index) VALUES
+INSERT INTO quiz_questions (id, quiz_id, bank_question_id, question_text, question_type, difficulty, subject_tag, order_index) VALUES
     ('62000000-0000-0000-0000-000000000004', '60000000-0000-0000-0000-000000000004', '61000000-0000-0000-0000-000000000020',
-     'JSX cuối cùng được biên dịch thành lời gọi hàm nào?', 'SINGLE_CHOICE', 'EASY', 'JSX', 2.00, 1),
+     'JSX cuối cùng được biên dịch thành lời gọi hàm nào?', 'SINGLE_CHOICE', 'EASY', 'JSX', 1),
     ('62000000-0000-0000-0000-000000000005', '60000000-0000-0000-0000-000000000004', '61000000-0000-0000-0000-000000000021',
-     'useState trả về giá trị gì?', 'SINGLE_CHOICE', 'EASY', 'Hooks', 2.00, 2),
+     'useState trả về giá trị gì?', 'SINGLE_CHOICE', 'EASY', 'Hooks', 2),
     ('62000000-0000-0000-0000-000000000006', '60000000-0000-0000-0000-000000000004', '61000000-0000-0000-0000-000000000022',
-     'useEffect với dependency array rỗng [] chạy khi nào?', 'SINGLE_CHOICE', 'MEDIUM', 'Hooks', 3.00, 3),
+     'useEffect với dependency array rỗng [] chạy khi nào?', 'SINGLE_CHOICE', 'MEDIUM', 'Hooks', 3),
     ('62000000-0000-0000-0000-000000000007', '60000000-0000-0000-0000-000000000004', '61000000-0000-0000-0000-000000000023',
-     'Các cách nào sau đây có thể gây re-render không cần thiết?', 'MULTIPLE_CHOICE', 'MEDIUM', 'State', 4.00, 4);
+     'Các cách nào sau đây có thể gây re-render không cần thiết?', 'MULTIPLE_CHOICE', 'MEDIUM', 'State', 4);
 
 INSERT INTO quiz_options (id, question_id, option_text, is_correct, order_index) VALUES
     (gen_random_uuid(), '62000000-0000-0000-0000-000000000004', 'React.createElement()', true, 1),
