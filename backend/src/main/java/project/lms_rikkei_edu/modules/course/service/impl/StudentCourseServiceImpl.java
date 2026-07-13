@@ -314,6 +314,7 @@ public class StudentCourseServiceImpl implements StudentCourseService {
                                         boolean hasVideo, boolean hasDocument, int wp, int dv) {
         if (Boolean.TRUE.equals(request.getCompleted())) {
             return true;
+        }
         if (request.getCompleted() != null) {
             return request.getCompleted();
         }
