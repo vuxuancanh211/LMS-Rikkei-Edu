@@ -67,6 +67,9 @@ public class StudentCourseServiceImpl implements StudentCourseService {
     @Value("${app.s3.presigned-url-expiry:3600}")
     private long presignedUrlExpiry;
 
+    private static final String STATUS_COMPLETED = STATUS_COMPLETED;
+    private static final String STATUS_IN_PROGRESS = STATUS_IN_PROGRESS;
+
     @PersistenceContext
     private EntityManager entityManager;
 
@@ -99,7 +102,7 @@ public class StudentCourseServiceImpl implements StudentCourseService {
         // Batch fetch progress
         Map<UUID, CourseProgressEntity> progressMap = courseProgressRepository
                 .findByStudentIdAndCourseIdIn(studentId,
-                        courses.stream().map(Course::getId).collect(Collectors.toList()))
+                        courses.stream().map(Course::getId).toList())
                 .stream().collect(Collectors.toMap(CourseProgressEntity::getCourseId, p -> p));
 
         return courses.stream().map(c -> {
@@ -131,7 +134,7 @@ public class StudentCourseServiceImpl implements StudentCourseService {
             } else {
                 progress = prog.getOverallPercentage() != null
                         ? prog.getOverallPercentage().intValue() : 0;
-                sStatus = "COMPLETED".equals(prog.getStatus()) ? "done" : "learning";
+                sStatus = STATUS_COMPLETED.equals(prog.getStatus()) ? "done" : "learning";
             }
 
             String pubStatus = c.getStatus() != null ? c.getStatus().name().toLowerCase() : "draft";
@@ -291,36 +294,9 @@ public class StudentCourseServiceImpl implements StudentCourseService {
         int wp = progress.getWatchedPercentage() != null ? progress.getWatchedPercentage().intValue() : 0;
         int dv = progress.getDocumentViewSeconds() != null ? progress.getDocumentViewSeconds() : 0;
 
-        // If client explicitly sends completed flag, respect it; otherwise auto-determine
-        boolean completed;
-        if (request.getCompleted() != null) {
-            completed = request.getCompleted();
-        } else {
-            completed = false;
-            if (hasVideo && hasDocument) {
-                completed = wp >= 90 && dv >= 10;
-            } else if (hasVideo) {
-                completed = wp >= 90;
-            } else if (hasDocument) {
-                completed = dv >= 20 || wp >= 90;
-            } else {
-                completed = progress.getStatus() == null || "COMPLETED".equals(progress.getStatus());
-            }
-        }
+        boolean completed = determineCompleted(request, progress, hasVideo, hasDocument, wp, dv);
 
-        if (completed || "COMPLETED".equals(progress.getStatus())) {
-            progress.setStatus("COMPLETED");
-            if (progress.getCompletedAt() == null) {
-                progress.setCompletedAt(Instant.now());
-            }
-        } else {
-            boolean started = wp > 0 || dv > 0;
-            if (started && !"COMPLETED".equals(progress.getStatus())) {
-                progress.setStatus("IN_PROGRESS");
-            } else if (progress.getStatus() == null) {
-                progress.setStatus("IN_PROGRESS");
-            }
-        }
+        applyProgressStatus(progress, completed, wp, dv);
 
         // Calculate lesson percentage
         progress.setLessonPercentage(calculateLessonPercentage(wp, dv, hasVideo, hasDocument, lesson));
@@ -329,6 +305,34 @@ public class StudentCourseServiceImpl implements StudentCourseService {
 
         // Always update course-level progress
         updateCourseProgress(studentId, courseId);
+    }
+
+    private boolean determineCompleted(UpdateProgressRequest request, LessonProgressEntity progress,
+                                        boolean hasVideo, boolean hasDocument, int wp, int dv) {
+        if (request.getCompleted() != null) {
+            return request.getCompleted();
+        }
+        if (hasVideo && hasDocument) {
+            return wp >= 90 && dv >= 10;
+        }
+        if (hasVideo) {
+            return wp >= 90;
+        }
+        if (hasDocument) {
+            return dv >= 20 || wp >= 90;
+        }
+        return progress.getStatus() == null || STATUS_COMPLETED.equals(progress.getStatus());
+    }
+
+    private void applyProgressStatus(LessonProgressEntity progress, boolean completed, int wp, int dv) {
+        if (completed || STATUS_COMPLETED.equals(progress.getStatus())) {
+            progress.setStatus(STATUS_COMPLETED);
+            if (progress.getCompletedAt() == null) {
+                progress.setCompletedAt(Instant.now());
+            }
+        } else if (progress.getStatus() == null || wp > 0 || dv > 0) {
+            progress.setStatus(STATUS_IN_PROGRESS);
+        }
     }
 
     /**
@@ -354,7 +358,7 @@ public class StudentCourseServiceImpl implements StudentCourseService {
                     return newProgress;
                 });
 
-        progress.setStatus("COMPLETED");
+        progress.setStatus(STATUS_COMPLETED);
         if (progress.getCompletedAt() == null) {
             progress.setCompletedAt(Instant.now());
         }
@@ -369,7 +373,7 @@ public class StudentCourseServiceImpl implements StudentCourseService {
     @Transactional
     public void resetLessonProgressForInProgressStudents(UUID courseId, UUID lessonId) {
         List<UUID> inProgressStudentIds = courseProgressRepository.findByCourseId(courseId).stream()
-                .filter(cp -> !"COMPLETED".equals(cp.getStatus()))
+                .filter(cp -> !STATUS_COMPLETED.equals(cp.getStatus()))
                 .map(CourseProgressEntity::getStudentId)
                 .toList();
 
@@ -453,7 +457,7 @@ public class StudentCourseServiceImpl implements StudentCourseService {
                 .findByStudentIdAndCourseId(studentId, courseId);
 
         long completedCount = allProgress.stream()
-                .filter(p -> "COMPLETED".equals(p.getStatus()))
+                .filter(p -> STATUS_COMPLETED.equals(p.getStatus()))
                 .count();
 
         double avgPercentage = 0;
@@ -471,7 +475,7 @@ public class StudentCourseServiceImpl implements StudentCourseService {
                     newProg.setTotalLessonsCount(totalLessons);
                     newProg.setCompletedLessonsCount(0);
                     newProg.setOverallPercentage(BigDecimal.ZERO);
-                    newProg.setStatus("IN_PROGRESS");
+                    newProg.setStatus(STATUS_IN_PROGRESS);
                     return newProg;
                 });
 
@@ -481,9 +485,9 @@ public class StudentCourseServiceImpl implements StudentCourseService {
         courseProgress.setUpdatedAt(Instant.now());
 
         if (completedCount >= totalLessons && totalLessons > 0) {
-            courseProgress.setStatus("COMPLETED");
+            courseProgress.setStatus(STATUS_COMPLETED);
         } else {
-            courseProgress.setStatus("IN_PROGRESS");
+            courseProgress.setStatus(STATUS_IN_PROGRESS);
         }
 
         courseProgressRepository.save(courseProgress);
