@@ -265,13 +265,18 @@ public class StudentCourseServiceImpl implements StudentCourseService {
 
         // Update incoming data
         if (request.getWatchedPercentage() != null) {
-            progress.setWatchedPercentage(request.getWatchedPercentage());
+            int existing = progress.getWatchedPercentage() != null ? progress.getWatchedPercentage().intValue() : 0;
+            if (request.getWatchedPercentage().intValue() > existing) {
+                progress.setWatchedPercentage(request.getWatchedPercentage());
+            }
         }
         if (request.getLastPlaybackPosition() != null) {
-            progress.setLastPlaybackPosition(request.getLastPlaybackPosition());
+            int existing = progress.getLastPlaybackPosition() != null ? progress.getLastPlaybackPosition() : 0;
+            if (request.getLastPlaybackPosition() > existing) {
+                progress.setLastPlaybackPosition(request.getLastPlaybackPosition());
+            }
         }
         if (request.getDocumentViewSeconds() != null) {
-            // Accumulate — always take the highest value sent
             int existing = progress.getDocumentViewSeconds() != null ? progress.getDocumentViewSeconds() : 0;
             if (request.getDocumentViewSeconds() > existing) {
                 progress.setDocumentViewSeconds(request.getDocumentViewSeconds());
@@ -286,20 +291,21 @@ public class StudentCourseServiceImpl implements StudentCourseService {
         int wp = progress.getWatchedPercentage() != null ? progress.getWatchedPercentage().intValue() : 0;
         int dv = progress.getDocumentViewSeconds() != null ? progress.getDocumentViewSeconds() : 0;
 
-        // Auto-determine completion based on content type and learning time/scroll depth
-        boolean completed = false;
-        if (hasVideo && hasDocument) {
-            // "nếu cả 2 thì tính video và xem 10s tài liệu" -> xem >= 90% video VÀ xem >= 10s tài liệu
-            completed = wp >= 90 && dv >= 10;
-        } else if (hasVideo) {
-            // "xem 90% video"
-            completed = wp >= 90;
-        } else if (hasDocument) {
-            // "20s cho tài liệu"
-            completed = dv >= 20 || wp >= 90;
+        // If client explicitly sends completed flag, respect it; otherwise auto-determine
+        boolean completed;
+        if (request.getCompleted() != null) {
+            completed = request.getCompleted();
         } else {
-            // No video or document — complete on first access
-            completed = progress.getStatus() == null || "COMPLETED".equals(progress.getStatus());
+            completed = false;
+            if (hasVideo && hasDocument) {
+                completed = wp >= 90 && dv >= 10;
+            } else if (hasVideo) {
+                completed = wp >= 90;
+            } else if (hasDocument) {
+                completed = dv >= 20 || wp >= 90;
+            } else {
+                completed = progress.getStatus() == null || "COMPLETED".equals(progress.getStatus());
+            }
         }
 
         if (completed || "COMPLETED".equals(progress.getStatus())) {

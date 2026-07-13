@@ -68,7 +68,8 @@ httpClient.interceptors.response.use(
         waitingQueue.push({
           resolve: (newToken) => {
             originalRequest._retry = true;
-            originalRequest.headers.Authorization = `Bearer ${newToken}`;
+            const { tokenType } = useAuthStore.getState();
+            originalRequest.headers.Authorization = `${tokenType || 'Bearer'} ${newToken}`;
             resolve(httpClient(originalRequest));
           },
           reject,
@@ -93,7 +94,7 @@ httpClient.interceptors.response.use(
     } catch (refreshError: any) {
       flushQueue(null, refreshError);
       const refreshStatus = refreshError?.response?.status;
-      if (refreshStatus === 401 || refreshStatus === 403 || !refreshStatus) {
+      if (refreshStatus === 401 || refreshStatus === 403) {
         logout();
         window.location.assign('/login');
       }

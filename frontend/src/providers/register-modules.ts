@@ -2,6 +2,14 @@ import './globals';
 import '../styles/tokens.css';
 import '../styles/layout.css';
 
+import { useAuthStore } from '../store';
+window.useAuthStore = useAuthStore;
+
+import { NotificationTypeMetadata, getNotificationTargetUrl, parseNotificationUrl } from '../constants/notification-types';
+window.NotificationTypeMetadata = NotificationTypeMetadata;
+window.getNotificationTargetUrl = getNotificationTargetUrl;
+window.parseNotificationUrl = parseNotificationUrl;
+
 import '../services/api-registry';
 
 import '../constants/mock-data';

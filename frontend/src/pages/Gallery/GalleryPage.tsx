@@ -12,9 +12,10 @@ import {
   markAllAsRead,
   connectNotificationSSE,
 } from '../../services/notification-service';
+import { NotificationTypeMetadata, getNotificationTargetUrl, parseNotificationUrl } from '../../constants/notification-types';
 
 function registerGalleryPage() {
-  const { useState, useEffect } = React;
+  const { useState, useEffect, useCallback, useMemo } = React;
   const Ic = window.Icon;
   const D = window.DATA;
   const Avatar = window.Avatar;
@@ -66,22 +67,11 @@ function registerGalleryPage() {
   };
   const FULLBARE = { player: "LecturePlayer", quiz: "QuizPlayer", result: "QuizResult", preview: "PreviewPlayer", dryRun: "QuizDryRunPlayer" };
   const ROLES = [["student", "Học viên"], ["instructor", "Giảng viên"], ["admin", "Quản trị"]];
-  const ALIAS = { groupDetail: "groups", courseDetail: "courses", certDetail: "certs" };
+  const ALIAS = { groupDetail: "groups", courseDetail: "courses", certDetail: "certs", certificates: "certs", settings: "settings" };
+  const DETAIL_ALIAS = { courses: "courseDetail", groups: "groupDetail" };
 
   function notifMeta(type) {
-    const map = {
-      FORUM_REPLY:          { icon: 'message',      color: '#8b5cf6' },
-      FORUM_POST:           { icon: 'message',      color: '#6366f1' },
-      QUIZ_PUBLISHED:       { icon: 'shield',       color: '#f59e0b' },
-      SUBMISSION_GRADED:    { icon: 'edit',         color: '#10b981' },
-      ASSIGNMENT_PUBLISHED: { icon: 'clipboard',    color: '#3b82f6' },
-      ASSIGNMENT_SUBMITTED: { icon: 'upload',       color: '#06b6d4' },
-      CERTIFICATE_ISSUED:   { icon: 'award',        color: '#10b981' },
-      COURSE_ENROLLMENT:    { icon: 'user_plus',    color: '#2563eb' },
-      COURSE_APPROVED:      { icon: 'check_circle', color: '#16a34a' },
-      SYSTEM_ANNOUNCEMENT:  { icon: 'bell',         color: '#f97316' },
-    };
-    return map[type] || { icon: 'bell', color: '#2563eb' };
+    return NotificationTypeMetadata[type] || { icon: 'bell', color: '#2563eb', label: 'Hệ thống', category: 'Hệ thống' };
   }
 
   function timeAgo(value) {
@@ -172,11 +162,20 @@ function registerGalleryPage() {
       return () => window.removeEventListener("click", close);
     }, []);
 
-    const go = (k, params) => {
+    const go = useCallback((k, params) => {
       setDemo(null);
-      if (FULLBARE[k]) { if (onBare) { onBare(k, params); return; } setBack(SCREENS[role][route] ? route : "dashboard"); setRoute(k); setRouteParams(params); setDrawer(false); const m = document.querySelector(".main"); if (m) m.scrollTop = 0; return; }
-      if (SCREENS[role][k]) { if (onNavigate) { onNavigate(role, k, params); return; } setRouteParams(params); setRoute(k); setDrawer(false); const m = document.querySelector(".main"); if (m) m.scrollTop = 0; }
-    };
+      let aliasKey = ALIAS[k] || k;
+      if (params) {
+        const hasPathId = Object.keys(params).some(p => p === 'id' || p.endsWith('Id'));
+        if (hasPathId) {
+          const detailKey = DETAIL_ALIAS[aliasKey] || aliasKey + 'Detail';
+          if (SCREENS[role][detailKey]) aliasKey = detailKey;
+        }
+      }
+      if (FULLBARE[aliasKey]) { if (onBare) { onBare(aliasKey, params); return; } setBack(SCREENS[role][route] ? route : "dashboard"); setRoute(aliasKey); setRouteParams(params); setDrawer(false); const m = document.querySelector(".main"); if (m) m.scrollTop = 0; return; }
+      if (SCREENS[role][aliasKey]) { if (onNavigate) { onNavigate(role, aliasKey, params); return; } setRouteParams(params); setRoute(aliasKey); setDrawer(false); const m = document.querySelector(".main"); if (m) m.scrollTop = 0; }
+    }, [role, route, onNavigate, onBare]);
+    window.AppShell.go = go;
     const switchRole = (r) => {
       setDemo(null);
       setDrawer(false);
@@ -194,8 +193,9 @@ function registerGalleryPage() {
       return <div className="app"><Comp onBack={() => setRoute(back)} onSubmit={() => setRoute("result")} {...bareProps} /></div>;
     }
 
-    const activeKey = ALIAS[route] || route;
-    const Comp = window[SCREENS[role][route]] || window[SCREENS[role].dashboard];
+    const resolvedRoute = ALIAS[route] || route;
+    const activeKey = resolvedRoute;
+    const Comp = window[SCREENS[role][resolvedRoute]] || window[SCREENS[role].dashboard];
 
     return (
       <div className="app">
@@ -251,9 +251,9 @@ function registerGalleryPage() {
                         <div key={n.id} className="row gap-12" style={{ padding: "13px 16px", background: n.read ? "#fff" : "var(--accent-soft)", borderBottom: "1px solid var(--border)", cursor: "pointer" }} onClick={() => {
                           if (!n.read) handleMarkAsRead(n.id);
                           setNotif(false);
-                          const targetUrl = getNotificationTargetUrl(n);
-                          const path = targetUrl.startsWith('/student/') ? targetUrl.replace('/student/', '') : targetUrl.replace('/', '');
-                          go(path);
+                          const targetUrl = getNotificationTargetUrl(n, role);
+                          const { routeKey, params: urlParams } = parseNotificationUrl(targetUrl);
+                          go(routeKey, Object.keys(urlParams).length > 0 ? urlParams : undefined);
                         }}>
                           <div className="stat-ic" style={{ width: 38, height: 38, borderRadius: 10, background: meta.color + "1a", color: meta.color, flex: "none" }}><Ic n={meta.icon} size={18} /></div>
                           <div className="grow" style={{ minWidth: 0 }}>
@@ -295,7 +295,7 @@ function registerGalleryPage() {
               )}
             </div>
           </header>
-          <main style={{ flex: 1 }}><Comp nav={go} persona={persona} demo={demo} groupId={routeParams?.groupId} courseId={routeParams?.courseId} quizId={routeParams?.quizId} /></main>
+          <main style={{ flex: 1 }}>{useMemo(() => <Comp nav={go} persona={persona} demo={demo} groupId={routeParams?.groupId} courseId={routeParams?.courseId} quizId={routeParams?.quizId} />, [route, role, routeParams?.groupId, routeParams?.courseId, routeParams?.quizId, persona, demo, go])}</main>
         </div>
         {(role === "student" || role === "instructor") && <window.AIChatbot />}
       </div>

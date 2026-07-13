@@ -391,19 +391,7 @@
     }, []);
 
     function notifMeta(type) {
-      const m = {
-        FORUM_REPLY: { icon: 'message', color: '#8b5cf6' },
-        FORUM_POST: { icon: 'message', color: '#6366f1' },
-        QUIZ_PUBLISHED: { icon: 'shield', color: '#f59e0b' },
-        SUBMISSION_GRADED: { icon: 'edit', color: '#10b981' },
-        ASSIGNMENT_PUBLISHED: { icon: 'clipboard', color: '#3b82f6' },
-        ASSIGNMENT_SUBMITTED: { icon: 'upload', color: '#06b6d4' },
-        CERTIFICATE_ISSUED: { icon: 'award', color: '#10b981' },
-        COURSE_ENROLLMENT: { icon: 'user_plus', color: '#2563eb' },
-        COURSE_APPROVED: { icon: 'check_circle', color: '#16a34a' },
-        SYSTEM_ANNOUNCEMENT: { icon: 'bell', color: '#f97316' },
-      };
-      return m[type] || { icon: 'bell', color: '#2563eb' };
+      return (window.NotificationTypeMetadata && window.NotificationTypeMetadata[type]) || { icon: 'bell', color: '#2563eb', label: 'Hệ thống', category: 'Hệ thống' };
     }
     function timeAgo(value) {
       if (!value) return '';
@@ -464,7 +452,7 @@
 
     /* Progress tracking */
     const progRef = useRef<any>({});
-    const updateProgress = useCallback(async (watchedPct: any, position: any, docSeconds: any, isCompleted?: boolean) => {
+    const updateProgress = useCallback(async (watchedPct, position, docSeconds, isCompleted) => {
       if (!courseId || !activeL?.id) return;
       const hasVid = videoResources.length > 0;
       const hasDoc = docResources.length > 0;
@@ -488,10 +476,12 @@
         ),
       })));
       try {
+        const isComp = isCompleted || targetStatus === "COMPLETED";
         await api.post(`/student/courses/${courseId}/lessons/${activeL.id}/progress`, {
           watchedPercentage: watchedPct,
           lastPlaybackPosition: position,
           documentViewSeconds: docSeconds,
+          completed: isComp,
         });
       } catch (e) { /* ignore */ }
     }, [courseId, activeL?.id, videoResources.length]);
@@ -539,7 +529,20 @@
       api.get(`/student/courses/${courseId}`)
         .then(r => {
           setCourse(r.data);
-          const chs = r.data.chapters || [];
+          let chs = r.data.chapters || [];
+          /* Merge sessionStorage cache to survive reload if server progress lags */
+          try {
+            const cached = JSON.parse(sessionStorage.getItem('lp_' + courseId) || '{}');
+            if (Object.keys(cached).length > 0) {
+              chs = chs.map(ch => ({
+                ...ch,
+                lessons: (ch.lessons || []).map(l => ({
+                  ...l,
+                  progress: cached[l.id] || l.progress || 'NOT_STARTED',
+                })),
+              }));
+            }
+          } catch {}
           setChapters(chs);
           const opened = {};
           chs.forEach(ch => { opened[ch.id] = true; });
@@ -612,20 +615,25 @@
     }
 
     /* ── Progress: Video time tracking ───────────────────── */
+    const videoThrottleRef = useRef(0);
     const handleVideoTimeUpdate = useCallback((e: any) => {
       const video = e.target;
       if (!video?.duration || !activeL?.id || !videoUrl) return;
-      if (video.currentSrc && videoUrl && !video.currentSrc.includes(videoUrl) && !videoUrl.includes(video.currentSrc)) return;
       const pct = (video.currentTime / video.duration) * 100;
       const curProg = progRef.current[activeL.id];
       if (curProg === "COMPLETED") return;
+      const now = Date.now();
       if (pct >= 5 && curProg !== "IN_PROGRESS") {
         progRef.current[activeL.id] = "IN_PROGRESS";
         updateProgress(Math.round(pct), Math.floor(video.currentTime), null, false);
-      }
-      if (pct >= 90 && curProg !== "COMPLETED") {
+        videoThrottleRef.current = now;
+      } else if (pct >= 90 && curProg !== "COMPLETED") {
         progRef.current[activeL.id] = "COMPLETED";
         updateProgress(Math.round(pct), Math.floor(video.currentTime), null, true);
+        videoThrottleRef.current = now;
+      } else if (now - videoThrottleRef.current >= 5000) {
+        videoThrottleRef.current = now;
+        updateProgress(Math.round(pct), Math.floor(video.currentTime), null, false);
       }
     }, [activeL?.id, updateProgress, activeVideoIdx, videoUrl]);
 
@@ -640,6 +648,13 @@
       }
     }, [activeL?.id, activeL?.progress]);
 
+    /* Cache progress to sessionStorage so reload doesn't lose checkmarks */
+    useEffect(() => {
+      if (!courseId) return;
+      const cache = {};
+      chapters.forEach(ch => (ch.lessons || []).forEach(l => { if (l.progress) cache[l.id] = l.progress; }));
+      try { sessionStorage.setItem('lp_' + courseId, JSON.stringify(cache)); } catch {}
+    }, [courseId, chapters]);
 
     /* ── Progress: YouTube iframe tracking (no onTimeUpdate) ── */
     useEffect(() => {
@@ -648,6 +663,7 @@
       const threshold = (activeL.durationSeconds * 90) / 100;
       let elapsed = 0;
       const t = setInterval(() => {
+        if (document.hidden) return;
         elapsed += 1;
         if (elapsed >= threshold) {
           clearInterval(t);
@@ -664,6 +680,7 @@
     /* ── Progress: Document timer (count seconds while viewing) ── */
     const docSecRef = useRef(0);
     const docTimerRef = useRef<any>(null);
+    const hiddenRef = useRef(false);
     useEffect(() => {
       if (activeL?.progress === "COMPLETED") return;
       if (!viewRes || viewRes.resourceType === "VIDEO") return;
@@ -671,13 +688,17 @@
 
       // Reset counter when switching documents
       docSecRef.current = 0;
+      hiddenRef.current = false;
 
       // Send initial progress immediately, then every 5 seconds
       updateProgress(null, null, 0, false);
 
       const targetDocSec = isVideoLesson ? 10 : 20;
+      const onVisibility = () => { hiddenRef.current = document.hidden; };
+      document.addEventListener('visibilitychange', onVisibility);
 
       docTimerRef.current = setInterval(() => {
+        if (hiddenRef.current) return;
         docSecRef.current += 1;
         const isComp = !isVideoLesson && docSecRef.current >= targetDocSec;
         if (isComp) progRef.current[activeL?.id] = "COMPLETED";
@@ -687,6 +708,7 @@
       }, 1000);
 
       return () => {
+        document.removeEventListener('visibilitychange', onVisibility);
         if (docTimerRef.current) clearInterval(docTimerRef.current);
         // Flush final count on unmount
         if (docSecRef.current > 0) {
@@ -745,9 +767,19 @@
                   {!notifLoading && notifList.slice(0, 5).map(n => {
                     const meta = notifMeta(n.type);
                     return (
-                      <div key={n.id} className="row gap-12" style={{ padding: "13px 16px", background: n.read ? "#fff" : "var(--accent-soft)", borderBottom: "1px solid var(--border)", cursor: "pointer" }} onClick={() => { if (!n.read) markRead(n.id); if (n.targetUrl) { if (navigate) navigate(n.targetUrl); else window.location.href = n.targetUrl; } }}>
+                      <div key={n.id} className="row gap-12" style={{ padding: "13px 16px", background: n.read ? "#fff" : "var(--accent-soft)", borderBottom: "1px solid var(--border)", cursor: "pointer" }} onClick={() => {
+                         if (!n.read) markRead(n.id);
+                         const targetUrl = window.getNotificationTargetUrl ? window.getNotificationTargetUrl(n, window.useAuthStore.getState().role || 'student') : '';
+                         window.location.href = targetUrl || '/notifications';
+                        }}>
                         <div className="stat-ic" style={{ width: 38, height: 38, borderRadius: 10, background: meta.color + "1a", color: meta.color, flex: "none" }}><Ic n={meta.icon} size={18} /></div>
-                        <div className="grow"><div className="t-sm" style={{ lineHeight: 1.4, fontWeight: n.read ? 400 : 600 }}>{n.title}</div><div className="t-xs dim" style={{ marginTop: 3 }}>{timeAgo(n.createdAt)}</div></div>
+                        <div className="grow" style={{ minWidth: 0 }}>
+                          <div className="row gap-6" style={{ marginBottom: 3 }}>
+                            <span className="chip" style={{ background: meta.color + "1a", color: meta.color, borderColor: meta.color + "33", fontSize: 10, padding: "1px 5px" }}>{meta.label || 'Hệ thống'}</span>
+                          </div>
+                          <div className="t-sm" style={{ lineHeight: 1.4, fontWeight: n.read ? 400 : 600 }}>{n.title}</div>
+                          <div className="t-xs dim" style={{ marginTop: 3 }}>{timeAgo(n.createdAt)}</div>
+                        </div>
                         {!n.read && <span style={{ width: 8, height: 8, borderRadius: 999, background: "var(--accent)", flex: "none" }} />}
                       </div>
                     );

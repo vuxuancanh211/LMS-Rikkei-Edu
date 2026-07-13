@@ -261,8 +261,8 @@ public class QuizServiceImpl implements QuizService {
                         NotificationType.QUIZ_PUBLISHED.name(),
                         title,
                         body,
-                        "QUIZ",
-                        quiz.getId(),
+                        "COURSE",
+                        courseId,
                         actorId,
                         actorName,
                         "quiz-published-" + quiz.getId() + ":" + studentId);
