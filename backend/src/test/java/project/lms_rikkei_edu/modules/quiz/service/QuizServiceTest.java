@@ -811,7 +811,7 @@ class QuizServiceTest {
 
         verify(notificationService).createNotification(
                 eq(studentId), eq("QUIZ_PUBLISHED"), anyString(), anyString(),
-                eq("QUIZ"), eq(quizId), eq(instructorId), eq("instructor1"),
+                eq("COURSE"), eq(courseId), eq(instructorId), eq("instructor1"),
                 eq("quiz-published-" + quizId + ":" + studentId));
     }
 

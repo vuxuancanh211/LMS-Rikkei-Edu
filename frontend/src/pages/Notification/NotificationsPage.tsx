@@ -1,9 +1,9 @@
-import { NotificationTypeMetadata, getNotificationTargetUrl } from '../../constants/notification-types';
+import { NotificationTypeMetadata, getNotificationTargetUrl, parseNotificationUrl } from '../../constants/notification-types';
+import { useAuthStore } from '../../store';
 
 (() => {
-  const { useState, useEffect, useCallback } = React;
+  const { useState, useEffect, useCallback, useMemo } = React;
   const Ic = window.Icon;
-
   function timeAgo(value: string): string {
     if (!value) return '';
     const ms = Date.now() - new Date(value).getTime();
@@ -75,22 +75,35 @@ import { NotificationTypeMetadata, getNotificationTargetUrl } from '../../consta
 
     const handleNotificationClick = async (n: NotificationItem) => {
       if (!n.read) await handleMarkAsRead(n.id);
-      const targetUrl = getNotificationTargetUrl(n);
+      const role = useAuthStore.getState().role || 'student';
+      const targetUrl = getNotificationTargetUrl(n, role);
       if (window.AppShell && typeof window.AppShell.go === 'function') {
-        const path = targetUrl.startsWith('/student/') ? targetUrl.replace('/student/', '') : targetUrl.replace('/', '');
-        window.AppShell.go(path);
+        const { routeKey, params } = parseNotificationUrl(targetUrl);
+        window.AppShell.go(routeKey, Object.keys(params).length > 0 ? params : undefined);
       } else {
         window.location.href = targetUrl;
       }
     };
 
-    // Collect available categories or distinct types present in metadata for nice filter chips
-    const filterOptions = Object.entries(NotificationTypeMetadata).map(([type, meta]) => ({
+    const categories = useMemo(() => {
+      const cats = new Map<string, { label: string; color: string; icon: string; types: string[] }>();
+      Object.entries(NotificationTypeMetadata).forEach(([type, meta]) => {
+        const cat = meta.category || 'Hệ thống';
+        if (!cats.has(cat)) cats.set(cat, { label: cat, color: meta.color, icon: meta.icon, types: [] });
+        cats.get(cat)!.types.push(type);
+      });
+      return Array.from(cats.values());
+    }, []);
+
+    const [expandedCat, setExpandedCat] = useState<string | null>(null);
+
+    const filterOptions = useMemo(() => Object.entries(NotificationTypeMetadata).map(([type, meta]) => ({
       type,
       label: meta.label,
       icon: meta.icon,
       color: meta.color,
-    }));
+      category: meta.category,
+    })), []);
 
     return (
       <div className="page fade-in">
@@ -107,38 +120,48 @@ import { NotificationTypeMetadata, getNotificationTargetUrl } from '../../consta
             )}
           </div>
 
-          <div className="row gap-8" style={{ marginTop: 16, flexWrap: 'wrap' }}>
-            <button
-              className={'chip' + (filter === null ? ' chip-info' : ' chip-neutral')}
-              onClick={() => setFilter(null)}
-            >
-              Tất cả ({notifications.length})
-            </button>
-            {filterOptions.map((opt) => {
-              const isSelected = filter === opt.type;
-              return (
-                <button
-                  key={opt.type}
-                  className="chip chip-neutral"
-                  style={{
-                    background: isSelected ? opt.color + '1a' : undefined,
-                    borderColor: isSelected ? opt.color : 'var(--border)',
-                    color: isSelected ? opt.color : 'var(--text-2)',
-                    fontWeight: isSelected ? 700 : 500,
-                  }}
-                  onClick={() => setFilter(filter === opt.type ? null : opt.type)}
-                >
-                  <span style={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: 999,
-                    background: opt.color,
-                    display: 'inline-block',
-                  }} />
-                  <Ic n={opt.icon} size={14} /> {opt.label}
-                </button>
-              );
-            })}
+          <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div className="row gap-8" style={{ flexWrap: 'wrap' }}>
+              <button className={'chip' + (filter === null ? ' chip-info' : ' chip-neutral')} onClick={() => { setFilter(null); setExpandedCat(null); }}>
+                Tất cả ({notifications.length})
+              </button>
+              {categories.map((cat) => {
+                const isExpanded = expandedCat === cat.label;
+                const isCatFilter = filter !== null && cat.types.includes(filter);
+                return (
+                  <button key={cat.label}
+                    className={'chip' + (isExpanded || isCatFilter ? ' chip-info' : ' chip-neutral')}
+                    onClick={() => setExpandedCat(isExpanded ? null : cat.label)}
+                    style={{ borderColor: isExpanded || isCatFilter ? cat.color : undefined }}
+                  >
+                    <Ic n={cat.icon} size={14} /> {cat.label}
+                  </button>
+                );
+              })}
+            </div>
+            {expandedCat && (
+              <div className="row gap-6" style={{ flexWrap: 'wrap', paddingLeft: 8 }}>
+                {filterOptions.filter(o => o.category === expandedCat).map((opt) => {
+                  const isSelected = filter === opt.type;
+                  return (
+                    <button key={opt.type}
+                      className="chip chip-neutral"
+                      style={{
+                        background: isSelected ? opt.color + '1a' : undefined,
+                        borderColor: isSelected ? opt.color : 'var(--border)',
+                        color: isSelected ? opt.color : 'var(--text-2)',
+                        fontWeight: isSelected ? 700 : 500,
+                        fontSize: 12,
+                      }}
+                      onClick={() => setFilter(filter === opt.type ? null : opt.type)}
+                    >
+                      <span style={{ width: 6, height: 6, borderRadius: 999, background: opt.color, display: 'inline-block' }} />
+                      <Ic n={opt.icon} size={12} /> {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
 

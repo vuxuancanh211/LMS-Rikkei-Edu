@@ -11,4 +11,5 @@ public class UpdateProgressRequest {
     private BigDecimal watchedPercentage;
     private Integer lastPlaybackPosition;
     private Integer documentViewSeconds;
+    private Boolean completed;
 }

@@ -16,6 +16,8 @@ import project.lms_rikkei_edu.modules.course.exception.CourseStateException;
 import project.lms_rikkei_edu.modules.course.mapper.CourseMapper;
 import project.lms_rikkei_edu.modules.course.repository.*;
 import project.lms_rikkei_edu.modules.course.service.AdminCourseService;
+import project.lms_rikkei_edu.modules.user.entity.UserEntity;
+import project.lms_rikkei_edu.modules.user.repository.UserRepository;
 
 import java.time.Instant;
 import java.util.*;
@@ -38,24 +40,54 @@ public class AdminCourseServiceImpl implements AdminCourseService {
     private final CourseApprovalLogRepository approvalLogRepo;
     private final LessonResourceRepository lessonResourceRepo;
     private final CourseVersionRepository courseVersionRepo;
+    private final UserRepository userRepository;
     private final S3Service s3Service;
     private final ObjectMapper objectMapper;
 
     @Override
     @Transactional(readOnly = true)
     public Page<CourseResponse> listPendingCourses(Pageable pageable) {
-        return courseRepo.findAllByStatusIn(
-                List.of(CourseStatus.PENDING, CourseStatus.PENDING_UPDATE), pageable)
-                .map(courseMapper::toResponse);
+        Page<Course> courses = courseRepo.findAllByStatusIn(
+                List.of(CourseStatus.PENDING, CourseStatus.PENDING_UPDATE), pageable);
+        return mapCoursePage(courses);
     }
 
     @Override
     @Transactional(readOnly = true)
     public Page<CourseResponse> listAllCourses(Pageable pageable) {
-        return courseRepo.findAllByStatusIn(
+        Page<Course> courses = courseRepo.findAllByStatusIn(
                 List.of(CourseStatus.DRAFT, CourseStatus.PENDING, CourseStatus.PENDING_UPDATE,
-                        CourseStatus.PUBLISHED, CourseStatus.REJECTED, CourseStatus.ARCHIVED), pageable)
-                .map(courseMapper::toResponse);
+                        CourseStatus.PUBLISHED, CourseStatus.REJECTED, CourseStatus.ARCHIVED), pageable);
+        return mapCoursePage(courses);
+    }
+
+    private Page<CourseResponse> mapCoursePage(Page<Course> courses) {
+        Map<UUID, String> instructorNames = loadInstructorNames(courses.getContent());
+        return courses.map(course -> {
+            CourseResponse response = courseMapper.toResponse(course);
+            response.setInstructorName(resolveInstructorName(instructorNames, course));
+            return response;
+        });
+    }
+
+    private String resolveInstructorName(Map<UUID, String> instructorNames, Course course) {
+        UUID instructorId = course.getInstructorId();
+        return instructorId == null ? null : instructorNames.get(instructorId);
+    }
+
+    private Map<UUID, String> loadInstructorNames(List<Course> courses) {
+        List<UUID> instructorIds = courses.stream()
+                .map(Course::getInstructorId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (instructorIds.isEmpty()) return Map.of();
+
+        return userRepository.findAllByIdInAndDeletedAtIsNull(instructorIds).stream()
+                .collect(Collectors.toMap(
+                        UserEntity::getId,
+                        user -> Optional.ofNullable(user.getFullName()).orElse("—"),
+                        (left, right) -> left));
     }
 
     @Override
@@ -66,7 +98,9 @@ public class AdminCourseServiceImpl implements AdminCourseService {
         course.getChapters().forEach(ch ->
             ch.getLessons().forEach(l -> l.getResources().size())
         );
-        return courseMapper.toDetailResponse(course);
+        CourseDetailResponse response = courseMapper.toDetailResponse(course);
+        response.setInstructorName(resolveInstructorName(loadInstructorNames(List.of(course)), course));
+        return response;
     }
 
     @Override
