@@ -67,7 +67,9 @@ httpClient.interceptors.response.use(
       return new Promise((resolve, reject) => {
         waitingQueue.push({
           resolve: (newToken) => {
-            originalRequest.headers.Authorization = `Bearer ${newToken}`;
+            originalRequest._retry = true;
+            const { tokenType } = useAuthStore.getState();
+            originalRequest.headers.Authorization = `${tokenType || 'Bearer'} ${newToken}`;
             resolve(httpClient(originalRequest));
           },
           reject,
@@ -82,17 +84,20 @@ httpClient.interceptors.response.use(
       const { data: tokens } = await axios.post(
         `${httpClient.defaults.baseURL || ''}/auth/refresh`,
         { refreshToken: storedRefreshToken },
-        { headers: { 'Content-Type': 'application/json' } },
+        { headers: { 'Content-Type': 'application/json' }, timeout: 10000 },
       );
       setTokens(tokens);
       const newToken = tokens.accessToken;
       originalRequest.headers.Authorization = `${tokens.tokenType || 'Bearer'} ${newToken}`;
       flushQueue(newToken);
       return httpClient(originalRequest);
-    } catch (refreshError) {
+    } catch (refreshError: any) {
       flushQueue(null, refreshError);
-      logout();
-      window.location.assign('/login');
+      const refreshStatus = refreshError?.response?.status;
+      if (refreshStatus === 401 || refreshStatus === 403 || !refreshStatus) {
+        logout();
+        window.location.assign('/login');
+      }
       return Promise.reject(refreshError);
     } finally {
       isRefreshing = false;

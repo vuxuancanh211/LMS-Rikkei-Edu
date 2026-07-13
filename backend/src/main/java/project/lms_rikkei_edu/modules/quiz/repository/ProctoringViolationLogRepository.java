@@ -11,4 +11,6 @@ public interface ProctoringViolationLogRepository extends JpaRepository<Proctori
     List<ProctoringViolationLogEntity> findByAttemptIdOrderByViolationOrder(UUID attemptId);
 
     long countByAttemptId(UUID attemptId);
+
+    void deleteByAttemptIdIn(List<UUID> attemptIds);
 }

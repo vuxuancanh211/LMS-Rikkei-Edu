@@ -5,7 +5,15 @@
   const { Avatar, StatCard, Search, Section, Modal, ModalHead, Empty } = window;
   const { getGroupDetail, addGroupMembers, removeGroupMember, searchStudents, previewGroupMembersCsvImport, confirmGroupMembersCsvImport } = window.__groupService;
 
-  function InsGroupDetail({ nav, groupId }) {
+  function InsGroupDetail({ nav, groupId: propGroupId }: { nav?: any; groupId?: string } = {}) {
+    const [urlGroupId, setUrlGroupId] = useState(() => new URLSearchParams(window.location.search).get("groupId"));
+    useEffect(() => {
+      const checkUrl = () => setUrlGroupId(new URLSearchParams(window.location.search).get("groupId"));
+      window.addEventListener("popstate", checkUrl);
+      return () => window.removeEventListener("popstate", checkUrl);
+    }, []);
+    const groupId = propGroupId || urlGroupId || window.__selectedGroupId || sessionStorage.getItem("selectedGroupId") || null;
+
     const [q, setQ] = useState("");
     const [group, setGroup] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -74,7 +82,7 @@
             <thead><tr><th>Học viên</th><th>Email</th><th>Ngày tham gia</th><th></th></tr></thead>
             <tbody>{pg.slice.map(m => (
               <tr key={m.id}>
-                <td><div className="row gap-10"><Avatar name={m.studentName} size={36} img={m.avatarUrl} /><b style={{ fontSize: 14 }}>{m.studentName}</b></div></td>
+                <td><div className="row gap-10"><Avatar name={m.studentName} size={36} src={m.avatarUrl} /><b style={{ fontSize: 14 }}>{m.studentName}</b></div></td>
                 <td className="muted">{m.studentEmail}</td>
                 <td className="muted">{new Date(m.joinedAt).toLocaleDateString("vi-VN")}</td>
                 <td><button className="icon-btn" style={{ width: 34, height: 34 }} onClick={() => setRemoveTarget(m)}><Ic n="x" size={18} /></button></td>
@@ -114,7 +122,7 @@
           <div className="modal-body">
             {removeTarget && (
               <div className="row gap-12" style={{ alignItems: "center", padding: "12px 14px", background: "var(--bg-2)", borderRadius: 10 }}>
-                <Avatar name={removeTarget.studentName} size={40} img={removeTarget.avatarUrl} />
+                <Avatar name={removeTarget.studentName} size={40} src={removeTarget.avatarUrl} />
                 <div>
                   <div style={{ fontWeight: 600, fontSize: 15 }}>{removeTarget.studentName}</div>
                   <div className="t-sm muted">{removeTarget.studentEmail}</div>
@@ -264,7 +272,7 @@
                     }} onClick={() => toggleSelect(s)}
                        onMouseEnter={(e) => { if (!isSel) e.currentTarget.style.background = "var(--bg-2)"; }}
                        onMouseLeave={(e) => { if (!isSel) e.currentTarget.style.background = "transparent"; }}>
-                      <Avatar name={s.fullName} size={34} img={s.avatarUrl} />
+                      <Avatar name={s.fullName} size={34} src={s.avatarUrl} />
                       <div className="grow" style={{ minWidth: 0 }}>
                         <div className="truncate" style={{ fontSize: 14, fontWeight: 600 }}>{s.fullName}</div>
                         <div className="t-sm muted truncate">{s.email}</div>
@@ -293,7 +301,7 @@
                     <div key={s.id} style={{ display: "table-row", fontSize: 14 }}>
                       <div style={{ display: "table-cell", padding: "10px 12px", borderBottom: "1px solid var(--border)", verticalAlign: "middle" }}>
                         <div className="row gap-8" style={{ alignItems: "center" }}>
-                          <Avatar name={s.fullName} size={28} img={s.avatarUrl} />
+                          <Avatar name={s.fullName} size={28} src={s.avatarUrl} />
                           <span style={{ fontWeight: 500 }}>{s.fullName}</span>
                         </div>
                       </div>

@@ -681,7 +681,7 @@
   }
 
   /* ---------------- Course approval ---------------- */
-  function AdminApproval({ nav }) {
+  function AdminApproval({ nav, approvalId: propApprovalId }: { nav?: any; approvalId?: string } = {}) {
     const [tab, setTab] = useState("pending");
     const [list, setList] = useState([]);
     const [loading, setLoading] = useState(false);
@@ -699,6 +699,14 @@
     const [showPreview, setShowPreview] = useState(false);
     const [alertState, setAlertState] = useState(null);
     const showAlert = (message, opts?) => setAlertState({ message, ...opts });
+
+    const approvalId = propApprovalId || new URLSearchParams(window.location.search).get("approvalId") || window.__selectedApprovalId || null;
+    useEffect(() => {
+      if (approvalId && !detail) {
+        const item = list.find(c => c.id === approvalId) || window.__selectedApprovalCourse || { id: approvalId };
+        if (item && item.id) openDetail(item);
+      }
+    }, [approvalId, list]);
 
     useEffect(() => { loadList(); }, [tab, page]);
 

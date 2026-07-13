@@ -29,6 +29,8 @@ public class CourseResponse {
     private String description;
     private Boolean chatEnabled;
     private UUID instructorId;
+    @Setter
+    private String instructorName;
     private CourseCategoryResponse category;
     private Instant submittedAt;
     private Instant createdAt;

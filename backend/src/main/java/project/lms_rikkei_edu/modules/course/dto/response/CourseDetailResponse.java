@@ -28,6 +28,8 @@ public class CourseDetailResponse {
     private String thumbnailUrl;
     private Boolean chatEnabled;
     private String rejectionReason;
+    @Setter
+    private String instructorName;
     private CourseCategoryResponse category;
     private List<ChapterResponse> chapters;
     private Instant submittedAt;

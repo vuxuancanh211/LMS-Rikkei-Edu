@@ -34,4 +34,5 @@ public class AssignmentResponse {
     private OffsetDateTime updatedAt;
     private int attachmentCount;
     private String courseTitle;
+    private List<String> groupNames;
 }

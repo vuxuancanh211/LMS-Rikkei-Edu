@@ -221,7 +221,7 @@
                             {isQuiz ? (
                               <>
                                 <button className="icon-btn" style={{ width: 30, height: 30, color: "#2563eb" }} title="Soạn câu hỏi cho đề này"
-                                  onClick={() => { window.location.href = `/instructor/assess?courseId=${courseId}&quizId=${lesson.quizId}`; }}>
+                                  onClick={() => { if (window.AppShell?.go) window.AppShell.go('assess', { courseId, quizId: lesson.quizId }); else window.location.href = `/instructor/assess?courseId=${courseId}&quizId=${lesson.quizId}`; }}>
                                   <Ic n="file_text" size={14} />
                                 </button>
                                 <button className="icon-btn" style={{ width: 30, height: 30, color: "#d97706" }} title="Đổi đề trắc nghiệm"

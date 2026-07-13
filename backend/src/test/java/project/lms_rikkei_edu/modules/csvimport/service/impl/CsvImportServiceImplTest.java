@@ -36,6 +36,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -60,12 +61,15 @@ class CsvImportServiceImplTest {
     @Mock
     private EmailAsyncService emailAsyncService;
 
+    @Mock
+    private project.lms_rikkei_edu.modules.course.service.StudentCourseService studentCourseService;
+
     private CsvImportServiceImpl service;
 
     @BeforeEach
     void setUp() {
         service = new CsvImportServiceImpl(userService, redisService,
-                userRepository, courseEnrollmentRepository, courseRepository, emailAsyncService);
+                userRepository, courseEnrollmentRepository, courseRepository, emailAsyncService, studentCourseService);
         ReflectionTestUtils.setField(service, "maxCsvRows", 500);
     }
 
@@ -393,6 +397,48 @@ class CsvImportServiceImplTest {
         assertThat(result.getResults().get(1).getStatus()).isEqualTo("IMPORTED");
         verify(courseEnrollmentRepository).saveAll(anyList());
         verify(emailAsyncService).sendEnrolledToCourseMailAsync(eq("user2@test.com"), eq("User 2"), eq("Khoá học mẫu"));
+    }
+
+    @Test
+    void confirm_withCourse_onlyNewUsers_skipsExistingUserEmailNotification() {
+        UUID adminId = UUID.randomUUID();
+        UUID courseId = UUID.randomUUID();
+        String json = createPreviewJson("VALID");
+        when(redisService.get(anyString())).thenReturn(Optional.of(json));
+        doNothing().when(redisService).delete(anyString());
+        var course = mock(Course.class);
+        when(course.getTitle()).thenReturn("Khoá học mẫu");
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(course));
+        when(userService.batchCreateUsers(any(UUID.class), anyList(), any())).thenReturn(List.of());
+
+        CsvImportConfirmResponse result = service.confirm("test-token", adminId, courseId);
+
+        assertThat(result.getSuccessCount()).isEqualTo(1);
+        assertThat(result.getFailCount()).isEqualTo(0);
+        verify(emailAsyncService, never()).sendEnrolledToCourseMailAsync(anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void confirm_withCourse_existingUsersButNoCourseTitle_stillEnrolls() {
+        UUID adminId = UUID.randomUUID();
+        UUID courseId = UUID.randomUUID();
+        String json = createPreviewJson("EXISTING_USER");
+        when(redisService.get(anyString())).thenReturn(Optional.of(json));
+        doNothing().when(redisService).delete(anyString());
+        var course = mock(Course.class);
+        when(course.getTitle()).thenReturn("Course");
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(course));
+        var existingUser = mock(UserEntity.class);
+        when(existingUser.getId()).thenReturn(UUID.randomUUID());
+        when(existingUser.getEmail()).thenReturn("user1@test.com");
+        when(existingUser.getFullName()).thenReturn("User 1");
+        when(userRepository.findByEmailIgnoreCaseInAndDeletedAtIsNull(anyList())).thenReturn(List.of(existingUser));
+
+        CsvImportConfirmResponse result = service.confirm("test-token", adminId, courseId);
+
+        assertThat(result.getTotalProcessed()).isEqualTo(1);
+        verify(courseEnrollmentRepository).saveAll(anyList());
+        verify(emailAsyncService).sendEnrolledToCourseMailAsync(anyString(), anyString(), anyString());
     }
 
     @Test

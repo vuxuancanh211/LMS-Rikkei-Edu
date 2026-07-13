@@ -44,8 +44,10 @@ public class AuthController {
 
     @PostMapping("/logout")
     @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<LogoutResponse> logout(@RequestHeader("Authorization") String authorizationHeader) {
-        return ResponseEntity.ok(authService.logout(authorizationHeader));
+    public ResponseEntity<LogoutResponse> logout(
+            @RequestHeader("Authorization") String authorizationHeader,
+            @RequestBody(required = false) RefreshTokenRequest request) {
+        return ResponseEntity.ok(request != null ? authService.logout(authorizationHeader, request) : authService.logout(authorizationHeader));
     }
 
     @PostMapping("/refresh")

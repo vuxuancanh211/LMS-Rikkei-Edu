@@ -9,6 +9,7 @@ import type {
   CreateGroupPayload,
   UpdateGroupPayload,
   AddMembersPayload,
+  PagedResponse,
 } from '../types';
 
 type SpringPage<T> = {
@@ -63,6 +64,14 @@ export async function searchStudents(email: string) {
   const response = await httpClient.get<StudentSearchItem[]>(
     '/instructor/groups/students/search',
     { params: { email } },
+  );
+  return response.data;
+}
+
+export async function getUnassignedStudents(courseId: string) {
+  const response = await httpClient.get<StudentSearchItem[]>(
+    '/instructor/groups/students/unassigned',
+    { params: { courseId } },
   );
   return response.data;
 }

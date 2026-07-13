@@ -4,7 +4,15 @@
   const Ic = window.Icon;
   const { Avatar, StatCard, Search, Section, Empty } = window;
 
-  function StuGroupDetail({ nav, groupId }) {
+  function StuGroupDetail({ nav, groupId: propGroupId }: { nav?: any; groupId?: string } = {}) {
+    const [urlGroupId, setUrlGroupId] = useState(() => new URLSearchParams(window.location.search).get("groupId"));
+    useEffect(() => {
+      const checkUrl = () => setUrlGroupId(new URLSearchParams(window.location.search).get("groupId"));
+      window.addEventListener("popstate", checkUrl);
+      return () => window.removeEventListener("popstate", checkUrl);
+    }, []);
+    const groupId = propGroupId || urlGroupId || window.__selectedGroupId || sessionStorage.getItem("selectedGroupId") || null;
+
     const [q, setQ] = useState("");
     const [group, setGroup] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -75,7 +83,7 @@
             <thead><tr><th>Học viên</th><th>Email</th><th>Ngày tham gia</th></tr></thead>
             <tbody>{pg.slice.map(m => (
               <tr key={m.id}>
-                <td><div className="row gap-10"><Avatar name={m.studentName} size={36} img={m.avatarUrl} /><b style={{ fontSize: 14 }}>{m.studentName}</b></div></td>
+                <td><div className="row gap-10"><Avatar name={m.studentName} size={36} src={m.avatarUrl} /><b style={{ fontSize: 14 }}>{m.studentName}</b></div></td>
                 <td className="muted">{m.studentEmail}</td>
                 <td className="muted">{new Date(m.joinedAt).toLocaleDateString("vi-VN")}</td>
               </tr>

@@ -18,6 +18,7 @@ import project.lms_rikkei_edu.modules.course.enums.CourseStatus;
 import project.lms_rikkei_edu.modules.course.mapper.CourseMapper;
 import project.lms_rikkei_edu.modules.course.repository.*;
 import project.lms_rikkei_edu.modules.course.service.impl.AdminCourseServiceImpl;
+import project.lms_rikkei_edu.modules.user.repository.UserRepository;
 
 import java.util.*;
 
@@ -34,6 +35,7 @@ class AdminCourseServiceImplExtTest {
     @Mock CourseApprovalLogRepository approvalLogRepo;
     @Mock LessonResourceRepository lessonResourceRepo;
     @Mock CourseVersionRepository courseVersionRepo;
+    @Mock UserRepository userRepository;
     @Mock S3Service s3Service;
     @Mock CacheManager cacheManager;
     @Mock LessonProgressRepository lessonProgressRepo;
@@ -51,10 +53,11 @@ class AdminCourseServiceImplExtTest {
         service = new AdminCourseServiceImpl(
                 courseRepo, courseMapper,
                 approvalLogRepo, lessonResourceRepo, courseVersionRepo,
-                s3Service, new ObjectMapper(), cacheManager, lessonProgressRepo, videoUploadJobRepo,
+                userRepository, s3Service, new ObjectMapper(), cacheManager, lessonProgressRepo, videoUploadJobRepo,
                 lessonAiDataCleanupService, courseVersionReferenceChecker
         );
         when(courseVersionReferenceChecker.isSafeToDelete(any(), any())).thenReturn(true);
+        when(userRepository.findAllByIdInAndDeletedAtIsNull(anyList())).thenReturn(List.of());
     }
 
     private Course courseWith(CourseStatus status, List<Chapter> chapters) {

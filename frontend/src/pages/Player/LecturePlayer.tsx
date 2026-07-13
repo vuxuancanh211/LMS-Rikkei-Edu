@@ -225,6 +225,7 @@
 
   /* ── Viewer ─────────────────────────────────────────────── */
   function Viewer({ res, url, onVideoTimeUpdate, loading, error, onRetry }: any) {
+    const videoRef = useRef(null);
     useEffect(() => {
       const handleKeyDown = (e: any) => {
         if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'p' || e.key === 'S' || e.key === 'P' || e.key === 'u' || e.key === 'U')) {
@@ -234,6 +235,13 @@
       window.addEventListener('keydown', handleKeyDown);
       return () => window.removeEventListener('keydown', handleKeyDown);
     }, []);
+    useEffect(() => {
+      const el = videoRef.current;
+      if (!el || !onVideoTimeUpdate) return;
+      const handler = (e: any) => onVideoTimeUpdate(e);
+      el.addEventListener('seeked', handler);
+      return () => el.removeEventListener('seeked', handler);
+    }, [onVideoTimeUpdate]);
 
     if (!res) return (
       <div style={{ aspectRatio: "16/9", background: "#0a0f1c", borderRadius: 16, overflow: "hidden",
@@ -283,7 +291,7 @@
       return (
         <div style={{ position: "relative", borderRadius: 16, overflow: "hidden", aspectRatio: "16/9", background: "#000" }}
           onContextMenu={(e: any) => e.preventDefault()}>
-          <video key={url || res?.id} controls controlsList="nodownload" autoPlay src={url}
+          <video ref={videoRef} key={url || res?.id} controls controlsList="nodownload" autoPlay src={url}
             style={{ width: "100%", height: "100%", display: "block", outline: "none" }}
             onContextMenu={(e: any) => e.preventDefault()}
             onTimeUpdate={onVideoTimeUpdate} />
@@ -386,24 +394,19 @@
     const [sending, setSending] = useState(false);
     const [conversationId, setConversationId] = useState(null);
 
+    /* Assignment sidebar */
+    const [sidebarTab, setSidebarTab] = useState("lessons");
+    const [assignments, setAssignments] = useState([]);
+    const [assignLoading, setAssignLoading] = useState(false);
+    const [activeView, setActiveView] = useState("lesson");
+    const [selectedAssignmentId, setSelectedAssignmentId] = useState(null);
+
     useEffect(() => {
       api.get('/profile').then(r => { if (r.data?.fullName) setUserName(r.data.fullName); }).catch(() => { /* ignore */ });
     }, []);
 
     function notifMeta(type) {
-      const m = {
-        FORUM_REPLY: { icon: 'message', color: '#8b5cf6' },
-        FORUM_POST: { icon: 'message', color: '#6366f1' },
-        QUIZ_PUBLISHED: { icon: 'shield', color: '#f59e0b' },
-        SUBMISSION_GRADED: { icon: 'edit', color: '#10b981' },
-        ASSIGNMENT_PUBLISHED: { icon: 'clipboard', color: '#3b82f6' },
-        ASSIGNMENT_SUBMITTED: { icon: 'upload', color: '#06b6d4' },
-        CERTIFICATE_ISSUED: { icon: 'award', color: '#10b981' },
-        COURSE_ENROLLMENT: { icon: 'user_plus', color: '#2563eb' },
-        COURSE_APPROVED: { icon: 'check_circle', color: '#16a34a' },
-        SYSTEM_ANNOUNCEMENT: { icon: 'bell', color: '#f97316' },
-      };
-      return m[type] || { icon: 'bell', color: '#2563eb' };
+      return (window.NotificationTypeMetadata && window.NotificationTypeMetadata[type]) || { icon: 'bell', color: '#2563eb', label: 'Hệ thống', category: 'Hệ thống' };
     }
     function timeAgo(value) {
       if (!value) return '';
@@ -462,11 +465,27 @@
     const completedCount  = useMemo(() => allLessons.filter(l => l.progress === "COMPLETED").length, [allLessons]);
     const progressPct     = useMemo(() => totalLessons > 0 ? Math.round((completedCount / totalLessons) * 100) : 0, [completedCount, totalLessons]);
 
+    const assignIdx      = useMemo(() => assignments.findIndex(a => a.id === selectedAssignmentId), [assignments, selectedAssignmentId]);
+    const prevAssignment = assignIdx > 0 ? assignments[assignIdx - 1] : null;
+    const nextAssignment = assignIdx < assignments.length - 1 ? assignments[assignIdx + 1] : null;
+
     /* Progress tracking */
     const progRef = useRef<any>({});
-    const updateProgress = useCallback(async (watchedPct: any, position: any, docSeconds: any, isCompleted?: boolean) => {
+    const maxWatchedPctRef = useRef<Record<string, number>>({});
+    const cumDocSecRef = useRef<Record<string, number>>({});
+    const ytElapsedRef = useRef<Record<string, number>>({});
+    const updateProgress = useCallback(async (watchedPct, position, docSeconds, isCompleted) => {
       if (!courseId || !activeL?.id) return;
-      const targetStatus = isCompleted || progRef.current[activeL.id] === "COMPLETED" || (watchedPct !== null && watchedPct >= 90) || (videoResources.length === 0 && docSeconds !== null && docSeconds >= 20) ? "COMPLETED" : "IN_PROGRESS";
+      const hasVid = videoResources.length > 0;
+      const hasDoc = docResources.length > 0;
+      const autoComp = (hasVid && hasDoc)
+        ? ((watchedPct !== null ? watchedPct >= 90 : false) && (docSeconds !== null ? docSeconds >= 10 : false))
+        : hasVid
+        ? (watchedPct !== null && watchedPct >= 90)
+        : hasDoc
+        ? ((docSeconds !== null && docSeconds >= 20) || (watchedPct !== null && watchedPct >= 90))
+        : true;
+      const targetStatus = isCompleted || progRef.current[activeL.id] === "COMPLETED" || autoComp ? "COMPLETED" : "IN_PROGRESS";
       if (targetStatus === "COMPLETED") {
         progRef.current[activeL.id] = "COMPLETED";
       }
@@ -479,13 +498,15 @@
         ),
       })));
       try {
+        const isComp = isCompleted || targetStatus === "COMPLETED";
         await api.post(`/student/courses/${courseId}/lessons/${activeL.id}/progress`, {
           watchedPercentage: watchedPct,
           lastPlaybackPosition: position,
           documentViewSeconds: docSeconds,
+          completed: isComp,
         });
-      } catch (e) { /* ignore */ }
-    }, [courseId, activeL?.id, videoResources.length]);
+      } catch (e) { console.error("updateProgress error", e); }
+    }, [courseId, activeL?.id, videoResources.length, docResources.length]);
 
     const endRef = useRef();
     function scrollBottom() { setTimeout(() => endRef.current?.scrollIntoView({ behavior: "smooth" }), 60); }
@@ -530,7 +551,20 @@
       api.get(`/student/courses/${courseId}`)
         .then(r => {
           setCourse(r.data);
-          const chs = r.data.chapters || [];
+          let chs = r.data.chapters || [];
+          /* Merge sessionStorage cache to survive reload if server progress lags */
+          try {
+            const cached = JSON.parse(sessionStorage.getItem('lp_' + courseId) || '{}');
+            if (Object.keys(cached).length > 0) {
+              chs = chs.map(ch => ({
+                ...ch,
+                lessons: (ch.lessons || []).map(l => ({
+                  ...l,
+                  progress: cached[l.id] || l.progress || 'NOT_STARTED',
+                })),
+              }));
+            }
+          } catch { /* ignore */ }
           setChapters(chs);
           const opened = {};
           chs.forEach(ch => { opened[ch.id] = true; });
@@ -547,7 +581,7 @@
               localStorage.setItem('last_lesson_' + courseId, target.id);
               const newUrl = window.location.pathname + '?courseId=' + courseId + '&lessonId=' + target.id;
               window.history.replaceState(null, '', newUrl);
-            } catch (e) { /* ignore */ }
+      } catch (e) { console.error("updateProgress error", e); }
             const ch = chs.find(c => c.lessons?.some(x => x.id === target.id));
             if (ch) opened[ch.id] = true;
           }
@@ -555,6 +589,16 @@
         .catch(e => setError(e.response?.data?.message || "Không thể tải khóa học"))
         .finally(() => setLoading(false));
     }, [courseId]);
+
+    /* Fetch assignments when switching to the "Bài tập" tab */
+    useEffect(() => {
+      if (sidebarTab !== "assignments" || !courseId) return;
+      setAssignLoading(true);
+      api.get(`/student/courses/${courseId}/assignments`)
+        .then(r => setAssignments(r.data || []))
+        .catch(() => setAssignments([]))
+        .finally(() => setAssignLoading(false));
+    }, [sidebarTab, courseId]);
 
     /* When active lesson changes, auto-load first video URL and show first doc if not video lesson */
     useEffect(() => {
@@ -603,20 +647,30 @@
     }
 
     /* ── Progress: Video time tracking ───────────────────── */
+    const videoThrottleRef = useRef(0);
     const handleVideoTimeUpdate = useCallback((e: any) => {
       const video = e.target;
       if (!video?.duration || !activeL?.id || !videoUrl) return;
-      if (video.currentSrc && videoUrl && !video.currentSrc.includes(videoUrl) && !videoUrl.includes(video.currentSrc)) return;
       const pct = (video.currentTime / video.duration) * 100;
+      maxWatchedPctRef.current[activeL.id] = Math.max(
+        maxWatchedPctRef.current[activeL.id] || 0,
+        pct
+      );
+      const effectivePct = maxWatchedPctRef.current[activeL.id];
       const curProg = progRef.current[activeL.id];
       if (curProg === "COMPLETED") return;
-      if (pct >= 5 && curProg !== "IN_PROGRESS") {
-        progRef.current[activeL.id] = "IN_PROGRESS";
-        updateProgress(Math.round(pct), Math.floor(video.currentTime), null, false);
-      }
-      if (pct >= 90 && curProg !== "COMPLETED") {
+      const now = Date.now();
+      if (effectivePct >= 90 && curProg !== "COMPLETED") {
         progRef.current[activeL.id] = "COMPLETED";
-        updateProgress(Math.round(pct), Math.floor(video.currentTime), null, true);
+        updateProgress(Math.round(effectivePct), Math.floor(video.currentTime), null, true);
+        videoThrottleRef.current = now;
+      } else if (effectivePct >= 5 && curProg !== "IN_PROGRESS") {
+        progRef.current[activeL.id] = "IN_PROGRESS";
+        updateProgress(Math.round(effectivePct), Math.floor(video.currentTime), null, false);
+        videoThrottleRef.current = now;
+      } else if (now - videoThrottleRef.current >= 5000) {
+        videoThrottleRef.current = now;
+        updateProgress(Math.round(effectivePct), Math.floor(video.currentTime), null, false);
       }
     }, [activeL?.id, updateProgress, activeVideoIdx, videoUrl]);
 
@@ -631,55 +685,75 @@
       }
     }, [activeL?.id, activeL?.progress]);
 
+    /* Cache progress to sessionStorage so reload doesn't lose checkmarks */
+    useEffect(() => {
+      if (!courseId) return;
+      const cache = {};
+      chapters.forEach(ch => (ch.lessons || []).forEach(l => { if (l.progress) cache[l.id] = l.progress; }));
+      try { sessionStorage.setItem('lp_' + courseId, JSON.stringify(cache)); } catch { /* ignore */ }
+    }, [courseId, chapters]);
 
     /* ── Progress: YouTube iframe tracking (no onTimeUpdate) ── */
     useEffect(() => {
       if (!activeL?.durationSeconds || progRef.current[activeL.id] === "COMPLETED") return;
       if (!activeVideoRes || !getYoutubeId(activeVideoRes.externalUrl || "")) return;
+      const lid = activeL.id;
       const threshold = (activeL.durationSeconds * 90) / 100;
-      let elapsed = 0;
+      let elapsed = ytElapsedRef.current[lid] || 0;
+      if (elapsed >= threshold) {
+        progRef.current[lid] = "COMPLETED";
+        updateProgress(100, null, null, true);
+        return;
+      }
       const t = setInterval(() => {
+        if (document.hidden) return;
         elapsed += 1;
+        ytElapsedRef.current[lid] = elapsed;
         if (elapsed >= threshold) {
           clearInterval(t);
-          progRef.current[activeL.id] = "COMPLETED";
+          progRef.current[lid] = "COMPLETED";
           updateProgress(100, null, null, true);
-        } else if (elapsed >= 5 && progRef.current[activeL.id] !== "IN_PROGRESS") {
-          progRef.current[activeL.id] = "IN_PROGRESS";
+        } else if (elapsed >= 5 && progRef.current[lid] !== "IN_PROGRESS") {
+          progRef.current[lid] = "IN_PROGRESS";
           updateProgress(Math.round((elapsed / activeL.durationSeconds) * 100), null, null, false);
         }
       }, 1000);
       return () => clearInterval(t);
     }, [activeL?.id, activeVideoRes?.id, activeVideoIdx]);
 
-    /* ── Progress: Document timer (count seconds while viewing) ── */
-    const docSecRef = useRef(0);
-    const docTimerRef = useRef(null);
+    /* ── Progress: Document timer (cumulative across documents) ── */
+    const docTimerRef = useRef<any>(null);
+    const hiddenRef = useRef(false);
     useEffect(() => {
       if (activeL?.progress === "COMPLETED") return;
       if (!viewRes || viewRes.resourceType === "VIDEO") return;
       if (progRef.current[activeL?.id] === "COMPLETED") return;
 
-      // Reset counter when switching documents
-      docSecRef.current = 0;
+      hiddenRef.current = false;
+      const lid = activeL?.id;
+      const targetDocSec = isVideoLesson ? 10 : 20;
+      const onVisibility = () => { hiddenRef.current = document.hidden; };
+      document.addEventListener('visibilitychange', onVisibility);
 
-      // Send initial progress immediately, then every 5 seconds
-      updateProgress(null, null, 0, false);
+      let cum = cumDocSecRef.current[lid] || 0;
+      updateProgress(null, null, cum, false);
 
       docTimerRef.current = setInterval(() => {
-        docSecRef.current += 1;
-        const isComp = !isVideoLesson && docSecRef.current >= 20;
-        if (isComp) progRef.current[activeL?.id] = "COMPLETED";
-        if (docSecRef.current % 5 === 0 || isComp) {
-          updateProgress(null, null, docSecRef.current, isComp);
+        if (hiddenRef.current) return;
+        cum += 1;
+        cumDocSecRef.current[lid] = cum;
+        const isComp = !isVideoLesson && cum >= targetDocSec;
+        if (isComp) progRef.current[lid] = "COMPLETED";
+        if (cum % 5 === 0 || isComp) {
+          updateProgress(null, null, cum, isComp);
         }
       }, 1000);
 
       return () => {
+        document.removeEventListener('visibilitychange', onVisibility);
         if (docTimerRef.current) clearInterval(docTimerRef.current);
-        // Flush final count on unmount
-        if (docSecRef.current > 0) {
-          updateProgress(null, null, docSecRef.current, !isVideoLesson && docSecRef.current >= 20);
+        if (cum > 0) {
+          updateProgress(null, null, cum, !isVideoLesson && cum >= targetDocSec);
         }
       };
     }, [viewRes?.id, activeL?.id, isVideoLesson]);
@@ -733,9 +807,27 @@
                   {!notifLoading && notifList.slice(0, 5).map(n => {
                     const meta = notifMeta(n.type);
                     return (
-                      <div key={n.id} className="row gap-12" style={{ padding: "13px 16px", background: n.read ? "#fff" : "var(--accent-soft)", borderBottom: "1px solid var(--border)", cursor: "pointer" }} onClick={() => { if (!n.read) markRead(n.id); if (n.targetUrl) { if (navigate) navigate(n.targetUrl); else window.location.href = n.targetUrl; } }}>
+                      <div key={n.id} className="row gap-12" style={{ padding: "13px 16px", background: n.read ? "#fff" : "var(--accent-soft)", borderBottom: "1px solid var(--border)", cursor: "pointer" }} onClick={() => {
+                         if (!n.read) markRead(n.id);
+                         setNotifOpen(false);
+                         const role = window.useAuthStore?.getState().role || 'student';
+                         const targetUrl = window.getNotificationTargetUrl ? window.getNotificationTargetUrl(n, role) : '';
+                         if (window.AppShell && typeof window.AppShell.go === 'function') {
+                           const { routeKey, params } = window.parseNotificationUrl ? window.parseNotificationUrl(targetUrl) : { routeKey: '', params: {} };
+                           window.AppShell.go(routeKey, Object.keys(params).length > 0 ? params : undefined);
+                         } else {
+                           window.location.href = targetUrl || '/notifications';
+                         }
+                        }}>
                         <div className="stat-ic" style={{ width: 38, height: 38, borderRadius: 10, background: meta.color + "1a", color: meta.color, flex: "none" }}><Ic n={meta.icon} size={18} /></div>
-                        <div className="grow"><div className="t-sm" style={{ lineHeight: 1.4, fontWeight: n.read ? 400 : 600 }}>{n.title}</div><div className="t-xs dim" style={{ marginTop: 3 }}>{timeAgo(n.createdAt)}</div></div>
+                        <div className="grow" style={{ minWidth: 0 }}>
+                          <div className="row gap-6" style={{ marginBottom: 3 }}>
+                            <span className="chip" style={{ background: meta.color + "1a", color: meta.color, borderColor: meta.color + "33", fontSize: 10, padding: "1px 5px" }}>{meta.label || 'Hệ thống'}</span>
+                          </div>
+                          <div className="t-sm" style={{ lineHeight: 1.4, fontWeight: n.read ? 400 : 600 }}>{n.title}</div>
+                          {n.body && <div className="t-xs muted" style={{ marginTop: 3, lineHeight: 1.3, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{n.body}</div>}
+                          <div className="t-xs dim" style={{ marginTop: n.body ? 3 : 4 }}>{timeAgo(n.createdAt)}</div>
+                        </div>
                         {!n.read && <span style={{ width: 8, height: 8, borderRadius: 999, background: "var(--accent)", flex: "none" }} />}
                       </div>
                     );
@@ -801,7 +893,18 @@
             {/* ─── Left: Main content ─── */}
             <div style={{ flex: 1, minWidth: 0, minHeight: 0, overflowY: "auto",
               padding: "24px 24px 32px" }}>
-              {!activeL ? (
+              {activeView === "assignment" && selectedAssignmentId ? (
+                window.AssignmentDetail && React.createElement(window.AssignmentDetail, {
+                  assignmentId: selectedAssignmentId,
+                  courseId,
+                  role: "student",
+                  onBack: () => {
+                    setActiveView("lesson");
+                    setSelectedAssignmentId(null);
+                    setSidebarTab("lessons");
+                  },
+                })
+              ) : !activeL ? (
                 <div style={{ textAlign: "center", padding: 60, color: "#94a3b8" }}>
                   <Ic n="book" size={32} style={{ opacity: 0.3, marginBottom: 12 }} />
                   <div>Chọn một bài giảng từ danh sách</div>
@@ -877,7 +980,47 @@
                   </div>
 
                   {/* Prev / Next */}
+                  {(activeView !== "assignment" && activeL) || (activeView === "assignment" && selectedAssignmentId) ? (
                   <div style={{ marginTop: 28, display: "flex", gap: 12 }}>
+                    {activeView === "assignment" ? (
+                      <>
+                    <button disabled={!prevAssignment}
+                      onClick={() => prevAssignment && setSelectedAssignmentId(prevAssignment.id)}
+                      style={{ flex: 1, height: 48, display: "flex", alignItems: "center", gap: 10,
+                        padding: "0 16px", border: "1px solid var(--border)", borderRadius: 12,
+                        background: "#fff", cursor: prevAssignment ? "pointer" : "default",
+                        opacity: prevAssignment ? 1 : 0.35 }}
+                      onMouseEnter={e => { if (prevAssignment) e.currentTarget.style.borderColor = "#2563eb"; }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; }}>
+                      <Ic n="arrow_left" size={15} style={{ color: "#94a3b8", flexShrink: 0 }} />
+                      <div style={{ textAlign: "left", minWidth: 0 }}>
+                        <div style={{ fontSize: 10.5, color: "#94a3b8", fontWeight: 500 }}>Bài tập trước</div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: "#0f172a" }} className="truncate">
+                          {prevAssignment ? prevAssignment.title : "—"}
+                        </div>
+                      </div>
+                    </button>
+                    <button disabled={!nextAssignment}
+                      onClick={() => nextAssignment && setSelectedAssignmentId(nextAssignment.id)}
+                      style={{ flex: 1, height: 48, display: "flex", alignItems: "center",
+                        justifyContent: "flex-end", gap: 10, padding: "0 16px",
+                        border: `1px solid ${nextAssignment ? "#2563eb" : "var(--border)"}`,
+                        borderRadius: 12, background: nextAssignment ? "#eff6ff" : "#fff",
+                        cursor: nextAssignment ? "pointer" : "default",
+                        opacity: nextAssignment ? 1 : 0.35 }}
+                      onMouseEnter={e => { if (nextAssignment) e.currentTarget.style.background = "#dbeafe"; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = nextAssignment ? "#eff6ff" : "#fff"; }}>
+                      <div style={{ textAlign: "right", minWidth: 0 }}>
+                        <div style={{ fontSize: 10.5, color: "#2563eb", fontWeight: 500 }}>Bài tập tiếp theo</div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: "#0f172a" }} className="truncate">
+                          {nextAssignment ? nextAssignment.title : "—"}
+                        </div>
+                      </div>
+                      <Ic n="arrow_right" size={15} style={{ color: "#2563eb", flexShrink: 0 }} />
+                    </button>
+                      </>
+                    ) : (
+                      <>
                     <button disabled={!prevLesson} onClick={() => prevLesson && goLesson(prevLesson)}
                       style={{ flex: 1, height: 48, display: "flex", alignItems: "center", gap: 10,
                         padding: "0 16px", border: "1px solid var(--border)", borderRadius: 12,
@@ -910,7 +1053,10 @@
                       </div>
                       <Ic n="arrow_right" size={15} style={{ color: "#2563eb", flexShrink: 0 }} />
                     </button>
+                      </>
+                    )}
                   </div>
+                  ) : null}
                 </>
               )}
             </div>
@@ -940,99 +1086,222 @@
                 </div>
               </div>
 
-              {/* Chapter accordion */}
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {chapters.map(ch => {
-                  const isOpen = openCh[ch.id];
-                  const chDone = ch.lessons?.every(l => l.progress === "COMPLETED");
+              {/* Sidebar tab bar */}
+              <div style={{ flexShrink: 0, display: "flex", borderBottom: "1px solid rgba(255,255,255,.1)", marginBottom: 12 }}>
+                {["lessons", "assignments"].map(tab => {
+                  const isAct = sidebarTab === tab;
                   return (
-                    <div key={ch.id}
-                      style={{ background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.07)",
-                        borderRadius: 13, overflow: "hidden" }}>
-                      {/* Chapter header */}
-                      <div onClick={() => setOpenCh(p => ({ ...p, [ch.id]: !p[ch.id] }))}
-                        style={{ display: "flex", alignItems: "center", gap: 10,
-                          padding: "13px 14px", cursor: "pointer" }}>
-                        <div
-                          title={"Tiến độ chương: " + (chDone ? "Đã hoàn thành" : "Chưa hoàn thành")}
-                          style={{ width: 22, height: 22, borderRadius: 999,
-                            background: chDone ? "#10b981" : "transparent",
-                            border: chDone ? "none" : "1.5px solid #475569",
-                            display: "grid", placeItems: "center", flexShrink: 0,
-                            transition: ".15s" }}>
-                          {chDone && <span style={{ color: "#fff", fontSize: 13, lineHeight: 1, fontWeight: 700 }}>✓</span>}
-                        </div>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 13.5, fontWeight: 600 }} className="truncate">
-                            {ch.title}
-                          </div>
-                          <div style={{ fontSize: 11, color: "#64748b", marginTop: 1 }}>
-                            {ch.lessons?.length || 0} bài
-                          </div>
-                        </div>
-                        <Ic n="chevron_down" size={16}
-                          style={{ transform: isOpen ? "rotate(180deg)" : "none",
-                            transition: ".2s", color: "#64748b", flexShrink: 0 }} />
-                      </div>
-
-                      {/* Lessons */}
-                      {isOpen && (ch.lessons || []).map(l => {
-                        const isAct = activeL?.id === l.id;
-                        const lDone = l.progress === "COMPLETED";
-                        const lProg = l.progress === "IN_PROGRESS";
-                        const lHasVid = (l.resources || []).some((r: any) => !r.pendingDelete && r.resourceType === "VIDEO");
-                        const lHasDoc = (l.resources || []).some((r: any) => !r.pendingDelete && r.resourceType !== "VIDEO");
-                        const lIsVid  = lHasVid || (l.type === "VIDEO" && !lHasDoc);
-                        const isQuiz     = l.type === "QUIZ";
-                        const quizLocked = isQuiz && l.quizStatus !== "PUBLISHED";
-                        return (
-                          <div key={l.id}
-                            onClick={() => {
-                              if (quizLocked) return;
-                              if (isQuiz) {
-                                setConfirmQuiz(l);
-                                return;
-                              }
-                              goLesson(l);
-                            }}
-                            title={quizLocked ? "Giảng viên chưa xuất bản đề này" : undefined}
-                            style={{ display: "flex", alignItems: "center", gap: 10,
-                              padding: "10px 10px 10px 48px", cursor: quizLocked ? "not-allowed" : "pointer",
-                              opacity: quizLocked ? 0.5 : 1,
-                              background: isAct ? "rgba(16,185,129,.13)" : "transparent",
-                              transition: ".12s" }}
-                            onMouseEnter={e => { if (!isAct && !quizLocked) e.currentTarget.style.background = "rgba(255,255,255,.03)"; }}
-                            onMouseLeave={e => { if (!isAct) e.currentTarget.style.background = "transparent"; }}>
-                            <div
-                              title={"Tiến độ bài học: " + (lDone ? "Đã hoàn thành" : lProg ? "Đang học" : "Chưa bắt đầu")}
-                              style={{ width: 20, height: 20, borderRadius: 999, flexShrink: 0,
-                                display: "grid", placeItems: "center", transition: ".15s",
-                                background: lDone ? "#10b981" : "transparent",
-                                border: lDone ? "none" : lProg ? "2px solid #34d399" : "1.5px solid #475569" }}>
-                              {lDone && <span style={{ color: "#fff", fontSize: 12, lineHeight: 1, fontWeight: 700 }}>✓</span>}
-                              {lProg && !lDone && <span style={{ width: 6, height: 6, borderRadius: 999, background: "#34d399" }} />}
-                            </div>
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ fontSize: 13, fontWeight: isAct ? 700 : 500,
-                                color: isAct ? "#6ff5c0" : "#cbd5e1" }} className="truncate">
-                                {l.title}
-                              </div>
-                              <div style={{ fontSize: 11, color: "#64748b", marginTop: 2,
-                                display: "flex", alignItems: "center", gap: 4 }}>
-                                <Ic n={isQuiz ? "clipboard" : lIsVid ? "video" : "file"} size={11} />
-                                {isQuiz ? (quizLocked ? "Đề trắc nghiệm (chưa xuất bản)" : "Đề trắc nghiệm") : lIsVid ? "Video" : "Tài liệu"}
-                              </div>
-                            </div>
-                            {isAct && (
-                              <div style={{ width: 8, height: 8, borderRadius: 999,
-                                background: "#10b981", flexShrink: 0 }} />
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
+                    <button key={tab} onClick={() => {
+                      setSidebarTab(tab);
+                      if (tab === "lessons") {
+                        setActiveView("lesson");
+                        setSelectedAssignmentId(null);
+                      }
+                    }}
+                      style={{ flex: 1, height: 36, border: "none", background: "transparent",
+                        cursor: "pointer", fontSize: 12.5, fontWeight: 600,
+                        color: isAct ? "#10b981" : "#64748b",
+                        borderBottom: `2px solid ${isAct ? "#10b981" : "transparent"}`,
+                        transition: ".13s", display: "flex", alignItems: "center",
+                        justifyContent: "center", gap: 5 }}>
+                      <Ic n={tab === "lessons" ? "book" : "clipboard"} size={13} />
+                      {tab === "lessons" ? "Bài học" : "Bài tập"}
+                    </button>
                   );
                 })}
+              </div>
+
+              {/* Tab content */}
+              <div style={{ flex: 1, display: "flex", flexDirection: "column",
+                minHeight: 0, overflow: "hidden" }}>
+
+                {sidebarTab === "lessons" ? (
+                  <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
+                  {/* Chapter accordion */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    {chapters.map(ch => {
+                      const isOpen = openCh[ch.id];
+                      const chDone = ch.lessons?.every(l => l.progress === "COMPLETED");
+                      return (
+                        <div key={ch.id}
+                          style={{ background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.07)",
+                            borderRadius: 13, overflow: "hidden" }}>
+                          {/* Chapter header */}
+                          <div onClick={() => setOpenCh(p => ({ ...p, [ch.id]: !p[ch.id] }))}
+                            style={{ display: "flex", alignItems: "center", gap: 10,
+                              padding: "13px 14px", cursor: "pointer" }}>
+                            <div
+                              title={"Tiến độ chương: " + (chDone ? "Đã hoàn thành" : "Chưa hoàn thành")}
+                              style={{ width: 22, height: 22, borderRadius: 999,
+                                background: chDone ? "#10b981" : "transparent",
+                                border: chDone ? "none" : "1.5px solid #475569",
+                                display: "grid", placeItems: "center", flexShrink: 0,
+                                transition: ".15s" }}>
+                              {chDone && <span style={{ color: "#fff", fontSize: 13, lineHeight: 1, fontWeight: 700 }}>✓</span>}
+                            </div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 13.5, fontWeight: 600 }} className="truncate">
+                                {ch.title}
+                              </div>
+                              <div style={{ fontSize: 11, color: "#64748b", marginTop: 1 }}>
+                                {ch.lessons?.length || 0} bài
+                              </div>
+                            </div>
+                            <Ic n="chevron_down" size={16}
+                              style={{ transform: isOpen ? "rotate(180deg)" : "none",
+                                transition: ".2s", color: "#64748b", flexShrink: 0 }} />
+                          </div>
+
+                          {/* Lessons */}
+                          {isOpen && (ch.lessons || []).map(l => {
+                            const isAct = activeL?.id === l.id;
+                            const lDone = l.progress === "COMPLETED";
+                            const lProg = l.progress === "IN_PROGRESS";
+                            const lHasVid = (l.resources || []).some((r: any) => !r.pendingDelete && r.resourceType === "VIDEO");
+                            const lHasDoc = (l.resources || []).some((r: any) => !r.pendingDelete && r.resourceType !== "VIDEO");
+                            const lIsVid  = lHasVid || (l.type === "VIDEO" && !lHasDoc);
+                            const isQuiz     = l.type === "QUIZ";
+                            const quizLocked = isQuiz && l.quizStatus !== "PUBLISHED";
+                            return (
+                              <div key={l.id}
+                                onClick={() => {
+                                  if (quizLocked) return;
+                                  if (isQuiz) {
+                                    setConfirmQuiz(l);
+                                    return;
+                                  }
+                                  goLesson(l);
+                                }}
+                                title={quizLocked ? "Giảng viên chưa xuất bản đề này" : undefined}
+                                style={{ display: "flex", alignItems: "center", gap: 10,
+                                  padding: "10px 10px 10px 48px", cursor: quizLocked ? "not-allowed" : "pointer",
+                                  opacity: quizLocked ? 0.5 : 1,
+                                  background: isAct ? "rgba(16,185,129,.13)" : "transparent",
+                                  transition: ".12s" }}
+                                onMouseEnter={e => { if (!isAct && !quizLocked) e.currentTarget.style.background = "rgba(255,255,255,.03)"; }}
+                                onMouseLeave={e => { if (!isAct) e.currentTarget.style.background = "transparent"; }}>
+                                <div
+                                  title={"Tiến độ bài học: " + (lDone ? "Đã hoàn thành" : lProg ? "Đang học" : "Chưa bắt đầu")}
+                                  style={{ width: 20, height: 20, borderRadius: 999, flexShrink: 0,
+                                    display: "grid", placeItems: "center", transition: ".15s",
+                                    background: lDone ? "#10b981" : "transparent",
+                                    border: lDone ? "none" : lProg ? "2px solid #34d399" : "1.5px solid #475569" }}>
+                                  {lDone && <span style={{ color: "#fff", fontSize: 12, lineHeight: 1, fontWeight: 700 }}>✓</span>}
+                                  {lProg && !lDone && <span style={{ width: 6, height: 6, borderRadius: 999, background: "#34d399" }} />}
+                                </div>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div style={{ fontSize: 13, fontWeight: isAct ? 700 : 500,
+                                    color: isAct ? "#6ff5c0" : "#cbd5e1" }} className="truncate">
+                                    {l.title}
+                                  </div>
+                                  <div style={{ fontSize: 11, color: "#64748b", marginTop: 2,
+                                    display: "flex", alignItems: "center", gap: 4 }}>
+                                    <Ic n={isQuiz ? "clipboard" : lIsVid ? "video" : "file"} size={11} />
+                                    {isQuiz ? (quizLocked ? "Đề trắc nghiệm (chưa xuất bản)" : "Đề trắc nghiệm") : lIsVid ? "Video" : "Tài liệu"}
+                                  </div>
+                                </div>
+                                {isAct && (
+                                  <div style={{ width: 8, height: 8, borderRadius: 999,
+                                    background: "#10b981", flexShrink: 0 }} />
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  </div>
+
+                ) : (
+                  <>
+                  <div style={{ flexShrink: 0, display: "flex", alignItems: "center",
+                    gap: 6, padding: "0 0 8px" }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: "#e2e8f0", flex: 1 }}>
+                      Bài tập
+                      {assignments.length > 0 && (
+                        <span style={{ fontWeight: 400, color: "#94a3b8", marginLeft: 4 }}>
+                          ({assignments.length})
+                        </span>
+                      )}
+                    </span>
+                  </div>
+
+                  <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+                    {assignLoading ? (
+                      <div style={{ textAlign: "center", color: "#64748b", fontSize: 12, padding: "40px 16px" }}>
+                        Đang tải bài tập...
+                      </div>
+                    ) : assignments.length === 0 ? (
+                      <div style={{ textAlign: "center", color: "#64748b", fontSize: 12, padding: "40px 16px" }}>
+                        Chưa có bài tập nào trong khóa học
+                      </div>
+                    ) : (
+                      assignments.map(a => {
+                        const statusColors = {
+                          DRAFT:     { bg: "#f1f5f9", color: "#64748b", label: "Bản nháp" },
+                          PUBLISHED: { bg: "#dcfce7", color: "#16a34a", label: "Đã xuất bản" },
+                          CLOSED:    { bg: "#fef2f2", color: "#dc2626", label: "Đã đóng" },
+                        };
+                        const sc = statusColors[a.status] || statusColors.DRAFT;
+                        const deadline = a.deadline
+                          ? new Date(a.deadline).toLocaleDateString("vi-VN", {
+                              day: "2-digit", month: "2-digit", year: "numeric",
+                              hour: "2-digit", minute: "2-digit",
+                            })
+                          : null;
+                        return (
+                          <div key={a.id} onClick={() => {
+                            setSelectedAssignmentId(a.id);
+                            setActiveView("assignment");
+                          }}
+                            style={{ display: "flex", alignItems: "flex-start", gap: 8,
+                              padding: "8px 10px", margin: "2px 0", borderRadius: 8,
+                              cursor: "pointer", transition: ".12s",
+                              background: selectedAssignmentId === a.id ? "rgba(16,185,129,.13)" : "transparent" }}
+                            onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,.03)"; }}
+                            onMouseLeave={e => { e.currentTarget.style.background = selectedAssignmentId === a.id ? "rgba(16,185,129,.13)" : "transparent"; }}>
+                            <div style={{ width: 26, height: 26, borderRadius: 7, flexShrink: 0,
+                              background: "#fef3c7", color: "#d97706",
+                              display: "grid", placeItems: "center" }}>
+                              <Ic n="clipboard" size={12} />
+                            </div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 12.5, fontWeight: 600, color: "#e2e8f0",
+                                lineHeight: 1.35, marginBottom: 3 }} className="truncate">{a.title}</div>
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 3 }}>
+                                <span style={{ fontSize: 10, fontWeight: 600, borderRadius: 4,
+                                  padding: "1px 6px", background: sc.bg, color: sc.color }}>
+                                  {sc.label}
+                                </span>
+                                {a.maxScore != null && (
+                                  <span style={{ fontSize: 10, fontWeight: 600, borderRadius: 4,
+                                    padding: "1px 6px", background: "#f0fdf4", color: "#16a34a" }}>
+                                    {a.maxScore} điểm
+                                  </span>
+                                )}
+                                {a.scope === "SPECIFIC_GROUPS" && (
+                                  <span style={{ fontSize: 10, fontWeight: 600, borderRadius: 4,
+                                    padding: "1px 6px", background: "#eff6ff", color: "#2563eb" }}>
+                                    Theo nhóm
+                                  </span>
+                                )}
+                              </div>
+                              {deadline && (
+                                <div style={{ fontSize: 10.5, color: "#94a3b8",
+                                  display: "flex", alignItems: "center", gap: 3 }}>
+                                  <Ic n="clock" size={9} />
+                                  <span>Hạn: {deadline}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                  </>
+                )}
               </div>
             </div>
           </div>
