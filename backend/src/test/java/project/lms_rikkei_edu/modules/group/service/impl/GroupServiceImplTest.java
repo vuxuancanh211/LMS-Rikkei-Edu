@@ -120,6 +120,66 @@ class GroupServiceImplTest {
     }
 
     @Test
+    void getGroupDetail_returnsGroupDetailWithMembers() {
+        StudyGroupEntity group = groupEntity(groupId, courseEntity(instructorId), instructorUser());
+        GroupMemberEntity member = memberEntity(group, studentUser(studentId, "student@example.com"));
+        when(currentUserProvider.getCurrentUser()).thenReturn(Optional.of(principal(instructorId, UserRole.INSTRUCTOR)));
+        when(studyGroupRepository.findByIdAndInstructorId(groupId, instructorId)).thenReturn(Optional.of(group));
+        when(groupMemberRepository.findByGroupIdWithStudent(groupId)).thenReturn(List.of(member));
+
+        GroupDetailResponse result = groupService.getGroupDetail(groupId);
+
+        assertThat(result.getId()).isEqualTo(groupId);
+        assertThat(result.getMembers()).hasSize(1);
+        assertThat(result.getMembers().getFirst().getStudentId()).isEqualTo(studentId);
+    }
+
+    @Test
+    void createGroup_throwsNotFound_whenCourseDoesNotExist() {
+        CreateGroupRequest request = createRequest();
+        when(currentUserProvider.getCurrentUser()).thenReturn(Optional.of(principal(instructorId, UserRole.INSTRUCTOR)));
+        when(courseRepository.findById(courseId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> groupService.createGroup(request))
+                .isInstanceOf(BusinessException.class)
+                .extracting("status")
+                .isEqualTo(HttpStatus.NOT_FOUND);
+
+        verify(studyGroupRepository, never()).save(any());
+    }
+
+    @Test
+    void addMembers_throwsBadRequest_whenEmailListEmpty() {
+        StudyGroupEntity group = groupEntity(groupId, courseEntity(instructorId), instructorUser());
+        AddGroupMembersRequest request = new AddGroupMembersRequest();
+        request.setEmails(List.of());
+
+        when(currentUserProvider.getCurrentUser()).thenReturn(Optional.of(principal(instructorId, UserRole.INSTRUCTOR)));
+        when(studyGroupRepository.findByIdAndInstructorId(groupId, instructorId)).thenReturn(Optional.of(group));
+
+        assertThatThrownBy(() -> groupService.addMembers(groupId, request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("empty");
+
+        verify(groupMemberRepository, never()).saveAll(anyList());
+    }
+
+    @Test
+    void addMembers_throwsNotFound_whenEmailDoesNotMatchAnyStudent() {
+        StudyGroupEntity group = groupEntity(groupId, courseEntity(instructorId), instructorUser());
+        AddGroupMembersRequest request = addMembersRequest("unknown@example.com");
+
+        when(currentUserProvider.getCurrentUser()).thenReturn(Optional.of(principal(instructorId, UserRole.INSTRUCTOR)));
+        when(studyGroupRepository.findByIdAndInstructorId(groupId, instructorId)).thenReturn(Optional.of(group));
+        when(userRepository.findByEmailIgnoreCaseInAndDeletedAtIsNull(List.of("unknown@example.com")))
+                .thenReturn(List.of());
+
+        assertThatThrownBy(() -> groupService.addMembers(groupId, request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("not found");
+    }
+
+    @Test
     void createGroup_savesGroup_whenCourseBelongsToInstructor() {
         Course course = courseEntity(instructorId);
         UserEntity instructor = instructorUser();

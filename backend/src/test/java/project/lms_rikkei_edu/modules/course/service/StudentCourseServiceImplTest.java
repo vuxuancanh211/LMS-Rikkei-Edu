@@ -273,6 +273,154 @@ class StudentCourseServiceImplTest {
     }
 
     @Test
+    void updateLessonProgress_videoLesson_videoS3Key_detectsVideo() {
+        when(courseEnrollmentRepository.existsByCourseIdAndStudentId(courseId, studentId)).thenReturn(true);
+        Lesson lesson = new Lesson();
+        lesson.setId(lessonId);
+        lesson.setVideoS3Key("videos/lecture.mp4");
+        when(lessonRepository.findById(lessonId)).thenReturn(Optional.of(lesson));
+        when(lessonProgressRepository.findByStudentIdAndLessonId(studentId, lessonId)).thenReturn(Optional.empty());
+
+        Course course = new Course();
+        course.setId(courseId);
+        Chapter chapter = new Chapter();
+        chapter.setLessons(List.of(lesson));
+        course.setChapters(List.of(chapter));
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(course));
+
+        UpdateProgressRequest req = new UpdateProgressRequest();
+        req.setWatchedPercentage(BigDecimal.valueOf(50));
+
+        studentCourseService.updateLessonProgress(studentId, courseId, lessonId, req);
+
+        verify(lessonProgressRepository).save(argThat(p ->
+            "IN_PROGRESS".equals(p.getStatus())
+        ));
+    }
+
+    @Test
+    void updateLessonProgress_videoAndDocumentCombined_bothComplete_marksCompleted() {
+        when(courseEnrollmentRepository.existsByCourseIdAndStudentId(courseId, studentId)).thenReturn(true);
+        Lesson lesson = new Lesson();
+        lesson.setId(lessonId);
+        LessonResource resVideo = new LessonResource();
+        resVideo.setResourceType(ResourceType.VIDEO);
+        LessonResource resPdf = new LessonResource();
+        resPdf.setResourceType(ResourceType.PDF);
+        lesson.setResources(List.of(resVideo, resPdf));
+        when(lessonRepository.findById(lessonId)).thenReturn(Optional.of(lesson));
+        when(lessonProgressRepository.findByStudentIdAndLessonId(studentId, lessonId)).thenReturn(Optional.empty());
+
+        Course course = new Course();
+        course.setId(courseId);
+        Chapter chapter = new Chapter();
+        chapter.setLessons(List.of(lesson));
+        course.setChapters(List.of(chapter));
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(course));
+
+        UpdateProgressRequest req = new UpdateProgressRequest();
+        req.setWatchedPercentage(BigDecimal.valueOf(95));
+        req.setDocumentViewSeconds(15);
+
+        studentCourseService.updateLessonProgress(studentId, courseId, lessonId, req);
+
+        verify(lessonProgressRepository).save(argThat(p ->
+            "COMPLETED".equals(p.getStatus()) &&
+            p.getLessonPercentage().intValue() == 100
+        ));
+    }
+
+    @Test
+    void updateLessonProgress_videoAndDocumentCombined_partial_showsPartialPercentage() {
+        when(courseEnrollmentRepository.existsByCourseIdAndStudentId(courseId, studentId)).thenReturn(true);
+        Lesson lesson = new Lesson();
+        lesson.setId(lessonId);
+        LessonResource resVideo = new LessonResource();
+        resVideo.setResourceType(ResourceType.VIDEO);
+        LessonResource resPdf = new LessonResource();
+        resPdf.setResourceType(ResourceType.PDF);
+        lesson.setResources(List.of(resVideo, resPdf));
+        when(lessonRepository.findById(lessonId)).thenReturn(Optional.of(lesson));
+        when(lessonProgressRepository.findByStudentIdAndLessonId(studentId, lessonId)).thenReturn(Optional.empty());
+
+        Course course = new Course();
+        course.setId(courseId);
+        Chapter chapter = new Chapter();
+        chapter.setLessons(List.of(lesson));
+        course.setChapters(List.of(chapter));
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(course));
+
+        // wp=50, dv=5 -> vidScore=min(50/90,1)*80=44.44, docScore=min(5/10,1)*20=10 -> 54%
+        UpdateProgressRequest req = new UpdateProgressRequest();
+        req.setWatchedPercentage(BigDecimal.valueOf(50));
+        req.setDocumentViewSeconds(5);
+
+        studentCourseService.updateLessonProgress(studentId, courseId, lessonId, req);
+
+        verify(lessonProgressRepository).save(argThat(p ->
+            "IN_PROGRESS".equals(p.getStatus()) &&
+            p.getLessonPercentage().intValue() == 54
+        ));
+    }
+
+    @Test
+    void updateLessonProgress_documentOnlyPartial_showsPartialPercentage() {
+        when(courseEnrollmentRepository.existsByCourseIdAndStudentId(courseId, studentId)).thenReturn(true);
+        Lesson lesson = new Lesson();
+        lesson.setId(lessonId);
+        LessonResource resPdf = new LessonResource();
+        resPdf.setResourceType(ResourceType.PDF);
+        lesson.setResources(List.of(resPdf));
+        when(lessonRepository.findById(lessonId)).thenReturn(Optional.of(lesson));
+        when(lessonProgressRepository.findByStudentIdAndLessonId(studentId, lessonId)).thenReturn(Optional.empty());
+
+        Course course = new Course();
+        course.setId(courseId);
+        Chapter chapter = new Chapter();
+        chapter.setLessons(List.of(lesson));
+        course.setChapters(List.of(chapter));
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(course));
+
+        // dv=10 (<20), wp=0 -> pctByTime=min(10*100/20,100)=50 -> 50%
+        UpdateProgressRequest req = new UpdateProgressRequest();
+        req.setDocumentViewSeconds(10);
+
+        studentCourseService.updateLessonProgress(studentId, courseId, lessonId, req);
+
+        verify(lessonProgressRepository).save(argThat(p ->
+            "IN_PROGRESS".equals(p.getStatus()) &&
+            p.getLessonPercentage().intValue() == 50
+        ));
+    }
+
+    @Test
+    void updateLessonProgress_textOnlyContentType_detectsAsDocument() {
+        when(courseEnrollmentRepository.existsByCourseIdAndStudentId(courseId, studentId)).thenReturn(true);
+        Lesson lesson = new Lesson();
+        lesson.setId(lessonId);
+        lesson.setType(LessonType.TEXT);
+        when(lessonRepository.findById(lessonId)).thenReturn(Optional.of(lesson));
+        when(lessonProgressRepository.findByStudentIdAndLessonId(studentId, lessonId)).thenReturn(Optional.empty());
+
+        Course course = new Course();
+        course.setId(courseId);
+        Chapter chapter = new Chapter();
+        chapter.setLessons(List.of(lesson));
+        course.setChapters(List.of(chapter));
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(course));
+
+        UpdateProgressRequest req = new UpdateProgressRequest();
+        req.setDocumentViewSeconds(25);
+
+        studentCourseService.updateLessonProgress(studentId, courseId, lessonId, req);
+
+        verify(lessonProgressRepository).save(argThat(p ->
+            "COMPLETED".equals(p.getStatus()) &&
+            p.getLessonPercentage().intValue() == 100
+        ));
+    }
+
+    @Test
     void updateLessonProgress_documentLesson_updatesProgress() {
         when(courseEnrollmentRepository.existsByCourseIdAndStudentId(courseId, studentId)).thenReturn(true);
         Lesson lesson = new Lesson();
