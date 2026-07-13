@@ -77,7 +77,7 @@ export function connectSSE(
   const baseURL = httpClient.defaults.baseURL || '';
 
   const url = `${baseURL}/notifications/sse`;
-  const reconnectDelayMs = 3000;
+  let currentDelayMs = 3000;
   let aborted = false;
   let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -115,7 +115,7 @@ export function connectSSE(
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null;
       connect();
-    }, reconnectDelayMs);
+    }, currentDelayMs);
   }
 
   async function connect() {
@@ -127,6 +127,7 @@ export function connectSSE(
         headers: { 'Authorization': `${tokenType || 'Bearer'} ${accessToken}` },
       });
       if (!response.ok || !response.body) {
+        currentDelayMs = Math.min(currentDelayMs * 1.5, 30000);
         if (!aborted && onError) onError();
         return;
       }
@@ -134,6 +135,7 @@ export function connectSSE(
       reader = response.body.getReader();
       if (hasConnected && onReconnect) onReconnect();
       hasConnected = true;
+      currentDelayMs = 3000;
       const decoder = new TextDecoder();
       let buffer = '';
 
@@ -150,6 +152,7 @@ export function connectSSE(
         }
       }
     } catch {
+      currentDelayMs = Math.min(currentDelayMs * 1.5, 30000);
       if (!aborted && onError) onError();
     } finally {
       reader = null;

@@ -53,6 +53,9 @@ public class JwtService {
 
     public UUID extractUserId(String token) {
         String userId = extractClaim(token, claims -> claims.get("userId", String.class));
+        if (userId == null) {
+            return null;
+        }
         return UUID.fromString(userId);
     }
 
@@ -73,7 +76,7 @@ public class JwtService {
 
     public boolean isTokenValid(String token, UserDetails userDetails) {
         String username = extractUsername(token);
-        return username.equals(userDetails.getUsername()) && !isTokenExpired(token);
+        return username != null && username.equals(userDetails.getUsername()) && !isTokenExpired(token);
     }
 
     public long getAccessTokenExpirationSeconds() {
@@ -81,7 +84,8 @@ public class JwtService {
     }
 
     private boolean isTokenExpired(String token) {
-        return extractExpiration(token).before(new Date());
+        Date expiration = extractExpiration(token);
+        return expiration != null && expiration.before(new Date());
     }
 
     private <T> T extractClaim(String token, Function<Claims, T> resolver) {

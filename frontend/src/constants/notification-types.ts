@@ -7,8 +7,18 @@ export enum NotificationType {
   ASSIGNMENT_SUBMITTED = 'ASSIGNMENT_SUBMITTED',
   CERTIFICATE_ISSUED = 'CERTIFICATE_ISSUED',
   COURSE_ENROLLMENT = 'COURSE_ENROLLMENT',
+  GROUP_MEMBER_ADDED = 'GROUP_MEMBER_ADDED',
+  GROUP_MEMBER_REMOVED = 'GROUP_MEMBER_REMOVED',
+  GROUP_SCHEDULE_CHANGED = 'GROUP_SCHEDULE_CHANGED',
+  GROUP_STARTING_SOON = 'GROUP_STARTING_SOON',
+  GROUP_STARTED = 'GROUP_STARTED',
+  GROUP_ENDING_SOON = 'GROUP_ENDING_SOON',
+  GROUP_ENDED = 'GROUP_ENDED',
+  GROUP_DELETED = 'GROUP_DELETED',
   COURSE_APPROVED = 'COURSE_APPROVED',
   SYSTEM_ANNOUNCEMENT = 'SYSTEM_ANNOUNCEMENT',
+  AI_SOURCE_INDEXED = 'AI_SOURCE_INDEXED',
+  AI_SOURCE_FAILED = 'AI_SOURCE_FAILED',
 }
 
 export const NotificationTypeLabels: Record<NotificationType, string> = {
@@ -18,8 +28,64 @@ export const NotificationTypeLabels: Record<NotificationType, string> = {
   [NotificationType.SUBMISSION_GRADED]: 'Bài làm đã chấm',
   [NotificationType.ASSIGNMENT_PUBLISHED]: 'Bài tập mới',
   [NotificationType.ASSIGNMENT_SUBMITTED]: 'Bài tập đã nộp',
-  [NotificationType.CERTIFICATE_ISSUED]: 'Chứng chỉ',
+  [NotificationType.CERTIFICATE_ISSUED]: 'Chứng chỉ mới',
   [NotificationType.COURSE_ENROLLMENT]: 'Ghi danh khóa học',
+  [NotificationType.GROUP_MEMBER_ADDED]: 'Thêm vào nhóm học',
+  [NotificationType.GROUP_MEMBER_REMOVED]: 'Rời nhóm học',
+  [NotificationType.GROUP_SCHEDULE_CHANGED]: 'Lịch học thay đổi',
+  [NotificationType.GROUP_STARTING_SOON]: 'Nhóm sắp bắt đầu',
+  [NotificationType.GROUP_STARTED]: 'Nhóm đã bắt đầu',
+  [NotificationType.GROUP_ENDING_SOON]: 'Nhóm sắp kết thúc',
+  [NotificationType.GROUP_ENDED]: 'Nhóm đã kết thúc',
+  [NotificationType.GROUP_DELETED]: 'Nhóm đã giải tán',
   [NotificationType.COURSE_APPROVED]: 'Khóa học được duyệt',
   [NotificationType.SYSTEM_ANNOUNCEMENT]: 'Thông báo hệ thống',
+  [NotificationType.AI_SOURCE_INDEXED]: 'Cập nhật tri thức AI',
+  [NotificationType.AI_SOURCE_FAILED]: 'Lỗi tri thức AI',
 };
+
+export const NotificationTypeMetadata: Record<string, { label: string; icon: string; color: string; category: string }> = {
+  FORUM_REPLY: { label: 'Trả lời diễn đàn', icon: 'message', color: '#8b5cf6', category: 'Diễn đàn' },
+  FORUM_POST: { label: 'Bài đăng diễn đàn', icon: 'message', color: '#6366f1', category: 'Diễn đàn' },
+  QUIZ_PUBLISHED: { label: 'Bài kiểm tra mới', icon: 'shield', color: '#f59e0b', category: 'Học tập' },
+  SUBMISSION_GRADED: { label: 'Bài làm đã chấm', icon: 'check_circle', color: '#10b981', category: 'Học tập' },
+  ASSIGNMENT_PUBLISHED: { label: 'Bài tập mới', icon: 'clipboard', color: '#3b82f6', category: 'Học tập' },
+  ASSIGNMENT_SUBMITTED: { label: 'Bài tập đã nộp', icon: 'upload', color: '#06b6d4', category: 'Học tập' },
+  CERTIFICATE_ISSUED: { label: 'Chứng chỉ mới', icon: 'award', color: '#ec4899', category: 'Học tập' },
+  COURSE_ENROLLMENT: { label: 'Ghi danh khóa học', icon: 'user_plus', color: '#2563eb', category: 'Khóa học' },
+  COURSE_APPROVED: { label: 'Khóa học được duyệt', icon: 'check', color: '#16a34a', category: 'Khóa học' },
+  GROUP_MEMBER_ADDED: { label: 'Thêm vào nhóm học', icon: 'users', color: '#0ea5e9', category: 'Nhóm học' },
+  GROUP_MEMBER_REMOVED: { label: 'Rời nhóm học', icon: 'user_minus', color: '#ef4444', category: 'Nhóm học' },
+  GROUP_SCHEDULE_CHANGED: { label: 'Lịch học thay đổi', icon: 'calendar', color: '#f97316', category: 'Nhóm học' },
+  GROUP_STARTING_SOON: { label: 'Nhóm sắp bắt đầu', icon: 'clock', color: '#eab308', category: 'Nhóm học' },
+  GROUP_STARTED: { label: 'Nhóm đã bắt đầu', icon: 'play', color: '#22c55e', category: 'Nhóm học' },
+  GROUP_ENDING_SOON: { label: 'Nhóm sắp kết thúc', icon: 'clock', color: '#f43f5e', category: 'Nhóm học' },
+  GROUP_ENDED: { label: 'Nhóm đã kết thúc', icon: 'stop', color: '#64748b', category: 'Nhóm học' },
+  GROUP_DELETED: { label: 'Nhóm đã giải tán', icon: 'trash', color: '#94a3b8', category: 'Nhóm học' },
+  SYSTEM_ANNOUNCEMENT: { label: 'Thông báo hệ thống', icon: 'bell', color: '#d97706', category: 'Hệ thống' },
+  AI_SOURCE_INDEXED: { label: 'Cập nhật tri thức AI', icon: 'cpu', color: '#8b5cf6', category: 'Hệ thống' },
+  AI_SOURCE_FAILED: { label: 'Lỗi tri thức AI', icon: 'alert_circle', color: '#dc2626', category: 'Hệ thống' },
+};
+
+export function getNotificationTargetUrl(n: any): string {
+  if (!n) return '/notifications';
+  const type = n.type || '';
+  const refId = n.referenceId;
+  const refType = n.referenceType;
+  if (type === 'FORUM_POST' || type === 'FORUM_REPLY' || refType === 'POST' || refType === 'FORUM_POST') {
+    return refId ? `/student/forum?postId=${refId}` : '/student/forum';
+  }
+  if (type === 'QUIZ_PUBLISHED' || type === 'ASSIGNMENT_PUBLISHED' || type === 'SUBMISSION_GRADED') {
+    return refId ? `/student/courses/${refId}` : '/student/courses';
+  }
+  if (type.startsWith('COURSE_')) {
+    return refId ? `/student/courses/${refId}` : '/student/courses';
+  }
+  if (type.startsWith('GROUP_')) {
+    return refId ? `/student/groups/${refId}` : '/student/groups';
+  }
+  if (type === 'CERTIFICATE_ISSUED') {
+    return '/student/certificates';
+  }
+  return '/notifications';
+}

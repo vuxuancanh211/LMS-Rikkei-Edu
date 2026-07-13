@@ -466,7 +466,16 @@
     const progRef = useRef<any>({});
     const updateProgress = useCallback(async (watchedPct: any, position: any, docSeconds: any, isCompleted?: boolean) => {
       if (!courseId || !activeL?.id) return;
-      const targetStatus = isCompleted || progRef.current[activeL.id] === "COMPLETED" || (watchedPct !== null && watchedPct >= 90) || (videoResources.length === 0 && docSeconds !== null && docSeconds >= 20) ? "COMPLETED" : "IN_PROGRESS";
+      const hasVid = videoResources.length > 0;
+      const hasDoc = docResources.length > 0;
+      const autoComp = (hasVid && hasDoc)
+        ? ((watchedPct !== null ? watchedPct >= 90 : false) && (docSeconds !== null ? docSeconds >= 10 : false))
+        : hasVid
+        ? (watchedPct !== null && watchedPct >= 90)
+        : hasDoc
+        ? ((docSeconds !== null && docSeconds >= 20) || (watchedPct !== null && watchedPct >= 90))
+        : true;
+      const targetStatus = isCompleted || progRef.current[activeL.id] === "COMPLETED" || autoComp ? "COMPLETED" : "IN_PROGRESS";
       if (targetStatus === "COMPLETED") {
         progRef.current[activeL.id] = "COMPLETED";
       }
@@ -654,7 +663,7 @@
 
     /* ── Progress: Document timer (count seconds while viewing) ── */
     const docSecRef = useRef(0);
-    const docTimerRef = useRef(null);
+    const docTimerRef = useRef<any>(null);
     useEffect(() => {
       if (activeL?.progress === "COMPLETED") return;
       if (!viewRes || viewRes.resourceType === "VIDEO") return;
@@ -666,9 +675,11 @@
       // Send initial progress immediately, then every 5 seconds
       updateProgress(null, null, 0, false);
 
+      const targetDocSec = isVideoLesson ? 10 : 20;
+
       docTimerRef.current = setInterval(() => {
         docSecRef.current += 1;
-        const isComp = !isVideoLesson && docSecRef.current >= 20;
+        const isComp = !isVideoLesson && docSecRef.current >= targetDocSec;
         if (isComp) progRef.current[activeL?.id] = "COMPLETED";
         if (docSecRef.current % 5 === 0 || isComp) {
           updateProgress(null, null, docSecRef.current, isComp);
@@ -679,7 +690,8 @@
         if (docTimerRef.current) clearInterval(docTimerRef.current);
         // Flush final count on unmount
         if (docSecRef.current > 0) {
-          updateProgress(null, null, docSecRef.current, !isVideoLesson && docSecRef.current >= 20);
+          const target = isVideoLesson ? 10 : 20;
+          updateProgress(null, null, docSecRef.current, !isVideoLesson && docSecRef.current >= target);
         }
       };
     }, [viewRes?.id, activeL?.id, isVideoLesson]);
