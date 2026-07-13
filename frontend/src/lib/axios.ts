@@ -94,7 +94,7 @@ httpClient.interceptors.response.use(
     } catch (refreshError: any) {
       flushQueue(null, refreshError);
       const refreshStatus = refreshError?.response?.status;
-      if (refreshStatus === 401 || refreshStatus === 403) {
+      if (refreshStatus === 401 || refreshStatus === 403 || !refreshStatus) {
         logout();
         window.location.assign('/login');
       }

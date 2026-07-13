@@ -4,7 +4,6 @@ import { useAuthStore } from '../../store';
 (() => {
   const { useState, useEffect, useCallback, useMemo } = React;
   const Ic = window.Icon;
-
   function timeAgo(value: string): string {
     if (!value) return '';
     const ms = Date.now() - new Date(value).getTime();

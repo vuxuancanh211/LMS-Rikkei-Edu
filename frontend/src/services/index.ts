@@ -6,3 +6,4 @@ export * from './ai-service';
 export * from './group-service';
 export * from './profile-service';
 export * from './certificate-service';
+export * from './grading-service';

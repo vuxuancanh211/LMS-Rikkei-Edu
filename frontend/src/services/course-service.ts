@@ -10,9 +10,29 @@ export type CourseResponse = {
   description?: string | null;
   chatEnabled?: boolean;
   instructorId: string;
+  instructorName?: string | null;
   submittedAt?: string | null;
   createdAt?: string | null;
   updatedAt?: string | null;
+};
+
+export type CourseDetailResponse = CourseResponse & {
+  rejectionReason?: string | null;
+  publishedAt?: string | null;
+  pendingUpdateAt?: string | null;
+  category?: { id: string; name: string; slug: string } | null;
+  chapters?: Array<{
+    id: string;
+    title: string;
+    orderIndex?: number;
+    lessons?: Array<{
+      id: string;
+      title: string;
+      orderIndex?: number;
+      contentText?: string | null;
+      resources?: Array<{ id: string; fileName?: string; type?: string }>;
+    }>;
+  }>;
 };
 
 type SpringPage<T> = {
@@ -28,6 +48,11 @@ export async function getCourses(params?: { size?: number }) {
     '/admin/courses',
     { params: { ...params, size: params?.size ?? 100 } },
   );
+  return response.data;
+}
+
+export async function getCourseDetail(courseId: string) {
+  const response = await httpClient.get<CourseDetailResponse>(`/admin/courses/${courseId}`);
   return response.data;
 }
 

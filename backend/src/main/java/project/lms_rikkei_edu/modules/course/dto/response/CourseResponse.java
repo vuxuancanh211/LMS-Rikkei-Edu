@@ -2,6 +2,7 @@ package project.lms_rikkei_edu.modules.course.dto.response;
 
 import lombok.Builder;
 import lombok.Getter;
+import lombok.Setter;
 import project.lms_rikkei_edu.modules.course.enums.CourseLevel;
 import project.lms_rikkei_edu.modules.course.enums.CourseStatus;
 
@@ -20,6 +21,8 @@ public class CourseResponse {
     private String description;
     private Boolean chatEnabled;
     private UUID instructorId;
+    @Setter
+    private String instructorName;
     private CourseCategoryResponse category;
     private Instant submittedAt;
     private Instant createdAt;

@@ -73,6 +73,12 @@ public class GroupController {
         return ResponseEntity.ok(groupService.searchStudentsByEmail(email));
     }
 
+    @GetMapping("/students/unassigned")
+    public ResponseEntity<List<StudentSearchResponse>> getUnassignedStudents(
+            @RequestParam UUID courseId) {
+        return ResponseEntity.ok(groupService.getUnassignedStudents(courseId));
+    }
+
     @PostMapping("/{groupId}/members")
     public ResponseEntity<List<GroupMemberResponse>> addMembers(
             @PathVariable UUID groupId,
