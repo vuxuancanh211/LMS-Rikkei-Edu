@@ -58,9 +58,7 @@ httpClient.interceptors.response.use(
 
     if (!storedRefreshToken) {
       logout();
-      if (window.location.pathname !== '/login') {
-        window.location.assign('/login');
-      }
+      window.location.assign('/login');
       return Promise.reject(error);
     }
 
@@ -96,11 +94,9 @@ httpClient.interceptors.response.use(
     } catch (refreshError: any) {
       flushQueue(null, refreshError);
       const refreshStatus = refreshError?.response?.status;
-      if (refreshStatus === 401 || refreshStatus === 403) {
+      if (refreshStatus === 401 || refreshStatus === 403 || !refreshStatus) {
         logout();
-        if (window.location.pathname !== '/login') {
-          window.location.assign('/login');
-        }
+        window.location.assign('/login');
       }
       return Promise.reject(refreshError);
     } finally {
