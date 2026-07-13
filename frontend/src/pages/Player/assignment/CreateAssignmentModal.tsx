@@ -91,6 +91,12 @@ import { createPortal } from 'react-dom';
     function toLocalTimeStr(d) {
       return `${padNum(d.getHours())}:${padNum(d.getMinutes())}`;
     }
+    function toLocalISOStr(dateStr, timeStr, fallback) {
+      if (!dateStr) return null;
+      const [y, m, d] = dateStr.split("-").map(Number);
+      const [hh, mi] = (timeStr || fallback).split(":").map(Number);
+      return new Date(y, m - 1, d, hh, mi).toISOString();
+    }
 
     useEffect(() => {
       if (!assignment) return;
@@ -237,14 +243,8 @@ import { createPortal } from 'react-dom';
       if (publishAfter && title.trim().length < 5) { setError("Tiêu đề phải có ít nhất 5 ký tự"); return; }
       if (allowedTypes.length === 0) { setError("Vui lòng chọn ít nhất một loại file được phép"); return; }
 
-      let startDate = null;
-      if (hasStartDate && startDateDate) {
-        startDate = new Date(`${startDateDate}T${startDateTime || "00:00"}:00+07:00`).toISOString();
-      }
-      let deadline = null;
-      if (hasDeadline && deadlineDate) {
-        deadline = new Date(`${deadlineDate}T${deadlineTime || "23:59"}:00+07:00`).toISOString();
-      }
+      const startDate = hasStartDate ? toLocalISOStr(startDateDate, startDateTime, "00:00") : null;
+      const deadline = hasDeadline ? toLocalISOStr(deadlineDate, deadlineTime, "23:59") : null;
 
       const payload = {
         title: title.trim(),

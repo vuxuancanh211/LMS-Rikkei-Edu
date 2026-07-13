@@ -22,7 +22,7 @@ const STATUS = {
   active:{c:"success",t:"Hoạt động"}, disabled:{c:"error",t:"Vô hiệu hóa"},
   pending:{c:"warning",t:"Chờ duyệt"}, approved:{c:"success",t:"Đã duyệt"}, rejected:{c:"error",t:"Từ chối"},
   published:{c:"success",t:"Đã xuất bản"}, draft:{c:"neutral",t:"Bản nháp"},
-  graded:{c:"success",t:"Đã chấm"}, submitted:{c:"info",t:"Đã nộp"}, late:{c:"error",t:"Trễ hạn"},
+   graded:{c:"success",t:"Đã chấm"}, submitted:{c:"info",t:"Đã nộp"}, returned:{c:"neutral",t:"Trả lại"}, not_submitted:{c:"neutral",t:"Chưa nộp",dot:"#94a3b8"},
 };
 function Status({ s }) {
   const m = STATUS[s] || { c: "neutral", t: s };

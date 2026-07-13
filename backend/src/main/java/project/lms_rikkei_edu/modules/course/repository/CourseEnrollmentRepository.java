@@ -21,4 +21,7 @@ public interface CourseEnrollmentRepository extends JpaRepository<CourseEnrollme
 
     @Query("SELECT ce.courseId FROM CourseEnrollmentEntity ce WHERE ce.studentId = :studentId")
     List<UUID> findCourseIdsByStudentId(@Param("studentId") UUID studentId);
+
+    @Query("SELECT ce.studentId FROM CourseEnrollmentEntity ce WHERE ce.courseId = :courseId")
+    List<UUID> findStudentIdsByCourseId(@Param("courseId") UUID courseId);
 }

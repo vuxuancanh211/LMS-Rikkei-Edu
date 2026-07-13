@@ -30,6 +30,7 @@ import project.lms_rikkei_edu.modules.assignment.repository.AssignmentRepository
 import project.lms_rikkei_edu.modules.course.entity.Course;
 import project.lms_rikkei_edu.modules.course.enums.CourseStatus;
 import project.lms_rikkei_edu.modules.course.repository.CourseRepository;
+import project.lms_rikkei_edu.modules.group.repository.StudyGroupRepository;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest;
@@ -71,6 +72,8 @@ class AssignmentServiceImplTest {
     private S3Client s3Client;
     @Mock
     private S3Service s3Service;
+    @Mock
+    private StudyGroupRepository studyGroupRepository;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private AssignmentServiceImpl service;
@@ -86,7 +89,7 @@ class AssignmentServiceImplTest {
         service = new AssignmentServiceImpl(
                 assignmentRepository, assignmentGroupRepository,
                 assignmentAttachmentRepository, courseRepository,
-                assignmentMapper, s3Client, s3Service, objectMapper);
+                assignmentMapper, studyGroupRepository, s3Client, s3Service, objectMapper);
         ReflectionTestUtils.setField(service, "bucket", "test-bucket");
         ReflectionTestUtils.setField(service, "presignedUrlExpiry", 3600L);
     }

@@ -105,6 +105,7 @@ export type StudentSearchItem = {
   id: string;
   email: string;
   fullName: string;
+  phoneNumber?: string | null;
   avatarUrl?: string | null;
 };
 

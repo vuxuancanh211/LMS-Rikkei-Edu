@@ -3,7 +3,7 @@
    RIKKEI EDU — Giảng viên · Bài tập & Trắc nghiệm (+ popup thêm câu hỏi / tạo đề)
    ============================================================ */
 (function () {
-  const { useState, useEffect } = React;
+  const { useState, useEffect, useRef } = React;
   const Ic = window.Icon, D = window.DATA, api = window.httpClient;
   const { Avatar, Status, Progress, StatCard, CourseCard, Search, Tabs, Select, Section, Pager, Modal, ModalHead, Empty, LineChart, BarChart, Donut } = window;
 
@@ -20,6 +20,36 @@
     const [assignments, setAssignments] = useState([]);
     const [loading, setLoading] = useState(false);
     const [editAssignment, setEditAssignment] = useState(null);
+    const [ctxMenu, setCtxMenu] = useState(null);
+    const [viewAssignment, setViewAssignment] = useState(null);
+
+    const [showFilter, setShowFilter] = useState(false);
+    const [courses, setCourses] = useState([]);
+    const [groups, setGroups] = useState([]);
+    const [filterCourseId, setFilterCourseId] = useState("");
+    const [filterGroupId, setFilterGroupId] = useState("");
+    const filterRef = useRef(null);
+
+    useEffect(() => {
+      if (window.__courseService?.getMyCourses) {
+        window.__courseService.getMyCourses()
+          .then(res => setCourses(res.content || []))
+          .catch(() => {});
+      }
+    }, []);
+
+    useEffect(() => {
+      if (!filterCourseId) { setGroups([]); setFilterGroupId(""); return; }
+      api.get("/instructor/groups", { params: { courseId: filterCourseId } })
+        .then(res => setGroups((res.data?.content || res.data || [])))
+        .catch(() => setGroups([]));
+    }, [filterCourseId]);
+
+    useEffect(() => {
+      const handler = e => { if (filterRef.current && !filterRef.current.contains(e.target)) setShowFilter(false); };
+      document.addEventListener("mousedown", handler);
+      return () => document.removeEventListener("mousedown", handler);
+    }, []);
 
     useEffect(() => {
       setLoading(true);
@@ -44,10 +74,28 @@
     // ----- ASSIGN tab list -----
     let assignList = assignments;
     if (q) assignList = assignList.filter(a => a.title.toLowerCase().includes(q.toLowerCase()));
+    if (filterCourseId) assignList = assignList.filter(a => a.courseId === filterCourseId);
+    if (filterGroupId) {
+      const selectedGroupName = groups.find(g => g.id === filterGroupId)?.name;
+      if (selectedGroupName) {
+        assignList = assignList.filter(a =>
+          a.scope === "ALL_GROUPS" || (a.groupNames && a.groupNames.includes(selectedGroupName))
+        );
+      }
+    }
     // ----- QUIZ tab = published quizzes -----
     const mockQuizzes = D.assignments.filter(a => a.type === "quiz").map((a, i) => ({ ...a, group: D.groups[i % D.groups.length].name, submitted: Math.floor(Math.random() * 18) + 2 }));
     let quizList = mockQuizzes;
     if (q) quizList = quizList.filter(a => a.title.toLowerCase().includes(q.toLowerCase()));
+    if (filterCourseId) quizList = quizList.filter(a => a.courseId === filterCourseId);
+    if (filterGroupId) {
+      const selectedGroupName = groups.find(g => g.id === filterGroupId)?.name;
+      if (selectedGroupName) {
+        quizList = quizList.filter(a =>
+          a.scope === "ALL_GROUPS" || (a.groupNames && a.groupNames.includes(selectedGroupName))
+        );
+      }
+    }
     // ----- BANK list -----
     let bankList = D.questionBank;
     if (bankCourse !== "all") bankList = bankList.filter(x => x.course === bankCourse);
@@ -66,7 +114,47 @@
             {tab === "bank" && <button className="btn btn-primary" onClick={() => { setCorrect(0); setBank(true); }}><Ic n="plus" size={17} />Thêm câu hỏi</button>}
           </div>
         </div>
-        <div className="toolbar">
+        <div className="toolbar" ref={filterRef}>
+          <div className="row gap-8" style={{ position: "relative" }}>
+            {tab !== "bank" && (
+              <button className="btn btn-soft btn-sm" onClick={() => setShowFilter(!showFilter)}>
+                <Ic n="filter" size={15} /> Lọc
+                {(filterCourseId || filterGroupId) && <span className="chip chip-primary" style={{ marginLeft: 6, padding: "0 6px", fontSize: 11 }}>!</span>}
+              </button>
+            )}
+            {showFilter && (
+              <div style={{
+                position: "absolute", top: "100%", left: 0, zIndex: 100,
+                background: "var(--surface)", border: "1px solid var(--border)",
+                borderRadius: 12, padding: 16, width: 320, marginTop: 6,
+                boxShadow: "0 8px 24px rgba(0,0,0,.08)", display: "flex", flexDirection: "column", gap: 12
+              }}>
+                <div>
+                  <label className="t-label" style={{ display: "block", marginBottom: 6 }}>Khóa học</label>
+                  <select className="input" value={filterCourseId} onChange={e => { setFilterCourseId(e.target.value); setFilterGroupId(""); }}
+                    style={{ width: "100%" }}>
+                    <option value="">Tất cả khóa học</option>
+                    {courses.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="t-label" style={{ display: "block", marginBottom: 6 }}>Nhóm</label>
+                  <select className="input" value={filterGroupId} onChange={e => setFilterGroupId(e.target.value)}
+                    disabled={!filterCourseId} style={{ width: "100%" }}>
+                    <option value="">Tất cả nhóm</option>
+                    {groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+                  </select>
+                </div>
+                <div className="row gap-8" style={{ justifyContent: "flex-end", marginTop: 4 }}>
+                  <button className="btn btn-ghost btn-sm" onClick={() => {
+                    setFilterCourseId(""); setFilterGroupId("");
+                    setShowFilter(false);
+                  }}>Đặt lại</button>
+                  <button className="btn btn-primary btn-sm" onClick={() => setShowFilter(false)}>Áp dụng</button>
+                </div>
+              </div>
+            )}
+          </div>
           <Tabs items={[{v:"assign",label:"Bài tập tự luận",count:assignList.length},{v:"quiz",label:"Đề trắc nghiệm",count:quizList.length},{v:"bank",label:"Ngân hàng câu hỏi",count:D.questionBank.length}]} value={tab} onChange={setTab} />
           <div className="grow" />
           {tab === "bank" && <Select value={bankCourse} onChange={v => { setBankCourse(v); }} options={[{v:"all",label:"Tất cả khóa học"}, ...courseOpts]} style={{ width: 240, flex: "none" }} />}
@@ -86,7 +174,12 @@
                     ) : pgAssign.slice.length === 0 ? (
                       <tr><td colSpan={7} style={{ textAlign: "center", padding: 32, color: "#94a3b8", fontSize: 13 }}>Chưa có bài tập nào</td></tr>
                     ) : pgAssign.slice.map(a => (
-                      <tr key={a.id}>
+                      <tr key={a.id}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          setCtxMenu({ x: e.clientX, y: e.clientY, a });
+                        }}
+                        style={{ cursor: "context-menu" }}>
                         <td><div className="row gap-10"><div className="stat-ic" style={{ width: 36, height: 36, borderRadius: 10, background: "var(--surface-3)", color: "var(--text-2)" }}><Ic n="file" size={17} /></div><b style={{ fontSize: 13.5, maxWidth: 180 }} className="truncate">{a.title}</b></div></td>
                         <td className="muted truncate" style={{ maxWidth: 150 }}>{a.courseTitle || a.courseId}</td>
                         <td className="muted truncate" style={{ maxWidth: 130 }}>{a.scope === "SPECIFIC_GROUPS" ? "Nhóm cụ thể" : "Tất cả"}</td>
@@ -207,6 +300,56 @@
           </div>
           <div className="modal-foot"><button className="btn btn-ghost" onClick={() => setRandom(false)}>Hủy</button><button className="btn btn-primary" onClick={() => setRandom(false)}><Ic n="sparkles" size={16} />Tạo đề & xuất bản</button></div>
         </Modal>
+
+        {/* ── Right-click context menu ── */}
+        {ctxMenu && (
+          <>
+            <div style={{ position: "fixed", inset: 0, zIndex: 200 }}
+              onClick={() => setCtxMenu(null)} />
+            <div style={{
+              position: "fixed", left: ctxMenu.x, top: ctxMenu.y, zIndex: 201,
+              background: "#fff", border: "1px solid #e2e8f0", borderRadius: 10,
+              boxShadow: "0 6px 20px rgba(0,0,0,.12)", minWidth: 150,
+              overflow: "hidden", padding: "4px 0",
+            }}>
+              <button style={{
+                display: "flex", alignItems: "center", gap: 8, width: "100%",
+                padding: "8px 14px", border: "none", background: "transparent",
+                fontSize: 13, color: "#0f172a", cursor: "pointer", textAlign: "left",
+              }}
+                onMouseEnter={e => e.currentTarget.style.background = "#f1f5f9"}
+                onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                onClick={() => {
+                  setViewAssignment(ctxMenu.a);
+                  setCtxMenu(null);
+                }}>
+                <Ic n="eye" size={14} />Xem
+              </button>
+              <button style={{
+                display: "flex", alignItems: "center", gap: 8, width: "100%",
+                padding: "8px 14px", border: "none", background: "transparent",
+                fontSize: 13, color: "#94a3b8", cursor: "not-allowed", textAlign: "left",
+              }} disabled onClick={() => setCtxMenu(null)}>
+                <Ic n="check" size={14} />Chấm điểm
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* ── Assignment Detail overlay ── */}
+        {viewAssignment && (
+          <div style={{
+            position: "fixed", inset: 0, zIndex: 1000, background: "#fff",
+            display: "flex", flexDirection: "column",
+          }}>
+            {React.createElement(window.AssignmentDetail, {
+              assignmentId: viewAssignment.id,
+              courseId: viewAssignment.courseId,
+              role: "instructor",
+              onBack: () => setViewAssignment(null),
+            })}
+          </div>
+        )}
       </div>
     );
   }

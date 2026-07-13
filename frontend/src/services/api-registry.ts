@@ -12,4 +12,6 @@ Object.assign(window, { __userService: userService, __csvImportService: csvImpor
 
 Object.assign(window, { __userService: userService, __csvImportService: csvImportService, __groupService: groupService, __courseService: courseService, __certificateService: certificateService });
 
-Object.assign(window, { __userService: userService, __csvImportService: csvImportService, __profileService: profileService, __certificateService: certificateService });
+import * as gradingService from './grading-service';
+
+Object.assign(window, { __userService: userService, __csvImportService: csvImportService, __profileService: profileService, __certificateService: certificateService, __gradingService: gradingService });

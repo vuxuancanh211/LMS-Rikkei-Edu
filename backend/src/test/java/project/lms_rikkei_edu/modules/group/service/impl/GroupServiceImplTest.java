@@ -17,6 +17,7 @@ import project.lms_rikkei_edu.modules.chat.entity.ChatRoomEntity;
 import project.lms_rikkei_edu.modules.chat.entity.ChatRoomMemberEntity;
 import project.lms_rikkei_edu.modules.chat.service.ChatRoomService;
 import project.lms_rikkei_edu.modules.course.entity.Course;
+import project.lms_rikkei_edu.modules.course.repository.CourseEnrollmentRepository;
 import project.lms_rikkei_edu.modules.course.repository.CourseRepository;
 import project.lms_rikkei_edu.modules.group.dto.request.AddGroupMembersRequest;
 import project.lms_rikkei_edu.modules.group.dto.request.CreateGroupRequest;
@@ -60,6 +61,8 @@ class GroupServiceImplTest {
     @Mock
     private GroupMemberRepository groupMemberRepository;
     @Mock
+    private CourseEnrollmentRepository courseEnrollmentRepository;
+    @Mock
     private CourseRepository courseRepository;
     @Mock
     private UserRepository userRepository;
@@ -87,6 +90,7 @@ class GroupServiceImplTest {
         groupService = new GroupServiceImpl(
                 studyGroupRepository,
                 groupMemberRepository,
+                courseEnrollmentRepository,
                 courseRepository,
                 userRepository,
                 currentUserProvider,
