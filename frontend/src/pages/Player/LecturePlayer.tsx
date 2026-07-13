@@ -553,7 +553,7 @@
                 })),
               }));
             }
-          } catch {}
+          } catch { /* ignore */ }
           setChapters(chs);
           const opened = {};
           chs.forEach(ch => { opened[ch.id] = true; });
@@ -674,7 +674,7 @@
       if (!courseId) return;
       const cache = {};
       chapters.forEach(ch => (ch.lessons || []).forEach(l => { if (l.progress) cache[l.id] = l.progress; }));
-      try { sessionStorage.setItem('lp_' + courseId, JSON.stringify(cache)); } catch {}
+      try { sessionStorage.setItem('lp_' + courseId, JSON.stringify(cache)); } catch { /* ignore */ }
     }, [courseId, chapters]);
 
     /* ── Progress: YouTube iframe tracking (no onTimeUpdate) ── */
