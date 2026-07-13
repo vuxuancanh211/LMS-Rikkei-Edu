@@ -21,6 +21,7 @@ import project.lms_rikkei_edu.modules.course.exception.CourseStateException;
 import project.lms_rikkei_edu.modules.course.mapper.CourseMapper;
 import project.lms_rikkei_edu.modules.course.repository.*;
 import project.lms_rikkei_edu.modules.course.service.impl.AdminCourseServiceImpl;
+import project.lms_rikkei_edu.modules.user.repository.UserRepository;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest;
 
 import java.net.URI;
@@ -41,6 +42,7 @@ class AdminCourseServiceImplTest {
     @Mock CourseApprovalLogRepository approvalLogRepo;
     @Mock LessonResourceRepository lessonResourceRepo;
     @Mock CourseVersionRepository courseVersionRepo;
+    @Mock UserRepository userRepository;
     @Mock S3Service s3Service;
 
     AdminCourseServiceImpl adminCourseService;
@@ -53,8 +55,9 @@ class AdminCourseServiceImplTest {
         adminCourseService = new AdminCourseServiceImpl(
                 courseRepo, courseMapper,
                 approvalLogRepo, lessonResourceRepo, courseVersionRepo,
-                s3Service, new ObjectMapper()
+                userRepository, s3Service, new ObjectMapper()
         );
+        when(userRepository.findAllByIdInAndDeletedAtIsNull(anyList())).thenReturn(List.of());
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────
