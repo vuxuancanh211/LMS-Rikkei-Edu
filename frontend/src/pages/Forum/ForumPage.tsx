@@ -649,7 +649,7 @@ function ForumDetail({ detail, setDetail, loading, error, onBack }) {
   );
 }
 
-function ForumPage({ demo }) {
+function ForumPage({ demo, postId }: { demo?: string; postId?: string }) {
   const Ic = window.Icon;
   const Av = window.Avatar;
   const Se = window.Search;
@@ -728,11 +728,14 @@ function ForumPage({ demo }) {
 
   useEffect(() => {
     loadCourses().catch(() => setError('Không tải được danh sách khóa học'));
-    const pid = new URLSearchParams(window.location.search).get('postId');
+  }, []);
+
+  useEffect(() => {
+    const pid = postId || new URLSearchParams(window.location.search).get('postId');
     if (pid && pid !== selectedPostId) {
       openDetail(pid);
     }
-  }, []);
+  }, [postId, selectedPostId]);
 
   useEffect(() => {
     loadPosts();

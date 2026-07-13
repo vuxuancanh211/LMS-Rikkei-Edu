@@ -1,4 +1,4 @@
-﻿// @ts-nocheck
+// @ts-nocheck
 /* ============================================================
      RIKKEI EDU – Giảng viên · Chi tiết Khóa học
    ============================================================ */
@@ -137,8 +137,14 @@
     );
   }
 
-  function InsCourseDetail({ nav }) {
-    const courseId = window.__selectedCourseId || sessionStorage.getItem("selectedCourseId") || null;
+  function InsCourseDetail({ nav, courseId: propCourseId }: { nav?: any; courseId?: string } = {}) {
+    const [urlCourseId, setUrlCourseId] = useState(() => new URLSearchParams(window.location.search).get("courseId"));
+    useEffect(() => {
+      const checkUrl = () => setUrlCourseId(new URLSearchParams(window.location.search).get("courseId"));
+      window.addEventListener("popstate", checkUrl);
+      return () => window.removeEventListener("popstate", checkUrl);
+    }, []);
+    const courseId = propCourseId || urlCourseId || window.__selectedCourseId || sessionStorage.getItem("selectedCourseId") || null;
 
     const [course, setCourse]     = useState(null);
     const [chapters, setChapters] = useState([]);

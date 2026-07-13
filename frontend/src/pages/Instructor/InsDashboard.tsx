@@ -53,7 +53,7 @@
           <div><h1 className="t-display">Tổng quan Giảng dạy</h1><p>Tổng quan hoạt động giảng dạy của bạn trên Rikkei Edu.</p></div>
           <button className="btn btn-primary" onClick={() => setCreate(true)}><Ic n="plus" size={17} />Tạo khóa học mới</button>
         </div>
-        <window.CreateCourseModal open={create} onClose={() => setCreate(false)} onCreated={() => nav("courseDetail")} />
+        <window.CreateCourseModal open={create} onClose={() => setCreate(false)} onCreated={() => nav("courseDetail", { courseId: window.__selectedCourseId || sessionStorage.getItem("selectedCourseId") })} />
         <div className="grid grid-stats" style={{ marginBottom: 22 }}>
           <StatCard icon="book" iconBg="#eaf1ff" iconColor="#2563eb" value={loading ? "..." : (dashboard?.activeCoursesCount ?? 0)} label="Khóa học đang dạy" sub={dashboard?.pendingCoursesCount > 0 ? `${dashboard.pendingCoursesCount} chờ phê duyệt` : "Đang hoạt động"} />
           <StatCard icon="users" iconBg="#e7f8f0" iconColor="#059669" value={loading ? "..." : (dashboard?.totalStudentsCount ?? 0)} label="Tổng học viên" />

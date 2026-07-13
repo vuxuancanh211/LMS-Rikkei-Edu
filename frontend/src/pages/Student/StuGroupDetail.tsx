@@ -4,7 +4,15 @@
   const Ic = window.Icon;
   const { Avatar, StatCard, Search, Section, Empty } = window;
 
-  function StuGroupDetail({ nav, groupId }) {
+  function StuGroupDetail({ nav, groupId: propGroupId }: { nav?: any; groupId?: string } = {}) {
+    const [urlGroupId, setUrlGroupId] = useState(() => new URLSearchParams(window.location.search).get("groupId"));
+    useEffect(() => {
+      const checkUrl = () => setUrlGroupId(new URLSearchParams(window.location.search).get("groupId"));
+      window.addEventListener("popstate", checkUrl);
+      return () => window.removeEventListener("popstate", checkUrl);
+    }, []);
+    const groupId = propGroupId || urlGroupId || window.__selectedGroupId || sessionStorage.getItem("selectedGroupId") || null;
+
     const [q, setQ] = useState("");
     const [group, setGroup] = useState(null);
     const [loading, setLoading] = useState(true);
