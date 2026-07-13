@@ -182,7 +182,12 @@ function registerGalleryPage() {
     const go = useCallback((k, params) => {
       setDemo(null);
       let p = { ...params };
-      if (k === 'courseDetail' || k === 'player' || k === 'courses' || k === 'preview') {
+      if (k === 'courseDetail' || k === 'player' || k === 'preview') {
+        // Chỉ fallback về courseId đã chọn trước đó (window/sessionStorage) cho các key vốn đã
+        // mang ý định "vào 1 khóa cụ thể". "courses" là điều hướng tới DANH SÁCH khóa học — nếu
+        // không có courseId tường minh (VD bấm mục "Khóa học của tôi" ở sidebar) thì không được
+        // tự ý gắn courseId cũ vào, nếu không sẽ bị redirect nhầm sang màn học 1 khóa đã xem lần
+        // trước (có thể học viên không còn đăng ký/không liên quan) thay vì hiện đúng danh sách.
         const cid = p.courseId || window.__selectedCourseId || sessionStorage.getItem("selectedCourseId");
         if (cid) p.courseId = cid;
       }

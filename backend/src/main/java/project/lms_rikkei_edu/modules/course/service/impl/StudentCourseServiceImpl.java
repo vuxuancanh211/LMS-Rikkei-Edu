@@ -95,7 +95,7 @@ public class StudentCourseServiceImpl implements StudentCourseService {
     public List<StudentCourseResponse> getEnrolledCourses(UUID studentId) {
         List<Course> courses = courseRepository.findEnrolledCoursesByStudentId(studentId)
                 .stream()
-                .filter(c -> c.getStatus() == CourseStatus.PUBLISHED)
+                .filter(this::isLive)
                 .toList();
 
         if (courses.isEmpty()) return Collections.emptyList();
@@ -175,7 +175,7 @@ public class StudentCourseServiceImpl implements StudentCourseService {
         if (course.getDeletedAt() != null) {
             throw new BusinessException("Khóa học đã bị xóa");
         }
-        if (course.getStatus() != CourseStatus.PUBLISHED) {
+        if (!isLive(course)) {
             throw new BusinessException("Khóa học chưa được xuất bản");
         }
 
@@ -463,7 +463,27 @@ public class StudentCourseServiceImpl implements StudentCourseService {
         }
     }
 
+    /**
+     * Học viên phải thấy được khóa học ở cả 2 trạng thái "đang live": PUBLISHED bình thường, và
+     * PENDING_UPDATE (đã publish, đang có 1 bản cập nhật chờ duyệt) — trong lúc chờ duyệt, học
+     * viên vẫn xem được bản đã publish trước đó, không bị mất quyền truy cập khóa học.
+     */
+    private boolean isLive(Course course) {
+        return course.getStatus() == CourseStatus.PUBLISHED
+                || course.getStatus() == CourseStatus.PENDING_UPDATE;
+    }
+
     private void filterToLiveContentOnly(CourseDetailResponse response) {
+        // Che các trường draft ở cấp khóa học — học viên không cần biết đang có bản cập nhật
+        // chờ duyệt hay nội dung cụ thể của bản đó (chỉ giảng viên/admin cần thấy để duyệt).
+        response.setHasPendingDraft(false);
+        response.setDraftTitle(null);
+        response.setDraftDescription(null);
+        response.setDraftThumbnailUrl(null);
+        response.setDraftLevel(null);
+        response.setChangeSummary(null);
+        response.setDraftRejectionReason(null);
+
         if (response.getChapters() == null) return;
         // Danh sách từ mapper có thể bất biến (List.of / Collections.unmodifiableList) — copy
         // sang ArrayList trước khi lọc, rồi gán ngược lại qua setter.

@@ -2,6 +2,7 @@
 /* ============================================================
    RIKKEI EDU — Giảng viên · Bài tập & Trắc nghiệm
    ============================================================ */
+import { createPortal } from 'react-dom';
 (function () {
   const { useState, useEffect, useCallback, useRef } = React;
   const Ic = window.Icon;
@@ -637,14 +638,17 @@
     /* ─── Render ─────────────────────────────────────────────── */
     return (
       <div className="page fade-in">
-        {/* Toast */}
-        {toast && (
+        {/* Toast — portal thẳng ra document.body giống Modal (component/base/index.tsx), tránh bị
+            kẹt trong stacking context của .page/.main khi có modal (dùng backdrop-filter blur +
+            z-index 1000) đang mở đè lên, khiến toast tuy z-index cao hơn vẫn bị chìm/mờ phía sau. */}
+        {toast && createPortal(
           <div style={{ position: 'fixed', top: 20, right: 24, zIndex: 9999, minWidth: 280,
             background: toast.type === 'error' ? 'var(--error)' : '#10b981',
             color: '#fff', borderRadius: 11, padding: '13px 18px', fontWeight: 600, fontSize: 14,
             boxShadow: '0 4px 24px rgba(0,0,0,.18)' }}>
             {toast.msg}
-          </div>
+          </div>,
+          document.body
         )}
 
         <div className="page-head between">

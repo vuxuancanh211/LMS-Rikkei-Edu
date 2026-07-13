@@ -135,7 +135,11 @@ function RoutedShell({ role, route }: { role: keyof typeof roleRoutes; route: st
       }}
       onNavigate={(nextRole: keyof typeof roleRoutes, nextRoute: string, extra?: Record<string, string>) => {
         let params = { ...extra };
-        if (nextRoute === 'courseDetail' || nextRoute === 'player' || nextRoute === 'courses' || nextRoute === 'preview') {
+        if (nextRoute === 'courseDetail' || nextRoute === 'player' || nextRoute === 'preview') {
+          // Không fallback về courseId đã chọn trước đó cho "courses" — đó là điều hướng tới
+          // DANH SÁCH khóa học (VD bấm "Khóa học của tôi"), nếu không có courseId tường minh thì
+          // không được tự gắn courseId cũ vào, nếu không sẽ bị redirect nhầm sang màn học 1 khóa
+          // đã xem lần trước thay vì hiện đúng danh sách (xem cùng bug đã fix ở GalleryPage.tsx).
           const cid = params.courseId || window.__selectedCourseId || sessionStorage.getItem("selectedCourseId");
           if (cid) params.courseId = cid;
         }

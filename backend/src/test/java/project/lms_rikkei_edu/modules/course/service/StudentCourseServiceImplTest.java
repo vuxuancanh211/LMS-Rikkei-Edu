@@ -126,6 +126,40 @@ class StudentCourseServiceImplTest {
     }
 
     @Test
+    void getEnrolledCourses_pendingUpdateCourse_stillVisible() {
+        // Regression: khóa học đã publish nhưng đang có bản cập nhật chờ duyệt (PENDING_UPDATE)
+        // trước đây bị lọc mất khỏi danh sách "khóa học của tôi" — học viên vẫn phải thấy được
+        // bản đã publish trong lúc chờ admin duyệt bản cập nhật.
+        Course course = new Course();
+        course.setId(courseId);
+        course.setTitle("PostgreSQL Nâng Cao");
+        course.setStatus(CourseStatus.PENDING_UPDATE);
+        course.setInstructorId(instructorId);
+
+        when(courseRepository.findEnrolledCoursesByStudentId(studentId)).thenReturn(List.of(course));
+        when(userRepository.findAllById(any())).thenReturn(List.of());
+        when(courseProgressRepository.findByStudentIdAndCourseIdIn(eq(studentId), any())).thenReturn(List.of());
+
+        List<StudentCourseResponse> result = studentCourseService.getEnrolledCourses(studentId);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getTitle()).isEqualTo("PostgreSQL Nâng Cao");
+    }
+
+    @Test
+    void getEnrolledCourses_draftCourse_stillExcluded() {
+        Course course = new Course();
+        course.setId(courseId);
+        course.setStatus(CourseStatus.DRAFT);
+        course.setInstructorId(instructorId);
+        when(courseRepository.findEnrolledCoursesByStudentId(studentId)).thenReturn(List.of(course));
+
+        List<StudentCourseResponse> result = studentCourseService.getEnrolledCourses(studentId);
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
     void getCourseDetail_notFound_throwsException() {
         when(courseRepository.findByIdWithCategory(courseId)).thenReturn(Optional.empty());
         assertThatThrownBy(() -> studentCourseService.getCourseDetail(studentId, courseId))
@@ -156,6 +190,37 @@ class StudentCourseServiceImplTest {
         assertThatThrownBy(() -> studentCourseService.getCourseDetail(studentId, courseId))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("Bạn chưa đăng ký khóa học này");
+    }
+
+    @Test
+    void getCourseDetail_pendingUpdate_succeedsAndHidesDraftFields() {
+        // Regression: trước đây PENDING_UPDATE bị chặn cứng ở đây, khiến học viên không xem được
+        // khóa học đã publish trong lúc chờ duyệt bản cập nhật. Đồng thời phải che các trường
+        // draft cấp khóa học (hasPendingDraft/draftTitle/...) khỏi học viên.
+        Course course = new Course();
+        course.setId(courseId);
+        course.setStatus(CourseStatus.PENDING_UPDATE);
+        when(courseRepository.findByIdWithCategory(courseId)).thenReturn(Optional.of(course));
+        when(courseEnrollmentRepository.existsByCourseIdAndStudentId(courseId, studentId)).thenReturn(true);
+        when(lessonProgressRepository.findByStudentIdAndCourseId(studentId, courseId)).thenReturn(List.of());
+
+        CourseDetailResponse detailResp = CourseDetailResponse.builder()
+                .id(courseId)
+                .title("Bản đã publish")
+                .hasPendingDraft(true)
+                .draftTitle("Bản đang chờ duyệt")
+                .draftDescription("Mô tả mới chưa duyệt")
+                .changeSummary("Sửa lỗi chính tả")
+                .build();
+        when(courseMapper.toDetailResponse(course)).thenReturn(detailResp);
+
+        CourseDetailResponse result = studentCourseService.getCourseDetail(studentId, courseId);
+
+        assertThat(result.getTitle()).isEqualTo("Bản đã publish");
+        assertThat(result.isHasPendingDraft()).isFalse();
+        assertThat(result.getDraftTitle()).isNull();
+        assertThat(result.getDraftDescription()).isNull();
+        assertThat(result.getChangeSummary()).isNull();
     }
 
     @Test
