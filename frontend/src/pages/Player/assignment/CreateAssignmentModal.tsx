@@ -33,7 +33,7 @@ import { createPortal } from 'react-dom';
     const [files, setFiles] = useState([]);
     const [selectedCourseId, setSelectedCourseId] = useState(courseId || "");
     const [courses, setCourses] = useState([]);
-    const [coursesLoading, setCoursesLoading] = useState(!courseId);
+    const [coursesLoading, setCoursesLoading] = useState(role === 'instructor' || !courseId);
     const [selectedGroupIds, setSelectedGroupIds] = useState([]);
     const [groups, setGroups] = useState([]);
     const [groupsLoading, setGroupsLoading] = useState(false);
@@ -42,7 +42,7 @@ import { createPortal } from 'react-dom';
     const deletedAttachmentIds = useRef([]);
 
     useEffect(() => {
-      if (courseId) return;
+      if (role !== 'instructor' && courseId) return;
       api.get("/instructor/courses?size=100").then(res => {
         const data = res.data || res;
         const list = data.content || data;
@@ -51,7 +51,7 @@ import { createPortal } from 'react-dom';
       }).catch(() => setCoursesLoading(false));
     }, []);
 
-    const effectiveCourseId = courseId || selectedCourseId;
+    const effectiveCourseId = selectedCourseId || courseId;
 
     useEffect(() => {
       if (!effectiveCourseId || scope !== "SPECIFIC_GROUPS") {
@@ -341,7 +341,7 @@ import { createPortal } from 'react-dom';
                 <Ic n="book" size={12} style={{ marginRight: 4 }} />
                 {assignment.courseTitle || "Đang tải..."}
               </div>
-            ) : !courseId && (
+            ) : (role === 'instructor') && (
               <div style={{ flex: 1, maxWidth: 280 }}>
                 <select value={selectedCourseId}
                   onChange={e => setSelectedCourseId(e.target.value)}

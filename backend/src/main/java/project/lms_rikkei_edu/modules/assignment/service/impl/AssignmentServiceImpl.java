@@ -391,10 +391,6 @@ public class AssignmentServiceImpl implements AssignmentService {
         validateCourseOwnership(courseId, instructorId);
         AssignmentEntity assignment = findAssignment(courseId, assignmentId);
 
-        if (assignment.getStatus() != AssignmentStatus.DRAFT) {
-            throw new BusinessException("Chỉ có thể upload file đính kèm khi bài tập ở trạng thái DRAFT");
-        }
-
         if (file == null || file.isEmpty()) {
             throw new BusinessException("File không được để trống");
         }
@@ -445,10 +441,6 @@ public class AssignmentServiceImpl implements AssignmentService {
     public void deleteAttachment(UUID courseId, UUID assignmentId, UUID attachmentId, UUID instructorId) {
         validateCourseOwnership(courseId, instructorId);
         AssignmentEntity assignment = findAssignment(courseId, assignmentId);
-
-        if (assignment.getStatus() != AssignmentStatus.DRAFT) {
-            throw new BusinessException("Chỉ có thể xoá file đính kèm khi bài tập ở trạng thái DRAFT");
-        }
 
         AssignmentAttachmentEntity attachment = assignmentAttachmentRepository.findById(attachmentId)
                 .orElseThrow(() -> new BusinessException("Không tìm thấy file đính kèm"));
@@ -546,6 +538,15 @@ public class AssignmentServiceImpl implements AssignmentService {
             hasChanges = true;
         }
 
+        if (request.getMaxFileSizeMb() != null) {
+            assignment.setMaxFileSizeMb(request.getMaxFileSizeMb());
+            hasChanges = true;
+        }
+        if (request.getAllowedFileTypes() != null) {
+            assignment.setAllowedFileTypes(toJsonArray(request.getAllowedFileTypes()));
+            hasChanges = true;
+        }
+
         if (request.getScope() != null) {
             assignment.setScope(request.getScope());
             hasChanges = true;
@@ -556,7 +557,7 @@ public class AssignmentServiceImpl implements AssignmentService {
         }
 
         if (!hasChanges) {
-            throw new BusinessException("Sau khi publish chỉ có thể thay đổi deadline, allow_late_submission, late_penalty_percent, max_submissions, scope và group_ids");
+            throw new BusinessException("Sau khi publish chỉ có thể thay đổi deadline, allow_late_submission, late_penalty_percent, max_submissions, max_file_size_mb, allowed_file_types, scope và group_ids");
         }
     }
 
