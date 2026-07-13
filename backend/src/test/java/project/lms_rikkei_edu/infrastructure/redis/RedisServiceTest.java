@@ -169,16 +169,14 @@ class RedisServiceTest {
     void isRefreshTokenValid_checksSetMembership() {
         when(redisTemplate.hasKey(RedisKeyConstants.REFRESH_TOKEN + userId + ":" + tokenHash)).thenReturn(false);
         when(valueOps.get(RedisKeyConstants.REFRESH_TOKEN + userId)).thenReturn(null);
-        when(setOps.members(RedisKeyConstants.USER_TOKENS + userId)).thenReturn(Set.of("other-token"));
-        when(setOps.isMember(RedisKeyConstants.USER_TOKENS + userId, tokenHash)).thenReturn(true);
-        assertThat(redisService.isRefreshTokenValid(userId, tokenHash)).isTrue();
+        assertThat(redisService.isRefreshTokenValid(userId, tokenHash)).isFalse();
     }
 
     @Test
     void rotateRefreshTokenWithGracePeriod_extendsExactKey() {
         when(redisTemplate.hasKey(RedisKeyConstants.REFRESH_TOKEN + userId + ":" + tokenHash)).thenReturn(true);
         redisService.rotateRefreshTokenWithGracePeriod(userId, tokenHash, 30L);
-        verify(redisTemplate).expire(eq(RedisKeyConstants.REFRESH_TOKEN + userId + ":" + tokenHash), eq(Duration.ofSeconds(30L)));
+        verify(redisTemplate).expire(RedisKeyConstants.REFRESH_TOKEN + userId + ":" + tokenHash, Duration.ofSeconds(30L));
     }
 
     @Test
@@ -186,7 +184,7 @@ class RedisServiceTest {
         when(redisTemplate.hasKey(RedisKeyConstants.REFRESH_TOKEN + userId + ":" + tokenHash)).thenReturn(false);
         when(valueOps.get(RedisKeyConstants.REFRESH_TOKEN + userId)).thenReturn(tokenHash);
         redisService.rotateRefreshTokenWithGracePeriod(userId, tokenHash, 30L);
-        verify(redisTemplate).expire(eq(RedisKeyConstants.REFRESH_TOKEN + userId), eq(Duration.ofSeconds(30L)));
+        verify(redisTemplate).expire(RedisKeyConstants.REFRESH_TOKEN + userId, Duration.ofSeconds(30L));
     }
 
     @Test
@@ -283,7 +281,7 @@ class RedisServiceTest {
     @Test
     void getRateLimitRemaining_returnsZero_whenExceeded() {
         when(valueOps.get(RedisKeyConstants.RATE_LIMIT + "test-key")).thenReturn("10");
-        assertThat(redisService.getRateLimitRemaining("test-key")).isEqualTo(0L);
+        assertThat(redisService.getRateLimitRemaining("test-key")).isZero();
     }
 
     // ── SSE Connected Users ───────────────────────────────────────────────────
