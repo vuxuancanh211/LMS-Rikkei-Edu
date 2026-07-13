@@ -312,8 +312,8 @@ public class StudentCourseServiceImpl implements StudentCourseService {
 
     private boolean determineCompleted(UpdateProgressRequest request, LessonProgressEntity progress,
                                         boolean hasVideo, boolean hasDocument, int wp, int dv) {
-        if (request.getCompleted() != null) {
-            return request.getCompleted();
+        if (Boolean.TRUE.equals(request.getCompleted())) {
+            return true;
         }
         if (hasVideo && hasDocument) {
             return wp >= 90 && dv >= 10;
@@ -323,6 +323,9 @@ public class StudentCourseServiceImpl implements StudentCourseService {
         }
         if (hasDocument) {
             return dv >= 20 || wp >= 90;
+        }
+        if (request.getCompleted() != null && !request.getCompleted()) {
+            return false;
         }
         return progress.getStatus() == null || STATUS_COMPLETED.equals(progress.getStatus());
     }
