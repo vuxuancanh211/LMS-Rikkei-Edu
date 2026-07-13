@@ -30,6 +30,7 @@
     const [selected, setSelected] = useState(new Set());
     const [releasing, setReleasing] = useState(false);
     const [previewFiles, setPreviewFiles] = useState(null);
+    const [viewAssignment, setViewAssignment] = useState(null);
 
     const filterRef = useRef(null);
 
@@ -185,8 +186,7 @@
             { v: "submitted", label: "Đã nộp" },
             { v: "graded", label: "Đã chấm" },
             { v: "late", label: "Trễ hạn" },
-            { v: "not_submitted", label: "Chưa nộp" },
-            { v: "returned", label: "Trả lại" }
+            { v: "not_submitted", label: "Chưa nộp" }
           ]} value={tab} onChange={setTab} />
           <Search placeholder="Tìm học viên, bài tập..." value={q} onChange={setQ} style={{ width: 220, flex: "none" }} />
         </div>
@@ -215,11 +215,11 @@
                         onChange={e => {
                           if (e.target.checked) setSelected(new Set(list.filter(s => s.status === "graded" && !s.scorePublishedAt).map(s => s.id)));
                           else setSelected(new Set());
-                        }} />
+                        }} style={{ accentColor: "#2563eb", cursor: "pointer", width: 16, height: 16 }} />
                     </th>
                     <th>Học viên</th>
-                    <th>Nhóm</th>
                     <th>Khóa học</th>
+                    <th>Nhóm</th>
                     <th>Bài tập</th>
                     <th style={{ width: 80 }}>Lần nộp</th>
                     <th>File nộp</th>
@@ -240,13 +240,16 @@
                               const next = new Set(selected);
                               e.target.checked ? next.add(s.id) : next.delete(s.id);
                               setSelected(next);
-                            }} />
+                            }} style={{ accentColor: "#2563eb", cursor: "pointer", width: 16, height: 16 }} />
                         ) : null}
                       </td>
                       <td><div className="row gap-10"><Avatar name={s.studentName} size={34} /><b style={{ fontSize: 13.5 }}>{s.studentName}</b></div></td>
-                      <td className="muted" style={{ wordBreak: "break-word", whiteSpace: "normal", maxWidth: 160 }}>{s.groupName}</td>
                       <td style={{ wordBreak: "break-word", whiteSpace: "normal", maxWidth: 160 }}>{s.courseTitle}</td>
-                      <td style={{ wordBreak: "break-word", whiteSpace: "normal", maxWidth: 160 }}>{s.assignmentTitle}</td>
+                      <td className="muted" style={{ wordBreak: "break-word", whiteSpace: "normal", maxWidth: 160 }}>{s.groupName}</td>
+                      <td style={{ wordBreak: "break-word", whiteSpace: "normal", maxWidth: 160, cursor: "pointer", color: "var(--accent)" }}
+                        onClick={() => setViewAssignment({ id: s.assignmentId, courseId: s.courseId })}>
+                        {s.assignmentTitle}
+                      </td>
                       <td>{s.submissionNumber}{s.assignmentMaxSubmissions ? "/" + s.assignmentMaxSubmissions : ""}</td>
                       <td>
                         {s.files && s.files.length > 0 ? (
@@ -290,18 +293,30 @@
           </>)}
         </Section>
         <window.PageBar pg={pg} unit="bài nộp" />
-        <GradeModal sub={grade} onClose={() => setGrade(null)} onGrade={handleGrade} maxScore={grade?.assignmentMaxScore} onPreview={(files, idx) => setPreviewFiles({ files, idx })} />
+        <GradeModal sub={grade} onClose={() => setGrade(null)} onGrade={handleGrade} maxScore={grade?.assignmentMaxScore} onPreview={(files, idx) => setPreviewFiles({ files, idx })} published={!!grade?.scorePublishedAt} />
         {previewFiles && React.createElement(window.FilePreview, {
           files: previewFiles.files,
           initialIdx: previewFiles.idx,
           onClose: () => setPreviewFiles(null),
         })}
+        {viewAssignment && (
+          <div style={{ position: "fixed", inset: 0, zIndex: 1000, background: "#fff",
+            display: "flex", flexDirection: "column" }}>
+            {React.createElement(window.AssignmentDetail, {
+              assignmentId: viewAssignment.id,
+              courseId: viewAssignment.courseId,
+              role: "instructor",
+              onBack: () => setViewAssignment(null),
+            })}
+          </div>
+        )}
       </div>
     );
   }
 
-  function GradeModal({ sub, onClose, onGrade, maxScore, onPreview }) {
+  function GradeModal({ sub, onClose, onGrade, maxScore, onPreview, published }) {
     const graded = sub && sub.status === "graded";
+    const readonly = published;
     const [score, setScore] = useState("");
     const [fb, setFb] = useState("");
     const [submitting, setSubmitting] = useState(false);
@@ -336,7 +351,7 @@
 
     return (
       <Modal open={!!sub} onClose={onClose} max={560}>
-        <ModalHead title={graded ? "Xem & sửa điểm" : "Chấm điểm bài nộp"}
+        <ModalHead title={readonly ? "Điểm đã công bố" : graded ? "Xem & sửa điểm" : "Chấm điểm bài nộp"}
           sub={(sub.studentName || "") + " • " + (sub.assignmentTitle || "")}
           icon="edit" iconBg="#eaf1ff" iconColor="#2563eb" onClose={onClose} />
         <div className="modal-body" style={{ display: "flex", flexDirection: "column", gap: 18 }}>
@@ -367,7 +382,7 @@
             <label className="t-label" style={{ display: "block", marginBottom: 8 }}>Điểm số (thang {max})</label>
             <div className="row gap-12">
               <input className="input" type="number" max={max} min={0} step={0.5} value={score}
-                placeholder={"Nhập điểm 0 – " + max} onChange={e => setScore(e.target.value)} style={{ flex: 1 }} />
+                placeholder={"Nhập điểm 0 – " + max} onChange={e => setScore(e.target.value)} style={{ flex: 1 }} disabled={readonly} />
               {hasScore && <span className={"chip " + (passed ? "chip-success" : "chip-error")}
                 style={{ flex: "none", fontSize: 13, padding: "8px 14px" }}>{passed ? "Đạt" : "Chưa đạt"}</span>}
             </div>
@@ -376,18 +391,18 @@
           <div>
             <label className="t-label" style={{ display: "block", marginBottom: 8 }}>Nhận xét cho học viên</label>
             <textarea className="input" style={{ height: 120, padding: 12, resize: "none" }} value={fb}
-              onChange={e => setFb(e.target.value)} placeholder="Phản hồi chi tiết giúp học viên cải thiện..." />
+              onChange={e => setFb(e.target.value)} placeholder="Phản hồi chi tiết giúp học viên cải thiện..." disabled={readonly} />
           </div>
           {error && <div className="t-sm" style={{ color: "var(--error)" }}>{error}</div>}
         </div>
         <div className="modal-foot">
-          <button className="btn btn-ghost" onClick={onClose}>Hủy</button>
-          {!graded && (
+          <button className="btn btn-ghost" onClick={onClose}>{readonly ? "Đóng" : "Hủy"}</button>
+          {!readonly && !graded && (
             <button className="btn btn-soft" onClick={handleSave} disabled={submitting}>
               <Ic n="check" size={16} />Lưu điểm
             </button>
           )}
-          {graded && (
+          {!readonly && graded && (
             <button className="btn btn-success" onClick={handleSave} disabled={submitting}>
               <Ic n="check" size={16} />Cập nhật điểm
             </button>

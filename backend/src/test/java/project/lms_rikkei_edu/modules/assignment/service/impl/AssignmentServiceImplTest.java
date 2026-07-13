@@ -9,7 +9,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.util.ReflectionTestUtils;
-import org.springframework.web.multipart.MultipartFile;
 import project.lms_rikkei_edu.common.exception.BusinessException;
 import project.lms_rikkei_edu.infrastructure.s3.S3Service;
 import project.lms_rikkei_edu.modules.assignment.dto.request.CreateAssignmentRequest;
@@ -48,8 +47,6 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -138,9 +135,10 @@ class AssignmentServiceImplTest {
 
     @Test
     void createAssignment_courseNotOwned_throws() {
+        var request = createRequest(null);
         when(courseRepository.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(false);
 
-        assertThatThrownBy(() -> service.createAssignment(courseId, instructorId, createRequest(null)))
+        assertThatThrownBy(() -> service.createAssignment(courseId, instructorId, request))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("Bạn không sở hữu");
     }
@@ -149,10 +147,11 @@ class AssignmentServiceImplTest {
     void createAssignment_courseNotPublished_throws() {
         var course = publishedCourse();
         course.setStatus(CourseStatus.DRAFT);
+        var request = createRequest(null);
         when(courseRepository.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(true);
         when(courseRepository.findById(courseId)).thenReturn(Optional.of(course));
 
-        assertThatThrownBy(() -> service.createAssignment(courseId, instructorId, createRequest(null)))
+        assertThatThrownBy(() -> service.createAssignment(courseId, instructorId, request))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("đã publish");
     }
@@ -199,7 +198,7 @@ class AssignmentServiceImplTest {
     @Test
     void createAssignment_deadlineTooSoon_throws() {
         var request = createRequest(AssignmentScope.ALL_GROUPS);
-        request.setDeadline(futureStartDate);
+        request.setDeadline(OffsetDateTime.now(ZoneOffset.UTC).plusMinutes(1));
         request.setStartDate(null);
         when(courseRepository.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(true);
         when(courseRepository.findById(courseId)).thenReturn(Optional.of(publishedCourse()));
@@ -434,6 +433,45 @@ class AssignmentServiceImplTest {
                 .hasMessageContaining("đã đóng");
     }
 
+    @Test
+    void updateAssignment_published_updatesMaxFileSizeMb() {
+        var assignment = assignmentEntity(AssignmentStatus.PUBLISHED, AssignmentScope.ALL_GROUPS);
+        var request = new UpdateAssignmentRequest();
+        request.setMaxFileSizeMb(50);
+        var response = assignmentResponse();
+
+        when(courseRepository.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(true);
+        when(assignmentRepository.findByIdAndCourseId(assignmentId, courseId))
+                .thenReturn(Optional.of(assignment));
+        when(assignmentRepository.save(any())).thenReturn(assignment);
+        when(assignmentMapper.toResponse(any())).thenReturn(response);
+
+        AssignmentResponse result = service.updateAssignment(courseId, assignmentId, instructorId, request);
+
+        assertThat(result).isEqualTo(response);
+        assertThat(assignment.getMaxFileSizeMb()).isEqualTo(50);
+        verify(assignmentRepository).save(assignment);
+    }
+
+    @Test
+    void updateAssignment_published_updatesAllowedFileTypes() {
+        var assignment = assignmentEntity(AssignmentStatus.PUBLISHED, AssignmentScope.ALL_GROUPS);
+        var request = new UpdateAssignmentRequest();
+        request.setAllowedFileTypes(List.of("application/pdf", "image/png"));
+        var response = assignmentResponse();
+
+        when(courseRepository.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(true);
+        when(assignmentRepository.findByIdAndCourseId(assignmentId, courseId))
+                .thenReturn(Optional.of(assignment));
+        when(assignmentRepository.save(any())).thenReturn(assignment);
+        when(assignmentMapper.toResponse(any())).thenReturn(response);
+
+        AssignmentResponse result = service.updateAssignment(courseId, assignmentId, instructorId, request);
+
+        assertThat(result).isEqualTo(response);
+        verify(assignmentRepository).save(assignment);
+    }
+
     // ── deleteAssignment ─────────────────────────────────────────────────────
 
     @Test
@@ -571,17 +609,23 @@ class AssignmentServiceImplTest {
     }
 
     @Test
-    void uploadAttachment_notDraft_throws() {
+    void uploadAttachment_published_success() {
         var assignment = assignmentEntity(AssignmentStatus.PUBLISHED, AssignmentScope.ALL_GROUPS);
         var file = new MockMultipartFile("file", "image.png", "image/png", new byte[1024]);
+        var attachmentResponse = AssignmentAttachmentResponse.builder().id(UUID.randomUUID()).build();
 
         when(courseRepository.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(true);
         when(assignmentRepository.findByIdAndCourseId(assignmentId, courseId))
                 .thenReturn(Optional.of(assignment));
+        when(assignmentAttachmentRepository.countByAssignmentId(assignmentId)).thenReturn(0L);
+        when(assignmentAttachmentRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+        when(assignmentMapper.toAttachmentResponse(any())).thenReturn(attachmentResponse);
 
-        assertThatThrownBy(() -> service.uploadAttachment(courseId, assignmentId, instructorId, file))
-                .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("DRAFT");
+        AssignmentAttachmentResponse result = service.uploadAttachment(
+                courseId, assignmentId, instructorId, file);
+
+        assertThat(result).isEqualTo(attachmentResponse);
+        verify(s3Client).putObject(any(Consumer.class), any(RequestBody.class));
     }
 
     @Test
@@ -656,17 +700,23 @@ class AssignmentServiceImplTest {
     }
 
     @Test
-    void deleteAttachment_notDraft_throws() {
+    void deleteAttachment_published_success() {
         var assignment = assignmentEntity(AssignmentStatus.PUBLISHED, AssignmentScope.ALL_GROUPS);
         UUID attachmentId = UUID.randomUUID();
+        var attachment = new AssignmentAttachmentEntity();
+        attachment.setId(attachmentId);
+        attachment.setAssignmentId(assignmentId);
+        attachment.setS3Key("assignments/key.pdf");
 
         when(courseRepository.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(true);
         when(assignmentRepository.findByIdAndCourseId(assignmentId, courseId))
                 .thenReturn(Optional.of(assignment));
+        when(assignmentAttachmentRepository.findById(attachmentId)).thenReturn(Optional.of(attachment));
 
-        assertThatThrownBy(() -> service.deleteAttachment(courseId, assignmentId, attachmentId, instructorId))
-                .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("DRAFT");
+        service.deleteAttachment(courseId, assignmentId, attachmentId, instructorId);
+
+        verify(s3Client).deleteObject(any(Consumer.class));
+        verify(assignmentAttachmentRepository).delete(attachment);
     }
 
     @Test
