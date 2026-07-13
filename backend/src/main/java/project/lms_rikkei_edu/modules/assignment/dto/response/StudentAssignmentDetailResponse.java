@@ -12,11 +12,10 @@ import java.util.UUID;
 
 @Getter
 @Builder
-public class AssignmentResponse {
+public class StudentAssignmentDetailResponse {
 
     private UUID id;
     private UUID courseId;
-    private UUID createdBy;
     private String title;
     private String description;
     private AssignmentStatus status;
@@ -32,7 +31,8 @@ public class AssignmentResponse {
     private OffsetDateTime publishedAt;
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;
-    private int attachmentCount;
     private String courseTitle;
-    private List<String> groupNames;
+    private List<AssignmentAttachmentResponse> attachments;
+
+    private SubmissionResponse studentSubmission;
 }

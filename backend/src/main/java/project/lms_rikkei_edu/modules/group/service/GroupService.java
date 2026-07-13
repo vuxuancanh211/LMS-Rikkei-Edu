@@ -32,6 +32,8 @@ public interface GroupService {
 
     List<StudentSearchResponse> searchStudentsByEmail(String email);
 
+    List<StudentSearchResponse> getUnassignedStudents(UUID courseId);
+
     GroupDetailResponse getStudentGroupDetail(UUID groupId);
 
     List<GroupResponse> getStudentGroups();

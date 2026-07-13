@@ -29,6 +29,8 @@ import project.lms_rikkei_edu.infrastructure.s3.S3Service;
 import project.lms_rikkei_edu.modules.course.entity.Course;
 import project.lms_rikkei_edu.modules.course.enums.CourseStatus;
 import project.lms_rikkei_edu.modules.course.repository.CourseRepository;
+import project.lms_rikkei_edu.modules.group.entity.StudyGroupEntity;
+import project.lms_rikkei_edu.modules.group.repository.StudyGroupRepository;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest;
@@ -49,6 +51,7 @@ public class AssignmentServiceImpl implements AssignmentService {
     private final AssignmentAttachmentRepository assignmentAttachmentRepository;
     private final CourseRepository courseRepository;
     private final AssignmentMapper assignmentMapper;
+    private final StudyGroupRepository studyGroupRepository;
     private final S3Client s3Client;
     private final S3Service s3Service;
     private final ObjectMapper objectMapper;
@@ -164,10 +167,38 @@ public class AssignmentServiceImpl implements AssignmentService {
                 .stream()
                 .collect(Collectors.toMap(Course::getId, Course::getTitle));
 
+        // Fetch group assignments for SPECIFIC_GROUPS assignments
+        Map<UUID, List<UUID>> assignmentGroupMap = new HashMap<>();
+        Set<UUID> allGroupIds = new HashSet<>();
+        for (AssignmentEntity a : assignments) {
+            if (a.getScope() == AssignmentScope.SPECIFIC_GROUPS) {
+                List<UUID> groupIds = assignmentGroupRepository.findByAssignmentId(a.getId())
+                        .stream()
+                        .map(AssignmentGroupEntity::getGroupId)
+                        .toList();
+                assignmentGroupMap.put(a.getId(), groupIds);
+                allGroupIds.addAll(groupIds);
+            }
+        }
+
+        Map<UUID, String> groupNameMap = studyGroupRepository.findAllById(allGroupIds)
+                .stream()
+                .collect(Collectors.toMap(StudyGroupEntity::getId, StudyGroupEntity::getName));
+
         return assignments.stream()
                 .map(a -> {
                     AssignmentResponse resp = assignmentMapper.toResponse(a);
                     long count = assignmentAttachmentRepository.countByAssignmentId(a.getId());
+
+                    List<String> groupNames = null;
+                    if (a.getScope() == AssignmentScope.SPECIFIC_GROUPS) {
+                        List<UUID> gids = assignmentGroupMap.getOrDefault(a.getId(), Collections.emptyList());
+                        groupNames = gids.stream()
+                                .map(gid -> groupNameMap.get(gid))
+                                .filter(Objects::nonNull)
+                                .toList();
+                    }
+
                     return AssignmentResponse.builder()
                             .id(resp.getId())
                             .courseId(resp.getCourseId())
@@ -189,6 +220,7 @@ public class AssignmentServiceImpl implements AssignmentService {
                             .updatedAt(resp.getUpdatedAt())
                             .attachmentCount((int) count)
                             .courseTitle(courseTitleMap.getOrDefault(a.getCourseId(), null))
+                            .groupNames(groupNames)
                             .build();
                 })
                 .toList();
@@ -523,9 +555,13 @@ public class AssignmentServiceImpl implements AssignmentService {
             assignment.setLatePenaltyPercent(request.getLatePenaltyPercent());
             hasChanges = true;
         }
+        if (request.getMaxSubmissions() != null) {
+            assignment.setMaxSubmissions(request.getMaxSubmissions());
+            hasChanges = true;
+        }
 
         if (!hasChanges) {
-            throw new BusinessException("Sau khi publish chỉ có thể thay đổi deadline, allow_late_submission và late_penalty_percent");
+            throw new BusinessException("Sau khi publish chỉ có thể thay đổi deadline, allow_late_submission, late_penalty_percent và max_submissions");
         }
     }
 

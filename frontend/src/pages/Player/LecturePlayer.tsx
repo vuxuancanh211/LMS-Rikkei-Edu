@@ -386,6 +386,13 @@
     const [sending, setSending] = useState(false);
     const [conversationId, setConversationId] = useState(null);
 
+    /* Assignment sidebar */
+    const [sidebarTab, setSidebarTab] = useState("lessons");
+    const [assignments, setAssignments] = useState([]);
+    const [assignLoading, setAssignLoading] = useState(false);
+    const [activeView, setActiveView] = useState("lesson");
+    const [selectedAssignmentId, setSelectedAssignmentId] = useState(null);
+
     useEffect(() => {
       api.get('/profile').then(r => { if (r.data?.fullName) setUserName(r.data.fullName); }).catch(() => { /* ignore */ });
     }, []);
@@ -461,6 +468,10 @@
     const videoUrl        = activeVideoRes ? (resUrls[activeVideoRes.id]?.url || activeVideoRes?.externalUrl) : null;
     const completedCount  = useMemo(() => allLessons.filter(l => l.progress === "COMPLETED").length, [allLessons]);
     const progressPct     = useMemo(() => totalLessons > 0 ? Math.round((completedCount / totalLessons) * 100) : 0, [completedCount, totalLessons]);
+
+    const assignIdx      = useMemo(() => assignments.findIndex(a => a.id === selectedAssignmentId), [assignments, selectedAssignmentId]);
+    const prevAssignment = assignIdx > 0 ? assignments[assignIdx - 1] : null;
+    const nextAssignment = assignIdx < assignments.length - 1 ? assignments[assignIdx + 1] : null;
 
     /* Progress tracking */
     const progRef = useRef<any>({});
@@ -564,6 +575,16 @@
         .catch(e => setError(e.response?.data?.message || "Không thể tải khóa học"))
         .finally(() => setLoading(false));
     }, [courseId]);
+
+    /* Fetch assignments when switching to the "Bài tập" tab */
+    useEffect(() => {
+      if (sidebarTab !== "assignments" || !courseId) return;
+      setAssignLoading(true);
+      api.get(`/student/courses/${courseId}/assignments`)
+        .then(r => setAssignments(r.data || []))
+        .catch(() => setAssignments([]))
+        .finally(() => setAssignLoading(false));
+    }, [sidebarTab, courseId]);
 
     /* When active lesson changes, auto-load first video URL and show first doc if not video lesson */
     useEffect(() => {
@@ -813,7 +834,18 @@
             {/* ─── Left: Main content ─── */}
             <div style={{ flex: 1, minWidth: 0, minHeight: 0, overflowY: "auto",
               padding: "24px 24px 32px" }}>
-              {!activeL ? (
+              {activeView === "assignment" && selectedAssignmentId ? (
+                window.AssignmentDetail && React.createElement(window.AssignmentDetail, {
+                  assignmentId: selectedAssignmentId,
+                  courseId,
+                  role: "student",
+                  onBack: () => {
+                    setActiveView("lesson");
+                    setSelectedAssignmentId(null);
+                    setSidebarTab("lessons");
+                  },
+                })
+              ) : !activeL ? (
                 <div style={{ textAlign: "center", padding: 60, color: "#94a3b8" }}>
                   <Ic n="book" size={32} style={{ opacity: 0.3, marginBottom: 12 }} />
                   <div>Chọn một bài giảng từ danh sách</div>
@@ -889,7 +921,47 @@
                   </div>
 
                   {/* Prev / Next */}
+                  {(activeView !== "assignment" && activeL) || (activeView === "assignment" && selectedAssignmentId) ? (
                   <div style={{ marginTop: 28, display: "flex", gap: 12 }}>
+                    {activeView === "assignment" ? (
+                      <>
+                    <button disabled={!prevAssignment}
+                      onClick={() => prevAssignment && setSelectedAssignmentId(prevAssignment.id)}
+                      style={{ flex: 1, height: 48, display: "flex", alignItems: "center", gap: 10,
+                        padding: "0 16px", border: "1px solid var(--border)", borderRadius: 12,
+                        background: "#fff", cursor: prevAssignment ? "pointer" : "default",
+                        opacity: prevAssignment ? 1 : 0.35 }}
+                      onMouseEnter={e => { if (prevAssignment) e.currentTarget.style.borderColor = "#2563eb"; }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; }}>
+                      <Ic n="arrow_left" size={15} style={{ color: "#94a3b8", flexShrink: 0 }} />
+                      <div style={{ textAlign: "left", minWidth: 0 }}>
+                        <div style={{ fontSize: 10.5, color: "#94a3b8", fontWeight: 500 }}>Bài tập trước</div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: "#0f172a" }} className="truncate">
+                          {prevAssignment ? prevAssignment.title : "—"}
+                        </div>
+                      </div>
+                    </button>
+                    <button disabled={!nextAssignment}
+                      onClick={() => nextAssignment && setSelectedAssignmentId(nextAssignment.id)}
+                      style={{ flex: 1, height: 48, display: "flex", alignItems: "center",
+                        justifyContent: "flex-end", gap: 10, padding: "0 16px",
+                        border: `1px solid ${nextAssignment ? "#2563eb" : "var(--border)"}`,
+                        borderRadius: 12, background: nextAssignment ? "#eff6ff" : "#fff",
+                        cursor: nextAssignment ? "pointer" : "default",
+                        opacity: nextAssignment ? 1 : 0.35 }}
+                      onMouseEnter={e => { if (nextAssignment) e.currentTarget.style.background = "#dbeafe"; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = nextAssignment ? "#eff6ff" : "#fff"; }}>
+                      <div style={{ textAlign: "right", minWidth: 0 }}>
+                        <div style={{ fontSize: 10.5, color: "#2563eb", fontWeight: 500 }}>Bài tập tiếp theo</div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: "#0f172a" }} className="truncate">
+                          {nextAssignment ? nextAssignment.title : "—"}
+                        </div>
+                      </div>
+                      <Ic n="arrow_right" size={15} style={{ color: "#2563eb", flexShrink: 0 }} />
+                    </button>
+                      </>
+                    ) : (
+                      <>
                     <button disabled={!prevLesson} onClick={() => prevLesson && goLesson(prevLesson)}
                       style={{ flex: 1, height: 48, display: "flex", alignItems: "center", gap: 10,
                         padding: "0 16px", border: "1px solid var(--border)", borderRadius: 12,
@@ -922,7 +994,10 @@
                       </div>
                       <Ic n="arrow_right" size={15} style={{ color: "#2563eb", flexShrink: 0 }} />
                     </button>
+                      </>
+                    )}
                   </div>
+                  ) : null}
                 </>
               )}
             </div>
@@ -952,99 +1027,222 @@
                 </div>
               </div>
 
-              {/* Chapter accordion */}
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {chapters.map(ch => {
-                  const isOpen = openCh[ch.id];
-                  const chDone = ch.lessons?.every(l => l.progress === "COMPLETED");
+              {/* Sidebar tab bar */}
+              <div style={{ flexShrink: 0, display: "flex", borderBottom: "1px solid rgba(255,255,255,.1)", marginBottom: 12 }}>
+                {["lessons", "assignments"].map(tab => {
+                  const isAct = sidebarTab === tab;
                   return (
-                    <div key={ch.id}
-                      style={{ background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.07)",
-                        borderRadius: 13, overflow: "hidden" }}>
-                      {/* Chapter header */}
-                      <div onClick={() => setOpenCh(p => ({ ...p, [ch.id]: !p[ch.id] }))}
-                        style={{ display: "flex", alignItems: "center", gap: 10,
-                          padding: "13px 14px", cursor: "pointer" }}>
-                        <div
-                          title={"Tiến độ chương: " + (chDone ? "Đã hoàn thành" : "Chưa hoàn thành")}
-                          style={{ width: 22, height: 22, borderRadius: 999,
-                            background: chDone ? "#10b981" : "transparent",
-                            border: chDone ? "none" : "1.5px solid #475569",
-                            display: "grid", placeItems: "center", flexShrink: 0,
-                            transition: ".15s" }}>
-                          {chDone && <span style={{ color: "#fff", fontSize: 13, lineHeight: 1, fontWeight: 700 }}>✓</span>}
-                        </div>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 13.5, fontWeight: 600 }} className="truncate">
-                            {ch.title}
-                          </div>
-                          <div style={{ fontSize: 11, color: "#64748b", marginTop: 1 }}>
-                            {ch.lessons?.length || 0} bài
-                          </div>
-                        </div>
-                        <Ic n="chevron_down" size={16}
-                          style={{ transform: isOpen ? "rotate(180deg)" : "none",
-                            transition: ".2s", color: "#64748b", flexShrink: 0 }} />
-                      </div>
-
-                      {/* Lessons */}
-                      {isOpen && (ch.lessons || []).map(l => {
-                        const isAct = activeL?.id === l.id;
-                        const lDone = l.progress === "COMPLETED";
-                        const lProg = l.progress === "IN_PROGRESS";
-                        const lHasVid = (l.resources || []).some((r: any) => !r.pendingDelete && r.resourceType === "VIDEO");
-                        const lHasDoc = (l.resources || []).some((r: any) => !r.pendingDelete && r.resourceType !== "VIDEO");
-                        const lIsVid  = lHasVid || (l.type === "VIDEO" && !lHasDoc);
-                        const isQuiz     = l.type === "QUIZ";
-                        const quizLocked = isQuiz && l.quizStatus !== "PUBLISHED";
-                        return (
-                          <div key={l.id}
-                            onClick={() => {
-                              if (quizLocked) return;
-                              if (isQuiz) {
-                                setConfirmQuiz(l);
-                                return;
-                              }
-                              goLesson(l);
-                            }}
-                            title={quizLocked ? "Giảng viên chưa xuất bản đề này" : undefined}
-                            style={{ display: "flex", alignItems: "center", gap: 10,
-                              padding: "10px 10px 10px 48px", cursor: quizLocked ? "not-allowed" : "pointer",
-                              opacity: quizLocked ? 0.5 : 1,
-                              background: isAct ? "rgba(16,185,129,.13)" : "transparent",
-                              transition: ".12s" }}
-                            onMouseEnter={e => { if (!isAct && !quizLocked) e.currentTarget.style.background = "rgba(255,255,255,.03)"; }}
-                            onMouseLeave={e => { if (!isAct) e.currentTarget.style.background = "transparent"; }}>
-                            <div
-                              title={"Tiến độ bài học: " + (lDone ? "Đã hoàn thành" : lProg ? "Đang học" : "Chưa bắt đầu")}
-                              style={{ width: 20, height: 20, borderRadius: 999, flexShrink: 0,
-                                display: "grid", placeItems: "center", transition: ".15s",
-                                background: lDone ? "#10b981" : "transparent",
-                                border: lDone ? "none" : lProg ? "2px solid #34d399" : "1.5px solid #475569" }}>
-                              {lDone && <span style={{ color: "#fff", fontSize: 12, lineHeight: 1, fontWeight: 700 }}>✓</span>}
-                              {lProg && !lDone && <span style={{ width: 6, height: 6, borderRadius: 999, background: "#34d399" }} />}
-                            </div>
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ fontSize: 13, fontWeight: isAct ? 700 : 500,
-                                color: isAct ? "#6ff5c0" : "#cbd5e1" }} className="truncate">
-                                {l.title}
-                              </div>
-                              <div style={{ fontSize: 11, color: "#64748b", marginTop: 2,
-                                display: "flex", alignItems: "center", gap: 4 }}>
-                                <Ic n={isQuiz ? "clipboard" : lIsVid ? "video" : "file"} size={11} />
-                                {isQuiz ? (quizLocked ? "Đề trắc nghiệm (chưa xuất bản)" : "Đề trắc nghiệm") : lIsVid ? "Video" : "Tài liệu"}
-                              </div>
-                            </div>
-                            {isAct && (
-                              <div style={{ width: 8, height: 8, borderRadius: 999,
-                                background: "#10b981", flexShrink: 0 }} />
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
+                    <button key={tab} onClick={() => {
+                      setSidebarTab(tab);
+                      if (tab === "lessons") {
+                        setActiveView("lesson");
+                        setSelectedAssignmentId(null);
+                      }
+                    }}
+                      style={{ flex: 1, height: 36, border: "none", background: "transparent",
+                        cursor: "pointer", fontSize: 12.5, fontWeight: 600,
+                        color: isAct ? "#10b981" : "#64748b",
+                        borderBottom: `2px solid ${isAct ? "#10b981" : "transparent"}`,
+                        transition: ".13s", display: "flex", alignItems: "center",
+                        justifyContent: "center", gap: 5 }}>
+                      <Ic n={tab === "lessons" ? "book" : "clipboard"} size={13} />
+                      {tab === "lessons" ? "Bài học" : "Bài tập"}
+                    </button>
                   );
                 })}
+              </div>
+
+              {/* Tab content */}
+              <div style={{ flex: 1, display: "flex", flexDirection: "column",
+                minHeight: 0, overflow: "hidden" }}>
+
+                {sidebarTab === "lessons" ? (
+                  <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
+                  {/* Chapter accordion */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    {chapters.map(ch => {
+                      const isOpen = openCh[ch.id];
+                      const chDone = ch.lessons?.every(l => l.progress === "COMPLETED");
+                      return (
+                        <div key={ch.id}
+                          style={{ background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.07)",
+                            borderRadius: 13, overflow: "hidden" }}>
+                          {/* Chapter header */}
+                          <div onClick={() => setOpenCh(p => ({ ...p, [ch.id]: !p[ch.id] }))}
+                            style={{ display: "flex", alignItems: "center", gap: 10,
+                              padding: "13px 14px", cursor: "pointer" }}>
+                            <div
+                              title={"Tiến độ chương: " + (chDone ? "Đã hoàn thành" : "Chưa hoàn thành")}
+                              style={{ width: 22, height: 22, borderRadius: 999,
+                                background: chDone ? "#10b981" : "transparent",
+                                border: chDone ? "none" : "1.5px solid #475569",
+                                display: "grid", placeItems: "center", flexShrink: 0,
+                                transition: ".15s" }}>
+                              {chDone && <span style={{ color: "#fff", fontSize: 13, lineHeight: 1, fontWeight: 700 }}>✓</span>}
+                            </div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 13.5, fontWeight: 600 }} className="truncate">
+                                {ch.title}
+                              </div>
+                              <div style={{ fontSize: 11, color: "#64748b", marginTop: 1 }}>
+                                {ch.lessons?.length || 0} bài
+                              </div>
+                            </div>
+                            <Ic n="chevron_down" size={16}
+                              style={{ transform: isOpen ? "rotate(180deg)" : "none",
+                                transition: ".2s", color: "#64748b", flexShrink: 0 }} />
+                          </div>
+
+                          {/* Lessons */}
+                          {isOpen && (ch.lessons || []).map(l => {
+                            const isAct = activeL?.id === l.id;
+                            const lDone = l.progress === "COMPLETED";
+                            const lProg = l.progress === "IN_PROGRESS";
+                            const lHasVid = (l.resources || []).some((r: any) => !r.pendingDelete && r.resourceType === "VIDEO");
+                            const lHasDoc = (l.resources || []).some((r: any) => !r.pendingDelete && r.resourceType !== "VIDEO");
+                            const lIsVid  = lHasVid || (l.type === "VIDEO" && !lHasDoc);
+                            const isQuiz     = l.type === "QUIZ";
+                            const quizLocked = isQuiz && l.quizStatus !== "PUBLISHED";
+                            return (
+                              <div key={l.id}
+                                onClick={() => {
+                                  if (quizLocked) return;
+                                  if (isQuiz) {
+                                    setConfirmQuiz(l);
+                                    return;
+                                  }
+                                  goLesson(l);
+                                }}
+                                title={quizLocked ? "Giảng viên chưa xuất bản đề này" : undefined}
+                                style={{ display: "flex", alignItems: "center", gap: 10,
+                                  padding: "10px 10px 10px 48px", cursor: quizLocked ? "not-allowed" : "pointer",
+                                  opacity: quizLocked ? 0.5 : 1,
+                                  background: isAct ? "rgba(16,185,129,.13)" : "transparent",
+                                  transition: ".12s" }}
+                                onMouseEnter={e => { if (!isAct && !quizLocked) e.currentTarget.style.background = "rgba(255,255,255,.03)"; }}
+                                onMouseLeave={e => { if (!isAct) e.currentTarget.style.background = "transparent"; }}>
+                                <div
+                                  title={"Tiến độ bài học: " + (lDone ? "Đã hoàn thành" : lProg ? "Đang học" : "Chưa bắt đầu")}
+                                  style={{ width: 20, height: 20, borderRadius: 999, flexShrink: 0,
+                                    display: "grid", placeItems: "center", transition: ".15s",
+                                    background: lDone ? "#10b981" : "transparent",
+                                    border: lDone ? "none" : lProg ? "2px solid #34d399" : "1.5px solid #475569" }}>
+                                  {lDone && <span style={{ color: "#fff", fontSize: 12, lineHeight: 1, fontWeight: 700 }}>✓</span>}
+                                  {lProg && !lDone && <span style={{ width: 6, height: 6, borderRadius: 999, background: "#34d399" }} />}
+                                </div>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div style={{ fontSize: 13, fontWeight: isAct ? 700 : 500,
+                                    color: isAct ? "#6ff5c0" : "#cbd5e1" }} className="truncate">
+                                    {l.title}
+                                  </div>
+                                  <div style={{ fontSize: 11, color: "#64748b", marginTop: 2,
+                                    display: "flex", alignItems: "center", gap: 4 }}>
+                                    <Ic n={isQuiz ? "clipboard" : lIsVid ? "video" : "file"} size={11} />
+                                    {isQuiz ? (quizLocked ? "Đề trắc nghiệm (chưa xuất bản)" : "Đề trắc nghiệm") : lIsVid ? "Video" : "Tài liệu"}
+                                  </div>
+                                </div>
+                                {isAct && (
+                                  <div style={{ width: 8, height: 8, borderRadius: 999,
+                                    background: "#10b981", flexShrink: 0 }} />
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  </div>
+
+                ) : (
+                  <>
+                  <div style={{ flexShrink: 0, display: "flex", alignItems: "center",
+                    gap: 6, padding: "0 0 8px" }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: "#e2e8f0", flex: 1 }}>
+                      Bài tập
+                      {assignments.length > 0 && (
+                        <span style={{ fontWeight: 400, color: "#94a3b8", marginLeft: 4 }}>
+                          ({assignments.length})
+                        </span>
+                      )}
+                    </span>
+                  </div>
+
+                  <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+                    {assignLoading ? (
+                      <div style={{ textAlign: "center", color: "#64748b", fontSize: 12, padding: "40px 16px" }}>
+                        Đang tải bài tập...
+                      </div>
+                    ) : assignments.length === 0 ? (
+                      <div style={{ textAlign: "center", color: "#64748b", fontSize: 12, padding: "40px 16px" }}>
+                        Chưa có bài tập nào trong khóa học
+                      </div>
+                    ) : (
+                      assignments.map(a => {
+                        const statusColors = {
+                          DRAFT:     { bg: "#f1f5f9", color: "#64748b", label: "Bản nháp" },
+                          PUBLISHED: { bg: "#dcfce7", color: "#16a34a", label: "Đã xuất bản" },
+                          CLOSED:    { bg: "#fef2f2", color: "#dc2626", label: "Đã đóng" },
+                        };
+                        const sc = statusColors[a.status] || statusColors.DRAFT;
+                        const deadline = a.deadline
+                          ? new Date(a.deadline).toLocaleDateString("vi-VN", {
+                              day: "2-digit", month: "2-digit", year: "numeric",
+                              hour: "2-digit", minute: "2-digit",
+                            })
+                          : null;
+                        return (
+                          <div key={a.id} onClick={() => {
+                            setSelectedAssignmentId(a.id);
+                            setActiveView("assignment");
+                          }}
+                            style={{ display: "flex", alignItems: "flex-start", gap: 8,
+                              padding: "8px 10px", margin: "2px 0", borderRadius: 8,
+                              cursor: "pointer", transition: ".12s",
+                              background: selectedAssignmentId === a.id ? "rgba(16,185,129,.13)" : "transparent" }}
+                            onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,.03)"; }}
+                            onMouseLeave={e => { e.currentTarget.style.background = selectedAssignmentId === a.id ? "rgba(16,185,129,.13)" : "transparent"; }}>
+                            <div style={{ width: 26, height: 26, borderRadius: 7, flexShrink: 0,
+                              background: "#fef3c7", color: "#d97706",
+                              display: "grid", placeItems: "center" }}>
+                              <Ic n="clipboard" size={12} />
+                            </div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 12.5, fontWeight: 600, color: "#e2e8f0",
+                                lineHeight: 1.35, marginBottom: 3 }} className="truncate">{a.title}</div>
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 3 }}>
+                                <span style={{ fontSize: 10, fontWeight: 600, borderRadius: 4,
+                                  padding: "1px 6px", background: sc.bg, color: sc.color }}>
+                                  {sc.label}
+                                </span>
+                                {a.maxScore != null && (
+                                  <span style={{ fontSize: 10, fontWeight: 600, borderRadius: 4,
+                                    padding: "1px 6px", background: "#f0fdf4", color: "#16a34a" }}>
+                                    {a.maxScore} điểm
+                                  </span>
+                                )}
+                                {a.scope === "SPECIFIC_GROUPS" && (
+                                  <span style={{ fontSize: 10, fontWeight: 600, borderRadius: 4,
+                                    padding: "1px 6px", background: "#eff6ff", color: "#2563eb" }}>
+                                    Theo nhóm
+                                  </span>
+                                )}
+                              </div>
+                              {deadline && (
+                                <div style={{ fontSize: 10.5, color: "#94a3b8",
+                                  display: "flex", alignItems: "center", gap: 3 }}>
+                                  <Ic n="clock" size={9} />
+                                  <span>Hạn: {deadline}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                  </>
+                )}
               </div>
             </div>
           </div>

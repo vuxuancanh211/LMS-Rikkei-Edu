@@ -60,6 +60,7 @@ class GroupServiceImplTest {
     private StudyGroupRepository studyGroupRepository;
     @Mock
     private GroupMemberRepository groupMemberRepository;
+
     @Mock
     private CourseRepository courseRepository;
     @Mock
@@ -92,8 +93,8 @@ class GroupServiceImplTest {
         groupService = new GroupServiceImpl(
                 studyGroupRepository,
                 groupMemberRepository,
-                courseRepository,
                 courseEnrollmentRepository,
+                courseRepository,
                 studentCourseService,
                 userRepository,
                 currentUserProvider,

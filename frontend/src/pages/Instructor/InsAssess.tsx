@@ -216,6 +216,8 @@
     const [assignmentsLoading, setAssignmentsLoading] = useState(false);
     const [createAssignOpen, setCreateAssignOpen] = useState(false);
     const [editAssignment, setEditAssignment] = useState(null);
+    const [ctxMenu, setCtxMenu] = useState(null);
+    const [viewAssignment, setViewAssignment] = useState(null);
 
     const showToast = useCallback((msg, type = 'success') => {
       setToast({ msg, type });
@@ -766,7 +768,11 @@
                   </thead>
                   <tbody>
                     {pgAssign.slice.map(a => (
-                      <tr key={a.id} style={{ cursor: 'pointer' }} onClick={() => handleEditAssignment(a)}>
+                      <tr key={a.id} style={{ cursor: 'pointer' }} onClick={() => handleEditAssignment(a)}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          setCtxMenu({ x: e.clientX, y: e.clientY, a: { id: a.id, courseId: a.courseId } });
+                        }}>
                         <td>
                           <div className="row gap-10">
                             <div className="stat-ic" style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--surface-3)', color: 'var(--text-2)' }}>
@@ -1277,6 +1283,56 @@
             )}
           </div>
         </Modal>
+
+        {/* ── Right-click context menu ── */}
+        {ctxMenu && (
+          <>
+            <div style={{ position: "fixed", inset: 0, zIndex: 200 }}
+              onClick={() => setCtxMenu(null)} />
+            <div style={{
+              position: "fixed", left: ctxMenu.x, top: ctxMenu.y, zIndex: 201,
+              background: "#fff", border: "1px solid #e2e8f0", borderRadius: 10,
+              boxShadow: "0 6px 20px rgba(0,0,0,.12)", minWidth: 150,
+              overflow: "hidden", padding: "4px 0",
+            }}>
+              <button style={{
+                display: "flex", alignItems: "center", gap: 8, width: "100%",
+                padding: "8px 14px", border: "none", background: "transparent",
+                fontSize: 13, color: "#0f172a", cursor: "pointer", textAlign: "left",
+              }}
+                onMouseEnter={e => e.currentTarget.style.background = "#f1f5f9"}
+                onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                onClick={() => {
+                  setViewAssignment(ctxMenu.a);
+                  setCtxMenu(null);
+                }}>
+                <Ic n="eye" size={14} />Xem
+              </button>
+              <button style={{
+                display: "flex", alignItems: "center", gap: 8, width: "100%",
+                padding: "8px 14px", border: "none", background: "transparent",
+                fontSize: 13, color: "#94a3b8", cursor: "not-allowed", textAlign: "left",
+              }} disabled onClick={() => setCtxMenu(null)}>
+                <Ic n="check" size={14} />Chấm điểm
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* ── Assignment Detail overlay ── */}
+        {viewAssignment && (
+          <div style={{
+            position: "fixed", inset: 0, zIndex: 1000, background: "#fff",
+            display: "flex", flexDirection: "column",
+          }}>
+            {React.createElement(window.AssignmentDetail, {
+              assignmentId: viewAssignment.id,
+              courseId: viewAssignment.courseId,
+              role: "instructor",
+              onBack: () => setViewAssignment(null),
+            })}
+          </div>
+        )}
       </div>
     );
   }

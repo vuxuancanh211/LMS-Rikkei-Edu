@@ -44,9 +44,11 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 @RequiredArgsConstructor
@@ -58,8 +60,8 @@ public class GroupServiceImpl implements GroupService {
 
     private final StudyGroupRepository studyGroupRepository;
     private final GroupMemberRepository groupMemberRepository;
-    private final CourseRepository courseRepository;
     private final CourseEnrollmentRepository courseEnrollmentRepository;
+    private final CourseRepository courseRepository;
     private final StudentCourseService studentCourseService;
     private final UserRepository userRepository;
     private final CurrentUserProvider currentUserProvider;
@@ -383,6 +385,28 @@ public class GroupServiceImpl implements GroupService {
                         .id(u.getId())
                         .email(u.getEmail())
                         .fullName(u.getFullName())
+                        .avatarUrl(u.getAvatarUrl())
+                        .build())
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<StudentSearchResponse> getUnassignedStudents(UUID courseId) {
+        List<UUID> enrolledIds = courseEnrollmentRepository.findStudentIdsByCourseId(courseId);
+        List<UUID> inGroupIds = groupMemberRepository.findStudentIdsByCourseId(courseId);
+        Set<UUID> inGroupSet = new HashSet<>(inGroupIds);
+        List<UUID> unassignedIds = enrolledIds.stream()
+                .filter(id -> !inGroupSet.contains(id))
+                .toList();
+        if (unassignedIds.isEmpty()) return List.of();
+        List<UserEntity> students = userRepository.findAllById(unassignedIds);
+        return students.stream()
+                .map(u -> StudentSearchResponse.builder()
+                        .id(u.getId())
+                        .email(u.getEmail())
+                        .fullName(u.getFullName())
+                        .phoneNumber(u.getPhoneNumber())
                         .avatarUrl(u.getAvatarUrl())
                         .build())
                 .toList();
