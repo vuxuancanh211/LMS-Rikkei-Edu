@@ -68,7 +68,8 @@ httpClient.interceptors.response.use(
         waitingQueue.push({
           resolve: (newToken) => {
             originalRequest._retry = true;
-            originalRequest.headers.Authorization = `Bearer ${newToken}`;
+            const { tokenType } = useAuthStore.getState();
+            originalRequest.headers.Authorization = `${tokenType || 'Bearer'} ${newToken}`;
             resolve(httpClient(originalRequest));
           },
           reject,

@@ -67,25 +67,46 @@ export const NotificationTypeMetadata: Record<string, { label: string; icon: str
   AI_SOURCE_FAILED: { label: 'Lỗi tri thức AI', icon: 'alert_circle', color: '#dc2626', category: 'Hệ thống' },
 };
 
-export function getNotificationTargetUrl(n: any): string {
+export function parseNotificationUrl(targetUrl: string): { routeKey: string; params: Record<string, string> } {
+  const base = targetUrl.replace(/^\/[^/]+\//, '').replace(/^\//, '');
+  const [pathPart, queryString] = base.split('?');
+  const segments = pathPart.split('/');
+  const params: Record<string, string> = {};
+  const routeKey = segments[0];
+  if (segments.length > 1 && segments[1]) {
+    if (routeKey === 'courses') params.courseId = segments[1];
+    else if (routeKey === 'groups') params.groupId = segments[1];
+    else params.id = segments[1];
+  }
+  if (queryString) {
+    queryString.split('&').forEach(pair => {
+      const [k, v] = pair.split('=');
+      params[k] = decodeURIComponent(v || '');
+    });
+  }
+  return { routeKey, params };
+}
+
+export function getNotificationTargetUrl(n: any, role?: string): string {
   if (!n) return '/notifications';
   const type = n.type || '';
   const refId = n.referenceId;
   const refType = n.referenceType;
+  const prefix = role ? `/${role}` : '/student';
   if (type === 'FORUM_POST' || type === 'FORUM_REPLY' || refType === 'POST' || refType === 'FORUM_POST') {
-    return refId ? `/student/forum?postId=${refId}` : '/student/forum';
+    return refId ? `${prefix}/forum?postId=${refId}` : `${prefix}/forum`;
   }
   if (type === 'QUIZ_PUBLISHED' || type === 'ASSIGNMENT_PUBLISHED' || type === 'SUBMISSION_GRADED') {
-    return refId ? `/student/courses/${refId}` : '/student/courses';
+    return refId ? `${prefix}/courses/${refId}` : `${prefix}/courses`;
   }
   if (type.startsWith('COURSE_')) {
-    return refId ? `/student/courses/${refId}` : '/student/courses';
+    return refId ? `${prefix}/courses/${refId}` : `${prefix}/courses`;
   }
   if (type.startsWith('GROUP_')) {
-    return refId ? `/student/groups/${refId}` : '/student/groups';
+    return refId ? `${prefix}/groups/${refId}` : `${prefix}/groups`;
   }
   if (type === 'CERTIFICATE_ISSUED') {
-    return '/student/certificates';
+    return `${prefix}/certificates`;
   }
   return '/notifications';
 }

@@ -64,8 +64,13 @@ public class StudentCourseServiceImpl implements StudentCourseService {
     private final QuizAttemptAnswerRepository quizAttemptAnswerRepository;
     private final ProctoringViolationLogRepository proctoringViolationLogRepository;
 
+
+
     @Value("${app.s3.presigned-url-expiry:3600}")
     private long presignedUrlExpiry;
+
+    private static final String STATUS_COMPLETED = "COMPLETED";
+    private static final String STATUS_IN_PROGRESS = "IN_PROGRESS";
 
     @PersistenceContext
     private EntityManager entityManager;
@@ -99,59 +104,63 @@ public class StudentCourseServiceImpl implements StudentCourseService {
         // Batch fetch progress
         Map<UUID, CourseProgressEntity> progressMap = courseProgressRepository
                 .findByStudentIdAndCourseIdIn(studentId,
-                        courses.stream().map(Course::getId).collect(Collectors.toList()))
+                        courses.stream().map(Course::getId).toList())
                 .stream().collect(Collectors.toMap(CourseProgressEntity::getCourseId, p -> p));
 
-        return courses.stream().map(c -> {
-            String categoryName = c.getCategory() != null ? c.getCategory().getName() : "";
-            String instructorName = instructorNames.getOrDefault(c.getInstructorId(), "");
-            CourseProgressEntity prog = progressMap.get(c.getId());
+        return courses.stream().map(c -> toEnrolledCourseResponse(c, instructorNames, progressMap)).toList();
+    }
 
-            int chaptersCount = c.getChapters() != null ? c.getChapters().size() : 0;
-            int lessonsCount = 0;
-            int totalHours = 0;
-            if (c.getChapters() != null) {
-                for (Chapter ch : c.getChapters()) {
-                    if (ch.getLessons() != null) {
-                        lessonsCount += ch.getLessons().size();
-                        for (Lesson l : ch.getLessons()) {
-                            if (l.getDurationSeconds() != null) {
-                                totalHours += l.getDurationSeconds();
-                            }
+    private StudentCourseResponse toEnrolledCourseResponse(Course c, Map<UUID, String> instructorNames,
+                                                            Map<UUID, CourseProgressEntity> progressMap) {
+        String instructorName = instructorNames.getOrDefault(c.getInstructorId(), "");
+        CourseProgressEntity prog = progressMap.get(c.getId());
+        int chaptersCount = c.getChapters() != null ? c.getChapters().size() : 0;
+        int[] stats = computeLessonStats(c);
+        int totalHours = (int) Math.ceil(stats[1] / 3600.0);
+
+        String sStatus;
+        int progress;
+        if (prog == null) {
+            sStatus = "new";
+            progress = 0;
+        } else {
+            progress = prog.getOverallPercentage() != null ? prog.getOverallPercentage().intValue() : 0;
+            sStatus = STATUS_COMPLETED.equals(prog.getStatus()) ? "done" : "learning";
+        }
+
+        return StudentCourseResponse.builder()
+                .id(c.getId())
+                .title(c.getTitle())
+                .thumbnailUrl(c.getThumbnailUrl())
+                .category(c.getCategory() != null ? c.getCategory().getName() : "")
+                .instructor(instructorName)
+                .lessons(stats[0])
+                .hours(totalHours)
+                .level(c.getLevel() != null ? c.getLevel().name() : "")
+                .rating(0)
+                .progress(progress)
+                .sStatus(sStatus)
+                .pubStatus(c.getStatus() != null ? c.getStatus().name().toLowerCase() : "draft")
+                .chapters(chaptersCount)
+                .build();
+    }
+
+    private int[] computeLessonStats(Course c) {
+        int lessonsCount = 0;
+        int totalSeconds = 0;
+        if (c.getChapters() != null) {
+            for (Chapter ch : c.getChapters()) {
+                if (ch.getLessons() != null) {
+                    lessonsCount += ch.getLessons().size();
+                    for (Lesson l : ch.getLessons()) {
+                        if (l.getDurationSeconds() != null) {
+                            totalSeconds += l.getDurationSeconds();
                         }
                     }
                 }
             }
-            totalHours = (int) Math.ceil(totalHours / 3600.0);
-
-            int progress = 0;
-            String sStatus;
-            if (prog == null) {
-                sStatus = "new";
-            } else {
-                progress = prog.getOverallPercentage() != null
-                        ? prog.getOverallPercentage().intValue() : 0;
-                sStatus = "COMPLETED".equals(prog.getStatus()) ? "done" : "learning";
-            }
-
-            String pubStatus = c.getStatus() != null ? c.getStatus().name().toLowerCase() : "draft";
-
-            return StudentCourseResponse.builder()
-                    .id(c.getId())
-                    .title(c.getTitle())
-                    .thumbnailUrl(c.getThumbnailUrl())
-                    .category(categoryName)
-                    .instructor(instructorName)
-                    .lessons(lessonsCount)
-                    .hours(totalHours)
-                    .level(c.getLevel() != null ? c.getLevel().name() : "")
-                    .rating(0)
-                    .progress(progress)
-                    .sStatus(sStatus)
-                    .pubStatus(pubStatus)
-                    .chapters(chaptersCount)
-                    .build();
-        }).toList();
+        }
+        return new int[]{lessonsCount, totalSeconds};
     }
 
     @Override
@@ -172,33 +181,7 @@ public class StudentCourseServiceImpl implements StudentCourseService {
         }
 
         CourseDetailResponse response = courseMapper.toDetailResponse(course);
-
-        // Attach lesson progress + lessonPercentage
-        List<LessonProgressEntity> lessonProgressList = lessonProgressRepository
-                .findByStudentIdAndCourseId(studentId, courseId);
-        Map<UUID, String> progressMap = lessonProgressList.stream()
-                .collect(Collectors.toMap(LessonProgressEntity::getLessonId, LessonProgressEntity::getStatus));
-        Map<UUID, BigDecimal> lessonPctMap = lessonProgressList.stream()
-                .filter(e -> e.getLessonPercentage() != null)
-                .collect(Collectors.toMap(LessonProgressEntity::getLessonId, LessonProgressEntity::getLessonPercentage));
-
-        if (response.getChapters() != null) {
-            for (var ch : response.getChapters()) {
-                if (ch.getLessons() != null) {
-                    for (var lesson : ch.getLessons()) {
-                        String p = progressMap.get(lesson.getId());
-                        if (p != null) {
-                            lesson.setProgress(p);
-                        }
-                        BigDecimal lp = lessonPctMap.get(lesson.getId());
-                        if (lp != null) {
-                            lesson.setProgressPercentage(lp.intValue());
-                        }
-                    }
-                }
-            }
-        }
-
+        attachLessonProgress(studentId, courseId, response);
         return response;
     }
 
@@ -222,6 +205,29 @@ public class StudentCourseServiceImpl implements StudentCourseService {
                 .url(presigned.url().toString())
                 .expiresAt(Instant.now().plusSeconds(presignedUrlExpiry))
                 .build();
+    }
+
+    private void attachLessonProgress(UUID studentId, UUID courseId, CourseDetailResponse response) {
+        List<LessonProgressEntity> lessonProgressList = lessonProgressRepository
+                .findByStudentIdAndCourseId(studentId, courseId);
+        Map<UUID, String> progressMap = lessonProgressList.stream()
+                .collect(Collectors.toMap(LessonProgressEntity::getLessonId, LessonProgressEntity::getStatus));
+        Map<UUID, BigDecimal> lessonPctMap = lessonProgressList.stream()
+                .filter(e -> e.getLessonPercentage() != null)
+                .collect(Collectors.toMap(LessonProgressEntity::getLessonId, LessonProgressEntity::getLessonPercentage));
+
+        if (response.getChapters() != null) {
+            for (var ch : response.getChapters()) {
+                if (ch.getLessons() != null) {
+                    for (var lesson : ch.getLessons()) {
+                        String p = progressMap.get(lesson.getId());
+                        if (p != null) lesson.setProgress(p);
+                        BigDecimal lp = lessonPctMap.get(lesson.getId());
+                        if (lp != null) lesson.setProgressPercentage(lp.intValue());
+                    }
+                }
+            }
+        }
     }
 
     @Override
@@ -265,13 +271,18 @@ public class StudentCourseServiceImpl implements StudentCourseService {
 
         // Update incoming data
         if (request.getWatchedPercentage() != null) {
-            progress.setWatchedPercentage(request.getWatchedPercentage());
+            int existing = progress.getWatchedPercentage() != null ? progress.getWatchedPercentage().intValue() : 0;
+            if (request.getWatchedPercentage().intValue() > existing) {
+                progress.setWatchedPercentage(request.getWatchedPercentage());
+            }
         }
         if (request.getLastPlaybackPosition() != null) {
-            progress.setLastPlaybackPosition(request.getLastPlaybackPosition());
+            int existing = progress.getLastPlaybackPosition() != null ? progress.getLastPlaybackPosition() : 0;
+            if (request.getLastPlaybackPosition() > existing) {
+                progress.setLastPlaybackPosition(request.getLastPlaybackPosition());
+            }
         }
         if (request.getDocumentViewSeconds() != null) {
-            // Accumulate — always take the highest value sent
             int existing = progress.getDocumentViewSeconds() != null ? progress.getDocumentViewSeconds() : 0;
             if (request.getDocumentViewSeconds() > existing) {
                 progress.setDocumentViewSeconds(request.getDocumentViewSeconds());
@@ -286,43 +297,45 @@ public class StudentCourseServiceImpl implements StudentCourseService {
         int wp = progress.getWatchedPercentage() != null ? progress.getWatchedPercentage().intValue() : 0;
         int dv = progress.getDocumentViewSeconds() != null ? progress.getDocumentViewSeconds() : 0;
 
-        // Auto-determine completion based on content type and learning time/scroll depth
-        boolean completed = false;
-        if (hasVideo && hasDocument) {
-            // "nếu cả 2 thì tính video và xem 10s tài liệu" -> xem >= 90% video VÀ xem >= 10s tài liệu
-            completed = wp >= 90 && dv >= 10;
-        } else if (hasVideo) {
-            // "xem 90% video"
-            completed = wp >= 90;
-        } else if (hasDocument) {
-            // "20s cho tài liệu"
-            completed = dv >= 20 || wp >= 90;
-        } else {
-            // No video or document — complete on first access
-            completed = progress.getStatus() == null || "COMPLETED".equals(progress.getStatus());
-        }
+        boolean completed = determineCompleted(request, progress, hasVideo, hasDocument, wp, dv);
 
-        if (completed || "COMPLETED".equals(progress.getStatus())) {
-            progress.setStatus("COMPLETED");
-            if (progress.getCompletedAt() == null) {
-                progress.setCompletedAt(Instant.now());
-            }
-        } else {
-            boolean started = wp > 0 || dv > 0;
-            if (started && !"COMPLETED".equals(progress.getStatus())) {
-                progress.setStatus("IN_PROGRESS");
-            } else if (progress.getStatus() == null) {
-                progress.setStatus("IN_PROGRESS");
-            }
-        }
+        applyProgressStatus(progress, completed, wp, dv);
 
         // Calculate lesson percentage
-        progress.setLessonPercentage(calculateLessonPercentage(wp, dv, hasVideo, hasDocument, lesson));
+        progress.setLessonPercentage(calculateLessonPercentage(wp, dv, hasVideo, hasDocument));
 
         lessonProgressRepository.save(progress);
 
         // Always update course-level progress
         updateCourseProgress(studentId, courseId);
+    }
+
+    private boolean determineCompleted(UpdateProgressRequest request, LessonProgressEntity progress,
+                                        boolean hasVideo, boolean hasDocument, int wp, int dv) {
+        if (request.getCompleted() != null) {
+            return request.getCompleted();
+        }
+        if (hasVideo && hasDocument) {
+            return wp >= 90 && dv >= 10;
+        }
+        if (hasVideo) {
+            return wp >= 90;
+        }
+        if (hasDocument) {
+            return dv >= 20 || wp >= 90;
+        }
+        return progress.getStatus() == null || STATUS_COMPLETED.equals(progress.getStatus());
+    }
+
+    private void applyProgressStatus(LessonProgressEntity progress, boolean completed, int wp, int dv) {
+        if (completed || STATUS_COMPLETED.equals(progress.getStatus())) {
+            progress.setStatus(STATUS_COMPLETED);
+            if (progress.getCompletedAt() == null) {
+                progress.setCompletedAt(Instant.now());
+            }
+        } else if (progress.getStatus() == null || wp > 0 || dv > 0) {
+            progress.setStatus(STATUS_IN_PROGRESS);
+        }
     }
 
     /**
@@ -348,7 +361,7 @@ public class StudentCourseServiceImpl implements StudentCourseService {
                     return newProgress;
                 });
 
-        progress.setStatus("COMPLETED");
+        progress.setStatus(STATUS_COMPLETED);
         if (progress.getCompletedAt() == null) {
             progress.setCompletedAt(Instant.now());
         }
@@ -363,7 +376,7 @@ public class StudentCourseServiceImpl implements StudentCourseService {
     @Transactional
     public void resetLessonProgressForInProgressStudents(UUID courseId, UUID lessonId) {
         List<UUID> inProgressStudentIds = courseProgressRepository.findByCourseId(courseId).stream()
-                .filter(cp -> !"COMPLETED".equals(cp.getStatus()))
+                .filter(cp -> !STATUS_COMPLETED.equals(cp.getStatus()))
                 .map(CourseProgressEntity::getStudentId)
                 .toList();
 
@@ -403,7 +416,7 @@ public class StudentCourseServiceImpl implements StudentCourseService {
 
     /* ── Private helpers ─────────────────────────────────── */
 
-    private BigDecimal calculateLessonPercentage(int wp, int dv, boolean hasVideo, boolean hasDocument, Lesson lesson) {
+    private BigDecimal calculateLessonPercentage(int wp, int dv, boolean hasVideo, boolean hasDocument) {
         if (hasVideo && hasDocument) {
             if (wp >= 90 && dv >= 10) return BigDecimal.valueOf(100);
             double vidScore = Math.min(wp / 90.0, 1.0) * 80.0;
@@ -447,7 +460,7 @@ public class StudentCourseServiceImpl implements StudentCourseService {
                 .findByStudentIdAndCourseId(studentId, courseId);
 
         long completedCount = allProgress.stream()
-                .filter(p -> "COMPLETED".equals(p.getStatus()))
+                .filter(p -> STATUS_COMPLETED.equals(p.getStatus()))
                 .count();
 
         double avgPercentage = 0;
@@ -465,7 +478,7 @@ public class StudentCourseServiceImpl implements StudentCourseService {
                     newProg.setTotalLessonsCount(totalLessons);
                     newProg.setCompletedLessonsCount(0);
                     newProg.setOverallPercentage(BigDecimal.ZERO);
-                    newProg.setStatus("IN_PROGRESS");
+                    newProg.setStatus(STATUS_IN_PROGRESS);
                     return newProg;
                 });
 
@@ -475,9 +488,9 @@ public class StudentCourseServiceImpl implements StudentCourseService {
         courseProgress.setUpdatedAt(Instant.now());
 
         if (completedCount >= totalLessons && totalLessons > 0) {
-            courseProgress.setStatus("COMPLETED");
+            courseProgress.setStatus(STATUS_COMPLETED);
         } else {
-            courseProgress.setStatus("IN_PROGRESS");
+            courseProgress.setStatus(STATUS_IN_PROGRESS);
         }
 
         courseProgressRepository.save(courseProgress);

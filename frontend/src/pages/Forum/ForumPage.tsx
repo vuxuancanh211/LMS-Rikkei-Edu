@@ -509,7 +509,7 @@ function ForumDetail({ detail, setDetail, loading, error, onBack }) {
     return (
       <div key={reply.id} className={reply.depth === 1 ? 'card card-pad' : ''} style={reply.depth === 1 ? null : { paddingLeft: 18, borderLeft: '2px solid var(--border)', marginTop: 12 }}>
         <div className="row gap-12" style={{ alignItems: 'flex-start' }}>
-          <Av name={reply.author.fullName} size={reply.depth === 1 ? 40 : 32} />
+          <Av name={reply.author.fullName} size={reply.depth === 1 ? 40 : 32} src={reply.author.avatarUrl} />
           <div className="grow" style={{ minWidth: 0 }}>
             <div className="between gap-8" style={{ marginBottom: 6 }}>
               <div className="row gap-8 wrap"><b style={{ fontSize: reply.depth === 1 ? 14 : 13.5 }}>{reply.author.fullName}</b>{reply.author.role === 'INSTRUCTOR' && <span className="chip chip-info" style={{ fontSize: 10.5, padding: '1px 8px' }}>Giảng viên</span>}<span className="t-xs dim">• {formatTime(reply.createdAt)}</span></div>
@@ -530,7 +530,7 @@ function ForumDetail({ detail, setDetail, loading, error, onBack }) {
 
             {replyTarget?.id === reply.id && (
               <div className="row gap-10" style={{ marginTop: 12, alignItems: 'flex-start' }}>
-                <Av name={currentUser?.fullName || 'User'} size={30} />
+                <Av name={currentUser?.fullName || 'User'} size={30} src={currentUser?.avatarUrl} />
                 <div className="grow">
                   <ForumEditor value={nestedReplyContent} onChange={setNestedReplyContent} attachments={nestedReplyAttachments} onAttachmentsChange={setNestedReplyAttachments} placeholder={`Trả lời ${reply.author.fullName}...`} minHeight={86} disabled={submitting} />
                   <div className="row gap-8" style={{ justifyContent: 'flex-end', marginTop: 8 }}><button className="btn btn-ghost btn-sm" onClick={() => setReplyTarget(null)}>Hủy</button><button className="btn btn-primary btn-sm" disabled={submitting || isEditorContentBlank(nestedReplyContent)} onClick={handleSubmitNestedReply}>Gửi</button></div>
@@ -568,7 +568,7 @@ function ForumDetail({ detail, setDetail, loading, error, onBack }) {
         </div>
         <h1 className="t-h2" style={{ margin: '0 0 14px', lineHeight: 1.3 }}>{post.title}</h1>
         <div className="row gap-12" style={{ marginBottom: 18 }}>
-          <Av name={post.author.fullName} size={44} />
+          <Av name={post.author.fullName} size={44} src={post.author.avatarUrl} />
           <div className="grow"><div style={{ fontWeight: 700, fontSize: 14.5 }}>{post.author.fullName}</div><div className="t-xs muted">{roleLabel(post.author.role)} • {formatTime(post.createdAt)}</div></div>
         </div>
         <ForumContent content={post.content} attachments={post.attachments || []} onImageClick={setPreviewImageUrl} />
@@ -582,7 +582,7 @@ function ForumDetail({ detail, setDetail, loading, error, onBack }) {
 
       <div className="card card-pad" style={{ marginBottom: 18 }}>
         <div className="row gap-12" style={{ alignItems: 'flex-start' }}>
-          <Av name={currentUser?.fullName || 'User'} size={40} />
+          <Av name={currentUser?.fullName || 'User'} size={40} src={currentUser?.avatarUrl} />
           <div className="grow">
             <ForumEditor value={replyContent} onChange={setReplyContent} attachments={replyAttachments} onAttachmentsChange={setReplyAttachments} placeholder="Viết câu trả lời của bạn..." minHeight={84} disabled={submitting} />
             <div className="between" style={{ marginTop: 10 }}>
@@ -813,7 +813,7 @@ function ForumPage({ demo }) {
           {!loading && posts.length === 0 && <div className="card-pad" style={{ textAlign: 'center', color: 'var(--text-2)', padding: '42px 24px' }}><Ic n="message" size={34} style={{ marginBottom: 10, color: 'var(--text-3)' }} /><div style={{ fontWeight: 800, color: 'var(--text)', fontSize: 16 }}>Chưa có bài viết nào</div><div className="t-sm muted" style={{ marginTop: 5 }}>Tạo chủ đề đầu tiên để bắt đầu thảo luận trong khóa học.</div></div>}
           {!loading && sortedPosts.map((post) => (
             <div key={post.id} className="row gap-16" style={{ padding: 16, borderRadius: 13, cursor: 'pointer', borderBottom: '1px solid var(--border)' }} onClick={() => openDetail(post.id)}>
-              <Av name={post.author.fullName} size={46} />
+              <Av name={post.author.fullName} size={46} src={post.author.avatarUrl} />
               <div className="grow" style={{ minWidth: 0 }}>
                 <div className="row gap-8 wrap" style={{ marginBottom: 5 }}>
                   {newestIds.has(post.id) && <span className="chip chip-new">New</span>}
