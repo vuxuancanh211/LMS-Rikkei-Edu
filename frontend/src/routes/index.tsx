@@ -134,13 +134,48 @@ function RoutedShell({ role, route }: { role: keyof typeof roleRoutes; route: st
         navigate(path + search);
       }}
       onNavigate={(nextRole: keyof typeof roleRoutes, nextRoute: string, extra?: Record<string, string>) => {
-        if (nextRole === 'student' && nextRoute === 'certDetail' && extra?.certificateId) {
-          navigate(`/student/certs/${encodeURIComponent(extra.certificateId)}`);
+        let params = { ...extra };
+        if (nextRoute === 'courseDetail' || nextRoute === 'player' || nextRoute === 'courses' || nextRoute === 'preview') {
+          const cid = params.courseId || window.__selectedCourseId || sessionStorage.getItem("selectedCourseId");
+          if (cid) params.courseId = cid;
+        }
+        if (nextRoute === 'groupDetail' || nextRoute === 'groups') {
+          const gid = params.groupId || window.__selectedGroupId || sessionStorage.getItem("selectedGroupId");
+          if (gid && nextRoute === 'groupDetail') params.groupId = gid;
+        }
+        if (nextRoute === 'approval' || nextRoute === 'approvalDetail') {
+          const aid = params.approvalId || window.__selectedApprovalId || null;
+          if (aid) params.approvalId = aid;
+        }
+        if (nextRoute === 'certDetail' || nextRoute === 'certificates') {
+          const ctid = params.certificateId || window.__selectedCertificateId || null;
+          if (ctid && nextRoute === 'certDetail') params.certificateId = ctid;
+        }
+
+        if (nextRole === 'student' && nextRoute === 'certDetail' && params.certificateId) {
+          navigate(`/student/certs/${encodeURIComponent(params.certificateId)}`);
+          return;
+        }
+        if (nextRole === 'student' && (nextRoute === 'courseDetail' || nextRoute === 'player' || (nextRoute === 'courses' && params.courseId))) {
+          if (params.courseId) {
+            navigate(`/player/lecture?courseId=${encodeURIComponent(params.courseId)}`);
+            return;
+          }
+        }
+        if (nextRoute in playerRoutes) {
+          const path = playerRoutes[nextRoute as keyof typeof playerRoutes];
+          const search = params && Object.keys(params).length > 0 ? '?' + new URLSearchParams(params).toString() : '';
+          navigate(path + search);
           return;
         }
         const path = roleRoutes[nextRole]?.[nextRoute as keyof (typeof roleRoutes)[typeof nextRole]];
-        if (!path) { navigate('/gallery'); return; }
-        const search = extra ? '?' + new URLSearchParams(extra).toString() : '';
+        if (!path) {
+          const fallbackPath = dashboardForRole(nextRole);
+          const search = params && Object.keys(params).length > 0 ? '?' + new URLSearchParams(params).toString() : '';
+          navigate(fallbackPath + search);
+          return;
+        }
+        const search = params && Object.keys(params).length > 0 ? '?' + new URLSearchParams(params).toString() : '';
         navigate(path + search);
       }}
     />

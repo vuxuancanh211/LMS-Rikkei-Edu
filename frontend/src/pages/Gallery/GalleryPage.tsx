@@ -164,16 +164,29 @@ function registerGalleryPage() {
 
     const go = useCallback((k, params) => {
       setDemo(null);
-      let aliasKey = ALIAS[k] || k;
-      if (params) {
-        const hasPathId = Object.keys(params).some(p => p === 'id' || p.endsWith('Id'));
-        if (hasPathId) {
+      let p = { ...params };
+      if (k === 'courseDetail' || k === 'player' || k === 'courses' || k === 'preview') {
+        const cid = p.courseId || window.__selectedCourseId || sessionStorage.getItem("selectedCourseId");
+        if (cid) p.courseId = cid;
+      }
+      if (k === 'groupDetail' || k === 'groups') {
+        const gid = p.groupId || window.__selectedGroupId || sessionStorage.getItem("selectedGroupId");
+        if (gid && k === 'groupDetail') p.groupId = gid;
+      }
+      let aliasKey = onNavigate ? k : (ALIAS[k] || k);
+      if (p && Object.keys(p).length > 0) {
+        const hasPathId = Object.keys(p).some(key => key === 'id' || key.endsWith('Id'));
+        if (hasPathId && !onNavigate) {
           const detailKey = DETAIL_ALIAS[aliasKey] || aliasKey + 'Detail';
           if (SCREENS[role][detailKey]) aliasKey = detailKey;
         }
       }
-      if (FULLBARE[aliasKey]) { if (onBare) { onBare(aliasKey, params); return; } setBack(SCREENS[role][route] ? route : "dashboard"); setRoute(aliasKey); setRouteParams(params); setDrawer(false); const m = document.querySelector(".main"); if (m) m.scrollTop = 0; return; }
-      if (SCREENS[role][aliasKey]) { if (onNavigate) { onNavigate(role, aliasKey, params); return; } setRouteParams(params); setRoute(aliasKey); setDrawer(false); const m = document.querySelector(".main"); if (m) m.scrollTop = 0; }
+      if (role === 'student' && (aliasKey === 'courseDetail' || (aliasKey === 'courses' && p.courseId))) {
+        aliasKey = 'player';
+      }
+      if (FULLBARE[aliasKey]) { if (onBare) { onBare(aliasKey, p); return; } setBack(SCREENS[role][route] ? route : "dashboard"); setRoute(aliasKey); setRouteParams(p); setDrawer(false); const m = document.querySelector(".main"); if (m) m.scrollTop = 0; return; }
+      if (SCREENS[role][aliasKey]) { if (onNavigate) { onNavigate(role, aliasKey, p); return; } setRouteParams(p); setRoute(aliasKey); setDrawer(false); const m = document.querySelector(".main"); if (m) m.scrollTop = 0; }
+      if (onNavigate) { onNavigate(role, aliasKey, p); return; }
     }, [role, route, onNavigate, onBare]);
     window.AppShell.go = go;
     const switchRole = (r) => {
@@ -195,7 +208,7 @@ function registerGalleryPage() {
 
     const resolvedRoute = ALIAS[route] || route;
     const activeKey = resolvedRoute;
-    const Comp = window[SCREENS[role][resolvedRoute]] || window[SCREENS[role].dashboard];
+    const Comp = window[SCREENS[role][route]] || window[SCREENS[role].dashboard];
 
     return (
       <div className="app">
@@ -295,7 +308,7 @@ function registerGalleryPage() {
               )}
             </div>
           </header>
-          <main style={{ flex: 1 }}>{useMemo(() => <Comp nav={go} persona={persona} demo={demo} groupId={routeParams?.groupId} courseId={routeParams?.courseId} quizId={routeParams?.quizId} />, [route, role, routeParams?.groupId, routeParams?.courseId, routeParams?.quizId, persona, demo, go])}</main>
+          <main style={{ flex: 1 }}>{useMemo(() => <Comp nav={go} persona={persona} demo={demo} groupId={routeParams?.groupId} courseId={routeParams?.courseId} quizId={routeParams?.quizId} postId={routeParams?.postId || routeParams?.id} />, [route, role, routeParams?.groupId, routeParams?.courseId, routeParams?.quizId, routeParams?.postId, routeParams?.id, persona, demo, go])}</main>
         </div>
         {(role === "student" || role === "instructor") && <window.AIChatbot />}
       </div>

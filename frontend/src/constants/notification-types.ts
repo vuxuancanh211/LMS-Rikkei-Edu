@@ -93,11 +93,12 @@ export function getNotificationTargetUrl(n: any, role?: string): string {
   const refId = n.referenceId;
   const refType = n.referenceType;
   const prefix = role ? `/${role}` : '/student';
-  if (type === 'FORUM_POST' || type === 'FORUM_REPLY' || refType === 'POST' || refType === 'FORUM_POST') {
+  if (type === 'FORUM_POST' || type === 'FORUM_REPLY' || type === 'FORUM_REPLY_ADDED' || refType === 'POST' || refType === 'FORUM_POST') {
     return refId ? `${prefix}/forum?postId=${refId}` : `${prefix}/forum`;
   }
   if (type === 'QUIZ_PUBLISHED' || type === 'ASSIGNMENT_PUBLISHED' || type === 'SUBMISSION_GRADED') {
-    return refId ? `${prefix}/courses/${refId}` : `${prefix}/courses`;
+    if (refType === 'COURSE') return refId ? `${prefix}/courses/${refId}` : `${prefix}/courses`;
+    return `${prefix}/notifications`;
   }
   if (type.startsWith('COURSE_')) {
     return refId ? `${prefix}/courses/${refId}` : `${prefix}/courses`;
