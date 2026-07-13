@@ -314,6 +314,8 @@ public class StudentCourseServiceImpl implements StudentCourseService {
                                         boolean hasVideo, boolean hasDocument, int wp, int dv) {
         if (Boolean.TRUE.equals(request.getCompleted())) {
             return true;
+        if (request.getCompleted() != null) {
+            return request.getCompleted();
         }
         if (hasVideo && hasDocument) {
             return wp >= 90 && dv >= 10;
@@ -323,9 +325,6 @@ public class StudentCourseServiceImpl implements StudentCourseService {
         }
         if (hasDocument) {
             return dv >= 20 || wp >= 90;
-        }
-        if (request.getCompleted() != null && !request.getCompleted()) {
-            return false;
         }
         return progress.getStatus() == null || STATUS_COMPLETED.equals(progress.getStatus());
     }
