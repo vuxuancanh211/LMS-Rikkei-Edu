@@ -286,7 +286,8 @@
           <video key={url || res?.id} controls controlsList="nodownload" autoPlay src={url}
             style={{ width: "100%", height: "100%", display: "block", outline: "none" }}
             onContextMenu={(e: any) => e.preventDefault()}
-            onTimeUpdate={onVideoTimeUpdate} />
+            onTimeUpdate={onVideoTimeUpdate}
+            onSeeked={onVideoTimeUpdate} />
         </div>
       );
     }
