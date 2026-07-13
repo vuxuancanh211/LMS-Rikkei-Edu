@@ -21,6 +21,7 @@ import project.lms_rikkei_edu.modules.course.exception.CourseStateException;
 import project.lms_rikkei_edu.modules.course.mapper.CourseMapper;
 import project.lms_rikkei_edu.modules.course.repository.*;
 import project.lms_rikkei_edu.modules.course.service.impl.AdminCourseServiceImpl;
+import project.lms_rikkei_edu.modules.user.entity.UserEntity;
 import project.lms_rikkei_edu.modules.user.repository.UserRepository;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest;
 
@@ -49,6 +50,7 @@ class AdminCourseServiceImplTest {
 
     private final UUID adminId  = UUID.randomUUID();
     private final UUID courseId = UUID.randomUUID();
+    private final UUID instructorId = UUID.randomUUID();
 
     @BeforeEach
     void setUp() {
@@ -82,6 +84,13 @@ class AdminCourseServiceImplTest {
                 .status(CourseStatus.PENDING).build();
     }
 
+    private UserEntity instructor(String fullName) {
+        UserEntity user = new UserEntity();
+        user.setId(instructorId);
+        user.setFullName(fullName);
+        return user;
+    }
+
     // ── listPendingCourses ────────────────────────────────────────────────────
 
     @Nested
@@ -98,6 +107,21 @@ class AdminCourseServiceImplTest {
 
             assertThat(result.getTotalElements()).isEqualTo(1);
             assertThat(result.getContent().get(0).getId()).isEqualTo(courseId);
+        }
+
+        @Test
+        void enrichesInstructorName_whenInstructorExists() {
+            Course c = courseWithStatus(CourseStatus.PENDING);
+            c.setInstructorId(instructorId);
+            PageImpl<Course> page = new PageImpl<>(List.of(c), PageRequest.of(0, 20), 1);
+            when(courseRepo.findAllByStatusIn(anyList(), any())).thenReturn(page);
+            when(courseMapper.toResponse(c)).thenReturn(courseResponse());
+            when(userRepository.findAllByIdInAndDeletedAtIsNull(List.of(instructorId)))
+                    .thenReturn(List.of(instructor("Nguyễn Văn An")));
+
+            Page<CourseResponse> result = adminCourseService.listPendingCourses(PageRequest.of(0, 20));
+
+            assertThat(result.getContent().get(0).getInstructorName()).isEqualTo("Nguyễn Văn An");
         }
 
         @Test
@@ -127,6 +151,21 @@ class AdminCourseServiceImplTest {
 
             assertThat(result.getTotalElements()).isEqualTo(1);
         }
+
+        @Test
+        void usesDash_whenInstructorFullNameIsNull() {
+            Course c = courseWithStatus(CourseStatus.PUBLISHED);
+            c.setInstructorId(instructorId);
+            PageImpl<Course> page = new PageImpl<>(List.of(c), PageRequest.of(0, 20), 1);
+            when(courseRepo.findAllByStatusIn(anyList(), any())).thenReturn(page);
+            when(courseMapper.toResponse(c)).thenReturn(courseResponse());
+            when(userRepository.findAllByIdInAndDeletedAtIsNull(List.of(instructorId)))
+                    .thenReturn(List.of(instructor(null)));
+
+            Page<CourseResponse> result = adminCourseService.listAllCourses(PageRequest.of(0, 20));
+
+            assertThat(result.getContent().get(0).getInstructorName()).isEqualTo("—");
+        }
     }
 
     // ── getCourseDetail ───────────────────────────────────────────────────────
@@ -143,6 +182,20 @@ class AdminCourseServiceImplTest {
             CourseDetailResponse result = adminCourseService.getCourseDetail(courseId);
 
             assertThat(result.getId()).isEqualTo(courseId);
+        }
+
+        @Test
+        void enrichesInstructorName_whenInstructorExists() {
+            Course c = courseWithStatus(CourseStatus.PENDING);
+            c.setInstructorId(instructorId);
+            when(courseRepo.findByIdWithCategory(courseId)).thenReturn(Optional.of(c));
+            when(courseMapper.toDetailResponse(c)).thenReturn(detailResponse());
+            when(userRepository.findAllByIdInAndDeletedAtIsNull(List.of(instructorId)))
+                    .thenReturn(List.of(instructor("Trần Thị Bình")));
+
+            CourseDetailResponse result = adminCourseService.getCourseDetail(courseId);
+
+            assertThat(result.getInstructorName()).isEqualTo("Trần Thị Bình");
         }
 
         @Test
