@@ -67,8 +67,8 @@ public class StudentCourseServiceImpl implements StudentCourseService {
     @Value("${app.s3.presigned-url-expiry:3600}")
     private long presignedUrlExpiry;
 
-    private static final String STATUS_COMPLETED = STATUS_COMPLETED;
-    private static final String STATUS_IN_PROGRESS = STATUS_IN_PROGRESS;
+    private static final String STATUS_COMPLETED = "COMPLETED";
+    private static final String STATUS_IN_PROGRESS = "IN_PROGRESS";
 
     @PersistenceContext
     private EntityManager entityManager;
