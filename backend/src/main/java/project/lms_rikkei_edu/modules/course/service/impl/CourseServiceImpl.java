@@ -964,16 +964,39 @@ public class CourseServiceImpl implements CourseService {
                 .filter(Objects::nonNull)
                 .collect(Collectors.toSet());
 
+        Set<String> liveNames = new HashSet<>();
         for (LessonResource r : lesson.getResources()) {
-            if (r.getDeletedAt() != null) continue;
             String name = r.getDisplayName() != null ? r.getDisplayName() : r.getOriginalFilename();
+            liveNames.add(name);
             if (!snapNames.contains(name)) {
                 r.setPendingDelete(true);
                 r.setStatus("PENDING_DELETE");
                 lessonResourceRepository.save(r);
             }
         }
-        // Note: không thể tạo lại resource đã xóa (file không còn trên S3)
+
+        // Tài liệu có trong snapshot nhưng không còn sống ở lesson này — thử hồi sinh tài liệu đã
+        // soft-delete cùng tên trước khi bỏ cuộc: từ khi admin duyệt xóa chuyển sang soft-delete
+        // (giữ nguyên row + file S3 nếu còn version nào tham chiếu, xem CourseVersionReferenceChecker),
+        // rollback về đúng version đó CÓ THỂ phục hồi được — khác với trước đây (ghi chú cũ:
+        // "không thể tạo lại resource đã xóa" chỉ còn đúng khi row đã bị xóa cứng thật sự).
+        for (CourseSnapshotDto.ResourceSnap snapR : snapResources) {
+            String name = snapR.getDisplayName();
+            if (name == null || liveNames.contains(name)) continue;
+            lessonResourceRepository.findSoftDeletedByLessonIdAndDisplayName(lesson.getId(), name)
+                    .ifPresent(r -> {
+                        r.setDeletedAt(null);
+                        r.setStatus("ACTIVE");
+                        r.setPendingDelete(false);
+                        // true (không phải false) — tài liệu này chưa nằm trong bản đã duyệt/publish
+                        // hiện tại, cần gửi duyệt lại. Frontend tính nút "Gửi cập nhật" ngoài
+                        // course.hasPendingDraft còn xét riêng allResources.some(r => r.isNewInUpdate
+                        // || r.pendingDelete) — set false ở đây tái diễn đúng lỗi đã sửa ở cấp
+                        // chapter/lesson (isDraft phải true), khiến nút không hiện sau khi rollback.
+                        r.setIsNewInUpdate(true);
+                        lessonResourceRepository.save(r);
+                    });
+        }
     }
 
     private Lesson buildDraftLesson(Chapter chapter, UUID courseId, CourseSnapshotDto.LessonSnap snapL) {
