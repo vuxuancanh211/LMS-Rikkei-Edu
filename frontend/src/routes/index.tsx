@@ -121,7 +121,7 @@ function RoutedShell({ role, route }: { role: keyof typeof roleRoutes; route: st
 
   return (
     <AppShell
-      key={`${role}:${route}:${location.pathname}`}
+      key={role}
       role0={role}
       route0={route}
       authUser={authUser}

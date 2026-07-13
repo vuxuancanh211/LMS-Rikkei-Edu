@@ -486,17 +486,18 @@
         ? ((docSeconds !== null && docSeconds >= 20) || (watchedPct !== null && watchedPct >= 90))
         : true;
       const targetStatus = isCompleted || progRef.current[activeL.id] === "COMPLETED" || autoComp ? "COMPLETED" : "IN_PROGRESS";
-      if (targetStatus === "COMPLETED") {
-        progRef.current[activeL.id] = "COMPLETED";
+      const previousStatus = progRef.current[activeL.id];
+      if (previousStatus !== targetStatus) {
+        progRef.current[activeL.id] = targetStatus;
+        setChapters(prev => prev.map(ch => ({
+          ...ch,
+          lessons: (ch.lessons || []).map(l =>
+            l.id === activeL.id
+              ? { ...l, progress: l.progress === "COMPLETED" ? "COMPLETED" : targetStatus }
+              : l
+          ),
+        })));
       }
-      setChapters(prev => prev.map(ch => ({
-        ...ch,
-        lessons: (ch.lessons || []).map(l =>
-          l.id === activeL.id
-            ? { ...l, progress: l.progress === "COMPLETED" ? "COMPLETED" : targetStatus }
-            : l
-        ),
-      })));
       try {
         const isComp = isCompleted || targetStatus === "COMPLETED";
         await api.post(`/student/courses/${courseId}/lessons/${activeL.id}/progress`, {

@@ -169,6 +169,15 @@ class RedisServiceTest {
     void isRefreshTokenValid_checksSetMembership() {
         when(redisTemplate.hasKey(RedisKeyConstants.REFRESH_TOKEN + userId + ":" + tokenHash)).thenReturn(false);
         when(valueOps.get(RedisKeyConstants.REFRESH_TOKEN + userId)).thenReturn(null);
+        when(setOps.isMember(RedisKeyConstants.USER_TOKENS + userId, tokenHash)).thenReturn(true);
+        assertThat(redisService.isRefreshTokenValid(userId, tokenHash)).isTrue();
+    }
+
+    @Test
+    void isRefreshTokenValid_returnsFalse_whenNotInSet() {
+        when(redisTemplate.hasKey(RedisKeyConstants.REFRESH_TOKEN + userId + ":" + tokenHash)).thenReturn(false);
+        when(valueOps.get(RedisKeyConstants.REFRESH_TOKEN + userId)).thenReturn(null);
+        when(setOps.isMember(RedisKeyConstants.USER_TOKENS + userId, tokenHash)).thenReturn(false);
         assertThat(redisService.isRefreshTokenValid(userId, tokenHash)).isFalse();
     }
 

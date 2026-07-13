@@ -99,6 +99,8 @@ function registerGalleryPage() {
     const [route, setRoute] = useState(route0 || "dashboard");
     const [demo, setDemo] = useState(demo0 || null);
     const [routeParams, setRouteParams] = useState(routeParamsProp || {});
+    useEffect(() => { setRoute(route0 || "dashboard"); }, [route0]);
+    useEffect(() => { setRole(role0); }, [role0]);
     useEffect(() => { setRouteParams(routeParamsProp || {}); }, [routeParamsProp]);
     const [back, setBack] = useState("dashboard");
     const [drawer, setDrawer] = useState(false);

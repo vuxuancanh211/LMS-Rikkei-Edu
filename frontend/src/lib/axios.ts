@@ -58,7 +58,8 @@ httpClient.interceptors.response.use(
 
     if (!storedRefreshToken) {
       logout();
-      if (window.location.pathname !== '/login') {
+      if (window.location.pathname !== '/login' && !(window as any).__isRedirectingToLogin) {
+        (window as any).__isRedirectingToLogin = true;
         window.location.assign('/login');
       }
       return Promise.reject(error);
@@ -98,7 +99,8 @@ httpClient.interceptors.response.use(
       const refreshStatus = refreshError?.response?.status;
       if (refreshStatus === 401 || refreshStatus === 403) {
         logout();
-        if (window.location.pathname !== '/login') {
+        if (window.location.pathname !== '/login' && !(window as any).__isRedirectingToLogin) {
+          (window as any).__isRedirectingToLogin = true;
           window.location.assign('/login');
         }
       }
