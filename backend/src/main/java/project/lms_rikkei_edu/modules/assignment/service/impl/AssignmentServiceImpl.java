@@ -194,7 +194,7 @@ public class AssignmentServiceImpl implements AssignmentService {
                     if (a.getScope() == AssignmentScope.SPECIFIC_GROUPS) {
                         List<UUID> gids = assignmentGroupMap.getOrDefault(a.getId(), Collections.emptyList());
                         groupNames = gids.stream()
-                                .map(gid -> groupNameMap.get(gid))
+                                .map(groupNameMap::get)
                                 .filter(Objects::nonNull)
                                 .toList();
                     }
@@ -400,10 +400,8 @@ public class AssignmentServiceImpl implements AssignmentService {
         }
 
         String contentType = file.getContentType();
-        if (contentType == null || !contentType.startsWith("image/")) {
-            if (contentType == null) {
-                throw new BusinessException("Không thể xác định loại file");
-            }
+        if (contentType == null) {
+            throw new BusinessException("Không thể xác định loại file");
         }
 
         UUID attachmentId = UUID.randomUUID();
@@ -523,21 +521,7 @@ public class AssignmentServiceImpl implements AssignmentService {
         }
         if (request.getMaxSubmissions() != null) assignment.setMaxSubmissions(request.getMaxSubmissions());
 
-        if (request.getScope() == AssignmentScope.SPECIFIC_GROUPS && request.getGroupIds() != null) {
-            assignmentGroupRepository.deleteByAssignmentId(assignment.getId());
-            assignmentGroupRepository.flush();
-            OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
-            for (UUID groupId : request.getGroupIds()) {
-                AssignmentGroupEntity ag = new AssignmentGroupEntity();
-                ag.setId(UUID.randomUUID());
-                ag.setAssignmentId(assignment.getId());
-                ag.setGroupId(groupId);
-                ag.setAssignedAt(now);
-                assignmentGroupRepository.save(ag);
-            }
-        } else if (request.getScope() == AssignmentScope.ALL_GROUPS) {
-            assignmentGroupRepository.deleteByAssignmentId(assignment.getId());
-        }
+        updateAssignmentGroups(assignment, request.getScope(), request.getGroupIds());
     }
 
     private void updatePublishedFields(AssignmentEntity assignment, UpdateAssignmentRequest request) {
@@ -566,21 +550,8 @@ public class AssignmentServiceImpl implements AssignmentService {
             assignment.setScope(request.getScope());
             hasChanges = true;
         }
-        if (request.getScope() == AssignmentScope.SPECIFIC_GROUPS && request.getGroupIds() != null) {
-            assignmentGroupRepository.deleteByAssignmentId(assignment.getId());
-            assignmentGroupRepository.flush();
-            OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
-            for (UUID groupId : request.getGroupIds()) {
-                AssignmentGroupEntity ag = new AssignmentGroupEntity();
-                ag.setId(UUID.randomUUID());
-                ag.setAssignmentId(assignment.getId());
-                ag.setGroupId(groupId);
-                ag.setAssignedAt(now);
-                assignmentGroupRepository.save(ag);
-            }
-            hasChanges = true;
-        } else if (request.getScope() == AssignmentScope.ALL_GROUPS) {
-            assignmentGroupRepository.deleteByAssignmentId(assignment.getId());
+        if (request.getScope() != null) {
+            updateAssignmentGroups(assignment, request.getScope(), request.getGroupIds());
             hasChanges = true;
         }
 
@@ -590,21 +561,35 @@ public class AssignmentServiceImpl implements AssignmentService {
     }
 
     private void validateDates(OffsetDateTime startDate, OffsetDateTime deadline) {
-        if (startDate != null && deadline != null) {
-            if (!startDate.isBefore(deadline)) {
-                throw new BusinessException("Ngày bắt đầu phải trước hạn nộp");
-            }
-            if (startDate.plusMinutes(1).isAfter(deadline)) {
-                throw new BusinessException("Ngày bắt đầu phải trước hạn nộp ít nhất 1 phút");
-            }
+        if (startDate != null && deadline != null && !startDate.isBefore(deadline)) {
+            throw new BusinessException("Ngày bắt đầu phải trước hạn nộp");
+        }
+        if (startDate != null && deadline != null && startDate.plusMinutes(1).isAfter(deadline)) {
+            throw new BusinessException("Ngày bắt đầu phải trước hạn nộp ít nhất 1 phút");
         }
         if (startDate != null && startDate.isBefore(OffsetDateTime.now(ZoneOffset.UTC).minusMinutes(5))) {
             throw new BusinessException("Ngày bắt đầu không thể ở quá khứ");
         }
-        if (deadline != null) {
-            if (deadline.isBefore(OffsetDateTime.now(ZoneOffset.UTC).plusMinutes(2))) {
-                throw new BusinessException("Hạn nộp phải ít nhất 2 phút sau thời điểm hiện tại");
+        if (deadline != null && deadline.isBefore(OffsetDateTime.now(ZoneOffset.UTC).plusMinutes(2))) {
+            throw new BusinessException("Hạn nộp phải ít nhất 2 phút sau thời điểm hiện tại");
+        }
+    }
+
+    private void updateAssignmentGroups(AssignmentEntity assignment, AssignmentScope scope, List<UUID> groupIds) {
+        if (scope == AssignmentScope.SPECIFIC_GROUPS && groupIds != null) {
+            assignmentGroupRepository.deleteByAssignmentId(assignment.getId());
+            assignmentGroupRepository.flush();
+            OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+            for (UUID groupId : groupIds) {
+                AssignmentGroupEntity ag = new AssignmentGroupEntity();
+                ag.setId(UUID.randomUUID());
+                ag.setAssignmentId(assignment.getId());
+                ag.setGroupId(groupId);
+                ag.setAssignedAt(now);
+                assignmentGroupRepository.save(ag);
             }
+        } else if (scope == AssignmentScope.ALL_GROUPS) {
+            assignmentGroupRepository.deleteByAssignmentId(assignment.getId());
         }
     }
 

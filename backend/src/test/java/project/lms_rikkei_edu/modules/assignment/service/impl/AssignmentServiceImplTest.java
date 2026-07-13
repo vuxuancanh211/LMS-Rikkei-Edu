@@ -9,7 +9,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.util.ReflectionTestUtils;
-import org.springframework.web.multipart.MultipartFile;
 import project.lms_rikkei_edu.common.exception.BusinessException;
 import project.lms_rikkei_edu.infrastructure.s3.S3Service;
 import project.lms_rikkei_edu.modules.assignment.dto.request.CreateAssignmentRequest;
@@ -48,8 +47,6 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -138,9 +135,10 @@ class AssignmentServiceImplTest {
 
     @Test
     void createAssignment_courseNotOwned_throws() {
+        var request = createRequest(null);
         when(courseRepository.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(false);
 
-        assertThatThrownBy(() -> service.createAssignment(courseId, instructorId, createRequest(null)))
+        assertThatThrownBy(() -> service.createAssignment(courseId, instructorId, request))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("Bạn không sở hữu");
     }
@@ -149,10 +147,11 @@ class AssignmentServiceImplTest {
     void createAssignment_courseNotPublished_throws() {
         var course = publishedCourse();
         course.setStatus(CourseStatus.DRAFT);
+        var request = createRequest(null);
         when(courseRepository.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(true);
         when(courseRepository.findById(courseId)).thenReturn(Optional.of(course));
 
-        assertThatThrownBy(() -> service.createAssignment(courseId, instructorId, createRequest(null)))
+        assertThatThrownBy(() -> service.createAssignment(courseId, instructorId, request))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("đã publish");
     }

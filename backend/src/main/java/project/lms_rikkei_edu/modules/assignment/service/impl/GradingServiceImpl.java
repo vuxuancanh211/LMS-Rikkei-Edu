@@ -60,7 +60,7 @@ public class GradingServiceImpl implements GradingService {
 
         List<InstructorSubmissionResponse> result = new ArrayList<>();
         for (AssignmentEntity assignment : assignments) {
-            result.addAll(getSubmissionsForAssignment(assignment, instructorId, statusFilter));
+            result.addAll(getSubmissionsForAssignment(assignment, statusFilter));
         }
         return result;
     }
@@ -90,56 +90,22 @@ public class GradingServiceImpl implements GradingService {
                 .toList();
     }
 
-    private List<InstructorSubmissionResponse> getSubmissionsForAssignment(AssignmentEntity assignment, UUID instructorId, String statusFilter) {
+    private List<InstructorSubmissionResponse> getSubmissionsForAssignment(AssignmentEntity assignment, String statusFilter) {
         UUID courseId = assignment.getCourseId();
         UUID assignmentId = assignment.getId();
 
-        // Get all students who should have this assignment
         Set<UUID> expectedStudentIds = getExpectedStudentIds(assignment, courseId);
-
-        // Get all actual submissions for this assignment
         List<AssignmentSubmissionEntity> submissions = assignmentSubmissionRepository
                 .findByAssignmentIdOrderBySubmittedAtDesc(assignmentId);
 
-        // Build student → submission map
-        Map<UUID, AssignmentSubmissionEntity> submissionMap = submissions.stream()
-                .collect(Collectors.toMap(
-                        AssignmentSubmissionEntity::getStudentId,
-                        sub -> sub,
-                        (a, b) -> a));
-
-        // Fetch user info for all expected students
-        Map<UUID, UserEntity> userMap = userRepository
-                .findAllByIdInAndDeletedAtIsNull(new ArrayList<>(expectedStudentIds))
-                .stream()
-                .collect(Collectors.toMap(UserEntity::getId, u -> u));
-
-        // Fetch submission files
-        Set<UUID> submissionIds = submissions.stream()
-                .map(AssignmentSubmissionEntity::getId)
-                .collect(Collectors.toSet());
-
-        Map<UUID, List<SubmissionFileEntity>> fileMap = submissionFileRepository
-                .findBySubmissionIdInOrderByOrderIndexAsc(submissionIds)
-                .stream()
-                .collect(Collectors.groupingBy(SubmissionFileEntity::getSubmissionId));
-
-        // Fetch group info for all expected students
-        Map<UUID, List<UUID>> studentGroupMap = new HashMap<>();
-        Set<UUID> allGroupIds = new HashSet<>();
-        for (UUID studentId : expectedStudentIds) {
-            List<UUID> groupIds = groupMemberRepository.findGroupIdsByStudentIdAndCourseId(studentId, courseId);
-            studentGroupMap.put(studentId, groupIds);
-            allGroupIds.addAll(groupIds);
-        }
-
-        Map<UUID, String> groupNameMap = studyGroupRepository.findAllById(allGroupIds)
-                .stream()
-                .collect(Collectors.toMap(StudyGroupEntity::getId, StudyGroupEntity::getName));
+        Map<UUID, AssignmentSubmissionEntity> submissionMap = buildSubmissionMap(submissions);
+        Map<UUID, UserEntity> userMap = fetchUserMap(expectedStudentIds);
+        Map<UUID, List<SubmissionFileEntity>> fileMap = buildFileMap(submissions);
+        Map<UUID, List<UUID>> studentGroupMap = buildStudentGroupMap(expectedStudentIds, courseId);
+        Map<UUID, String> groupNameMap = fetchGroupNameMap(studentGroupMap);
 
         String courseTitle = courseRepository.findById(courseId).map(Course::getTitle).orElse(null);
 
-        // Build response for each expected student
         boolean filterByStatus = statusFilter != null && !statusFilter.isBlank() && !"ALL".equalsIgnoreCase(statusFilter);
         String filterStatus = filterByStatus ? statusFilter.toUpperCase() : null;
 
@@ -161,57 +127,104 @@ public class GradingServiceImpl implements GradingService {
                 groupName = groupNameMap.get(groupId);
             }
 
-            List<SubmissionFileResponse> files = Collections.emptyList();
-            if (sub != null) {
-                files = fileMap.getOrDefault(sub.getId(), Collections.emptyList())
-                        .stream()
-                        .map(fe -> {
-                            String url = null;
-                            if (fe.getS3Key() != null) {
-                                var presigned = s3Service.generatePresignedInlineUrl(fe.getS3Key(), 3600);
-                                url = presigned.url().toString();
-                            }
-                            return SubmissionFileResponse.builder()
-                                    .id(fe.getId())
-                                    .originalFilename(fe.getOriginalFilename())
-                                    .fileSizeBytes(fe.getFileSizeBytes())
-                                    .mimeType(fe.getMimeType())
-                                    .extension(fe.getExtension())
-                                    .url(url)
-                                    .build();
-                        })
-                        .toList();
-            }
+            List<SubmissionFileResponse> files = buildFileResponses(sub, fileMap);
 
-            InstructorSubmissionResponse resp = InstructorSubmissionResponse.builder()
-                    .id(sub != null ? sub.getId() : null)
-                    .submissionNumber(sub != null && sub.getSubmissionNumber() != null ? sub.getSubmissionNumber() : 0)
-                    .status(entryStatus)
-                    .note(sub != null ? sub.getNote() : null)
-                    .isLate(sub != null && Boolean.TRUE.equals(sub.getIsLate()))
-                    .score(sub != null ? sub.getScore() : null)
-                    .feedback(sub != null ? sub.getFeedback() : null)
-                    .submittedAt(sub != null ? sub.getSubmittedAt() : null)
-                    .gradedAt(sub != null ? sub.getGradedAt() : null)
-                    .scorePublishedAt(sub != null ? sub.getScorePublishedAt() : null)
-                    .files(files)
-                    .studentId(studentId)
-                    .studentName(user != null ? user.getFullName() : null)
-                    .studentEmail(user != null ? user.getEmail() : null)
-                    .assignmentId(assignment.getId())
-                    .assignmentTitle(assignment.getTitle())
-                    .assignmentMaxScore(assignment.getMaxScore())
-                    .assignmentMaxSubmissions(assignment.getMaxSubmissions())
-                    .courseId(assignment.getCourseId())
-                    .courseTitle(courseTitle)
-                    .groupId(groupId)
-                    .groupName(groupName)
-                    .build();
-
-            result.add(resp);
+            result.add(buildInstructorResponse(studentId, sub, user, assignment, courseTitle, groupId, groupName, entryStatus, files));
         }
 
         return result;
+    }
+
+    private Map<UUID, AssignmentSubmissionEntity> buildSubmissionMap(List<AssignmentSubmissionEntity> submissions) {
+        return submissions.stream()
+                .collect(Collectors.toMap(
+                        AssignmentSubmissionEntity::getStudentId,
+                        sub -> sub,
+                        (a, b) -> a));
+    }
+
+    private Map<UUID, UserEntity> fetchUserMap(Set<UUID> studentIds) {
+        return userRepository.findAllByIdInAndDeletedAtIsNull(new ArrayList<>(studentIds))
+                .stream()
+                .collect(Collectors.toMap(UserEntity::getId, u -> u));
+    }
+
+    private Map<UUID, List<SubmissionFileEntity>> buildFileMap(List<AssignmentSubmissionEntity> submissions) {
+        Set<UUID> submissionIds = submissions.stream()
+                .map(AssignmentSubmissionEntity::getId)
+                .collect(Collectors.toSet());
+        return submissionFileRepository
+                .findBySubmissionIdInOrderByOrderIndexAsc(submissionIds)
+                .stream()
+                .collect(Collectors.groupingBy(SubmissionFileEntity::getSubmissionId));
+    }
+
+    private Map<UUID, List<UUID>> buildStudentGroupMap(Set<UUID> studentIds, UUID courseId) {
+        Map<UUID, List<UUID>> map = new HashMap<>();
+        for (UUID studentId : studentIds) {
+            map.put(studentId, groupMemberRepository.findGroupIdsByStudentIdAndCourseId(studentId, courseId));
+        }
+        return map;
+    }
+
+    private Map<UUID, String> fetchGroupNameMap(Map<UUID, List<UUID>> studentGroupMap) {
+        Set<UUID> allGroupIds = new HashSet<>();
+        studentGroupMap.values().forEach(allGroupIds::addAll);
+        return studyGroupRepository.findAllById(allGroupIds)
+                .stream()
+                .collect(Collectors.toMap(StudyGroupEntity::getId, StudyGroupEntity::getName));
+    }
+
+    private List<SubmissionFileResponse> buildFileResponses(AssignmentSubmissionEntity sub, Map<UUID, List<SubmissionFileEntity>> fileMap) {
+        if (sub == null) return Collections.emptyList();
+        return fileMap.getOrDefault(sub.getId(), Collections.emptyList())
+                .stream()
+                .map(fe -> {
+                    String url = null;
+                    if (fe.getS3Key() != null) {
+                        var presigned = s3Service.generatePresignedInlineUrl(fe.getS3Key(), 3600);
+                        url = presigned.url().toString();
+                    }
+                    return SubmissionFileResponse.builder()
+                            .id(fe.getId())
+                            .originalFilename(fe.getOriginalFilename())
+                            .fileSizeBytes(fe.getFileSizeBytes())
+                            .mimeType(fe.getMimeType())
+                            .extension(fe.getExtension())
+                            .url(url)
+                            .build();
+                })
+                .toList();
+    }
+
+    private InstructorSubmissionResponse buildInstructorResponse(UUID studentId, AssignmentSubmissionEntity sub, UserEntity user,
+                                                                  AssignmentEntity assignment, String courseTitle,
+                                                                  UUID groupId, String groupName, String entryStatus,
+                                                                  List<SubmissionFileResponse> files) {
+        return InstructorSubmissionResponse.builder()
+                .id(sub != null ? sub.getId() : null)
+                .submissionNumber(sub != null && sub.getSubmissionNumber() != null ? sub.getSubmissionNumber() : 0)
+                .status(entryStatus)
+                .note(sub != null ? sub.getNote() : null)
+                .isLate(sub != null && Boolean.TRUE.equals(sub.getIsLate()))
+                .score(sub != null ? sub.getScore() : null)
+                .feedback(sub != null ? sub.getFeedback() : null)
+                .submittedAt(sub != null ? sub.getSubmittedAt() : null)
+                .gradedAt(sub != null ? sub.getGradedAt() : null)
+                .scorePublishedAt(sub != null ? sub.getScorePublishedAt() : null)
+                .files(files)
+                .studentId(studentId)
+                .studentName(user != null ? user.getFullName() : null)
+                .studentEmail(user != null ? user.getEmail() : null)
+                .assignmentId(assignment.getId())
+                .assignmentTitle(assignment.getTitle())
+                .assignmentMaxScore(assignment.getMaxScore())
+                .assignmentMaxSubmissions(assignment.getMaxSubmissions())
+                .courseId(assignment.getCourseId())
+                .courseTitle(courseTitle)
+                .groupId(groupId)
+                .groupName(groupName)
+                .build();
     }
 
     private Set<UUID> getExpectedStudentIds(AssignmentEntity assignment, UUID courseId) {
