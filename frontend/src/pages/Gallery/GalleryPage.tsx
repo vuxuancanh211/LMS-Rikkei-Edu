@@ -231,7 +231,14 @@ function registerGalleryPage() {
             <div className="search field-icon"><Ic n="search" /><input className="input" placeholder="Tìm kiếm khóa học, học viên..." /></div>
             <div className="grow" />
             <div style={{ position: "relative" }} onClick={e => e.stopPropagation()}>
-              <button className="icon-btn" onClick={() => { setNotif(!notif); setUmenu(false); }}><Ic n="bell" size={20} />{unreadCount > 0 && <span className="badge-count">{unreadCount > 99 ? '99+' : unreadCount}</span>}</button>
+              <button
+                className="icon-btn"
+                style={unreadCount > 0 ? { background: '#fff1f2', borderColor: '#fecdd3', color: '#e11d48' } : undefined}
+                onClick={() => { setNotif(!notif); setUmenu(false); }}
+              >
+                <Ic n="bell" size={20} style={unreadCount > 0 ? { color: '#e11d48' } : undefined} />
+                {unreadCount > 0 && <span className="badge-count" style={{ background: '#e11d48', borderColor: '#fff' }}>{unreadCount > 99 ? '99+' : unreadCount}</span>}
+              </button>
               {notif && (
                 <div className="card" style={{ position: "absolute", right: 0, top: 52, width: 360, maxWidth: "90vw", padding: 0, boxShadow: "var(--sh-lg)", zIndex: 60, animation: "popIn .18s" }}>
                   <div className="between" style={{ padding: "14px 18px", borderBottom: "1px solid var(--border)" }}><b>Thông báo</b><div className="row gap-8">{unreadCount > 0 && <span className="link" onClick={handleMarkAllAsRead}>Đánh dấu đã đọc</span>}</div></div>
@@ -241,9 +248,22 @@ function registerGalleryPage() {
                     {!notifLoading && notificationList.slice(0, 5).map((n) => {
                       const meta = notifMeta(n.type);
                       return (
-                        <div key={n.id} className="row gap-12" style={{ padding: "13px 16px", background: n.read ? "#fff" : "var(--accent-soft)", borderBottom: "1px solid var(--border)", cursor: "pointer" }} onClick={() => { if (!n.read) handleMarkAsRead(n.id); }}>
+                        <div key={n.id} className="row gap-12" style={{ padding: "13px 16px", background: n.read ? "#fff" : "var(--accent-soft)", borderBottom: "1px solid var(--border)", cursor: "pointer" }} onClick={() => {
+                          if (!n.read) handleMarkAsRead(n.id);
+                          setNotif(false);
+                          const targetUrl = getNotificationTargetUrl(n);
+                          const path = targetUrl.startsWith('/student/') ? targetUrl.replace('/student/', '') : targetUrl.replace('/', '');
+                          go(path);
+                        }}>
                           <div className="stat-ic" style={{ width: 38, height: 38, borderRadius: 10, background: meta.color + "1a", color: meta.color, flex: "none" }}><Ic n={meta.icon} size={18} /></div>
-                          <div className="grow"><div className="t-sm" style={{ lineHeight: 1.4, fontWeight: n.read ? 400 : 600 }}>{n.title}</div><div className="t-xs dim" style={{ marginTop: 3 }}>{timeAgo(n.createdAt)}</div></div>
+                          <div className="grow" style={{ minWidth: 0 }}>
+                            <div className="row gap-6" style={{ marginBottom: 3 }}>
+                              <span className="chip" style={{ background: meta.color + "1a", color: meta.color, borderColor: meta.color + "33", fontSize: 10, padding: "1px 5px" }}>{meta.label || 'Hệ thống'}</span>
+                            </div>
+                            <div className="t-sm" style={{ lineHeight: 1.4, fontWeight: n.read ? 400 : 600 }}>{n.title}</div>
+                            {n.body && <div className="t-xs muted" style={{ marginTop: 3, lineHeight: 1.3, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{n.body}</div>}
+                            <div className="t-xs dim" style={{ marginTop: 4 }}>{timeAgo(n.createdAt)}</div>
+                          </div>
                           {!n.read && <span style={{ width: 8, height: 8, borderRadius: 999, background: "var(--accent)", flex: "none" }} />}
                         </div>
                       );

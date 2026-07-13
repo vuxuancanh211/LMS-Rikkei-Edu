@@ -112,10 +112,11 @@ public class AuthServiceImpl implements AuthService {
     public RefreshTokenResponse refresh(RefreshTokenRequest request) {
         UUID userId = extractUserIdFromRefreshToken(request.getRefreshToken());
         String requestTokenHash = hashToken(request.getRefreshToken());
-        String storedTokenHash = redisService.getRefreshToken(userId)
-                .orElseThrow(() -> new BusinessException("Refresh token is invalid or expired", HttpStatus.UNAUTHORIZED));
-
-        if (!isSameHash(requestTokenHash, storedTokenHash)) {
+        boolean isValid = redisService.isRefreshTokenValid(userId, requestTokenHash);
+        if (!isValid && redisService.getRefreshToken(userId).isPresent()) {
+            isValid = isSameHash(requestTokenHash, redisService.getRefreshToken(userId).get());
+        }
+        if (!isValid) {
             throw new BusinessException("Refresh token is invalid or expired", HttpStatus.UNAUTHORIZED);
         }
 
@@ -124,10 +125,11 @@ public class AuthServiceImpl implements AuthService {
                 .orElseThrow(() -> new BusinessException("Refresh token is invalid or expired", HttpStatus.UNAUTHORIZED));
 
         if (user.getStatus() != UserStatus.ACTIVE || user.getDisabledAt() != null) {
-            redisService.deleteRefreshToken(userId);
+            redisService.deleteAllRefreshTokens(userId);
             throw new BusinessException("User account is not active", HttpStatus.FORBIDDEN);
         }
 
+        redisService.rotateRefreshTokenWithGracePeriod(userId, requestTokenHash, 30);
         String newRefreshToken = generateRefreshToken(user.getId());
         redisService.saveRefreshToken(user.getId(), hashToken(newRefreshToken));
 
@@ -141,6 +143,11 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public LogoutResponse logout(String authorizationHeader) {
+        return logout(authorizationHeader, null);
+    }
+
+    @Override
+    public LogoutResponse logout(String authorizationHeader, RefreshTokenRequest request) {
         String accessToken = jwtService.resolveToken(authorizationHeader);
         if (accessToken == null) {
             throw new BusinessException("Authorization token is required", HttpStatus.UNAUTHORIZED);
@@ -155,7 +162,11 @@ public class AuthServiceImpl implements AuthService {
         UUID userId = jwtService.extractUserId(accessToken);
 
         redisService.blacklistAccessToken(jti, tokenExpiration);
-        redisService.deleteRefreshToken(userId);
+        if (request != null && request.getRefreshToken() != null && !request.getRefreshToken().isBlank()) {
+            redisService.deleteRefreshToken(userId, hashToken(request.getRefreshToken()));
+        } else {
+            redisService.deleteRefreshToken(userId);
+        }
 
         return LogoutResponse.builder()
                 .message("Logout successfully")

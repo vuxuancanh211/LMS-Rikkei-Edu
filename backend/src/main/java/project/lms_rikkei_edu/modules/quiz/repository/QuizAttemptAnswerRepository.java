@@ -12,6 +12,8 @@ public interface QuizAttemptAnswerRepository extends JpaRepository<QuizAttemptAn
 
     List<QuizAttemptAnswerEntity> findByAttemptId(UUID attemptId);
 
+    void deleteByAttemptIdIn(List<UUID> attemptIds);
+
     // Thống kê tỉ lệ đúng/sai per quiz_question — dùng cho stats giảng viên
     @Query("""
             SELECT a.questionId,

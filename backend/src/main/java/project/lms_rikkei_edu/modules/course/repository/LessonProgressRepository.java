@@ -12,4 +12,8 @@ public interface LessonProgressRepository extends JpaRepository<LessonProgressEn
     List<LessonProgressEntity> findByStudentIdAndCourseId(UUID studentId, UUID courseId);
 
     Optional<LessonProgressEntity> findByStudentIdAndLessonId(UUID studentId, UUID lessonId);
+
+    void deleteByCourseIdAndStudentIdIn(UUID courseId, List<UUID> studentIds);
+
+    void deleteByCourseIdAndStudentId(UUID courseId, UUID studentId);
 }

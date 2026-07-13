@@ -76,6 +76,8 @@ class GroupServiceImplTest {
     private ChatRoomService chatRoomService;
     @Mock
     private SseEmitterRegistry sseEmitterRegistry;
+    @Mock
+    private project.lms_rikkei_edu.modules.course.service.StudentCourseService studentCourseService;
 
     private GroupServiceImpl groupService;
 
@@ -92,6 +94,7 @@ class GroupServiceImplTest {
                 groupMemberRepository,
                 courseRepository,
                 courseEnrollmentRepository,
+                studentCourseService,
                 userRepository,
                 currentUserProvider,
                 notificationService,

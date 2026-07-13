@@ -60,12 +60,15 @@ class CsvImportServiceImplTest {
     @Mock
     private EmailAsyncService emailAsyncService;
 
+    @Mock
+    private project.lms_rikkei_edu.modules.course.service.StudentCourseService studentCourseService;
+
     private CsvImportServiceImpl service;
 
     @BeforeEach
     void setUp() {
         service = new CsvImportServiceImpl(userService, redisService,
-                userRepository, courseEnrollmentRepository, courseRepository, emailAsyncService);
+                userRepository, courseEnrollmentRepository, courseRepository, emailAsyncService, studentCourseService);
         ReflectionTestUtils.setField(service, "maxCsvRows", 500);
     }
 

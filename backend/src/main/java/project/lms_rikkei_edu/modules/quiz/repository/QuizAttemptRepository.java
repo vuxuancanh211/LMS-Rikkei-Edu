@@ -22,6 +22,12 @@ public interface QuizAttemptRepository extends JpaRepository<QuizAttemptEntity, 
 
     List<QuizAttemptEntity> findByQuizId(UUID quizId);
 
+    List<QuizAttemptEntity> findByCourseIdAndStudentIdIn(UUID courseId, List<UUID> studentIds);
+
+    void deleteByCourseIdAndStudentIdIn(UUID courseId, List<UUID> studentIds);
+
+    void deleteByCourseIdAndStudentId(UUID courseId, UUID studentId);
+
     // Batch — tải toàn bộ attempt của 1 học viên cho nhiều quiz trong 1 query, dùng để tính tiến độ
     // cả khóa (xem QuizStatsServiceImpl#getStudentCourseProgress) thay vì query riêng cho từng quiz.
     List<QuizAttemptEntity> findByQuizIdInAndStudentId(List<UUID> quizIds, UUID studentId);
