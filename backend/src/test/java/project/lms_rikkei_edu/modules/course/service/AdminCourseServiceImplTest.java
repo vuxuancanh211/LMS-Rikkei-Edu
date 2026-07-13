@@ -44,6 +44,10 @@ class AdminCourseServiceImplTest {
     @Mock CourseVersionRepository courseVersionRepo;
     @Mock S3Service s3Service;
     @Mock CacheManager cacheManager;
+    @Mock LessonProgressRepository lessonProgressRepo;
+    @Mock VideoUploadJobRepository videoUploadJobRepo;
+    @Mock project.lms_rikkei_edu.modules.ai.service.LessonAiDataCleanupService lessonAiDataCleanupService;
+    @Mock project.lms_rikkei_edu.modules.course.service.impl.CourseVersionReferenceChecker courseVersionReferenceChecker;
 
     AdminCourseServiceImpl adminCourseService;
 
@@ -55,8 +59,10 @@ class AdminCourseServiceImplTest {
         adminCourseService = new AdminCourseServiceImpl(
                 courseRepo, courseMapper,
                 approvalLogRepo, lessonResourceRepo, courseVersionRepo,
-                s3Service, new ObjectMapper(), cacheManager
+                s3Service, new ObjectMapper(), cacheManager, lessonProgressRepo, videoUploadJobRepo,
+                lessonAiDataCleanupService, courseVersionReferenceChecker
         );
+        when(courseVersionReferenceChecker.isSafeToDelete(any(), any())).thenReturn(true);
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────
@@ -365,7 +371,7 @@ class AdminCourseServiceImplTest {
 
             assertThat(r.getDeletedAt()).isNotNull();
             assertThat(r.getStatus()).isEqualTo("DELETED");
-            verify(s3Service).deleteObject("courses/file.pdf");
+            verify(s3Service).deleteObjectAsync("courses/file.pdf");
         }
 
         @Test

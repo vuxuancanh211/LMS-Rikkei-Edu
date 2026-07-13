@@ -19,6 +19,7 @@ import project.lms_rikkei_edu.modules.course.mapper.*;
 import project.lms_rikkei_edu.modules.course.repository.*;
 import project.lms_rikkei_edu.modules.course.service.impl.CourseListCacheGateway;
 import project.lms_rikkei_edu.modules.course.service.impl.CourseServiceImpl;
+import project.lms_rikkei_edu.modules.course.service.impl.CourseVersionReferenceChecker;
 import project.lms_rikkei_edu.modules.quiz.repository.QuizRepository;
 import project.lms_rikkei_edu.modules.quiz.service.QuizService;
 
@@ -52,6 +53,7 @@ class CourseServiceImplExt2Test {
     @Mock QuizService quizService;
     @Mock QuizRepository quizRepository;
     @Mock StudentCourseService studentCourseService;
+    @Mock CourseVersionReferenceChecker courseVersionReferenceChecker;
 
     CourseServiceImpl service;
 
@@ -66,8 +68,10 @@ class CourseServiceImplExt2Test {
                 approvalLogRepository, courseVersionRepository,
                 courseMapper, objectMapper, chapterMapper, lessonMapper,
                 entityManager, s3Service, quizService, quizRepository, studentCourseService,
-                new CourseListCacheGateway(courseRepository, courseMapper)
+                new CourseListCacheGateway(courseRepository, courseMapper),
+                courseVersionReferenceChecker
         );
+        when(courseVersionReferenceChecker.isSafeToDelete(any(), any())).thenReturn(true);
     }
 
     // ── entity builders ───────────────────────────────────────────────────────
@@ -318,8 +322,8 @@ class CourseServiceImplExt2Test {
             // Draft chapter removed
             assertThat(c.getChapters()).doesNotContain(draftCh);
             // S3 called for both keys
-            verify(s3Service).deleteObject("courses/lesson-resource.pdf");
-            verify(s3Service).deleteObject("courses/chapter-resource.mp4");
+            verify(s3Service).deleteObjectAsync("courses/lesson-resource.pdf");
+            verify(s3Service).deleteObjectAsync("courses/chapter-resource.mp4");
         }
 
         // line 393 (initChapters forEach body) + line 448,450,453 with ext:// S3 key skipped
@@ -339,14 +343,16 @@ class CourseServiceImplExt2Test {
 
             service.withdrawFromReview(INSTRUCTOR_ID, COURSE_ID);
 
-            // ext:// key filtered out → s3Service.deleteObject NOT called
-            verify(s3Service, never()).deleteObject(anyString());
+            // ext:// key filtered out → s3Service.deleteObjectAsync NOT called
+            verify(s3Service, never()).deleteObjectAsync(anyString());
             assertThat(c.getChapters()).doesNotContain(draftCh);
         }
 
-        // lines 461–463: S3 delete for draft chapter keys fails → log warn, no exception
+        // lines 461–463: S3 cleanup cho draft chapter keys chạy qua deleteObjectAsync
+        // (fire-and-forget) — lỗi S3 do S3Service tự log warn nội bộ, không còn propagate
+        // ngược lại withdrawFromReview() để mock giả lập ở đây nữa.
         @Test
-        void logsWarn_whenS3DeleteFailsForDraftChapterKey() {
+        void removesDraftChapter_regardlessOfS3CleanupOutcome() {
             LessonResource chapRes = resource("courses/failing-key.mp4");
             Lesson draftChLesson = lesson(false, false, null, null, List.of(chapRes));
             Chapter draftCh = chapter(true, false, List.of(draftChLesson));
@@ -358,17 +364,16 @@ class CourseServiceImplExt2Test {
                     .thenReturn(Optional.empty());
             when(courseRepository.save(c)).thenReturn(c);
             when(courseMapper.toDetailResponse(c)).thenReturn(detailResponse());
-            doThrow(new RuntimeException("S3 error")).when(s3Service).deleteObject("courses/failing-key.mp4");
 
-            // Must not throw — logs warn and continues
             service.withdrawFromReview(INSTRUCTOR_ID, COURSE_ID);
 
             assertThat(c.getChapters()).doesNotContain(draftCh);
+            verify(s3Service).deleteObjectAsync("courses/failing-key.mp4");
         }
 
-        // S3 delete for draft LESSON keys (inside live chapter) fails → log warn (lines 438-441)
+        // S3 cleanup cho draft LESSON keys (inside live chapter) — cùng lý do như trên (lines 438-441)
         @Test
-        void logsWarn_whenS3DeleteFailsForDraftLessonKey() {
+        void removesDraftLesson_regardlessOfS3CleanupOutcome() {
             LessonResource lessonRes = resource("courses/lesson-s3-fail.pdf");
             Lesson draftLesson = lesson(true, false, null, null, List.of(lessonRes));
             Chapter liveCh = chapter(false, false, List.of(draftLesson));
@@ -380,12 +385,11 @@ class CourseServiceImplExt2Test {
                     .thenReturn(Optional.empty());
             when(courseRepository.save(c)).thenReturn(c);
             when(courseMapper.toDetailResponse(c)).thenReturn(detailResponse());
-            doThrow(new RuntimeException("S3 fail")).when(s3Service).deleteObject("courses/lesson-s3-fail.pdf");
 
-            // Must not throw
             service.withdrawFromReview(INSTRUCTOR_ID, COURSE_ID);
 
             assertThat(liveCh.getLessons()).doesNotContain(draftLesson);
+            verify(s3Service).deleteObjectAsync("courses/lesson-s3-fail.pdf");
         }
     }
 }

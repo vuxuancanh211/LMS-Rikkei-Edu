@@ -27,6 +27,7 @@ import project.lms_rikkei_edu.modules.course.mapper.LessonResourceMapper;
 import project.lms_rikkei_edu.modules.course.repository.CourseRepository;
 import project.lms_rikkei_edu.modules.course.repository.LessonRepository;
 import project.lms_rikkei_edu.modules.course.repository.LessonResourceRepository;
+import project.lms_rikkei_edu.modules.course.service.impl.CourseVersionReferenceChecker;
 import project.lms_rikkei_edu.modules.course.service.impl.LessonResourceServiceImpl;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedPutObjectRequest;
@@ -51,6 +52,7 @@ class LessonResourceServiceImplTest {
     @Mock CourseRepository courseRepository;
     @Mock S3Service s3Service;
     @Mock LessonResourceMapper lessonResourceMapper;
+    @Mock CourseVersionReferenceChecker courseVersionReferenceChecker;
 
     LessonResourceServiceImpl service;
 
@@ -63,9 +65,10 @@ class LessonResourceServiceImplTest {
     void setUp() {
         service = new LessonResourceServiceImpl(
                 lessonRepository, lessonResourceRepository, courseRepository,
-                s3Service, lessonResourceMapper
+                s3Service, lessonResourceMapper, courseVersionReferenceChecker
         );
         ReflectionTestUtils.setField(service, "presignedUrlExpiry", 3600L);
+        when(courseVersionReferenceChecker.isSafeToDelete(any(), any())).thenReturn(true);
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────
@@ -494,7 +497,7 @@ class LessonResourceServiceImplTest {
 
             assertThat(r.getDeletedAt()).isNotNull();
             assertThat(r.getStatus()).isEqualTo("DELETED");
-            verify(s3Service).deleteObject("courses/file.pdf");
+            verify(s3Service).deleteObjectAsync("courses/file.pdf");
         }
 
         @Test
@@ -510,7 +513,7 @@ class LessonResourceServiceImplTest {
 
             assertThat(r.getPendingDelete()).isTrue();
             assertThat(r.getStatus()).isEqualTo("PENDING_DELETE");
-            verify(s3Service, never()).deleteObject(any());
+            verify(s3Service, never()).deleteObjectAsync(any());
         }
 
         @Test
@@ -525,7 +528,7 @@ class LessonResourceServiceImplTest {
             service.deleteResource(instructorId, courseId, lessonId, resourceId);
 
             assertThat(r.getDeletedAt()).isNotNull();
-            verify(s3Service).deleteObject("courses/new.pdf");
+            verify(s3Service).deleteObjectAsync("courses/new.pdf");
         }
 
         @Test
@@ -539,7 +542,7 @@ class LessonResourceServiceImplTest {
             service.deleteResource(instructorId, courseId, lessonId, resourceId);
 
             assertThat(r.getDeletedAt()).isNotNull();
-            verify(s3Service, never()).deleteObject(any());
+            verify(s3Service, never()).deleteObjectAsync(any());
         }
 
         @Test
@@ -549,6 +552,24 @@ class LessonResourceServiceImplTest {
 
             assertThatThrownBy(() -> service.deleteResource(instructorId, courseId, lessonId, resourceId))
                     .isInstanceOf(IllegalArgumentException.class);
+        }
+
+        // Vẫn soft-delete DB row (không còn hiện cho ai) nhưng KHÔNG xóa file S3 nếu còn 1
+        // CourseVersion nào đó (VD: một bản nháp đã lưu trước đó) còn tham chiếu key này.
+        @Test
+        void keepsS3File_whenStillReferencedByAnotherCourseVersion() {
+            stubOwnedLesson();
+            LessonResource r = activeResource("courses/file.pdf");
+
+            when(lessonResourceRepository.findById(resourceId)).thenReturn(Optional.of(r));
+            when(courseRepository.findById(courseId)).thenReturn(Optional.of(draftCourse()));
+            when(courseVersionReferenceChecker.isSafeToDelete(courseId, "courses/file.pdf")).thenReturn(false);
+
+            service.deleteResource(instructorId, courseId, lessonId, resourceId);
+
+            assertThat(r.getDeletedAt()).isNotNull();
+            assertThat(r.getStatus()).isEqualTo("DELETED");
+            verify(s3Service, never()).deleteObjectAsync(any());
         }
     }
 

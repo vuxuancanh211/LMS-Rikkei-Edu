@@ -73,6 +73,7 @@ public class CourseServiceImpl implements CourseService {
     private final QuizRepository quizRepository;
     private final StudentCourseService studentCourseService;
     private final CourseListCacheGateway courseListCacheGateway;
+    private final CourseVersionReferenceChecker courseVersionReferenceChecker;
 
     /* Self-proxy để getCourseDetailBySlug() gọi lại getCourseDetail() QUA proxy Spring AOP —
        gọi trực tiếp (this.getCourseDetail(...)) sẽ bỏ qua @Cacheable vì Spring cache dựa trên
@@ -273,6 +274,23 @@ public class CourseServiceImpl implements CourseService {
             // Rút lại khỏi hàng chờ → về PUBLISHED, xóa tất cả draft content
             initChapters(course);
             clearAllDrafts(course);
+            // clearAllDrafts() chỉ xóa hẳn resources thuộc chapter/lesson DRAFT (chưa từng live).
+            // Resource được thêm/xóa NGAY trên chapter/lesson ĐANG LIVE (cùng lớp bug đã sửa ở
+            // AdminCourseServiceImpl.rejectUpdate và nhánh PUBLISHED bên dưới) phải xử lý riêng —
+            // thiếu đoạn này khiến "Hủy cập nhật" (rút một update đã nộp) để lại tài liệu chưa
+            // từng publish vẫn hiện ra, và tài liệu bị đánh dấu chờ xóa không được khôi phục.
+            lessonResourceRepository.findAllByCourseIdAndIsNewInUpdateTrue(courseId).forEach(r -> {
+                r.setDeletedAt(Instant.now());
+                r.setStatus("DELETED");
+                lessonResourceRepository.save(r);
+                String s3Key = r.getS3Key();
+                if (s3Key != null && !s3Key.startsWith("ext://")
+                        && courseVersionReferenceChecker.isSafeToDelete(courseId, s3Key)) {
+                    s3Service.deleteObjectAsync(s3Key);
+                }
+            });
+            lessonResourceRepository.findAllByCourseIdAndPendingDeleteTrue(courseId)
+                    .forEach(r -> { r.setPendingDelete(false); r.setStatus("ACTIVE"); lessonResourceRepository.save(r); });
             course.setStatus(CourseStatus.PUBLISHED);
             course.setPendingUpdateAt(null);
             course.setSubmittedAt(null);
@@ -302,9 +320,9 @@ public class CourseServiceImpl implements CourseService {
                 r.setStatus("DELETED");
                 lessonResourceRepository.save(r);
                 String s3Key = r.getS3Key();
-                if (s3Key != null && !s3Key.startsWith("ext://")) {
-                    try { s3Service.deleteObject(s3Key); }
-                    catch (Exception e) { log.warn("Không thể xóa S3 key {}: {}", s3Key, e.getMessage()); }
+                if (s3Key != null && !s3Key.startsWith("ext://")
+                        && courseVersionReferenceChecker.isSafeToDelete(courseId, s3Key)) {
+                    s3Service.deleteObjectAsync(s3Key);
                 }
             });
             // Resource này VẪN đang live, chỉ bị đánh dấu chờ xóa — hủy thay đổi = bỏ đánh dấu, giữ lại.
@@ -621,11 +639,10 @@ public class CourseServiceImpl implements CourseService {
                 // Clear resources collection — đánh dấu orphan, sau đó flush ngay để xóa resource trước lesson
                 draftLessons.forEach(l -> l.getResources().clear());
                 entityManager.flush(); // đảm bảo DELETE lesson_resources chạy trước DELETE lessons
-                // Xóa S3 sau khi DB đã xóa
-                keysToDelete.forEach(key -> {
-                    try { s3Service.deleteObject(key); }
-                    catch (Exception e) { log.warn("Không thể xóa S3 key {}: {}", key, e.getMessage()); }
-                });
+                // Xóa S3 sau khi DB đã xóa — bỏ qua key nào còn được version khác tham chiếu
+                keysToDelete.stream()
+                        .filter(key -> courseVersionReferenceChecker.isSafeToDelete(course.getId(), key))
+                        .forEach(s3Service::deleteObjectAsync);
                 // Xóa draft lessons qua orphanRemoval
                 ch.getLessons().removeAll(draftLessons);
             }
@@ -644,10 +661,9 @@ public class CourseServiceImpl implements CourseService {
             ch.getLessons().forEach(l -> l.getResources().clear())
         );
         entityManager.flush(); // đảm bảo DELETE lesson_resources chạy trước DELETE lessons/chapters
-        chapterKeysToDelete.forEach(key -> {
-            try { s3Service.deleteObject(key); }
-            catch (Exception e) { log.warn("Không thể xóa S3 key {}: {}", key, e.getMessage()); }
-        });
+        chapterKeysToDelete.stream()
+                .filter(key -> courseVersionReferenceChecker.isSafeToDelete(course.getId(), key))
+                .forEach(s3Service::deleteObjectAsync);
         // Xóa draft chapters qua orphanRemoval (cascade → lessons)
         course.getChapters().removeAll(draftChapters);
     }
@@ -787,9 +803,9 @@ public class CourseServiceImpl implements CourseService {
             r.setStatus("DELETED");
             lessonResourceRepository.save(r);
             String s3Key = r.getS3Key();
-            if (s3Key != null && !s3Key.startsWith("ext://")) {
-                try { s3Service.deleteObject(s3Key); }
-                catch (Exception e) { log.warn("Không thể xóa S3 key {}: {}", s3Key, e.getMessage()); }
+            if (s3Key != null && !s3Key.startsWith("ext://")
+                    && courseVersionReferenceChecker.isSafeToDelete(courseId, s3Key)) {
+                s3Service.deleteObjectAsync(s3Key);
             }
         });
         lessonResourceRepository.findAllByCourseIdAndPendingDeleteTrue(courseId)
@@ -829,19 +845,50 @@ public class CourseServiceImpl implements CourseService {
         for (CourseSnapshotDto.ChapterSnap snapCh : snapChapters) {
             Chapter liveCh = liveChaptersByOrder.get(snapCh.getOrderIndex());
             if (liveCh == null) {
-                // Chapter bị xóa trước đó → tạo lại dạng draft
-                Chapter newCh = Chapter.builder()
-                        .course(course)
-                        .title(snapCh.getTitle())
-                        .orderIndex(snapCh.getOrderIndex())
-                        .isDraft(true)
-                        .build();
-                liveCh = chapterRepository.save(newCh);
-                // Tạo luôn lessons trong chapter mới
-                if (snapCh.getLessons() != null) {
-                    for (CourseSnapshotDto.LessonSnap snapL : snapCh.getLessons()) {
-                        Lesson newL = buildDraftLesson(liveCh, courseId, snapL);
-                        lessonRepository.save(newL);
+                // Chapter không còn sống ở vị trí này — thử "hồi sinh" chapter đã soft-delete cùng
+                // vị trí trước khi tạo mới trắng tay: nếu tìm thấy, lessons/resources gốc của nó
+                // vẫn còn nguyên trong DB (chỉ ẩn qua @SQLRestriction do admin duyệt xóa trước đó),
+                // hồi sinh xong sẽ tự hiện lại đầy đủ — khác hẳn tạo chapter mới (chỉ có title,
+                // không có lesson/tài liệu nào, xem phản hồi người dùng: rollback không thấy lại
+                // tài liệu cũ).
+                Chapter resurrected = chapterRepository
+                        .findSoftDeletedByCourseIdAndOrderIndex(courseId, snapCh.getOrderIndex())
+                        .orElse(null);
+                if (resurrected != null) {
+                    resurrected.setDeletedAt(null);
+                    // isDraft=true (không phải false) — chapter này chưa nằm trong bản đã duyệt/
+                    // publish hiện tại, cần được gửi duyệt lại giống hệt như tạo chapter mới, nếu
+                    // không hasPendingDraft() sẽ không nhận ra có gì cần gửi, ẩn mất nút "Gửi duyệt"
+                    // (xem phản hồi người dùng) và học viên sẽ thấy lại nội dung chưa qua duyệt.
+                    resurrected.setIsDraft(true);
+                    resurrected.setPendingDelete(false);
+                    resurrected.setTitle(snapCh.getTitle());
+                    liveCh = chapterRepository.save(resurrected);
+                    // Đồng bộ lại collection trong bộ nhớ NGAY trong transaction này — nếu không,
+                    // response trả về ngay lúc rollback (course.isHasPendingDraft() tính trên chính
+                    // course.getChapters() đã load từ đầu hàm) vẫn thấy danh sách chapters CŨ (thiếu
+                    // chapter vừa hồi sinh), khiến nút "Gửi duyệt" không hiện ngay mà phải load lại
+                    // trang mới đúng.
+                    course.getChapters().add(liveCh);
+                    // Lessons của chapter này cũng đã bị soft-delete cùng lúc (xem
+                    // AdminCourseServiceImpl.approveUpdate) — applyLessonDiffForRollback tự hồi
+                    // sinh từng lesson tương ứng bên dưới.
+                    applyLessonDiffForRollback(liveCh, snapCh, courseId);
+                } else {
+                    // Chưa từng tồn tại → tạo mới dạng draft
+                    Chapter newCh = Chapter.builder()
+                            .course(course)
+                            .title(snapCh.getTitle())
+                            .orderIndex(snapCh.getOrderIndex())
+                            .isDraft(true)
+                            .build();
+                    liveCh = chapterRepository.save(newCh);
+                    // Tạo luôn lessons trong chapter mới
+                    if (snapCh.getLessons() != null) {
+                        for (CourseSnapshotDto.LessonSnap snapL : snapCh.getLessons()) {
+                            Lesson newL = buildDraftLesson(liveCh, courseId, snapL);
+                            lessonRepository.save(newL);
+                        }
                     }
                 }
             } else {
@@ -873,7 +920,29 @@ public class CourseServiceImpl implements CourseService {
         for (CourseSnapshotDto.LessonSnap snapL : snapLessons) {
             Lesson liveL = liveLessonsByOrder.get(snapL.getOrderIndex());
             if (liveL == null) {
-                lessonRepository.save(buildDraftLesson(chapter, courseId, snapL));
+                // Không còn sống ở vị trí này — thử hồi sinh lesson đã soft-delete cùng vị trí
+                // trước khi tạo mới trắng tay: resources của nó chưa từng bị đụng tới (chỉ ẩn theo
+                // lesson cha), nên hồi sinh xong sẽ tự động hiện lại đầy đủ tài liệu gốc.
+                Lesson resurrected = lessonRepository
+                        .findSoftDeletedByChapterIdAndOrderIndex(chapter.getId(), snapL.getOrderIndex())
+                        .orElse(null);
+                if (resurrected != null) {
+                    resurrected.setDeletedAt(null);
+                    // isDraft=true — xem ghi chú tương tự ở nhánh resurrect chapter phía trên.
+                    resurrected.setIsDraft(true);
+                    resurrected.setPendingDelete(false);
+                    if (!Objects.equals(snapL.getTitle(), resurrected.getTitle()))
+                        resurrected.setDraftTitle(snapL.getTitle());
+                    if (!Objects.equals(snapL.getContentText(), resurrected.getContentText()))
+                        resurrected.setDraftContentText(snapL.getContentText());
+                    applyResourceDiffForRollback(resurrected, snapL);
+                    lessonRepository.save(resurrected);
+                    // Đồng bộ lại collection trong bộ nhớ NGAY trong transaction này — xem ghi chú
+                    // tương tự ở nhánh resurrect chapter phía trên (course.getChapters().add).
+                    chapter.getLessons().add(resurrected);
+                } else {
+                    lessonRepository.save(buildDraftLesson(chapter, courseId, snapL));
+                }
             } else {
                 // Apply title/content diff
                 if (!Objects.equals(snapL.getTitle(), liveL.getTitle()))
@@ -1000,9 +1069,15 @@ public class CourseServiceImpl implements CourseService {
         if (!VERSION_STATUS_DRAFT.equals(version.getStatus()) && !"REJECTED".equals(version.getStatus())) {
             throw new CourseStateException("Chỉ có thể xóa bản nháp DRAFT hoặc REJECTED");
         }
-        // Cleanup S3: xóa các file trong snapshot không còn được tham chiếu bởi lesson_resources
-        cleanupSnapshotS3Keys(version.getSnapshot());
+        String snapshotJson = version.getSnapshot();
+        // Xóa version TRƯỚC rồi flush — cleanupSnapshotS3Keys kiểm tra tham chiếu qua các
+        // CourseVersion còn lại; nếu chưa xóa/flush, chính version này vẫn còn trong DB và sẽ luôn
+        // "tự tham chiếu" key của chính nó, khiến không bao giờ xóa được file nào.
         courseVersionRepository.delete(version);
+        courseVersionRepository.flush();
+        // Cleanup S3: xóa các file trong snapshot không còn được tham chiếu bởi lesson_resources
+        // hoặc bất kỳ CourseVersion nào khác của khóa học.
+        cleanupSnapshotS3Keys(courseId, snapshotJson);
     }
 
     @Override
@@ -1027,7 +1102,7 @@ public class CourseServiceImpl implements CourseService {
                 });
     }
 
-    private void cleanupSnapshotS3Keys(String snapshotJson) {
+    private void cleanupSnapshotS3Keys(UUID courseId, String snapshotJson) {
         if (snapshotJson == null) return;
         try {
             CourseSnapshotDto snap = objectMapper.readValue(snapshotJson, CourseSnapshotDto.class);
@@ -1041,10 +1116,11 @@ public class CourseServiceImpl implements CourseService {
                 .filter(key -> key != null && !key.isBlank())
                 .distinct()
                 .forEach(key -> {
-                    // Chỉ xóa S3 nếu không còn lesson_resource nào dùng key này
-                    if (!lessonResourceRepository.existsByS3KeyAndDeletedAtIsNull(key)) {
-                        try { s3Service.deleteObject(key); }
-                        catch (Exception e) { log.warn("Không thể xóa S3 key {}: {}", key, e.getMessage()); }
+                    // Chỉ xóa S3 nếu không còn lesson_resource nào dùng key này, VÀ không còn
+                    // CourseVersion nào khác của khóa học còn tham chiếu key này trong snapshot.
+                    if (!lessonResourceRepository.existsByS3KeyAndDeletedAtIsNull(key)
+                            && courseVersionReferenceChecker.isSafeToDelete(courseId, key)) {
+                        s3Service.deleteObjectAsync(key);
                     }
                 });
         } catch (Exception e) {

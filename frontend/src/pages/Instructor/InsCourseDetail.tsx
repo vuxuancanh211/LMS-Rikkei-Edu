@@ -553,7 +553,7 @@
     return (
       <div className="page fade-in">
         {/* Header */}
-        <div className="page-head between" style={{ marginBottom: 20 }}>
+        <div className="page-head between wrap" style={{ marginBottom: 20, rowGap: 10 }}>
           <div className="row gap-10" style={{ alignItems: "center" }}>
             <button className="btn btn-ghost btn-sm" onClick={() => nav("courses")} style={{ gap: 6 }}>
               <Ic n="arrow_left" size={18} /><span style={{ fontWeight: 600 }}>Quay lại danh sách khóa học</span>
@@ -687,7 +687,7 @@
               );
             })()}
           </div>
-          <div className="row gap-10">
+          <div className="row gap-10 wrap" style={{ rowGap: 10 }}>
             <button className="btn btn-ghost btn-sm" onClick={() => { window.__previewCourse = { courseId, role: "instructor" }; setShowPreview(true); }}><Ic n="eye" size={15} />Xem trước</button>
             {!viewingVersion && (course?.status === "DRAFT" || course?.status === "REJECTED") && (
               <button className="btn btn-success btn-sm" disabled={submitting} onClick={handleSubmit}><Ic n="send" size={15} />{submitting ? "Đang gửi..." : "Gửi duyệt"}</button>

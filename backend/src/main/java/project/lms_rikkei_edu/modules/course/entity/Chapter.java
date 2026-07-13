@@ -3,6 +3,7 @@ package project.lms_rikkei_edu.modules.course.entity;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.SQLRestriction;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -11,6 +12,7 @@ import java.util.UUID;
 
 @Entity
 @Table(name = "chapters")
+@SQLRestriction("deleted_at IS NULL")
 @Getter
 @Setter
 @NoArgsConstructor
@@ -48,6 +50,10 @@ public class Chapter {
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private Instant createdAt;
+
+    /** Soft-delete — set khi admin duyệt xóa chương, thay vì xóa cứng, để giữ tài liệu cho rollback. */
+    @Column(name = "deleted_at")
+    private Instant deletedAt;
 
     @OneToMany(mappedBy = "chapter", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("orderIndex ASC")

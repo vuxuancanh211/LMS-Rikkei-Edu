@@ -10,6 +10,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import project.lms_rikkei_edu.infrastructure.s3.S3Service;
+import project.lms_rikkei_edu.modules.ai.service.LessonAiDataCleanupService;
 import project.lms_rikkei_edu.modules.course.dto.response.*;
 import project.lms_rikkei_edu.modules.course.entity.*;
 import project.lms_rikkei_edu.modules.course.enums.CourseStatus;
@@ -43,6 +44,10 @@ public class AdminCourseServiceImpl implements AdminCourseService {
     private final S3Service s3Service;
     private final ObjectMapper objectMapper;
     private final CacheManager cacheManager;
+    private final LessonProgressRepository lessonProgressRepo;
+    private final VideoUploadJobRepository videoUploadJobRepo;
+    private final LessonAiDataCleanupService lessonAiDataCleanupService;
+    private final CourseVersionReferenceChecker courseVersionReferenceChecker;
 
     /* Cache "course-detail" key theo courseId + INSTRUCTOR id (xem CourseServiceImpl), nhưng
        admin action chỉ có adminId trong tham số nên không thể evict bằng @CacheEvict(key=...)
@@ -174,18 +179,41 @@ public class AdminCourseServiceImpl implements AdminCourseService {
         if (course.getDraftThumbnailUrl() != null) course.setThumbnailUrl(course.getDraftThumbnailUrl());
 
         // 2. Áp dụng draft chapters & lessons
-        List<Chapter> chaptersToRemove = new ArrayList<>();
+        // Chương/bài đã từng LIVE bị đánh dấu pendingDelete: KHÔNG xóa cứng (setDeletedAt thay vì
+        // removeAll()/orphanRemoval) — CourseVersion.snapshot lưu tài liệu bằng s3Key (không lưu
+        // ID), nên nếu xóa cứng row lesson/lesson_resources, sau này rollback về 1 version còn cần
+        // tài liệu đó sẽ mất vĩnh viễn, không có cách nào phục hồi. Soft-delete giữ nguyên row (ẩn
+        // khỏi mọi query qua @SQLRestriction trên Chapter/Lesson) để tài liệu vẫn còn nếu cần.
+        List<UUID> lessonIdsToCleanup = new ArrayList<>();
+        // ai_sources.resource_id cũng REFERENCES lesson_resources(id) không cascade, và nguồn AI
+        // tạo từ resource có sẵn (upsertResourceSource) chỉ set resourceId chứ không set lessonId
+        // — nên phải thu luôn resourceId của các lesson sắp xóa mới dọn hết được (xem
+        // LessonAiDataCleanupService). Progress/AI vẫn bị xóa hẳn dù lesson chỉ soft-delete — bài
+        // đã "xóa" thì không nên còn hiện tiến độ/lịch sử chat AI, dù row lesson được giữ lại.
+        List<UUID> resourceIdsToCleanup = new ArrayList<>();
         for (Chapter ch : course.getChapters()) {
             if (Boolean.TRUE.equals(ch.getPendingDelete())) {
-                chaptersToRemove.add(ch);
+                ch.getLessons().forEach(l -> {
+                    lessonIdsToCleanup.add(l.getId());
+                    l.getResources().forEach(r -> resourceIdsToCleanup.add(r.getId()));
+                    // Phải soft-delete luôn từng lesson con — nếu chỉ ẩn chapter, các lesson này vẫn
+                    // có deleted_at NULL, nên bất kỳ truy vấn nào không đi qua chapter.getLessons()
+                    // (VD: đếm số lesson của khóa học, tra theo lessonId trực tiếp) vẫn thấy chúng
+                    // "còn sống" dù chapter cha đã bị coi là xóa — không nhất quán/có thể rò rỉ.
+                    l.setDeletedAt(Instant.now());
+                });
+                ch.setDeletedAt(Instant.now());
+                ch.setPendingDelete(false);
             } else if (Boolean.TRUE.equals(ch.getIsDraft())) {
                 ch.setIsDraft(false);
                 ch.getLessons().forEach(l -> l.setIsDraft(false));
             } else {
-                List<Lesson> lessonsToRemove = new ArrayList<>();
                 for (Lesson l : ch.getLessons()) {
                     if (Boolean.TRUE.equals(l.getPendingDelete())) {
-                        lessonsToRemove.add(l);
+                        lessonIdsToCleanup.add(l.getId());
+                        l.getResources().forEach(r -> resourceIdsToCleanup.add(r.getId()));
+                        l.setDeletedAt(Instant.now());
+                        l.setPendingDelete(false);
                     } else {
                         if (Boolean.TRUE.equals(l.getIsDraft())) l.setIsDraft(false);
                         if (l.getDraftTitle() != null) {
@@ -198,12 +226,17 @@ public class AdminCourseServiceImpl implements AdminCourseService {
                         }
                     }
                 }
-                ch.getLessons().removeAll(lessonsToRemove);
             }
         }
-        course.getChapters().removeAll(chaptersToRemove);
+        if (!lessonIdsToCleanup.isEmpty()) {
+            lessonProgressRepo.deleteByLessonIdIn(lessonIdsToCleanup);
+            videoUploadJobRepo.deleteByLessonIdIn(lessonIdsToCleanup);
+            lessonAiDataCleanupService.hardDeleteByLessonIds(lessonIdsToCleanup, resourceIdsToCleanup);
+        }
 
-        // 3. Xử lý resources: xóa thật pendingDelete, reset flag isNewInUpdate
+        // 3. Xử lý resources: xóa thật pendingDelete, reset flag isNewInUpdate. Chỉ xóa file S3 nếu
+        // không còn CourseVersion nào (mọi trạng thái) còn tham chiếu key này — tránh phá tài liệu
+        // mà 1 version khác (VD: bản đang PUBLISHED) vẫn cần để rollback về sau.
         List<LessonResource> toDelete = lessonResourceRepo.findAllByCourseIdAndPendingDeleteTrue(courseId);
         for (LessonResource r : toDelete) {
             r.setDeletedAt(Instant.now());
@@ -211,10 +244,9 @@ public class AdminCourseServiceImpl implements AdminCourseService {
             r.setPendingDelete(false);
             lessonResourceRepo.save(r);
             String s3Key = r.getS3Key();
-            if (s3Key != null && !s3Key.startsWith("ext://")) {
-                try { s3Service.deleteObject(s3Key); } catch (Exception ex) {
-                    log.warn("S3 delete failed for key {}: {}", s3Key, ex.getMessage());
-                }
+            if (s3Key != null && !s3Key.startsWith("ext://")
+                    && courseVersionReferenceChecker.isSafeToDelete(courseId, s3Key)) {
+                s3Service.deleteObjectAsync(s3Key);
             }
         }
         lessonResourceRepo.findAllByCourseIdAndIsNewInUpdateTrue(courseId)

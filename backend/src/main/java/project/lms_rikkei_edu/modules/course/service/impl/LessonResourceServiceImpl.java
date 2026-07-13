@@ -1,7 +1,6 @@
 package project.lms_rikkei_edu.modules.course.service.impl;
 
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
@@ -35,7 +34,6 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 @Transactional
-@Slf4j
 public class LessonResourceServiceImpl implements LessonResourceService {
 
     private static final long MAX_VIDEO_SIZE_BYTES  = 2L  * 1024 * 1024 * 1024; // 2GB
@@ -46,6 +44,7 @@ public class LessonResourceServiceImpl implements LessonResourceService {
     private final CourseRepository courseRepository;
     private final S3Service s3Service;
     private final LessonResourceMapper lessonResourceMapper;
+    private final CourseVersionReferenceChecker courseVersionReferenceChecker;
 
     @Value("${app.s3.presigned-url-expiry:3600}")
     private long presignedUrlExpiry;
@@ -216,12 +215,13 @@ public class LessonResourceServiceImpl implements LessonResourceService {
         resource.setStatus("DELETED");
         lessonResourceRepository.save(resource);
 
-        // Xóa thật trên S3 (bỏ qua external URL). Không để lỗi S3 (network, config...) làm
-        // rollback bản ghi DB đã xóa ở trên — DB là nguồn sự thật, S3 chỉ dọn rác best-effort.
+        // Xóa thật trên S3 (bỏ qua external URL), chạy async (không chặn response) — DB là
+        // nguồn sự thật, S3 chỉ dọn rác best-effort. Bỏ qua nếu còn CourseVersion nào (VD: 1 bản
+        // nháp đã lưu trước đó) còn tham chiếu key này trong snapshot.
         String s3Key = resource.getS3Key();
-        if (s3Key != null && !s3Key.startsWith("ext://")) {
-            try { s3Service.deleteObject(s3Key); }
-            catch (Exception e) { log.warn("Không thể xóa S3 key {}: {}", s3Key, e.getMessage()); }
+        if (s3Key != null && !s3Key.startsWith("ext://")
+                && courseVersionReferenceChecker.isSafeToDelete(courseId, s3Key)) {
+            s3Service.deleteObjectAsync(s3Key);
         }
     }
 

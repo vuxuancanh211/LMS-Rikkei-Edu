@@ -387,6 +387,114 @@ class CourseServiceLessonAndVersionTest {
         assertThat(course.getDraftLevel()).isEqualTo(CourseLevel.ADVANCED);
     }
 
+    // Regression: rollback về 1 version còn cần 1 lesson đã bị admin duyệt xóa (soft-delete) phải
+    // "hồi sinh" lại lesson gốc (giữ nguyên resources) thay vì tạo lesson trắng tay mới — nếu không,
+    // tài liệu (đã được soft-delete giữ lại đúng thiết kế) vẫn không bao giờ hiện lại được cho
+    // người dùng dù row còn nguyên trong DB (xem phản hồi người dùng: "rollback lại không thấy tài liệu").
+    @Test
+    void rollbackToVersion_resurrectsSoftDeletedLesson_insteadOfCreatingEmptyDraft() throws Exception {
+        course.setStatus(CourseStatus.PUBLISHED);
+        Chapter ch = new Chapter();
+        ch.setId(chapterId);
+        ch.setTitle("Chapter 1");
+        ch.setOrderIndex(1);
+        ch.setLessons(new ArrayList<>()); // không còn lesson nào "sống" ở chapter này
+        course.setChapters(new ArrayList<>(List.of(ch)));
+        when(courseRepository.findByIdWithCategory(courseId)).thenReturn(Optional.of(course));
+
+        CourseVersion v = CourseVersion.builder()
+                .id(versionId).courseId(courseId).status("APPROVED").snapshot("{...}").build();
+        when(courseVersionRepository.findById(versionId)).thenReturn(Optional.of(v));
+
+        LessonResource keptResource = new LessonResource();
+        keptResource.setDisplayName("keepme.pdf");
+        keptResource.setS3Key("ext://https://example.com/keepme.pdf");
+
+        Lesson softDeletedLesson = new Lesson();
+        softDeletedLesson.setId(lessonId);
+        softDeletedLesson.setChapter(ch);
+        softDeletedLesson.setOrderIndex(1);
+        softDeletedLesson.setTitle("Lesson A");
+        softDeletedLesson.setContentText("hello");
+        softDeletedLesson.setDeletedAt(Instant.now());
+        softDeletedLesson.setResources(new ArrayList<>(List.of(keptResource)));
+        when(lessonRepository.findSoftDeletedByChapterIdAndOrderIndex(chapterId, 1))
+                .thenReturn(Optional.of(softDeletedLesson));
+
+        CourseSnapshotDto.ResourceSnap resSnap = CourseSnapshotDto.ResourceSnap.builder()
+                .displayName("keepme.pdf").build();
+        CourseSnapshotDto.LessonSnap lessonSnap = CourseSnapshotDto.LessonSnap.builder()
+                .title("Lesson A").contentText("hello").orderIndex(1).resources(List.of(resSnap)).build();
+        CourseSnapshotDto.ChapterSnap chapterSnap = CourseSnapshotDto.ChapterSnap.builder()
+                .title("Chapter 1").orderIndex(1).lessons(List.of(lessonSnap)).build();
+        CourseSnapshotDto snap = CourseSnapshotDto.builder()
+                .title("T").chapters(List.of(chapterSnap)).build();
+        when(objectMapper.readValue(v.getSnapshot(), CourseSnapshotDto.class)).thenReturn(snap);
+        when(courseMapper.toDetailResponse(any())).thenReturn(CourseDetailResponse.builder().build());
+
+        courseService.rollbackToVersion(instructorId, courseId, versionId);
+
+        assertThat(softDeletedLesson.getDeletedAt()).isNull();
+        // isDraft=true — chưa nằm trong bản đã duyệt hiện tại, cần gửi duyệt lại (nếu không nút
+        // "Gửi duyệt" sẽ không hiện vì Course.isHasPendingDraft() không nhận ra có gì cần gửi).
+        assertThat(softDeletedLesson.getIsDraft()).isTrue();
+        assertThat(softDeletedLesson.getPendingDelete()).isFalse();
+        assertThat(keptResource.getPendingDelete()).isNotEqualTo(true);
+        assertThat(course.isHasPendingDraft()).isTrue();
+        verify(lessonRepository).save(softDeletedLesson);
+    }
+
+    // Cùng loại regression như trên nhưng ở tầng chapter — cả chapter lẫn lesson bên trong đều đã
+    // bị soft-delete cùng lúc (xem AdminCourseServiceImpl.approveUpdate).
+    @Test
+    void rollbackToVersion_resurrectsSoftDeletedChapter_insteadOfCreatingEmptyDraft() throws Exception {
+        course.setStatus(CourseStatus.PUBLISHED);
+        course.setChapters(new ArrayList<>()); // không còn chapter nào "sống"
+        when(courseRepository.findByIdWithCategory(courseId)).thenReturn(Optional.of(course));
+
+        CourseVersion v = CourseVersion.builder()
+                .id(versionId).courseId(courseId).status("APPROVED").snapshot("{...}").build();
+        when(courseVersionRepository.findById(versionId)).thenReturn(Optional.of(v));
+
+        Lesson softDeletedLesson = new Lesson();
+        softDeletedLesson.setId(lessonId);
+        softDeletedLesson.setOrderIndex(1);
+        softDeletedLesson.setTitle("Lesson A");
+        softDeletedLesson.setDeletedAt(Instant.now());
+        softDeletedLesson.setResources(new ArrayList<>());
+
+        Chapter softDeletedChapter = new Chapter();
+        softDeletedChapter.setId(chapterId);
+        softDeletedChapter.setOrderIndex(1);
+        softDeletedChapter.setTitle("Chapter 1");
+        softDeletedChapter.setDeletedAt(Instant.now());
+        // Rỗng — mô phỏng đúng @SQLRestriction thật sự sẽ ẩn lesson (deleted_at riêng của nó vẫn
+        // còn set) khỏi chapter.getLessons() dù đã fetch lại chapter; lesson chỉ được tìm thấy qua
+        // findSoftDeletedByChapterIdAndOrderIndex (native query, bỏ qua restriction) bên dưới.
+        softDeletedChapter.setLessons(new ArrayList<>());
+        when(chapterRepository.findSoftDeletedByCourseIdAndOrderIndex(courseId, 1))
+                .thenReturn(Optional.of(softDeletedChapter));
+        when(chapterRepository.save(softDeletedChapter)).thenReturn(softDeletedChapter);
+        when(lessonRepository.findSoftDeletedByChapterIdAndOrderIndex(chapterId, 1))
+                .thenReturn(Optional.of(softDeletedLesson));
+
+        CourseSnapshotDto.LessonSnap lessonSnap = CourseSnapshotDto.LessonSnap.builder()
+                .title("Lesson A").orderIndex(1).resources(List.of()).build();
+        CourseSnapshotDto.ChapterSnap chapterSnap = CourseSnapshotDto.ChapterSnap.builder()
+                .title("Chapter 1").orderIndex(1).lessons(List.of(lessonSnap)).build();
+        CourseSnapshotDto snap = CourseSnapshotDto.builder()
+                .title("T").chapters(List.of(chapterSnap)).build();
+        when(objectMapper.readValue(v.getSnapshot(), CourseSnapshotDto.class)).thenReturn(snap);
+        when(courseMapper.toDetailResponse(any())).thenReturn(CourseDetailResponse.builder().build());
+
+        courseService.rollbackToVersion(instructorId, courseId, versionId);
+
+        assertThat(softDeletedChapter.getDeletedAt()).isNull();
+        assertThat(softDeletedLesson.getDeletedAt()).isNull();
+        verify(chapterRepository).save(softDeletedChapter);
+        verify(lessonRepository).save(softDeletedLesson);
+    }
+
     // ── reorderChapters ──────────────────────────────────────────────────────
 
     @Test

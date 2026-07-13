@@ -1,7 +1,9 @@
 package project.lms_rikkei_edu.infrastructure.s3;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.core.ResponseInputStream;
@@ -20,6 +22,7 @@ import java.time.Duration;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class S3Service {
 
     private final S3Client s3Client;
@@ -105,6 +108,22 @@ public class S3Service {
                 .bucket(bucket)
                 .key(key)
                 .build());
+    }
+
+    /**
+     * Xóa "best-effort", KHÔNG chặn luồng gọi — dùng cho dọn rác S3 khi DB đã là nguồn sự thật
+     * (submit/withdraw/rollback/approve chỉ cần S3 sạch dần, không cần chờ ngay). S3Client hiện
+     * timeout 30s/lần gọi — nếu gọi đồng bộ trong vòng lặp nhiều file (VD: duyệt cập nhật xóa
+     * nhiều tài liệu cùng lúc), tổng thời gian dễ vượt xa timeout 15s của frontend dù bản thân
+     * thao tác chính (ghi DB) đã xong từ lâu, tạo cảm giác "duyệt/hủy/rollback bị treo".
+     */
+    @Async
+    public void deleteObjectAsync(String key) {
+        try {
+            deleteObject(key);
+        } catch (Exception e) {
+            log.warn("Không thể xóa S3 key {}: {}", key, e.getMessage());
+        }
     }
 
     /**
