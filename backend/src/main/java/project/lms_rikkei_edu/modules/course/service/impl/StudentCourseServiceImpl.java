@@ -270,24 +270,9 @@ public class StudentCourseServiceImpl implements StudentCourseService {
                 });
 
         // Update incoming data
-        if (request.getWatchedPercentage() != null) {
-            int existing = progress.getWatchedPercentage() != null ? progress.getWatchedPercentage().intValue() : 0;
-            if (request.getWatchedPercentage().intValue() > existing) {
-                progress.setWatchedPercentage(request.getWatchedPercentage());
-            }
-        }
-        if (request.getLastPlaybackPosition() != null) {
-            int existing = progress.getLastPlaybackPosition() != null ? progress.getLastPlaybackPosition() : 0;
-            if (request.getLastPlaybackPosition() > existing) {
-                progress.setLastPlaybackPosition(request.getLastPlaybackPosition());
-            }
-        }
-        if (request.getDocumentViewSeconds() != null) {
-            int existing = progress.getDocumentViewSeconds() != null ? progress.getDocumentViewSeconds() : 0;
-            if (request.getDocumentViewSeconds() > existing) {
-                progress.setDocumentViewSeconds(request.getDocumentViewSeconds());
-            }
-        }
+        applyWatchedPercentage(progress, request);
+        applyLastPlaybackPosition(progress, request);
+        applyDocumentViewSeconds(progress, request);
         progress.setLastAccessedAt(Instant.now());
 
         // Determine lesson content type
@@ -393,6 +378,17 @@ public class StudentCourseServiceImpl implements StudentCourseService {
     @Override
     @Transactional
     public void resetProgressForStudents(UUID courseId, List<UUID> studentIds) {
+        deleteProgressData(courseId, studentIds);
+    }
+
+    @Override
+    @Transactional
+    public void resetStudentCourseProgress(UUID courseId, UUID studentId) {
+        if (courseId == null || studentId == null) return;
+        deleteProgressData(courseId, List.of(studentId));
+    }
+
+    private void deleteProgressData(UUID courseId, List<UUID> studentIds) {
         if (courseId == null || studentIds == null || studentIds.isEmpty()) return;
         try {
             List<QuizAttemptEntity> attempts = quizAttemptRepository.findByCourseIdAndStudentIdIn(courseId, studentIds);
@@ -410,11 +406,28 @@ public class StudentCourseServiceImpl implements StudentCourseService {
         }
     }
 
-    @Override
-    @Transactional
-    public void resetStudentCourseProgress(UUID courseId, UUID studentId) {
-        if (courseId == null || studentId == null) return;
-        resetProgressForStudents(courseId, List.of(studentId));
+    private void applyWatchedPercentage(LessonProgressEntity progress, UpdateProgressRequest request) {
+        if (request.getWatchedPercentage() == null) return;
+        int existing = progress.getWatchedPercentage() != null ? progress.getWatchedPercentage().intValue() : 0;
+        if (request.getWatchedPercentage().intValue() > existing) {
+            progress.setWatchedPercentage(request.getWatchedPercentage());
+        }
+    }
+
+    private void applyLastPlaybackPosition(LessonProgressEntity progress, UpdateProgressRequest request) {
+        if (request.getLastPlaybackPosition() == null) return;
+        int existing = progress.getLastPlaybackPosition() != null ? progress.getLastPlaybackPosition() : 0;
+        if (request.getLastPlaybackPosition() > existing) {
+            progress.setLastPlaybackPosition(request.getLastPlaybackPosition());
+        }
+    }
+
+    private void applyDocumentViewSeconds(LessonProgressEntity progress, UpdateProgressRequest request) {
+        if (request.getDocumentViewSeconds() == null) return;
+        int existing = progress.getDocumentViewSeconds() != null ? progress.getDocumentViewSeconds() : 0;
+        if (request.getDocumentViewSeconds() > existing) {
+            progress.setDocumentViewSeconds(request.getDocumentViewSeconds());
+        }
     }
 
     /* ── Private helpers ─────────────────────────────────── */
@@ -422,18 +435,17 @@ public class StudentCourseServiceImpl implements StudentCourseService {
     private BigDecimal calculateLessonPercentage(int wp, int dv, boolean hasVideo, boolean hasDocument) {
         if (hasVideo && hasDocument) {
             if (wp >= 90 && dv >= 10) return BigDecimal.valueOf(100);
-            double vidScore = Math.min(wp / 90.0, 1.0) * 80.0;
-            double docScore = Math.min(dv / 10.0, 1.0) * 20.0;
+            double vidScore = Math.clamp(wp / 90.0, 0, 1) * 80.0;
+            double docScore = Math.clamp(dv / 10.0, 0, 1) * 20.0;
             return BigDecimal.valueOf(Math.round(vidScore + docScore));
         } else if (hasVideo) {
-            return BigDecimal.valueOf(Math.min(wp, 100));
+            return BigDecimal.valueOf(Math.clamp(wp, 0, 100));
         } else if (hasDocument) {
             if (dv >= 20 || wp >= 90) return BigDecimal.valueOf(100);
-            double pctByTime = Math.min(dv * 100.0 / 20.0, 100);
-            double finalPct = Math.max(pctByTime, Math.min(wp, 100));
+            double pctByTime = Math.clamp(dv * 100.0 / 20.0, 0, 100);
+            double finalPct = Math.max(pctByTime, Math.clamp(wp, 0, 100));
             return BigDecimal.valueOf(Math.round(finalPct));
         } else {
-            // No video or document — immediate 100%
             return BigDecimal.valueOf(100);
         }
     }
