@@ -1,9 +1,12 @@
 package project.lms_rikkei_edu.modules.course.service.impl;
 
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import project.lms_rikkei_edu.common.exception.BusinessException;
 import project.lms_rikkei_edu.infrastructure.s3.S3Service;
@@ -18,6 +21,7 @@ import project.lms_rikkei_edu.modules.course.entity.Lesson;
 import project.lms_rikkei_edu.modules.course.entity.LessonProgressEntity;
 import project.lms_rikkei_edu.modules.course.entity.LessonResource;
 import project.lms_rikkei_edu.modules.course.enums.CourseStatus;
+import project.lms_rikkei_edu.modules.course.enums.LessonType;
 import project.lms_rikkei_edu.modules.course.enums.ResourceType;
 import project.lms_rikkei_edu.modules.course.mapper.CourseMapper;
 import project.lms_rikkei_edu.modules.course.repository.CourseEnrollmentRepository;
@@ -26,6 +30,10 @@ import project.lms_rikkei_edu.modules.course.repository.CourseRepository;
 import project.lms_rikkei_edu.modules.course.repository.LessonProgressRepository;
 import project.lms_rikkei_edu.modules.course.repository.LessonRepository;
 import project.lms_rikkei_edu.modules.course.service.StudentCourseService;
+import project.lms_rikkei_edu.modules.quiz.entity.QuizAttemptEntity;
+import project.lms_rikkei_edu.modules.quiz.repository.ProctoringViolationLogRepository;
+import project.lms_rikkei_edu.modules.quiz.repository.QuizAttemptAnswerRepository;
+import project.lms_rikkei_edu.modules.quiz.repository.QuizAttemptRepository;
 import project.lms_rikkei_edu.modules.user.entity.UserEntity;
 import project.lms_rikkei_edu.modules.user.repository.UserRepository;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest;
@@ -52,9 +60,27 @@ public class StudentCourseServiceImpl implements StudentCourseService {
     private final CourseMapper courseMapper;
     private final S3Service s3Service;
     private final UserRepository userRepository;
+    private final QuizAttemptRepository quizAttemptRepository;
+    private final QuizAttemptAnswerRepository quizAttemptAnswerRepository;
+    private final ProctoringViolationLogRepository proctoringViolationLogRepository;
 
     @Value("${app.s3.presigned-url-expiry:3600}")
     private long presignedUrlExpiry;
+
+    @PersistenceContext
+    private EntityManager entityManager;
+
+    /**
+     * Khóa advisory theo cặp (studentId, lessonId) trong phạm vi transaction hiện tại — tránh race
+     * condition khi 2 request cập nhật tiến độ cùng lúc (VD: player gửi progress dồn dập, React
+     * StrictMode gọi effect 2 lần) cùng đọc "chưa có lesson_progress" và cùng cố INSERT, gây vỡ
+     * unique constraint uq_lesson_progress_student_lesson. Lock tự giải phóng khi transaction kết thúc.
+     */
+    private void lockLessonProgress(UUID studentId, UUID lessonId) {
+        entityManager.createNativeQuery("SELECT pg_advisory_xact_lock(hashtext(?1))")
+                .setParameter(1, studentId.toString() + ":" + lessonId.toString())
+                .getSingleResult();
+    }
 
     @Override
     public List<StudentCourseResponse> getEnrolledCourses(UUID studentId) {
@@ -216,9 +242,14 @@ public class StudentCourseServiceImpl implements StudentCourseService {
     @Transactional
     public void updateLessonProgress(UUID studentId, UUID courseId, UUID lessonId, UpdateProgressRequest request) {
         checkEnrollment(studentId, courseId);
+        lockLessonProgress(studentId, lessonId);
 
         Lesson lesson = lessonRepository.findById(lessonId)
                 .orElseThrow(() -> new BusinessException("Không tìm thấy bài học"));
+
+        if (lesson.getType() == LessonType.QUIZ) {
+            throw new BusinessException("Bài học loại đề trắc nghiệm không cập nhật tiến độ qua API này");
+        }
 
         LessonProgressEntity progress = lessonProgressRepository
                 .findByStudentIdAndLessonId(studentId, lessonId)
@@ -255,12 +286,17 @@ public class StudentCourseServiceImpl implements StudentCourseService {
         int wp = progress.getWatchedPercentage() != null ? progress.getWatchedPercentage().intValue() : 0;
         int dv = progress.getDocumentViewSeconds() != null ? progress.getDocumentViewSeconds() : 0;
 
-        // Auto-determine completion based on content type
+        // Auto-determine completion based on content type and learning time/scroll depth
         boolean completed = false;
-        if (hasVideo) {
+        if (hasVideo && hasDocument) {
+            // "nếu cả 2 thì tính video và xem 10s tài liệu" -> xem >= 90% video VÀ xem >= 10s tài liệu
+            completed = wp >= 90 && dv >= 10;
+        } else if (hasVideo) {
+            // "xem 90% video"
             completed = wp >= 90;
         } else if (hasDocument) {
-            completed = dv >= 20;
+            // "20s cho tài liệu"
+            completed = dv >= 20 || wp >= 90;
         } else {
             // No video or document — complete on first access
             completed = progress.getStatus() == null || "COMPLETED".equals(progress.getStatus());
@@ -281,7 +317,7 @@ public class StudentCourseServiceImpl implements StudentCourseService {
         }
 
         // Calculate lesson percentage
-        progress.setLessonPercentage(calculateLessonPercentage(wp, dv, hasVideo, hasDocument));
+        progress.setLessonPercentage(calculateLessonPercentage(wp, dv, hasVideo, hasDocument, lesson));
 
         lessonProgressRepository.save(progress);
 
@@ -289,14 +325,97 @@ public class StudentCourseServiceImpl implements StudentCourseService {
         updateCourseProgress(studentId, courseId);
     }
 
+    /**
+     * REQUIRES_NEW — hàm này được gọi fail-soft từ {@code QuizAttemptServiceImpl.doSubmit()} (trong
+     * transaction nộp bài); nếu để propagation mặc định (REQUIRED) thì 1 exception ở đây sẽ đánh dấu
+     * rollback-only cho CẢ transaction nộp bài dù caller có try/catch, khiến việc nộp bài thất bại âm
+     * thầm (UnexpectedRollbackException). Tách transaction riêng để lỗi ở đây không ảnh hưởng nộp bài.
+     */
+    @Override
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void completeQuizLesson(UUID studentId, UUID courseId, UUID lessonId) {
+        lockLessonProgress(studentId, lessonId);
+
+        LessonProgressEntity progress = lessonProgressRepository
+                .findByStudentIdAndLessonId(studentId, lessonId)
+                .orElseGet(() -> {
+                    LessonProgressEntity newProgress = new LessonProgressEntity();
+                    newProgress.setId(UUID.randomUUID());
+                    newProgress.setStudentId(studentId);
+                    newProgress.setLessonId(lessonId);
+                    newProgress.setCourseId(courseId);
+                    newProgress.setFirstAccessedAt(Instant.now());
+                    return newProgress;
+                });
+
+        progress.setStatus("COMPLETED");
+        if (progress.getCompletedAt() == null) {
+            progress.setCompletedAt(Instant.now());
+        }
+        progress.setLastAccessedAt(Instant.now());
+        progress.setLessonPercentage(BigDecimal.valueOf(100));
+        lessonProgressRepository.save(progress);
+
+        updateCourseProgress(studentId, courseId);
+    }
+
+    @Override
+    @Transactional
+    public void resetLessonProgressForInProgressStudents(UUID courseId, UUID lessonId) {
+        List<UUID> inProgressStudentIds = courseProgressRepository.findByCourseId(courseId).stream()
+                .filter(cp -> !"COMPLETED".equals(cp.getStatus()))
+                .map(CourseProgressEntity::getStudentId)
+                .toList();
+
+        for (UUID studentId : inProgressStudentIds) {
+            lessonProgressRepository.findByStudentIdAndLessonId(studentId, lessonId)
+                    .ifPresent(lessonProgressRepository::delete);
+            updateCourseProgress(studentId, courseId);
+        }
+    }
+
+    @Override
+    @Transactional
+    public void resetProgressForStudents(UUID courseId, List<UUID> studentIds) {
+        if (courseId == null || studentIds == null || studentIds.isEmpty()) return;
+        try {
+            List<QuizAttemptEntity> attempts = quizAttemptRepository.findByCourseIdAndStudentIdIn(courseId, studentIds);
+            if (!attempts.isEmpty()) {
+                List<UUID> attemptIds = attempts.stream().map(QuizAttemptEntity::getId).toList();
+                quizAttemptAnswerRepository.deleteByAttemptIdIn(attemptIds);
+                proctoringViolationLogRepository.deleteByAttemptIdIn(attemptIds);
+                quizAttemptRepository.deleteByCourseIdAndStudentIdIn(courseId, studentIds);
+            }
+            lessonProgressRepository.deleteByCourseIdAndStudentIdIn(courseId, studentIds);
+            courseProgressRepository.deleteByCourseIdAndStudentIdIn(courseId, studentIds);
+            log.info("Reset progress successfully for {} students in course {}", studentIds.size(), courseId);
+        } catch (Exception e) {
+            log.error("Failed to reset progress for students in course {}: {}", courseId, e.getMessage(), e);
+        }
+    }
+
+    @Override
+    @Transactional
+    public void resetStudentCourseProgress(UUID courseId, UUID studentId) {
+        if (courseId == null || studentId == null) return;
+        resetProgressForStudents(courseId, List.of(studentId));
+    }
+
     /* ── Private helpers ─────────────────────────────────── */
 
-    private BigDecimal calculateLessonPercentage(int wp, int dv, boolean hasVideo, boolean hasDocument) {
-        if (hasVideo) {
+    private BigDecimal calculateLessonPercentage(int wp, int dv, boolean hasVideo, boolean hasDocument, Lesson lesson) {
+        if (hasVideo && hasDocument) {
+            if (wp >= 90 && dv >= 10) return BigDecimal.valueOf(100);
+            double vidScore = Math.min(wp / 90.0, 1.0) * 80.0;
+            double docScore = Math.min(dv / 10.0, 1.0) * 20.0;
+            return BigDecimal.valueOf(Math.round(vidScore + docScore));
+        } else if (hasVideo) {
             return BigDecimal.valueOf(Math.min(wp, 100));
         } else if (hasDocument) {
-            double pct = Math.min(dv * 100.0 / 20, 100);
-            return BigDecimal.valueOf(Math.round(pct));
+            if (dv >= 20 || wp >= 90) return BigDecimal.valueOf(100);
+            double pctByTime = Math.min(dv * 100.0 / 20.0, 100);
+            double finalPct = Math.max(pctByTime, Math.min(wp, 100));
+            return BigDecimal.valueOf(Math.round(finalPct));
         } else {
             // No video or document — immediate 100%
             return BigDecimal.valueOf(100);
@@ -304,18 +423,20 @@ public class StudentCourseServiceImpl implements StudentCourseService {
     }
 
     private boolean hasVideoContent(Lesson lesson) {
-        if (lesson.getHlsManifestUrl() != null) return true;
+        if (lesson.getType() == LessonType.VIDEO) return true;
+        if (lesson.getHlsManifestUrl() != null || lesson.getVideoS3Key() != null) return true;
         if (lesson.getResources() != null) {
             return lesson.getResources().stream()
-                    .anyMatch(r -> r.getResourceType() == ResourceType.VIDEO);
+                    .anyMatch(r -> r.getResourceType() == ResourceType.VIDEO && !Boolean.TRUE.equals(r.getPendingDelete()));
         }
         return false;
     }
 
     private boolean hasDocumentContent(Lesson lesson) {
+        if (lesson.getType() != null && lesson.getType() != LessonType.VIDEO && lesson.getType() != LessonType.QUIZ) return true;
         if (lesson.getResources() != null) {
             return lesson.getResources().stream()
-                    .anyMatch(r -> r.getResourceType() != ResourceType.VIDEO);
+                    .anyMatch(r -> r.getResourceType() != ResourceType.VIDEO && !Boolean.TRUE.equals(r.getPendingDelete()));
         }
         return false;
     }

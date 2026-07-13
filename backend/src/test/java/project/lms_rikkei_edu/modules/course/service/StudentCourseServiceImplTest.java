@@ -9,12 +9,15 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.test.util.ReflectionTestUtils;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.Query;
 import project.lms_rikkei_edu.common.exception.BusinessException;
 import project.lms_rikkei_edu.infrastructure.s3.S3Service;
 import project.lms_rikkei_edu.modules.course.dto.request.UpdateProgressRequest;
 import project.lms_rikkei_edu.modules.course.dto.response.*;
 import project.lms_rikkei_edu.modules.course.entity.*;
 import project.lms_rikkei_edu.modules.course.enums.CourseStatus;
+import project.lms_rikkei_edu.modules.course.enums.LessonType;
 import project.lms_rikkei_edu.modules.course.enums.ResourceType;
 import project.lms_rikkei_edu.modules.course.mapper.CourseMapper;
 import project.lms_rikkei_edu.modules.course.repository.*;
@@ -48,6 +51,11 @@ class StudentCourseServiceImplTest {
     @Mock private CourseMapper courseMapper;
     @Mock private S3Service s3Service;
     @Mock private UserRepository userRepository;
+    @Mock private EntityManager entityManager;
+    @Mock private Query nativeQuery;
+    @Mock private project.lms_rikkei_edu.modules.quiz.repository.QuizAttemptRepository quizAttemptRepository;
+    @Mock private project.lms_rikkei_edu.modules.quiz.repository.QuizAttemptAnswerRepository quizAttemptAnswerRepository;
+    @Mock private project.lms_rikkei_edu.modules.quiz.repository.ProctoringViolationLogRepository proctoringViolationLogRepository;
 
     @InjectMocks private StudentCourseServiceImpl studentCourseService;
 
@@ -60,6 +68,10 @@ class StudentCourseServiceImplTest {
     @BeforeEach
     void setUp() {
         ReflectionTestUtils.setField(studentCourseService, "presignedUrlExpiry", 3600L);
+        ReflectionTestUtils.setField(studentCourseService, "entityManager", entityManager);
+        lenient().when(entityManager.createNativeQuery(anyString())).thenReturn(nativeQuery);
+        lenient().when(nativeQuery.setParameter(anyInt(), any())).thenReturn(nativeQuery);
+        lenient().when(nativeQuery.getSingleResult()).thenReturn(1);
         studentId = UUID.randomUUID();
         courseId = UUID.randomUUID();
         lessonId = UUID.randomUUID();
@@ -261,6 +273,154 @@ class StudentCourseServiceImplTest {
     }
 
     @Test
+    void updateLessonProgress_videoLesson_videoS3Key_detectsVideo() {
+        when(courseEnrollmentRepository.existsByCourseIdAndStudentId(courseId, studentId)).thenReturn(true);
+        Lesson lesson = new Lesson();
+        lesson.setId(lessonId);
+        lesson.setVideoS3Key("videos/lecture.mp4");
+        when(lessonRepository.findById(lessonId)).thenReturn(Optional.of(lesson));
+        when(lessonProgressRepository.findByStudentIdAndLessonId(studentId, lessonId)).thenReturn(Optional.empty());
+
+        Course course = new Course();
+        course.setId(courseId);
+        Chapter chapter = new Chapter();
+        chapter.setLessons(List.of(lesson));
+        course.setChapters(List.of(chapter));
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(course));
+
+        UpdateProgressRequest req = new UpdateProgressRequest();
+        req.setWatchedPercentage(BigDecimal.valueOf(50));
+
+        studentCourseService.updateLessonProgress(studentId, courseId, lessonId, req);
+
+        verify(lessonProgressRepository).save(argThat(p ->
+            "IN_PROGRESS".equals(p.getStatus())
+        ));
+    }
+
+    @Test
+    void updateLessonProgress_videoAndDocumentCombined_bothComplete_marksCompleted() {
+        when(courseEnrollmentRepository.existsByCourseIdAndStudentId(courseId, studentId)).thenReturn(true);
+        Lesson lesson = new Lesson();
+        lesson.setId(lessonId);
+        LessonResource resVideo = new LessonResource();
+        resVideo.setResourceType(ResourceType.VIDEO);
+        LessonResource resPdf = new LessonResource();
+        resPdf.setResourceType(ResourceType.PDF);
+        lesson.setResources(List.of(resVideo, resPdf));
+        when(lessonRepository.findById(lessonId)).thenReturn(Optional.of(lesson));
+        when(lessonProgressRepository.findByStudentIdAndLessonId(studentId, lessonId)).thenReturn(Optional.empty());
+
+        Course course = new Course();
+        course.setId(courseId);
+        Chapter chapter = new Chapter();
+        chapter.setLessons(List.of(lesson));
+        course.setChapters(List.of(chapter));
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(course));
+
+        UpdateProgressRequest req = new UpdateProgressRequest();
+        req.setWatchedPercentage(BigDecimal.valueOf(95));
+        req.setDocumentViewSeconds(15);
+
+        studentCourseService.updateLessonProgress(studentId, courseId, lessonId, req);
+
+        verify(lessonProgressRepository).save(argThat(p ->
+            "COMPLETED".equals(p.getStatus()) &&
+            p.getLessonPercentage().intValue() == 100
+        ));
+    }
+
+    @Test
+    void updateLessonProgress_videoAndDocumentCombined_partial_showsPartialPercentage() {
+        when(courseEnrollmentRepository.existsByCourseIdAndStudentId(courseId, studentId)).thenReturn(true);
+        Lesson lesson = new Lesson();
+        lesson.setId(lessonId);
+        LessonResource resVideo = new LessonResource();
+        resVideo.setResourceType(ResourceType.VIDEO);
+        LessonResource resPdf = new LessonResource();
+        resPdf.setResourceType(ResourceType.PDF);
+        lesson.setResources(List.of(resVideo, resPdf));
+        when(lessonRepository.findById(lessonId)).thenReturn(Optional.of(lesson));
+        when(lessonProgressRepository.findByStudentIdAndLessonId(studentId, lessonId)).thenReturn(Optional.empty());
+
+        Course course = new Course();
+        course.setId(courseId);
+        Chapter chapter = new Chapter();
+        chapter.setLessons(List.of(lesson));
+        course.setChapters(List.of(chapter));
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(course));
+
+        // wp=50, dv=5 -> vidScore=min(50/90,1)*80=44.44, docScore=min(5/10,1)*20=10 -> 54%
+        UpdateProgressRequest req = new UpdateProgressRequest();
+        req.setWatchedPercentage(BigDecimal.valueOf(50));
+        req.setDocumentViewSeconds(5);
+
+        studentCourseService.updateLessonProgress(studentId, courseId, lessonId, req);
+
+        verify(lessonProgressRepository).save(argThat(p ->
+            "IN_PROGRESS".equals(p.getStatus()) &&
+            p.getLessonPercentage().intValue() == 54
+        ));
+    }
+
+    @Test
+    void updateLessonProgress_documentOnlyPartial_showsPartialPercentage() {
+        when(courseEnrollmentRepository.existsByCourseIdAndStudentId(courseId, studentId)).thenReturn(true);
+        Lesson lesson = new Lesson();
+        lesson.setId(lessonId);
+        LessonResource resPdf = new LessonResource();
+        resPdf.setResourceType(ResourceType.PDF);
+        lesson.setResources(List.of(resPdf));
+        when(lessonRepository.findById(lessonId)).thenReturn(Optional.of(lesson));
+        when(lessonProgressRepository.findByStudentIdAndLessonId(studentId, lessonId)).thenReturn(Optional.empty());
+
+        Course course = new Course();
+        course.setId(courseId);
+        Chapter chapter = new Chapter();
+        chapter.setLessons(List.of(lesson));
+        course.setChapters(List.of(chapter));
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(course));
+
+        // dv=10 (<20), wp=0 -> pctByTime=min(10*100/20,100)=50 -> 50%
+        UpdateProgressRequest req = new UpdateProgressRequest();
+        req.setDocumentViewSeconds(10);
+
+        studentCourseService.updateLessonProgress(studentId, courseId, lessonId, req);
+
+        verify(lessonProgressRepository).save(argThat(p ->
+            "IN_PROGRESS".equals(p.getStatus()) &&
+            p.getLessonPercentage().intValue() == 50
+        ));
+    }
+
+    @Test
+    void updateLessonProgress_textOnlyContentType_detectsAsDocument() {
+        when(courseEnrollmentRepository.existsByCourseIdAndStudentId(courseId, studentId)).thenReturn(true);
+        Lesson lesson = new Lesson();
+        lesson.setId(lessonId);
+        lesson.setType(LessonType.TEXT);
+        when(lessonRepository.findById(lessonId)).thenReturn(Optional.of(lesson));
+        when(lessonProgressRepository.findByStudentIdAndLessonId(studentId, lessonId)).thenReturn(Optional.empty());
+
+        Course course = new Course();
+        course.setId(courseId);
+        Chapter chapter = new Chapter();
+        chapter.setLessons(List.of(lesson));
+        course.setChapters(List.of(chapter));
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(course));
+
+        UpdateProgressRequest req = new UpdateProgressRequest();
+        req.setDocumentViewSeconds(25);
+
+        studentCourseService.updateLessonProgress(studentId, courseId, lessonId, req);
+
+        verify(lessonProgressRepository).save(argThat(p ->
+            "COMPLETED".equals(p.getStatus()) &&
+            p.getLessonPercentage().intValue() == 100
+        ));
+    }
+
+    @Test
     void updateLessonProgress_documentLesson_updatesProgress() {
         when(courseEnrollmentRepository.existsByCourseIdAndStudentId(courseId, studentId)).thenReturn(true);
         Lesson lesson = new Lesson();
@@ -453,6 +613,121 @@ class StudentCourseServiceImplTest {
     }
 
     @Test
+    void updateLessonProgress_quizTypeLesson_throwsBusinessException() {
+        when(courseEnrollmentRepository.existsByCourseIdAndStudentId(courseId, studentId)).thenReturn(true);
+        Lesson lesson = new Lesson();
+        lesson.setId(lessonId);
+        lesson.setType(LessonType.QUIZ);
+        when(lessonRepository.findById(lessonId)).thenReturn(Optional.of(lesson));
+
+        UpdateProgressRequest req = new UpdateProgressRequest();
+
+        assertThatThrownBy(() -> studentCourseService.updateLessonProgress(studentId, courseId, lessonId, req))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("đề trắc nghiệm");
+
+        verify(lessonProgressRepository, never()).save(any());
+    }
+
+    @Test
+    void completeQuizLesson_noExistingProgress_createsCompletedProgress() {
+        when(lessonProgressRepository.findByStudentIdAndLessonId(studentId, lessonId)).thenReturn(Optional.empty());
+        Course course = new Course();
+        course.setId(courseId);
+        course.setChapters(List.of());
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(course));
+        when(courseProgressRepository.findByStudentIdAndCourseId(studentId, courseId)).thenReturn(Optional.empty());
+        when(lessonProgressRepository.findByStudentIdAndCourseId(studentId, courseId)).thenReturn(List.of());
+
+        studentCourseService.completeQuizLesson(studentId, courseId, lessonId);
+
+        verify(lessonProgressRepository).save(argThat(p ->
+                p.getLessonId().equals(lessonId) &&
+                p.getStudentId().equals(studentId) &&
+                "COMPLETED".equals(p.getStatus()) &&
+                p.getLessonPercentage().intValue() == 100 &&
+                p.getCompletedAt() != null
+        ));
+        verify(courseProgressRepository).save(any());
+    }
+
+    @Test
+    void completeQuizLesson_existingProgressAlreadyCompleted_keepsOriginalCompletedAt() {
+        Instant originalCompletedAt = Instant.now().minusSeconds(3600);
+        LessonProgressEntity existing = new LessonProgressEntity();
+        existing.setLessonId(lessonId);
+        existing.setStudentId(studentId);
+        existing.setStatus("COMPLETED");
+        existing.setCompletedAt(originalCompletedAt);
+        when(lessonProgressRepository.findByStudentIdAndLessonId(studentId, lessonId)).thenReturn(Optional.of(existing));
+        Course course = new Course();
+        course.setId(courseId);
+        course.setChapters(List.of());
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(course));
+        when(courseProgressRepository.findByStudentIdAndCourseId(studentId, courseId)).thenReturn(Optional.empty());
+        when(lessonProgressRepository.findByStudentIdAndCourseId(studentId, courseId)).thenReturn(List.of(existing));
+
+        studentCourseService.completeQuizLesson(studentId, courseId, lessonId);
+
+        verify(lessonProgressRepository).save(argThat(p -> p.getCompletedAt().equals(originalCompletedAt)));
+    }
+
+    @Test
+    void resetLessonProgressForInProgressStudents_deletesProgressForNonCompletedStudents() {
+        UUID inProgressStudent = UUID.randomUUID();
+        UUID completedStudent = UUID.randomUUID();
+        CourseProgressEntity inProgressCp = new CourseProgressEntity();
+        inProgressCp.setStudentId(inProgressStudent);
+        inProgressCp.setStatus("IN_PROGRESS");
+        CourseProgressEntity completedCp = new CourseProgressEntity();
+        completedCp.setStudentId(completedStudent);
+        completedCp.setStatus("COMPLETED");
+        when(courseProgressRepository.findByCourseId(courseId)).thenReturn(List.of(inProgressCp, completedCp));
+
+        LessonProgressEntity progress = new LessonProgressEntity();
+        progress.setStudentId(inProgressStudent);
+        progress.setLessonId(lessonId);
+        when(lessonProgressRepository.findByStudentIdAndLessonId(inProgressStudent, lessonId))
+                .thenReturn(Optional.of(progress));
+
+        Course course = new Course();
+        course.setId(courseId);
+        course.setChapters(List.of());
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(course));
+        when(courseProgressRepository.findByStudentIdAndCourseId(any(), eq(courseId))).thenReturn(Optional.empty());
+        when(lessonProgressRepository.findByStudentIdAndCourseId(any(), eq(courseId))).thenReturn(List.of());
+
+        studentCourseService.resetLessonProgressForInProgressStudents(courseId, lessonId);
+
+        verify(lessonProgressRepository).delete(progress);
+        verify(lessonProgressRepository, never()).findByStudentIdAndLessonId(completedStudent, lessonId);
+        verify(courseProgressRepository, times(1)).save(any());
+    }
+
+    @Test
+    void resetLessonProgressForInProgressStudents_noExistingLessonProgress_stillUpdatesCourseProgress() {
+        UUID inProgressStudent = UUID.randomUUID();
+        CourseProgressEntity inProgressCp = new CourseProgressEntity();
+        inProgressCp.setStudentId(inProgressStudent);
+        inProgressCp.setStatus("IN_PROGRESS");
+        when(courseProgressRepository.findByCourseId(courseId)).thenReturn(List.of(inProgressCp));
+        when(lessonProgressRepository.findByStudentIdAndLessonId(inProgressStudent, lessonId))
+                .thenReturn(Optional.empty());
+
+        Course course = new Course();
+        course.setId(courseId);
+        course.setChapters(List.of());
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(course));
+        when(courseProgressRepository.findByStudentIdAndCourseId(inProgressStudent, courseId)).thenReturn(Optional.empty());
+        when(lessonProgressRepository.findByStudentIdAndCourseId(inProgressStudent, courseId)).thenReturn(List.of());
+
+        studentCourseService.resetLessonProgressForInProgressStudents(courseId, lessonId);
+
+        verify(lessonProgressRepository, never()).delete(any());
+        verify(courseProgressRepository).save(any());
+    }
+
+    @Test
     void findResource_lessonOrResourceNotFound_throwsException() {
         when(courseEnrollmentRepository.existsByCourseIdAndStudentId(courseId, studentId)).thenReturn(true);
         when(lessonRepository.findById(lessonId)).thenReturn(Optional.empty());
@@ -469,6 +744,89 @@ class StudentCourseServiceImplTest {
         assertThatThrownBy(() -> studentCourseService.getResourceViewUrl(studentId, courseId, lessonId, resourceId))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("Không tìm thấy tài liệu");
+    }
+
+    // ── resetProgressForStudents ───────────────────────────────────────────────
+
+    @Test
+    void resetProgressForStudents_skips_whenCourseIdIsNull() {
+        studentCourseService.resetProgressForStudents(null, List.of(studentId));
+        verify(quizAttemptRepository, never()).findByCourseIdAndStudentIdIn(any(), any());
+    }
+
+    @Test
+    void resetProgressForStudents_skips_whenStudentIdsIsNull() {
+        studentCourseService.resetProgressForStudents(courseId, null);
+        verify(quizAttemptRepository, never()).findByCourseIdAndStudentIdIn(any(), any());
+    }
+
+    @Test
+    void resetProgressForStudents_skips_whenStudentIdsEmpty() {
+        studentCourseService.resetProgressForStudents(courseId, List.of());
+        verify(quizAttemptRepository, never()).findByCourseIdAndStudentIdIn(any(), any());
+    }
+
+    @Test
+    void resetProgressForStudents_deletesQuizAndLessonProgress() {
+        var attempt = new project.lms_rikkei_edu.modules.quiz.entity.QuizAttemptEntity();
+        attempt.setId(UUID.randomUUID());
+        when(quizAttemptRepository.findByCourseIdAndStudentIdIn(courseId, List.of(studentId)))
+                .thenReturn(List.of(attempt));
+
+        studentCourseService.resetProgressForStudents(courseId, List.of(studentId));
+
+        verify(quizAttemptAnswerRepository).deleteByAttemptIdIn(anyList());
+        verify(proctoringViolationLogRepository).deleteByAttemptIdIn(anyList());
+        verify(quizAttemptRepository).deleteByCourseIdAndStudentIdIn(courseId, List.of(studentId));
+        verify(lessonProgressRepository).deleteByCourseIdAndStudentIdIn(courseId, List.of(studentId));
+        verify(courseProgressRepository).deleteByCourseIdAndStudentIdIn(courseId, List.of(studentId));
+    }
+
+    @Test
+    void resetProgressForStudents_skipsQuizDeletion_whenNoAttempts() {
+        when(quizAttemptRepository.findByCourseIdAndStudentIdIn(courseId, List.of(studentId)))
+                .thenReturn(List.of());
+
+        studentCourseService.resetProgressForStudents(courseId, List.of(studentId));
+
+        verify(quizAttemptAnswerRepository, never()).deleteByAttemptIdIn(anyList());
+        verify(proctoringViolationLogRepository, never()).deleteByAttemptIdIn(anyList());
+        verify(quizAttemptRepository, never()).deleteByCourseIdAndStudentIdIn(any(), anyList());
+        verify(lessonProgressRepository).deleteByCourseIdAndStudentIdIn(courseId, List.of(studentId));
+        verify(courseProgressRepository).deleteByCourseIdAndStudentIdIn(courseId, List.of(studentId));
+    }
+
+    @Test
+    void resetProgressForStudents_handlesExceptionGracefully() {
+        when(quizAttemptRepository.findByCourseIdAndStudentIdIn(courseId, List.of(studentId)))
+                .thenThrow(new RuntimeException("DB error"));
+
+        studentCourseService.resetProgressForStudents(courseId, List.of(studentId));
+
+        // Should not propagate exception
+        verify(quizAttemptAnswerRepository, never()).deleteByAttemptIdIn(anyList());
+        verify(lessonProgressRepository, never()).deleteByCourseIdAndStudentIdIn(any(), anyList());
+    }
+
+    @Test
+    void resetStudentCourseProgress_delegatesToResetProgressForStudents() {
+        studentCourseService.resetStudentCourseProgress(courseId, studentId);
+        verify(lessonProgressRepository).deleteByCourseIdAndStudentIdIn(courseId, List.of(studentId));
+        verify(courseProgressRepository).deleteByCourseIdAndStudentIdIn(courseId, List.of(studentId));
+    }
+
+    @Test
+    void resetStudentCourseProgress_skips_whenCourseIdNull() {
+        studentCourseService.resetStudentCourseProgress(null, studentId);
+        verify(quizAttemptRepository, never()).findByCourseIdAndStudentIdIn(any(), any());
+        verify(lessonProgressRepository, never()).deleteByCourseIdAndStudentIdIn(any(), anyList());
+    }
+
+    @Test
+    void resetStudentCourseProgress_skips_whenStudentIdNull() {
+        studentCourseService.resetStudentCourseProgress(courseId, null);
+        verify(quizAttemptRepository, never()).findByCourseIdAndStudentIdIn(any(), any());
+        verify(lessonProgressRepository, never()).deleteByCourseIdAndStudentIdIn(any(), anyList());
     }
 }
 

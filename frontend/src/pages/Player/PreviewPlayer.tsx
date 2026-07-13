@@ -262,8 +262,6 @@
     const [sidebarTab,    setSidebarTab]    = useState("lessons");
     const [assignments,   setAssignments]   = useState([]);
     const [assignLoading, setAssignLoading] = useState(false);
-    const [activeView,        setActiveView]        = useState("lesson");
-    const [selectedAssignmentId, setSelectedAssignmentId] = useState(null);
 
     const contentRef = useRef(null);
 
@@ -273,10 +271,6 @@
     const totalLessons = useMemo(() => allLessons.length, [allLessons]);
     const prevLesson   = activeIdx > 0 ? allLessons[activeIdx - 1] : null;
     const nextLesson   = activeIdx < allLessons.length - 1 ? allLessons[activeIdx + 1] : null;
-
-    const assignIdx      = useMemo(() => assignments.findIndex(a => a.id === selectedAssignmentId), [assignments, selectedAssignmentId]);
-    const prevAssignment = assignIdx > 0 ? assignments[assignIdx - 1] : null;
-    const nextAssignment = assignIdx < assignments.length - 1 ? assignments[assignIdx + 1] : null;
 
     // Build chips: virtual video chip + lesson resources
     const allChips = useMemo(() => {
@@ -498,21 +492,10 @@
               )}
             </div>
 
-            {/* Viewers / AssignmentDetail */}
+            {/* Viewers */}
             <div ref={contentRef}
               style={{ flex: 1, minHeight: 0, display: "flex", overflow: "hidden" }}>
-              {activeView === "assignment" && selectedAssignmentId ? (
-                window.AssignmentDetail && React.createElement(window.AssignmentDetail, {
-                  assignmentId: selectedAssignmentId,
-                  courseId,
-                  role,
-                  onBack: () => {
-                    setActiveView("lesson");
-                    setSelectedAssignmentId(null);
-                    setSidebarTab("lessons");
-                  },
-                })
-              ) : active ? (
+              {active ? (
                 <>
                   {/* Viewer A */}
                   <div style={{ width: splitActive ? `${splitPct}%` : "100%",
@@ -543,79 +526,41 @@
               )}
             </div>
 
-            {/* Prev / Next (lessons or assignments) */}
-            {(active && activeView !== "assignment") || (activeView === "assignment" && selectedAssignmentId) ? (
+            {/* Prev / Next */}
+            {active && (
               <div style={{ flexShrink: 0, background: "#fff", borderTop: "1px solid #e2e8f0",
                 padding: "8px 14px", display: "flex", gap: 10 }}>
-                {activeView === "assignment" ? (
-                  <>
-                    <button disabled={!prevAssignment}
-                      onClick={() => prevAssignment && setSelectedAssignmentId(prevAssignment.id)}
-                      style={{ flex: 1, height: 46, display: "flex", alignItems: "center", gap: 8,
-                        padding: "0 14px", border: "1px solid #e2e8f0", borderRadius: 10,
-                        background: prevAssignment ? "#fff" : "#f8fafc",
-                        cursor: prevAssignment ? "pointer" : "default", opacity: prevAssignment ? 1 : 0.4 }}
-                      onMouseEnter={e => { if (prevAssignment) e.currentTarget.style.borderColor = "#2563eb"; }}
-                      onMouseLeave={e => { e.currentTarget.style.borderColor = "#e2e8f0"; }}>
-                      <Ic n="arrow_left" size={14} style={{ color: "#94a3b8", flexShrink: 0 }} />
-                      <div style={{ textAlign: "left", minWidth: 0 }}>
-                        <div style={{ fontSize: 10, color: "#94a3b8", fontWeight: 500 }}>Bài tập trước</div>
-                        {prevAssignment && <div style={{ fontSize: 12.5, fontWeight: 600, color: "#0f172a" }}
-                          className="truncate">{prevAssignment.title}</div>}
-                      </div>
-                    </button>
-                    <button disabled={!nextAssignment}
-                      onClick={() => nextAssignment && setSelectedAssignmentId(nextAssignment.id)}
-                      style={{ flex: 1, height: 46, display: "flex", alignItems: "center",
-                        justifyContent: "flex-end", gap: 8, padding: "0 14px",
-                        border: `1px solid ${nextAssignment ? "#2563eb" : "#e2e8f0"}`,
-                        borderRadius: 10, background: nextAssignment ? "#eff6ff" : "#f8fafc",
-                        cursor: nextAssignment ? "pointer" : "default", opacity: nextAssignment ? 1 : 0.4 }}
-                      onMouseEnter={e => { if (nextAssignment) e.currentTarget.style.background = "#dbeafe"; }}
-                      onMouseLeave={e => { e.currentTarget.style.background = nextAssignment ? "#eff6ff" : "#f8fafc"; }}>
-                      <div style={{ textAlign: "right", minWidth: 0 }}>
-                        <div style={{ fontSize: 10, color: "#2563eb", fontWeight: 500 }}>Bài tập tiếp theo</div>
-                        {nextAssignment && <div style={{ fontSize: 12.5, fontWeight: 600, color: "#0f172a" }}
-                          className="truncate">{nextAssignment.title}</div>}
-                      </div>
-                      <Ic n="arrow_right" size={14} style={{ color: "#2563eb", flexShrink: 0 }} />
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <button disabled={!prevLesson} onClick={() => prevLesson && goLesson(prevLesson)}
-                      style={{ flex: 1, height: 46, display: "flex", alignItems: "center", gap: 8,
-                        padding: "0 14px", border: "1px solid #e2e8f0", borderRadius: 10,
-                        background: prevLesson ? "#fff" : "#f8fafc",
-                        cursor: prevLesson ? "pointer" : "default", opacity: prevLesson ? 1 : 0.4 }}
-                      onMouseEnter={e => { if (prevLesson) e.currentTarget.style.borderColor = "#2563eb"; }}
-                      onMouseLeave={e => { e.currentTarget.style.borderColor = "#e2e8f0"; }}>
-                      <Ic n="arrow_left" size={14} style={{ color: "#94a3b8", flexShrink: 0 }} />
-                      <div style={{ textAlign: "left", minWidth: 0 }}>
-                        <div style={{ fontSize: 10, color: "#94a3b8", fontWeight: 500 }}>Bài trước</div>
-                        {prevLesson && <div style={{ fontSize: 12.5, fontWeight: 600, color: "#0f172a" }}
-                          className="truncate">{prevLesson.title}</div>}
-                      </div>
-                    </button>
-                    <button disabled={!nextLesson} onClick={() => nextLesson && goLesson(nextLesson)}
-                      style={{ flex: 1, height: 46, display: "flex", alignItems: "center",
-                        justifyContent: "flex-end", gap: 8, padding: "0 14px",
-                        border: `1px solid ${nextLesson ? "#2563eb" : "#e2e8f0"}`,
-                        borderRadius: 10, background: nextLesson ? "#eff6ff" : "#f8fafc",
-                        cursor: nextLesson ? "pointer" : "default", opacity: nextLesson ? 1 : 0.4 }}
-                      onMouseEnter={e => { if (nextLesson) e.currentTarget.style.background = "#dbeafe"; }}
-                      onMouseLeave={e => { e.currentTarget.style.background = nextLesson ? "#eff6ff" : "#f8fafc"; }}>
-                      <div style={{ textAlign: "right", minWidth: 0 }}>
-                        <div style={{ fontSize: 10, color: "#2563eb", fontWeight: 500 }}>Bài tiếp theo</div>
-                        {nextLesson && <div style={{ fontSize: 12.5, fontWeight: 600, color: "#0f172a" }}
-                          className="truncate">{nextLesson.title}</div>}
-                      </div>
-                      <Ic n="arrow_right" size={14} style={{ color: "#2563eb", flexShrink: 0 }} />
-                    </button>
-                  </>
-                )}
+                <button disabled={!prevLesson} onClick={() => prevLesson && goLesson(prevLesson)}
+                  style={{ flex: 1, height: 46, display: "flex", alignItems: "center", gap: 8,
+                    padding: "0 14px", border: "1px solid #e2e8f0", borderRadius: 10,
+                    background: prevLesson ? "#fff" : "#f8fafc",
+                    cursor: prevLesson ? "pointer" : "default", opacity: prevLesson ? 1 : 0.4 }}
+                  onMouseEnter={e => { if (prevLesson) e.currentTarget.style.borderColor = "#2563eb"; }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = "#e2e8f0"; }}>
+                  <Ic n="arrow_left" size={14} style={{ color: "#94a3b8", flexShrink: 0 }} />
+                  <div style={{ textAlign: "left", minWidth: 0 }}>
+                    <div style={{ fontSize: 10, color: "#94a3b8", fontWeight: 500 }}>Bài trước</div>
+                    {prevLesson && <div style={{ fontSize: 12.5, fontWeight: 600, color: "#0f172a" }}
+                      className="truncate">{prevLesson.title}</div>}
+                  </div>
+                </button>
+                <button disabled={!nextLesson} onClick={() => nextLesson && goLesson(nextLesson)}
+                  style={{ flex: 1, height: 46, display: "flex", alignItems: "center",
+                    justifyContent: "flex-end", gap: 8, padding: "0 14px",
+                    border: `1px solid ${nextLesson ? "#2563eb" : "#e2e8f0"}`,
+                    borderRadius: 10, background: nextLesson ? "#eff6ff" : "#f8fafc",
+                    cursor: nextLesson ? "pointer" : "default", opacity: nextLesson ? 1 : 0.4 }}
+                  onMouseEnter={e => { if (nextLesson) e.currentTarget.style.background = "#dbeafe"; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = nextLesson ? "#eff6ff" : "#f8fafc"; }}>
+                  <div style={{ textAlign: "right", minWidth: 0 }}>
+                    <div style={{ fontSize: 10, color: "#2563eb", fontWeight: 500 }}>Bài tiếp theo</div>
+                    {nextLesson && <div style={{ fontSize: 12.5, fontWeight: 600, color: "#0f172a" }}
+                      className="truncate">{nextLesson.title}</div>}
+                  </div>
+                  <Ic n="arrow_right" size={14} style={{ color: "#2563eb", flexShrink: 0 }} />
+                </button>
               </div>
-            ) : null}
+            )}
           </div>
 
           {/* ── Right: Curriculum sidebar ────────────────── */}
@@ -665,13 +610,7 @@
               {["lessons", "assignments"].map(tab => {
                 const isAct = sidebarTab === tab;
                 return (
-                  <button key={tab} onClick={() => {
-                    setSidebarTab(tab);
-                    if (tab === "lessons") {
-                      setActiveView("lesson");
-                      setSelectedAssignmentId(null);
-                    }
-                  }}
+                  <button key={tab} onClick={() => setSidebarTab(tab)}
                     style={{ flex: 1, height: 36, border: "none", background: "transparent",
                       cursor: "pointer", fontSize: 12.5, fontWeight: 600,
                       color: isAct ? "#2563eb" : "#94a3b8",
@@ -809,13 +748,10 @@
                           })
                         : null;
                       return (
-                        <div key={a.id} onClick={() => {
-                          setSelectedAssignmentId(a.id);
-                          setActiveView("assignment");
-                        }}
+                        <div key={a.id}
                           style={{ display: "flex", alignItems: "flex-start", gap: 8,
                             padding: "8px 10px", margin: "2px 0", borderRadius: 8,
-                            cursor: "pointer", transition: ".12s",
+                            cursor: "default", transition: ".12s",
                             background: "transparent" }}
                           onMouseEnter={e => { e.currentTarget.style.background = "#f8fafc"; }}
                           onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}>

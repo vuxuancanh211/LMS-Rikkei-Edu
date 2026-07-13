@@ -92,6 +92,10 @@
 /* course card */
 .course-card { overflow: hidden; display: flex; flex-direction: column; transition: box-shadow .18s, transform .18s; }
 .course-card:hover { box-shadow: var(--sh-md); transform: translateY(-3px); }
+
+/* quiz card (student "Trắc nghiệm" tab) */
+.quiz-card { display: flex; flex-direction: column; transition: box-shadow .18s, transform .18s; }
+.quiz-card:hover { box-shadow: var(--sh-md); transform: translateY(-3px); }
 .course-thumb { height: 150px; position: relative; background: #0f172a; background-size: cover; background-position: center; }
 .course-thumb .tl { position: absolute; left: 12px; top: 12px; }
 .course-thumb .tr { position: absolute; right: 12px; top: 12px; }

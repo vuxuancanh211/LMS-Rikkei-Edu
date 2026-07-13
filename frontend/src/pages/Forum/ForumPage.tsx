@@ -128,7 +128,15 @@ function sanitizeForumHtml(html?: string, attachments: ForumAttachment[] = []) {
 
 function resolveForumContentUrls(content: string, attachments: ForumAttachment[] = []) {
   return content.replace(/(src|href)=(['"])([^'"]*\/api\/forum\/attachments\/([^/'"?]+)\/content(?:\?[^'"]*)?)\2/g, (_, attr, quote, url, attachmentId) => {
-    const attachment = attachments.find((item) => item.id === attachmentId);
+    let attachment = attachments.find((item) => item.id === attachmentId);
+    if (!attachment) {
+      const imageAttachments = attachments.filter((item) => item.attachmentType === 'IMAGE');
+      if (imageAttachments.length === 1) {
+        attachment = imageAttachments[0];
+      } else {
+        attachment = imageAttachments.find((item) => url.includes(item.id));
+      }
+    }
     return `${attr}=${quote}${toAbsoluteApiUrl(attachment?.url || url)}${quote}`;
   });
 }
@@ -720,6 +728,10 @@ function ForumPage({ demo }) {
 
   useEffect(() => {
     loadCourses().catch(() => setError('Không tải được danh sách khóa học'));
+    const pid = new URLSearchParams(window.location.search).get('postId');
+    if (pid && pid !== selectedPostId) {
+      openDetail(pid);
+    }
   }, []);
 
   useEffect(() => {
@@ -752,6 +764,13 @@ function ForumPage({ demo }) {
   const closeDetail = async (refreshList?: boolean) => {
     setSelectedPostId(null);
     setDetail(null);
+    try {
+      const url = new URL(window.location.href);
+      if (url.searchParams.has('postId')) {
+        url.searchParams.delete('postId');
+        window.history.pushState({}, '', url);
+      }
+    } catch { /* ignore */ }
     if (refreshList) await loadPosts();
   };
 

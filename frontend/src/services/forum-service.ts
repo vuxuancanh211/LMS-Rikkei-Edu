@@ -20,7 +20,7 @@ export function toStableApiPath(url?: string | null) {
   if (!url) return '';
   try {
     const parsed = new URL(url, window.location.origin);
-    return parsed.pathname.startsWith('/api/') ? parsed.pathname : url;
+    return parsed.pathname.startsWith('/api/') ? parsed.pathname + (parsed.search || '') : url;
   } catch {
     return url;
   }

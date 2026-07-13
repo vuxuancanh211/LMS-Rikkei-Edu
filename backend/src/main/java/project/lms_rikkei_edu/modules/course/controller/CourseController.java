@@ -124,6 +124,13 @@ public class CourseController {
         return ResponseEntity.noContent().build();
     }
 
+    @PutMapping("/{courseId}/chapters/reorder")
+    public ResponseEntity<List<ChapterResponse>> reorderChapters(
+            @PathVariable UUID courseId,
+            @Valid @RequestBody ReorderRequest request) {
+        return ResponseEntity.ok(courseService.reorderChapters(currentUserId(), courseId, request.getIds()));
+    }
+
     // ── Lesson ────────────────────────────────────────────────────────────────
 
     @PostMapping("/{courseId}/chapters/{chapterId}/lessons")
@@ -151,6 +158,14 @@ public class CourseController {
             @PathVariable UUID lessonId) {
         courseService.deleteLesson(currentUserId(), courseId, chapterId, lessonId);
         return ResponseEntity.noContent().build();
+    }
+
+    @PutMapping("/{courseId}/chapters/{chapterId}/lessons/reorder")
+    public ResponseEntity<List<LessonResponse>> reorderLessons(
+            @PathVariable UUID courseId,
+            @PathVariable UUID chapterId,
+            @Valid @RequestBody ReorderRequest request) {
+        return ResponseEntity.ok(courseService.reorderLessons(currentUserId(), courseId, chapterId, request.getIds()));
     }
 
     // ── Lesson Resource ───────────────────────────────────────────────────────

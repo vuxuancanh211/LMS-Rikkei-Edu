@@ -64,6 +64,10 @@
     external_link: '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
     image: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.09-3.09a2 2 0 0 0-2.82 0L6 21"/>',
     trash: '<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
+    bar_chart: '<path d="M3 3v16a2 2 0 0 0 2 2h16"/><rect x="7" y="10" width="3" height="9"/><rect x="12" y="6" width="3" height="13"/><rect x="17" y="13" width="3" height="6"/>',
+    x_circle: '<circle cx="12" cy="12" r="9"/><path d="m15 9-6 6M9 9l6 6"/>',
+    chevron_up: '<path d="m18 15-6-6-6 6"/>',
+    minus: '<path d="M5 12h14"/>',
   };
   window.Icon = function Icon({ n, size, style, className, fill }) {
     const inner = P[n] || P.grid;

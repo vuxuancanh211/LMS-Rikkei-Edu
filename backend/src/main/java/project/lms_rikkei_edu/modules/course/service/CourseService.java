@@ -31,11 +31,17 @@ public interface CourseService {
 
     void deleteChapter(UUID instructorId, UUID courseId, UUID chapterId);
 
+    /** Sắp xếp lại thứ tự chapter trong khóa học — {@code chapterIds} phải khớp chính xác tập chapter hiện có. */
+    List<ChapterResponse> reorderChapters(UUID instructorId, UUID courseId, List<UUID> chapterIds);
+
     LessonResponse addLesson(UUID instructorId, UUID courseId, UUID chapterId, CreateLessonRequest request);
 
     LessonResponse updateLesson(UUID instructorId, UUID courseId, UUID chapterId, UUID lessonId, UpdateLessonRequest request);
 
     void deleteLesson(UUID instructorId, UUID courseId, UUID chapterId, UUID lessonId);
+
+    /** Sắp xếp lại thứ tự lesson trong 1 chapter — {@code lessonIds} phải khớp chính xác tập lesson hiện có của chapter đó. */
+    List<LessonResponse> reorderLessons(UUID instructorId, UUID courseId, UUID chapterId, List<UUID> lessonIds);
 
     List<CourseApprovalLogResponse> getCourseHistory(UUID instructorId, UUID courseId);
 

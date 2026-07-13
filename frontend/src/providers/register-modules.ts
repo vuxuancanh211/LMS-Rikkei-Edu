@@ -2,6 +2,8 @@ import './globals';
 import '../styles/tokens.css';
 import '../styles/layout.css';
 
+import '../services/api-registry';
+
 import '../constants/mock-data';
 import '../components/base/icons';
 import '../components/base';
@@ -49,9 +51,10 @@ import '../pages/Notification/NotificationsPage';
 import '../pages/Player/LecturePlayer';
 import '../pages/Player/QuizPlayer';
 import '../pages/Player/QuizResult';
+import '../pages/Player/assignment/AssignmentDetail';
+import '../pages/Player/QuizDryRunPlayer';
 import '../pages/Player/assignment/AssignmentDropdown';
 import '../pages/Player/assignment/CreateAssignmentModal';
 import '../pages/Player/assignment/FilePreview';
-import '../pages/Player/assignment/AssignmentDetail';
 import '../pages/Player/PreviewPlayer';
 import '../pages/Gallery/GalleryPage';

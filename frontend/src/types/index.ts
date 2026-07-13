@@ -1,4 +1,6 @@
 export type UserRole = 'student' | 'instructor' | 'admin';
+
+export * from './quiz';
 export type ApiUserRole = 'STUDENT' | 'INSTRUCTOR' | 'ADMIN';
 
 export type AuthUser = {

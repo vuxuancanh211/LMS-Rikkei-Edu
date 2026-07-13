@@ -2,7 +2,7 @@
 (function () {
   const { useState, useEffect, useRef } = React;
   const Ic  = window.Icon;
-  const { Modal, ModalHead } = window;
+  const { Modal, ModalHead, Select } = window;
   const api = window.httpClient;
 
   const RES_TYPE = {
@@ -79,19 +79,128 @@
     );
   }
 
+  /* ── Form tạo/sửa quiz dùng chung (AddLessonModal + ChangeQuizModal) — y hệt form ở InsAssess ── */
+  function defaultQuizMeta() {
+    return {
+      title: "", quizType: "STATIC", duration: 20, maxAttempts: 3, unlimited: false,
+      cooldown: 20, passScore: 70, shuffleQuestions: false, shuffleOptions: false, proctoring: false,
+    };
+  }
+
+  function toQuizMetadataPayload(m: any) {
+    return {
+      title: m.title.trim(),
+      quizType: m.quizType,
+      durationMinutes: Number(m.duration),
+      maxAttempts: m.unlimited ? null : Number(m.maxAttempts),
+      cooldownMinutes: Number(m.cooldown),
+      passScore: Number(m.passScore),
+      shuffleQuestions: m.shuffleQuestions,
+      shuffleOptions: m.shuffleOptions,
+      proctoringEnabled: m.proctoring,
+    };
+  }
+
+  function QuizMetadataForm({ value, onChange }: any) {
+    const set = (k: string, v: any) => onChange({ ...value, [k]: v });
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <input className="input" value={value.title} onChange={e => set("title", e.target.value)} placeholder="Tên đề trắc nghiệm" autoFocus />
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+          <div>
+            <label className="t-label" style={{ display: "block", marginBottom: 5 }}>Loại quiz</label>
+            <Select value={value.quizType} onChange={(v: string) => set("quizType", v)} options={[
+              { v: "STATIC", label: "Cố định" },
+              { v: "SHUFFLED_POOL", label: "Xáo câu" },
+              { v: "RANDOM_DRAW", label: "Ngẫu nhiên (bank)" },
+            ]} />
+          </div>
+          <div>
+            <label className="t-label" style={{ display: "block", marginBottom: 5 }}>Thời gian (phút)</label>
+            <input className="input" type="number" min={1} value={value.duration} onChange={e => set("duration", e.target.value)} />
+          </div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+          <div>
+            <label className="t-label" style={{ display: "block", marginBottom: 5 }}>Số lần làm tối đa</label>
+            <input className="input" type="number" min={1} value={value.maxAttempts} disabled={value.unlimited}
+              onChange={e => set("maxAttempts", e.target.value)} />
+            <label className="row gap-6" style={{ marginTop: 6, cursor: "pointer", alignItems: "center" }}>
+              <input type="checkbox" checked={value.unlimited} onChange={e => set("unlimited", e.target.checked)} style={{ width: 15, height: 15 }} />
+              <span className="t-xs muted">Không giới hạn số lần</span>
+            </label>
+          </div>
+          <div>
+            <label className="t-label" style={{ display: "block", marginBottom: 5 }}>Điểm đạt (%)</label>
+            <input className="input" type="number" min={0} max={100} value={value.passScore} onChange={e => set("passScore", e.target.value)} />
+          </div>
+        </div>
+        <div>
+          <label className="t-label" style={{ display: "block", marginBottom: 5 }}>Khoảng cách giữa các lần làm (phút)</label>
+          <input className="input" type="number" min={0} value={value.cooldown} onChange={e => set("cooldown", e.target.value)} />
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+          <label className="row gap-8" style={{ padding: "9px 12px", background: "var(--surface-2)", borderRadius: 8, cursor: "pointer" }}>
+            <input type="checkbox" checked={value.shuffleQuestions} onChange={e => set("shuffleQuestions", e.target.checked)} style={{ width: 15, height: 15 }} />
+            <span className="t-xs">Xáo thứ tự câu hỏi</span>
+          </label>
+          <label className="row gap-8" style={{ padding: "9px 12px", background: "var(--surface-2)", borderRadius: 8, cursor: "pointer" }}>
+            <input type="checkbox" checked={value.shuffleOptions} onChange={e => set("shuffleOptions", e.target.checked)} style={{ width: 15, height: 15 }} />
+            <span className="t-xs">Xáo thứ tự đáp án</span>
+          </label>
+        </div>
+        <label className="row gap-8" style={{ padding: "9px 12px", background: "var(--chip-error-bg)", borderRadius: 8, cursor: "pointer" }}>
+          <input type="checkbox" checked={value.proctoring} onChange={e => set("proctoring", e.target.checked)} style={{ width: 15, height: 15 }} />
+          <span className="t-xs" style={{ color: "var(--chip-error-fg)" }}>Bật chế độ giám sát</span>
+        </label>
+        <div className="t-xs muted">Đề tạo ở trạng thái Nháp — soạn câu hỏi &amp; xuất bản sau ở tab "Đề trắc nghiệm".</div>
+      </div>
+    );
+  }
+
   /* ── AddLessonModal ── */
   function AddLessonModal({ open, onClose, courseId, chapterId, onAdded }: any) {
-    const [title, setTitle]   = useState("");
-    const [type, setType]     = useState("VIDEO");
-    const [saving, setSaving] = useState(false);
-    const [err, setErr]       = useState(null);
-    const close = () => { setTitle(""); setType("VIDEO"); setErr(null); onClose(); };
+    const [title, setTitle]     = useState("");
+    // "LECTURE" = bài giảng thường (video/tài liệu thêm sau qua "Thêm nội dung"), "QUIZ" = đề trắc nghiệm
+    const [type, setType]       = useState("LECTURE");
+    const [quizMode, setQuizMode] = useState("existing"); // "existing" | "new"
+    const [quizzes, setQuizzes] = useState([]);
+    const [quizzesLoading, setQuizzesLoading] = useState(false);
+    const [quizId, setQuizId]   = useState("");
+    const [newQuiz, setNewQuiz] = useState(defaultQuizMeta());
+    const [saving, setSaving]   = useState(false);
+    const [err, setErr]         = useState(null);
+
+    const close = () => {
+      setTitle(""); setType("LECTURE"); setQuizMode("existing"); setQuizId(""); setNewQuiz(defaultQuizMeta());
+      setErr(null); onClose();
+    };
+
+    useEffect(() => {
+      if (!open || type !== "QUIZ" || quizMode !== "existing") return;
+      setQuizzesLoading(true);
+      api.get(`/courses/${courseId}/quizzes`, { params: { size: 100, sort: "createdAt,desc" } })
+        .then(r => setQuizzes(r.data?.content || []))
+        .catch(() => setQuizzes([]))
+        .finally(() => setQuizzesLoading(false));
+    }, [open, type, quizMode, courseId]);
+
     async function handleAdd() {
       if (!title.trim()) { setErr("Vui lòng nhập tên bài giảng"); return; }
       if (title.trim().length < 3) { setErr("Tên phải có ít nhất 3 ký tự"); return; }
+      const payload: any = { title: title.trim(), type: type === "QUIZ" ? "QUIZ" : "TEXT" };
+      if (type === "QUIZ") {
+        if (quizMode === "existing") {
+          if (!quizId) { setErr("Vui lòng chọn 1 đề trắc nghiệm có sẵn"); return; }
+          payload.quizId = quizId;
+        } else {
+          if (!newQuiz.title.trim()) { setErr("Vui lòng nhập tên đề trắc nghiệm"); return; }
+          payload.newQuiz = toQuizMetadataPayload(newQuiz);
+        }
+      }
       setSaving(true); setErr(null);
       try {
-        await api.post(`/instructor/courses/${courseId}/chapters/${chapterId}/lessons`, { title: title.trim(), type });
+        await api.post(`/instructor/courses/${courseId}/chapters/${chapterId}/lessons`, payload);
         close(); onAdded?.();
       } catch (e: any) { setErr(e?.response?.data?.message || "Thêm bài giảng thất bại"); }
       finally { setSaving(false); }
@@ -104,12 +213,12 @@
           <label className="t-label" style={{ display: "block", marginBottom: 7 }}>Tên bài giảng</label>
           <input className="input" value={title} onChange={e => setTitle(e.target.value)}
             placeholder="VD: Giới thiệu về React Hooks" autoFocus
-            onKeyDown={e => e.key === "Enter" && handleAdd()} />
+            onKeyDown={e => e.key === "Enter" && type !== "QUIZ" && handleAdd()} />
           <label className="t-label" style={{ display: "block", marginBottom: 7, marginTop: 14 }}>Loại bài giảng</label>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
             {[
-              { id: "VIDEO", label: "Video bài giảng", ic: "video" },
-              { id: "TEXT", label: "Bài đọc / Tài liệu", ic: "file" },
+              { id: "LECTURE", label: "Bài giảng", ic: "book" },
+              { id: "QUIZ", label: "Đề trắc nghiệm", ic: "clipboard" },
             ].map(t => (
               <div key={t.id} onClick={() => setType(t.id)}
                 style={{ padding: "10px 12px", borderRadius: 8, border: `1.5px solid ${type === t.id ? "var(--accent)" : "var(--border)"}`,
@@ -119,12 +228,132 @@
               </div>
             ))}
           </div>
+          {type === "LECTURE" && (
+            <div className="t-xs muted" style={{ marginTop: 8 }}>Thêm video/tài liệu cho bài giảng này sau, qua nút "Thêm nội dung".</div>
+          )}
+
+          {type === "QUIZ" && (
+            <div style={{ marginTop: 14, padding: 12, borderRadius: 10, border: "1px solid var(--border)", background: "var(--surface-2)" }}>
+              <div className="tabs" style={{ width: "fit-content", marginBottom: 12 }}>
+                <button className={quizMode === "existing" ? "on" : ""} onClick={() => setQuizMode("existing")}>Gắn đề có sẵn</button>
+                <button className={quizMode === "new" ? "on" : ""} onClick={() => setQuizMode("new")}>Tạo đề mới</button>
+              </div>
+
+              {quizMode === "existing" ? (
+                quizzesLoading ? (
+                  <div className="t-xs muted">Đang tải danh sách đề...</div>
+                ) : quizzes.length === 0 ? (
+                  <div className="t-xs muted">Khóa học chưa có đề trắc nghiệm nào — chọn "Tạo đề mới" ở trên.</div>
+                ) : (
+                  <select className="input" value={quizId} onChange={e => setQuizId(e.target.value)}>
+                    <option value="">— Chọn đề trắc nghiệm —</option>
+                    {quizzes.map((q: any) => (
+                      <option key={q.id} value={q.id}>{q.title} ({q.status === "DRAFT" ? "Nháp" : q.status === "PUBLISHED" ? "Đã xuất bản" : "Lưu trữ"})</option>
+                    ))}
+                  </select>
+                )
+              ) : (
+                <QuizMetadataForm value={newQuiz} onChange={setNewQuiz} />
+              )}
+            </div>
+          )}
+
           {err && <div style={{ color: "var(--error)", fontSize: 13, marginTop: 8 }}>{err}</div>}
         </div>
         <div className="modal-foot">
           <button className="btn btn-ghost" onClick={close}>Hủy</button>
           <button className="btn btn-primary" disabled={saving} onClick={handleAdd}>
             <Ic n="plus" size={16} />{saving ? "Đang thêm..." : "Thêm bài giảng"}
+          </button>
+        </div>
+      </Modal>
+    );
+  }
+
+  /* ── ChangeQuizModal — đổi đề trắc nghiệm gắn với 1 lesson QUIZ đã tồn tại ── */
+  function ChangeQuizModal({ open, onClose, courseId, chapterId, lessonId, currentQuizId, onChanged }: any) {
+    const [quizMode, setQuizMode] = useState("existing"); // "existing" | "new"
+    const [quizzes, setQuizzes]   = useState([]);
+    const [quizzesLoading, setQuizzesLoading] = useState(false);
+    const [quizId, setQuizId]     = useState("");
+    const [newQuiz, setNewQuiz]   = useState(defaultQuizMeta());
+    const [resetProgress, setResetProgress] = useState(false);
+    const [saving, setSaving]     = useState(false);
+    const [err, setErr]           = useState(null);
+
+    const close = () => {
+      setQuizMode("existing"); setQuizId(""); setNewQuiz(defaultQuizMeta());
+      setResetProgress(false); setErr(null);
+      onClose();
+    };
+
+    useEffect(() => {
+      if (!open || quizMode !== "existing") return;
+      setQuizzesLoading(true);
+      api.get(`/courses/${courseId}/quizzes`, { params: { size: 100, sort: "createdAt,desc" } })
+        .then(r => setQuizzes((r.data?.content || []).filter((q: any) => q.id !== currentQuizId)))
+        .catch(() => setQuizzes([]))
+        .finally(() => setQuizzesLoading(false));
+    }, [open, quizMode, courseId, currentQuizId]);
+
+    async function handleSave() {
+      const payload: any = { resetProgressForInProgressStudents: resetProgress };
+      if (quizMode === "existing") {
+        if (!quizId) { setErr("Vui lòng chọn 1 đề trắc nghiệm khác"); return; }
+        payload.quizId = quizId;
+      } else {
+        if (!newQuiz.title.trim()) { setErr("Vui lòng nhập tên đề trắc nghiệm"); return; }
+        payload.newQuiz = toQuizMetadataPayload(newQuiz);
+      }
+      setSaving(true); setErr(null);
+      try {
+        await api.put(`/instructor/courses/${courseId}/chapters/${chapterId}/lessons/${lessonId}`, payload);
+        close(); onChanged?.();
+      } catch (e: any) { setErr(e?.response?.data?.message || "Đổi đề thất bại"); }
+      finally { setSaving(false); }
+    }
+
+    if (!open) return null;
+    return (
+      <Modal open={open} onClose={close} max={460}>
+        <ModalHead title="Đổi đề trắc nghiệm" icon="rotate_ccw" iconBg="#eaf1ff" iconColor="#2563eb" onClose={close} />
+        <div className="modal-body">
+          <div className="tabs" style={{ width: "fit-content", marginBottom: 12 }}>
+            <button className={quizMode === "existing" ? "on" : ""} onClick={() => setQuizMode("existing")}>Gắn đề có sẵn</button>
+            <button className={quizMode === "new" ? "on" : ""} onClick={() => setQuizMode("new")}>Tạo đề mới</button>
+          </div>
+
+          {quizMode === "existing" ? (
+            quizzesLoading ? (
+              <div className="t-xs muted">Đang tải danh sách đề...</div>
+            ) : quizzes.length === 0 ? (
+              <div className="t-xs muted">Không còn đề nào khác trong khóa học — chọn "Tạo đề mới" ở trên.</div>
+            ) : (
+              <select className="input" value={quizId} onChange={e => setQuizId(e.target.value)}>
+                <option value="">— Chọn đề trắc nghiệm —</option>
+                {quizzes.map((q: any) => (
+                  <option key={q.id} value={q.id}>{q.title} ({q.status === "DRAFT" ? "Nháp" : q.status === "PUBLISHED" ? "Đã xuất bản" : "Lưu trữ"})</option>
+                ))}
+              </select>
+            )
+          ) : (
+            <QuizMetadataForm value={newQuiz} onChange={setNewQuiz} />
+          )}
+
+          <label className="row gap-10" style={{ marginTop: 14, padding: "10px 12px", background: "var(--surface-2)", borderRadius: 8, cursor: "pointer" }}>
+            <input type="checkbox" checked={resetProgress} onChange={e => setResetProgress(e.target.checked)} style={{ width: 16, height: 16 }} />
+            <div>
+              <div style={{ fontWeight: 600, fontSize: 13 }}>Reset tiến độ học viên đang học</div>
+              <div className="t-xs muted">Chỉ áp dụng cho học viên đang học dở khóa — học viên đã hoàn thành cả khóa không bị ảnh hưởng.</div>
+            </div>
+          </label>
+
+          {err && <div style={{ color: "var(--error)", fontSize: 13, marginTop: 8 }}>{err}</div>}
+        </div>
+        <div className="modal-foot">
+          <button className="btn btn-ghost" onClick={close}>Hủy</button>
+          <button className="btn btn-primary" disabled={saving} onClick={handleSave}>
+            <Ic n="check" size={16} />{saving ? "Đang lưu..." : "Đổi đề"}
           </button>
         </div>
       </Modal>
@@ -615,5 +844,5 @@
     );
   }
 
-  Object.assign(window, { AddChapterModal, AddLessonModal, AddResourceModal, EditResourceModal, ResourcePreviewModal });
+  Object.assign(window, { AddChapterModal, AddLessonModal, ChangeQuizModal, AddResourceModal, EditResourceModal, ResourcePreviewModal });
 })();

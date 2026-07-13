@@ -317,19 +317,32 @@
     const [courseFilter, setCourseFilter] = useState(null);
     const [previewTarget, setPreviewTarget] = useState(null);
 
-    const load = async () => {
-      setLoading(true);
+    const load = async (opts = {}) => {
+      if (!opts.silent) setLoading(true);
       try {
         const data = await window.__aiService.listAiSources();
         setSources(data);
       } catch (e) {
         console.error("Failed to load AI sources", e);
       } finally {
-        setLoading(false);
+        if (!opts.silent) setLoading(false);
       }
     };
 
     useEffect(() => { load(); }, []);
+
+    // Ingest chạy nền (async) — poll lặng lẽ trong khi còn tài liệu PENDING/PROCESSING,
+    // tự dừng khi tất cả đã INDEXED/FAILED hoặc sau ~2 phút an toàn.
+    const hasPending = sources.some(s => s.ingestStatus === "PENDING" || s.ingestStatus === "PROCESSING");
+    useEffect(() => {
+      if (!hasPending) return;
+      const start = Date.now();
+      const interval = setInterval(() => {
+        if (Date.now() - start > 120_000) { clearInterval(interval); return; }
+        load({ silent: true });
+      }, 3000);
+      return () => clearInterval(interval);
+    }, [hasPending]);
 
     async function handleReingest(id) {
       setBusyId(id);

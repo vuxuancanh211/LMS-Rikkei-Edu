@@ -60,10 +60,11 @@ class GroupServiceImplTest {
     private StudyGroupRepository studyGroupRepository;
     @Mock
     private GroupMemberRepository groupMemberRepository;
-    @Mock
-    private CourseEnrollmentRepository courseEnrollmentRepository;
+
     @Mock
     private CourseRepository courseRepository;
+    @Mock
+    private CourseEnrollmentRepository courseEnrollmentRepository;
     @Mock
     private UserRepository userRepository;
     @Mock
@@ -76,6 +77,8 @@ class GroupServiceImplTest {
     private ChatRoomService chatRoomService;
     @Mock
     private SseEmitterRegistry sseEmitterRegistry;
+    @Mock
+    private project.lms_rikkei_edu.modules.course.service.StudentCourseService studentCourseService;
 
     private GroupServiceImpl groupService;
 
@@ -92,6 +95,7 @@ class GroupServiceImplTest {
                 groupMemberRepository,
                 courseEnrollmentRepository,
                 courseRepository,
+                studentCourseService,
                 userRepository,
                 currentUserProvider,
                 notificationService,
@@ -117,6 +121,66 @@ class GroupServiceImplTest {
     }
 
     @Test
+    void getGroupDetail_returnsGroupDetailWithMembers() {
+        StudyGroupEntity group = groupEntity(groupId, courseEntity(instructorId), instructorUser());
+        GroupMemberEntity member = memberEntity(group, studentUser(studentId, "student@example.com"));
+        when(currentUserProvider.getCurrentUser()).thenReturn(Optional.of(principal(instructorId, UserRole.INSTRUCTOR)));
+        when(studyGroupRepository.findByIdAndInstructorId(groupId, instructorId)).thenReturn(Optional.of(group));
+        when(groupMemberRepository.findByGroupIdWithStudent(groupId)).thenReturn(List.of(member));
+
+        GroupDetailResponse result = groupService.getGroupDetail(groupId);
+
+        assertThat(result.getId()).isEqualTo(groupId);
+        assertThat(result.getMembers()).hasSize(1);
+        assertThat(result.getMembers().getFirst().getStudentId()).isEqualTo(studentId);
+    }
+
+    @Test
+    void createGroup_throwsNotFound_whenCourseDoesNotExist() {
+        CreateGroupRequest request = createRequest();
+        when(currentUserProvider.getCurrentUser()).thenReturn(Optional.of(principal(instructorId, UserRole.INSTRUCTOR)));
+        when(courseRepository.findById(courseId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> groupService.createGroup(request))
+                .isInstanceOf(BusinessException.class)
+                .extracting("status")
+                .isEqualTo(HttpStatus.NOT_FOUND);
+
+        verify(studyGroupRepository, never()).save(any());
+    }
+
+    @Test
+    void addMembers_throwsBadRequest_whenEmailListEmpty() {
+        StudyGroupEntity group = groupEntity(groupId, courseEntity(instructorId), instructorUser());
+        AddGroupMembersRequest request = new AddGroupMembersRequest();
+        request.setEmails(List.of());
+
+        when(currentUserProvider.getCurrentUser()).thenReturn(Optional.of(principal(instructorId, UserRole.INSTRUCTOR)));
+        when(studyGroupRepository.findByIdAndInstructorId(groupId, instructorId)).thenReturn(Optional.of(group));
+
+        assertThatThrownBy(() -> groupService.addMembers(groupId, request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("empty");
+
+        verify(groupMemberRepository, never()).saveAll(anyList());
+    }
+
+    @Test
+    void addMembers_throwsNotFound_whenEmailDoesNotMatchAnyStudent() {
+        StudyGroupEntity group = groupEntity(groupId, courseEntity(instructorId), instructorUser());
+        AddGroupMembersRequest request = addMembersRequest("unknown@example.com");
+
+        when(currentUserProvider.getCurrentUser()).thenReturn(Optional.of(principal(instructorId, UserRole.INSTRUCTOR)));
+        when(studyGroupRepository.findByIdAndInstructorId(groupId, instructorId)).thenReturn(Optional.of(group));
+        when(userRepository.findByEmailIgnoreCaseInAndDeletedAtIsNull(List.of("unknown@example.com")))
+                .thenReturn(List.of());
+
+        assertThatThrownBy(() -> groupService.addMembers(groupId, request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("not found");
+    }
+
+    @Test
     void createGroup_savesGroup_whenCourseBelongsToInstructor() {
         Course course = courseEntity(instructorId);
         UserEntity instructor = instructorUser();
@@ -136,6 +200,22 @@ class GroupServiceImplTest {
         assertThat(captor.getValue().getInstructor()).isSameAs(instructor);
         assertThat(captor.getValue().getName()).isEqualTo("Group A");
         assertThat(result.getCourseId()).isEqualTo(courseId);
+    }
+
+    @Test
+    void createGroup_allowsAdminToCreateGroupForAnyInstructorCourse() {
+        Course course = courseEntity(otherInstructorId);
+        CreateGroupRequest request = createRequest();
+
+        when(currentUserProvider.getCurrentUser()).thenReturn(Optional.of(principal(instructorId, UserRole.ADMIN)));
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(course));
+        when(userRepository.getReferenceById(instructorId)).thenReturn(instructorUser());
+        when(studyGroupRepository.save(any(StudyGroupEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        GroupResponse result = groupService.createGroup(request);
+
+        assertThat(result).isNotNull();
+        verify(studyGroupRepository).save(any());
     }
 
     @Test
@@ -446,6 +526,48 @@ class GroupServiceImplTest {
 
         assertThat(result).hasSize(1);
         assertThat(result.getFirst().getId()).isEqualTo(groupId);
+    }
+
+    @Test
+    void getStudentGroups_computesActiveStatus_whenEndDateIsNull() {
+        StudyGroupEntity group = groupEntity(groupId, courseEntity(instructorId), instructorUser());
+        group.setEndDate(null);
+        group.setStartDate(LocalDate.now().minusDays(1));
+        when(currentUserProvider.getCurrentUser()).thenReturn(Optional.of(principal(studentId, UserRole.STUDENT)));
+        when(studyGroupRepository.findByStudentId(studentId)).thenReturn(List.of(group));
+
+        List<GroupResponse> result = groupService.getStudentGroups();
+
+        assertThat(result).hasSize(1);
+        assertThat(result.getFirst().getStatus()).isEqualTo("ACTIVE");
+    }
+
+    @Test
+    void getStudentGroups_computesUpcomingStatus_whenStartDateInFuture() {
+        StudyGroupEntity group = groupEntity(groupId, courseEntity(instructorId), instructorUser());
+        group.setStartDate(LocalDate.now().plusDays(1));
+        group.setEndDate(LocalDate.now().plusDays(10));
+        when(currentUserProvider.getCurrentUser()).thenReturn(Optional.of(principal(studentId, UserRole.STUDENT)));
+        when(studyGroupRepository.findByStudentId(studentId)).thenReturn(List.of(group));
+
+        List<GroupResponse> result = groupService.getStudentGroups();
+
+        assertThat(result).hasSize(1);
+        assertThat(result.getFirst().getStatus()).isEqualTo("UPCOMING");
+    }
+
+    @Test
+    void getStudentGroups_computesCompletedStatus_whenEndDateInPast() {
+        StudyGroupEntity group = groupEntity(groupId, courseEntity(instructorId), instructorUser());
+        group.setStartDate(LocalDate.now().minusDays(10));
+        group.setEndDate(LocalDate.now().minusDays(1));
+        when(currentUserProvider.getCurrentUser()).thenReturn(Optional.of(principal(studentId, UserRole.STUDENT)));
+        when(studyGroupRepository.findByStudentId(studentId)).thenReturn(List.of(group));
+
+        List<GroupResponse> result = groupService.getStudentGroups();
+
+        assertThat(result).hasSize(1);
+        assertThat(result.getFirst().getStatus()).isEqualTo("COMPLETED");
     }
 
     @Test

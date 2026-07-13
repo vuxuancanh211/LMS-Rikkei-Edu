@@ -143,10 +143,24 @@ public class CourseEmbeddingService {
 
     /** Embeds one resource synchronously — reused by both the auto-embed async flow and manual instructor selection. */
     public void embedResource(UUID courseId, UUID resourceId, String s3Key, String mimeType, String displayName) {
+        AiSource source = upsertResourceSource(courseId, resourceId, s3Key, mimeType, displayName);
+        if (source == null) return; // unsupported MIME type, already logged
+        orchestrator.ingest(source.getId());
+    }
+
+    /**
+     * Create-or-reset the {@link AiSource} row for a resource, WITHOUT running ingestion.
+     * Fast, synchronous — lets callers get the saved entity (with real id, PENDING status)
+     * immediately, then trigger {@link IngestionOrchestrator#ingestAsync} separately so the
+     * slow embedding work doesn't block the caller's request thread.
+     *
+     * @return the saved {@link AiSource}, or {@code null} if the MIME type isn't ingestible
+     */
+    public AiSource upsertResourceSource(UUID courseId, UUID resourceId, String s3Key, String mimeType, String displayName) {
         SourceType type = SourceType.fromMimeType(mimeType);
         if (type == null) {
             log.debug("Skipping resource {} — unsupported MIME type: {}", resourceId, mimeType);
-            return;
+            return null;
         }
 
         AiSource existing = sourceRepo.findByResourceIdAndDeletedAtIsNull(resourceId).stream().findFirst().orElse(null);
@@ -171,8 +185,7 @@ public class CourseEmbeddingService {
                     .createdAt(OffsetDateTime.now())
                     .build();
         }
-        source = sourceRepo.save(source);
-        orchestrator.ingest(source.getId());
+        return sourceRepo.save(source);
     }
 
     private void deleteChunksByLessonId(UUID lessonId) {

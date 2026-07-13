@@ -13,7 +13,7 @@ export type MessageResponse = {
 };
 
 export async function login(payload: LoginFormValues) {
-  const response = await httpClient.post<LoginResponse>('/auth/login', payload);
+  const response = await httpClient.post<LoginResponse>('/auth/login', payload, { skipAuthRefresh: true });
   return response.data;
 }
 
@@ -33,6 +33,7 @@ export async function refreshToken(refreshToken: string) {
 }
 
 export async function logoutRequest() {
-  const response = await httpClient.post<MessageResponse>('/auth/logout', undefined, { skipAuthRefresh: true });
+  const refreshToken = window.useAuthStore?.getState()?.refreshToken;
+  const response = await httpClient.post<MessageResponse>('/auth/logout', refreshToken ? { refreshToken } : undefined, { skipAuthRefresh: true });
   return response.data;
 }

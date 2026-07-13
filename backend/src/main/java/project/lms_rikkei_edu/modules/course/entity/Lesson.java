@@ -62,6 +62,10 @@ public class Lesson {
     @Column(name = "hls_manifest_url", columnDefinition = "text")
     private String hlsManifestUrl;
 
+    /** Chỉ dùng khi type == QUIZ — trỏ tới quiz đang gắn với lesson này (unique, tối đa 1 lesson/quiz). */
+    @Column(name = "quiz_id")
+    private UUID quizId;
+
     /** true = lesson này vừa được tạo trong published course, chưa được admin duyệt */
     @Column(name = "is_draft", nullable = false)
     @Builder.Default
