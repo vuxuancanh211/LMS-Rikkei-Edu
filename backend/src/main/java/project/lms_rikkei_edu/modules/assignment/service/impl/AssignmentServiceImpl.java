@@ -194,7 +194,7 @@ public class AssignmentServiceImpl implements AssignmentService {
                     if (a.getScope() == AssignmentScope.SPECIFIC_GROUPS) {
                         List<UUID> gids = assignmentGroupMap.getOrDefault(a.getId(), Collections.emptyList());
                         groupNames = gids.stream()
-                                .map(gid -> groupNameMap.get(gid))
+                                .map(groupNameMap::get)
                                 .filter(Objects::nonNull)
                                 .toList();
                     }
@@ -391,19 +391,13 @@ public class AssignmentServiceImpl implements AssignmentService {
         validateCourseOwnership(courseId, instructorId);
         AssignmentEntity assignment = findAssignment(courseId, assignmentId);
 
-        if (assignment.getStatus() != AssignmentStatus.DRAFT) {
-            throw new BusinessException("Chỉ có thể upload file đính kèm khi bài tập ở trạng thái DRAFT");
-        }
-
         if (file == null || file.isEmpty()) {
             throw new BusinessException("File không được để trống");
         }
 
         String contentType = file.getContentType();
-        if (contentType == null || !contentType.startsWith("image/")) {
-            if (contentType == null) {
-                throw new BusinessException("Không thể xác định loại file");
-            }
+        if (contentType == null) {
+            throw new BusinessException("Không thể xác định loại file");
         }
 
         UUID attachmentId = UUID.randomUUID();
@@ -447,10 +441,6 @@ public class AssignmentServiceImpl implements AssignmentService {
     public void deleteAttachment(UUID courseId, UUID assignmentId, UUID attachmentId, UUID instructorId) {
         validateCourseOwnership(courseId, instructorId);
         AssignmentEntity assignment = findAssignment(courseId, assignmentId);
-
-        if (assignment.getStatus() != AssignmentStatus.DRAFT) {
-            throw new BusinessException("Chỉ có thể xoá file đính kèm khi bài tập ở trạng thái DRAFT");
-        }
 
         AssignmentAttachmentEntity attachment = assignmentAttachmentRepository.findById(attachmentId)
                 .orElseThrow(() -> new BusinessException("Không tìm thấy file đính kèm"));
@@ -523,19 +513,7 @@ public class AssignmentServiceImpl implements AssignmentService {
         }
         if (request.getMaxSubmissions() != null) assignment.setMaxSubmissions(request.getMaxSubmissions());
 
-        if (request.getScope() == AssignmentScope.SPECIFIC_GROUPS && request.getGroupIds() != null) {
-            assignmentGroupRepository.deleteByAssignmentId(assignment.getId());
-            assignmentGroupRepository.flush();
-            OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
-            for (UUID groupId : request.getGroupIds()) {
-                AssignmentGroupEntity ag = new AssignmentGroupEntity();
-                ag.setId(UUID.randomUUID());
-                ag.setAssignmentId(assignment.getId());
-                ag.setGroupId(groupId);
-                ag.setAssignedAt(now);
-                assignmentGroupRepository.save(ag);
-            }
-        }
+        updateAssignmentGroups(assignment, request.getScope(), request.getGroupIds());
     }
 
     private void updatePublishedFields(AssignmentEntity assignment, UpdateAssignmentRequest request) {
@@ -560,24 +538,59 @@ public class AssignmentServiceImpl implements AssignmentService {
             hasChanges = true;
         }
 
+        if (request.getMaxFileSizeMb() != null) {
+            assignment.setMaxFileSizeMb(request.getMaxFileSizeMb());
+            hasChanges = true;
+        }
+        if (request.getAllowedFileTypes() != null) {
+            assignment.setAllowedFileTypes(toJsonArray(request.getAllowedFileTypes()));
+            hasChanges = true;
+        }
+
+        if (request.getScope() != null) {
+            assignment.setScope(request.getScope());
+            hasChanges = true;
+        }
+        if (request.getScope() != null) {
+            updateAssignmentGroups(assignment, request.getScope(), request.getGroupIds());
+            hasChanges = true;
+        }
+
         if (!hasChanges) {
-            throw new BusinessException("Sau khi publish chỉ có thể thay đổi deadline, allow_late_submission, late_penalty_percent và max_submissions");
+            throw new BusinessException("Sau khi publish chỉ có thể thay đổi deadline, allow_late_submission, late_penalty_percent, max_submissions, max_file_size_mb, allowed_file_types, scope và group_ids");
         }
     }
 
     private void validateDates(OffsetDateTime startDate, OffsetDateTime deadline) {
-        if (startDate != null && deadline != null) {
-            if (!startDate.isBefore(deadline)) {
-                throw new BusinessException("Ngày bắt đầu phải trước hạn nộp");
-            }
-            if (startDate.plusMinutes(1).isAfter(deadline)) {
-                throw new BusinessException("Ngày bắt đầu phải trước hạn nộp ít nhất 1 phút");
-            }
+        if (startDate != null && deadline != null && !startDate.isBefore(deadline)) {
+            throw new BusinessException("Ngày bắt đầu phải trước hạn nộp");
         }
-        if (deadline != null) {
-            if (deadline.isBefore(OffsetDateTime.now(ZoneOffset.UTC).plusHours(1))) {
-                throw new BusinessException("Hạn nộp phải ít nhất 1 giờ sau thời điểm hiện tại");
+        if (startDate != null && deadline != null && startDate.plusMinutes(1).isAfter(deadline)) {
+            throw new BusinessException("Ngày bắt đầu phải trước hạn nộp ít nhất 1 phút");
+        }
+        if (startDate != null && startDate.isBefore(OffsetDateTime.now(ZoneOffset.UTC).minusMinutes(5))) {
+            throw new BusinessException("Ngày bắt đầu không thể ở quá khứ");
+        }
+        if (deadline != null && deadline.isBefore(OffsetDateTime.now(ZoneOffset.UTC).plusMinutes(2))) {
+            throw new BusinessException("Hạn nộp phải ít nhất 2 phút sau thời điểm hiện tại");
+        }
+    }
+
+    private void updateAssignmentGroups(AssignmentEntity assignment, AssignmentScope scope, List<UUID> groupIds) {
+        if (scope == AssignmentScope.SPECIFIC_GROUPS && groupIds != null) {
+            assignmentGroupRepository.deleteByAssignmentId(assignment.getId());
+            assignmentGroupRepository.flush();
+            OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+            for (UUID groupId : groupIds) {
+                AssignmentGroupEntity ag = new AssignmentGroupEntity();
+                ag.setId(UUID.randomUUID());
+                ag.setAssignmentId(assignment.getId());
+                ag.setGroupId(groupId);
+                ag.setAssignedAt(now);
+                assignmentGroupRepository.save(ag);
             }
+        } else if (scope == AssignmentScope.ALL_GROUPS) {
+            assignmentGroupRepository.deleteByAssignmentId(assignment.getId());
         }
     }
 
