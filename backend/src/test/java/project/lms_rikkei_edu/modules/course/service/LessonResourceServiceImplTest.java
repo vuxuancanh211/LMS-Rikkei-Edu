@@ -9,6 +9,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.test.util.ReflectionTestUtils;
+import project.lms_rikkei_edu.common.exception.BusinessException;
 import project.lms_rikkei_edu.infrastructure.s3.S3Service;
 import project.lms_rikkei_edu.modules.course.dto.request.ResourceConfirmUploadRequest;
 import project.lms_rikkei_edu.modules.course.dto.request.ResourceUploadPresignRequest;
@@ -39,6 +40,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
@@ -250,6 +252,8 @@ class LessonResourceServiceImplTest {
             ResourceConfirmUploadRequest req = new ResourceConfirmUploadRequest();
             req.setS3Key("courses/file.pdf");
             req.setResourceType(ResourceType.PDF);
+            req.setOriginalFilename("lecture.pdf");
+            req.setMimeType("application/pdf");
             req.setDisplayName("Lecture Notes");
 
             LessonResourceResponse resp = service.confirmUpload(instructorId, courseId, lessonId, req);
@@ -299,6 +303,8 @@ class LessonResourceServiceImplTest {
             ResourceConfirmUploadRequest req = new ResourceConfirmUploadRequest();
             req.setS3Key("courses/file.pdf");
             req.setResourceType(ResourceType.PDF);
+            req.setOriginalFilename("lecture.pdf");
+            req.setMimeType("application/pdf");
 
             service.confirmUpload(instructorId, courseId, lessonId, req);
 
@@ -321,6 +327,8 @@ class LessonResourceServiceImplTest {
             ResourceConfirmUploadRequest req = new ResourceConfirmUploadRequest();
             req.setS3Key("courses/file.pdf");
             req.setResourceType(ResourceType.PDF);
+            req.setOriginalFilename("lecture.pdf");
+            req.setMimeType("application/pdf");
 
             service.confirmUpload(instructorId, courseId, lessonId, req);
 
@@ -354,6 +362,66 @@ class LessonResourceServiceImplTest {
             assertThatThrownBy(() -> service.confirmUpload(instructorId, courseId, lessonId, req))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("S3");
+        }
+
+        @Test
+        void throws_whenResourceTypeVideoButFileIsPdf() {
+            // Regression: chặn nhầm PDF được khai báo resourceType=VIDEO (VD kéo thả PDF vào
+            // khung Video ở FE rồi bypass check client, hoặc gọi thẳng API).
+            stubOwnedLesson();
+            when(courseRepository.findById(courseId)).thenReturn(Optional.of(draftCourse()));
+            when(s3Service.objectExists("courses/file.pdf")).thenReturn(true);
+
+            ResourceConfirmUploadRequest req = new ResourceConfirmUploadRequest();
+            req.setS3Key("courses/file.pdf");
+            req.setResourceType(ResourceType.VIDEO);
+            req.setOriginalFilename("slides.pdf");
+            req.setMimeType("application/pdf");
+
+            assertThatThrownBy(() -> service.confirmUpload(instructorId, courseId, lessonId, req))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("không khớp");
+        }
+
+        @Test
+        void throws_whenResourceTypePdfButFileIsVideo() {
+            // Ngược lại — video bị khai báo nhầm resourceType=PDF (VD kéo thả video vào khung
+            // Tài liệu).
+            stubOwnedLesson();
+            when(courseRepository.findById(courseId)).thenReturn(Optional.of(draftCourse()));
+            when(s3Service.objectExists("courses/file.mp4")).thenReturn(true);
+
+            ResourceConfirmUploadRequest req = new ResourceConfirmUploadRequest();
+            req.setS3Key("courses/file.mp4");
+            req.setResourceType(ResourceType.PDF);
+            req.setOriginalFilename("lecture.mp4");
+            req.setMimeType("video/mp4");
+
+            assertThatThrownBy(() -> service.confirmUpload(instructorId, courseId, lessonId, req))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("không khớp");
+        }
+
+        @Test
+        void allowsOtherResourceType_withoutStrictValidation() {
+            // OTHER là fallback cho các định dạng không nhận diện được — không chặn cứng vì
+            // không có tập extension/mimeType "đúng" để so khớp.
+            stubOwnedLesson();
+            when(courseRepository.findById(courseId)).thenReturn(Optional.of(draftCourse()));
+            when(s3Service.objectExists("courses/file.xyz")).thenReturn(true);
+            when(lessonResourceRepository.findAllByLessonIdAndDeletedAtIsNullOrderByOrderIndexAsc(lessonId))
+                    .thenReturn(List.of());
+            LessonResource saved = activeResource("courses/file.xyz");
+            when(lessonResourceRepository.save(any())).thenReturn(saved);
+            when(lessonResourceMapper.toResponse(saved)).thenReturn(resourceResponse());
+
+            ResourceConfirmUploadRequest req = new ResourceConfirmUploadRequest();
+            req.setS3Key("courses/file.xyz");
+            req.setResourceType(ResourceType.OTHER);
+            req.setOriginalFilename("data.xyz");
+            req.setMimeType("application/octet-stream");
+
+            assertThatNoException().isThrownBy(() -> service.confirmUpload(instructorId, courseId, lessonId, req));
         }
     }
 

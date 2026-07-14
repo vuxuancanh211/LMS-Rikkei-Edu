@@ -240,9 +240,32 @@
       }
     }, [courseId]);
 
+    // Gửi duyệt/rút duyệt đều tạo hoặc thay đổi bản ghi lịch sử + phiên bản ở backend — nhưng
+    // history/versions chỉ được fetch khi CHUYỂN sang tab "Lịch sử duyệt"/"Phiên bản" (xem
+    // onChange của Tabs bên dưới), nên nếu học viên đang xem sẵn tab đó thì không tự cập nhật
+    // (phải F5 mới thấy). Gọi refetch tường minh ngay sau khi thao tác thành công để tab hiện
+    // tại (nếu có) và các lần mở tab sau đều thấy dữ liệu mới nhất.
+    function refreshHistoryAndVersions() {
+      if (!courseId) return;
+      Promise.all([
+        api.get(`/instructor/courses/${courseId}/history`),
+        api.get(`/instructor/courses/${courseId}/versions`),
+      ])
+        .then(([hRes, vRes]) => {
+          setHistory(hRes.data || []);
+          setVersions(vRes.data || []);
+        })
+        .catch(() => {});
+    }
+
     async function handleSubmit() {
       setSubmitting(true); setSubmitMsg(null);
-      try { await api.put(`/instructor/courses/${courseId}/submit`); setSubmitMsg("Đã gửi duyệt thành công!"); loadCourse(true); }
+      try {
+        await api.put(`/instructor/courses/${courseId}/submit`);
+        setSubmitMsg("Đã gửi duyệt thành công!");
+        loadCourse(true);
+        refreshHistoryAndVersions();
+      }
       catch (e) { setSubmitMsg(e?.response?.data?.message || "Gửi duyệt thất bại"); }
       finally { setSubmitting(false); }
     }
@@ -258,6 +281,7 @@
           await api.put(`/instructor/courses/${courseId}/withdraw`);
           setSubmitMsg(isPendingUpdate ? "Đã hủy cập nhật – khóa học trở về trạng thái đang xuất bản." : "Đã rút duyệt – khóa học trở về Bản nháp.");
           loadCourse(true);
+          refreshHistoryAndVersions();
         }
         catch (e) { setSubmitMsg(e?.response?.data?.message || "Thao tác thất bại"); }
         finally { setSubmitting(false); }
@@ -813,7 +837,7 @@
               setHistoryLoading(true);
               Promise.all([
                 api.get(`/instructor/courses/${courseId}/history`),
-                ...(versions.length === 0 ? [api.get(`/instructor/courses/${courseId}/versions`)] : [Promise.resolve({ data: versions })]),
+                api.get(`/instructor/courses/${courseId}/versions`),
               ])
                 .then(([hRes, vRes]) => {
                   setHistory(hRes.data || []);

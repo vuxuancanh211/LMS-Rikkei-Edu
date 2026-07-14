@@ -14,6 +14,21 @@
     OTHER: { ic: "file",   bg: "#f1f5f9", fg: "#475569" },
   };
 
+  /* Xác định loại tài nguyên thực tế từ mimeType + phần mở rộng file — dùng chung cho cả
+     AddResourceModal và EditResourceModal để chặn nhầm file (VD kéo thả PDF vào khung Video,
+     hoặc video vào khung Tài liệu): input `accept` chỉ là gợi ý cho hộp thoại chọn file của
+     trình duyệt, KHÔNG có tác dụng khi kéo thả (drag-and-drop bỏ qua `accept` hoàn toàn), nên
+     bắt buộc phải tự kiểm tra lại loại file thật sau khi đã có File object. */
+  function detectResourceType(file: any) {
+    const ext = file.name.split(".").pop()?.toLowerCase() || "";
+    if (file.type.startsWith("video/") || ["mp4","mov","webm"].includes(ext)) return "VIDEO";
+    if (file.type === "application/pdf" || ext === "pdf") return "PDF";
+    if (ext === "ppt" || ext === "pptx") return "SLIDE";
+    if (ext === "doc" || ext === "docx") return "DOC";
+    if (file.type.startsWith("image/") || ["png","jpg","jpeg","gif","webp"].includes(ext)) return "IMAGE";
+    return "OTHER";
+  }
+
   /* Upload thẳng lên presigned URL bằng XHR để lấy progress — XHR mặc định KHÔNG có
      timeout, nên nếu kết nối treo (mất mạng, presigned host không phản hồi...) mà
      không có byte nào được gửi tiếp, promise sẽ không bao giờ resolve/reject: UI kẹt ở
@@ -450,6 +465,9 @@
 
     function onVideoFilePick(f: any) {
       if (!f) return;
+      // input `accept` chỉ lọc hộp thoại chọn file, không chặn được kéo-thả — tự kiểm tra lại
+      // loại file thật để không nhận nhầm PDF/DOCX... vào tab Video.
+      if (detectResourceType(f) !== "VIDEO") { setErr("Vui lòng chọn file video (MP4, MOV, WebM)"); return; }
       if (f.size > 2 * 1024 * 1024 * 1024) { setErr("File vượt quá 2GB"); return; }
       setVideoFile(f);
       setVideoName(prev => prev || f.name.replace(/\.[^.]+$/, ""));
@@ -458,6 +476,8 @@
     }
     function onDocFilePick(f: any) {
       if (!f) return;
+      // Tương tự onVideoFilePick — chặn video bị kéo thả nhầm vào tab Tài liệu.
+      if (detectResourceType(f) === "VIDEO") { setErr("Vui lòng chọn file tài liệu (PDF, DOCX, PPTX, ảnh...), không phải video"); return; }
       if (f.size > 200 * 1024 * 1024) { setErr("File vượt quá 200MB"); return; }
       setDocFile(f);
       setDocName(prev => prev || f.name.replace(/\.[^.]+$/, ""));
@@ -485,9 +505,7 @@
         } else {
           if (!docFile) { setErr("Vui lòng chọn file tài liệu"); setSaving(false); return; }
           if (!docName.trim()) { setErr("Vui lòng nhập tên tài liệu"); setSaving(false); return; }
-          const ext = docFile.name.split(".").pop()?.toLowerCase() || "";
-          const resourceType = ext === "pdf" ? "PDF" : (ext === "doc" || ext === "docx") ? "DOC"
-            : (ext === "ppt" || ext === "pptx") ? "SLIDE" : (["png","jpg","jpeg","gif"].includes(ext)) ? "IMAGE" : "OTHER";
+          const resourceType = detectResourceType(docFile);
           const { data: p } = await api.post(`/instructor/courses/${courseId}/lessons/${lessonId}/resources/presign-upload`,
             { originalFilename: docFile.name, mimeType: docFile.type || "application/octet-stream", fileSizeBytes: docFile.size, resourceType, displayName: docName.trim() });
           await uploadWithProgress(p.presignedUrl, docFile, docFile.type || "application/octet-stream", setProgress);
@@ -607,19 +625,14 @@
       return () => URL.revokeObjectURL(url);
     }, [newFile]);
 
-    function detectResourceType(file: any) {
-      const ext = file.name.split(".").pop()?.toLowerCase() || "";
-      if (file.type.startsWith("video/") || ["mp4","mov","webm"].includes(ext)) return "VIDEO";
-      if (file.type === "application/pdf" || ext === "pdf") return "PDF";
-      if (ext === "ppt" || ext === "pptx") return "SLIDE";
-      if (ext === "doc" || ext === "docx") return "DOC";
-      if (file.type.startsWith("image/") || ["png","jpg","jpeg","gif","webp"].includes(ext)) return "IMAGE";
-      return "OTHER";
-    }
-
     function onReplacePick(f: any) {
       if (!f) return;
       const isVid = detectResourceType(f) === "VIDEO";
+      // input `accept` chỉ lọc hộp thoại chọn file, không chặn được kéo-thả — tự kiểm tra lại
+      // loại file thật khớp với loại tài nguyên đang thay thế (video chỉ nhận video, tài liệu
+      // không nhận video và ngược lại).
+      if (isVideo && !isVid) { setErr("Vui lòng chọn file video (MP4, MOV, WebM)"); return; }
+      if (!isVideo && isVid) { setErr("Vui lòng chọn file tài liệu (PDF, DOCX, PPTX, ảnh...), không phải video"); return; }
       if (f.size > (isVid ? 2 * 1024 * 1024 * 1024 : 200 * 1024 * 1024)) { setErr(`File vượt quá ${isVid ? "2GB" : "200MB"}`); return; }
       setNewFile(f); setErr(null);
     }

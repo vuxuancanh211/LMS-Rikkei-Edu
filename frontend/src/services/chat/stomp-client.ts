@@ -28,6 +28,16 @@ export function connectStomp(
     stompClient = new Client({
         webSocketFactory: () => new SockJS('http://localhost:8080/ws'),
         connectHeaders: { Authorization: `Bearer ${token}` },
+        // beforeConnect chạy lại trước MỖI lần kết nối, kể cả các lần tự động reconnect do
+        // reconnectDelay kích hoạt (mất mạng, backend restart, token đã refresh...) — nếu không
+        // đọc lại token mới nhất ở đây, connectHeaders sẽ mãi mãi giữ token cũ từ lúc tạo Client,
+        // khiến reconnect lặp vô hạn mà không bao giờ thành công cho tới khi F5 lại trang.
+        beforeConnect: () => {
+            const latestToken = useAuthStore.getState().accessToken;
+            if (stompClient && latestToken) {
+                stompClient.connectHeaders = { Authorization: `Bearer ${latestToken}` };
+            }
+        },
         reconnectDelay: 5000,
         heartbeatIncoming: 10000,
         heartbeatOutgoing: 10000,
