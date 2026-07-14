@@ -230,6 +230,24 @@ class LessonResourceServiceImplTest {
             assertThatThrownBy(() -> service.requestUploadUrl(instructorId, courseId, lessonId, req))
                     .isInstanceOf(CourseStateException.class);
         }
+
+        @Test
+        void throws_whenCourseIsPendingUpdate() {
+            Course c = draftCourse();
+            c.setStatus(CourseStatus.PENDING_UPDATE);
+
+            when(lessonRepository.findByIdAndCourseId(lessonId, courseId)).thenReturn(Optional.of(lesson()));
+            when(courseRepository.findById(courseId)).thenReturn(Optional.of(c));
+
+            ResourceUploadPresignRequest req = new ResourceUploadPresignRequest();
+            req.setOriginalFilename("file.pdf");
+            req.setMimeType("application/pdf");
+            req.setFileSizeBytes(1024L);
+            req.setResourceType(ResourceType.PDF);
+
+            assertThatThrownBy(() -> service.requestUploadUrl(instructorId, courseId, lessonId, req))
+                    .isInstanceOf(CourseStateException.class);
+        }
     }
 
     // ── confirmUpload ─────────────────────────────────────────────────────────
@@ -403,6 +421,28 @@ class LessonResourceServiceImplTest {
         }
 
         @Test
+        void allowsMatchByMimeType_whenFilenameHasNoExtension() {
+            // originalFilename không có dấu "." (hoặc null) — vẫn phải khớp được nhờ mimeType,
+            // không phụ thuộc hoàn toàn vào extension.
+            stubOwnedLesson();
+            when(courseRepository.findById(courseId)).thenReturn(Optional.of(draftCourse()));
+            when(s3Service.objectExists("courses/file")).thenReturn(true);
+            when(lessonResourceRepository.findAllByLessonIdAndDeletedAtIsNullOrderByOrderIndexAsc(lessonId))
+                    .thenReturn(List.of());
+            LessonResource saved = activeResource("courses/file");
+            when(lessonResourceRepository.save(any())).thenReturn(saved);
+            when(lessonResourceMapper.toResponse(saved)).thenReturn(resourceResponse());
+
+            ResourceConfirmUploadRequest req = new ResourceConfirmUploadRequest();
+            req.setS3Key("courses/file");
+            req.setResourceType(ResourceType.PDF);
+            req.setOriginalFilename("document-without-extension");
+            req.setMimeType("application/pdf");
+
+            assertThatNoException().isThrownBy(() -> service.confirmUpload(instructorId, courseId, lessonId, req));
+        }
+
+        @Test
         void allowsOtherResourceType_withoutStrictValidation() {
             // OTHER là fallback cho các định dạng không nhận diện được — không chặn cứng vì
             // không có tập extension/mimeType "đúng" để so khớp.
@@ -511,6 +551,52 @@ class LessonResourceServiceImplTest {
             ResourceDownloadUrlResponse resp = service.getViewUrl(instructorId, courseId, lessonId, resourceId);
 
             assertThat(resp.getUrl()).contains("s3.example.com");
+        }
+
+        @Test
+        void throws_whenResourceNotFound() {
+            when(courseRepository.findById(courseId)).thenReturn(Optional.of(draftCourse()));
+            when(lessonResourceRepository.findById(resourceId)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> service.getViewUrl(instructorId, courseId, lessonId, resourceId))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+
+        @Test
+        void throws_whenResourceBelongsToDifferentLesson() {
+            when(courseRepository.findById(courseId)).thenReturn(Optional.of(draftCourse()));
+
+            Lesson otherLesson = new Lesson();
+            otherLesson.setId(UUID.randomUUID()); // different lesson
+            LessonResource r = activeResource("courses/file.pdf");
+            r.setLesson(otherLesson);
+
+            when(lessonResourceRepository.findById(resourceId)).thenReturn(Optional.of(r));
+
+            assertThatThrownBy(() -> service.getViewUrl(instructorId, courseId, lessonId, resourceId))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+
+        @Test
+        void throws_whenResourceDeleted() {
+            when(courseRepository.findById(courseId)).thenReturn(Optional.of(draftCourse()));
+
+            LessonResource r = activeResource("courses/file.pdf");
+            r.setDeletedAt(Instant.now());
+            when(lessonResourceRepository.findById(resourceId)).thenReturn(Optional.of(r));
+
+            assertThatThrownBy(() -> service.getViewUrl(instructorId, courseId, lessonId, resourceId))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+
+        @Test
+        void throws_whenNotOwner() {
+            Course c = draftCourse();
+            c.setInstructorId(UUID.randomUUID());
+            when(courseRepository.findById(courseId)).thenReturn(Optional.of(c));
+
+            assertThatThrownBy(() -> service.getViewUrl(instructorId, courseId, lessonId, resourceId))
+                    .isInstanceOf(CourseNotOwnedException.class);
         }
     }
 

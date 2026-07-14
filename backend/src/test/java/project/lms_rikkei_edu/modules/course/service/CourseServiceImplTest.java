@@ -588,6 +588,27 @@ class CourseServiceImplTest {
             assertThat(course.getStatus()).isEqualTo(CourseStatus.PENDING);
             verifyNoInteractions(quizRepository);
         }
+
+        @Test
+        void quizLessonInPendingDeleteLesson_isExcludedFromCheck() throws Exception {
+            // Same guard as the pending-delete CHAPTER case above, but for a lesson individually
+            // marked pending_delete inside an otherwise-live chapter.
+            UUID quizId = UUID.randomUUID();
+            Course course = draftCourseWithQuizLesson(quizId, false, true);
+
+            when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.of(course));
+            when(lessonRepository.countByCourseId(COURSE_ID)).thenReturn(1L);
+            when(objectMapper.writeValueAsString(any())).thenReturn("{}");
+            when(courseVersionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+            when(approvalLogRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+            when(courseRepository.save(any())).thenReturn(course);
+            when(courseMapper.toDetailResponse(course)).thenReturn(stubDetailResponse());
+
+            courseService.submitForApproval(INSTRUCTOR_ID, COURSE_ID, "pending-delete lesson excluded");
+
+            assertThat(course.getStatus()).isEqualTo(CourseStatus.PENDING);
+            verifyNoInteractions(quizRepository);
+        }
     }
 
     // ── withdrawFromReview ────────────────────────────────────────────────────

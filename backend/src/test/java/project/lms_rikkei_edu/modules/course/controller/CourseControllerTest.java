@@ -44,6 +44,8 @@ class CourseControllerTest {
     private CurrentUserProvider currentUserProvider;
     private MockMvc mockMvc;
     private ObjectMapper objectMapper;
+    private S3Service s3Service;
+    private CourseRepository courseRepo;
 
     private final UUID instructorId = UUID.randomUUID();
     private final UUID courseId     = UUID.randomUUID();
@@ -53,9 +55,9 @@ class CourseControllerTest {
         courseService          = mock(CourseService.class);
         currentUserProvider    = mock(CurrentUserProvider.class);
         LessonResourceService lessonResourceService = mock(LessonResourceService.class);
-        S3Service s3Service    = mock(S3Service.class);
+        s3Service               = mock(S3Service.class);
         CourseCategoryRepository catRepo = mock(CourseCategoryRepository.class);
-        CourseRepository courseRepo = mock(CourseRepository.class);
+        courseRepo              = mock(CourseRepository.class);
 
         when(currentUserProvider.getCurrentUserId()).thenReturn(Optional.of(instructorId));
 
@@ -163,6 +165,31 @@ class CourseControllerTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content", hasSize(0)))
                     .andExpect(jsonPath("$.totalElements").value(0));
+        }
+    }
+
+    // ── GET /api/instructor/courses/by-slug/{slug} ────────────────────────────
+
+    @Nested
+    class GetCourseDetailBySlug {
+
+        @Test
+        void returns200WithDetail() throws Exception {
+            when(courseService.getCourseDetailBySlug(instructorId, "java-boot"))
+                    .thenReturn(detailResponse(courseId));
+
+            mockMvc.perform(get("/api/instructor/courses/by-slug/{slug}", "java-boot"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.id").value(courseId.toString()));
+        }
+
+        @Test
+        void returns404_whenCourseNotFound() throws Exception {
+            when(courseService.getCourseDetailBySlug(instructorId, "missing-slug"))
+                    .thenThrow(new CourseNotFoundException(courseId));
+
+            mockMvc.perform(get("/api/instructor/courses/by-slug/{slug}", "missing-slug"))
+                    .andExpect(status().isNotFound());
         }
     }
 
@@ -412,6 +439,65 @@ class CourseControllerTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.length()").value(2))
                     .andExpect(jsonPath("$[0].id").value(lessonId1.toString()));
+        }
+    }
+
+    // ── GET /api/instructor/courses/{courseId}/resources/presign-view ──
+    // ── GET /api/instructor/courses/{courseId}/resources/presign-download ──
+
+    @Nested
+    class PresignViewResource {
+
+        @Test
+        void returnsPresignedUrl_whenOwnerCourse() throws Exception {
+            when(courseRepo.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(true);
+            software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest presigned =
+                    mock(software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest.class);
+            when(presigned.url()).thenReturn(new java.net.URI("https://s3.example.com/preview.pdf").toURL());
+            when(s3Service.generatePresignedInlineUrl("courses/preview.pdf", 3600L)).thenReturn(presigned);
+
+            mockMvc.perform(get("/api/instructor/courses/{courseId}/resources/presign-view", courseId)
+                            .param("s3Key", "courses/preview.pdf"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.url").value("https://s3.example.com/preview.pdf"));
+        }
+
+        @Test
+        void returnsForbidden_whenNotOwner() throws Exception {
+            when(courseRepo.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(false);
+
+            mockMvc.perform(get("/api/instructor/courses/{courseId}/resources/presign-view", courseId)
+                            .param("s3Key", "courses/preview.pdf"))
+                    .andExpect(status().isForbidden());
+            verifyNoInteractions(s3Service);
+        }
+    }
+
+    @Nested
+    class PresignDownloadResource {
+
+        @Test
+        void returnsPresignedUrl_whenOwnerCourse() throws Exception {
+            when(courseRepo.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(true);
+            software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest presigned =
+                    mock(software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest.class);
+            when(presigned.url()).thenReturn(new java.net.URI("https://s3.example.com/download.pdf").toURL());
+            when(s3Service.generatePresignedGetUrl("courses/download.pdf", 3600L)).thenReturn(presigned);
+
+            mockMvc.perform(get("/api/instructor/courses/{courseId}/resources/presign-download", courseId)
+                            .param("s3Key", "courses/download.pdf"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.url").value("https://s3.example.com/download.pdf"));
+        }
+
+        @Test
+        void returnsForbidden_whenNotOwner() throws Exception {
+            when(courseRepo.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(false);
+
+            mockMvc.perform(get("/api/instructor/courses/{courseId}/resources/presign-download", courseId)
+                            .param("s3Key", "courses/download.pdf"))
+                    .andExpect(status().isForbidden());
+            verifyNoInteractions(s3Service);
         }
     }
 }

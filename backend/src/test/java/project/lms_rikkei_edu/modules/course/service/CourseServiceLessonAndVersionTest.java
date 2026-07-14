@@ -27,6 +27,7 @@ import project.lms_rikkei_edu.modules.course.mapper.LessonMapper;
 import project.lms_rikkei_edu.modules.course.repository.*;
 import project.lms_rikkei_edu.modules.course.service.StudentCourseService;
 import project.lms_rikkei_edu.modules.course.service.impl.CourseServiceImpl;
+import project.lms_rikkei_edu.modules.course.service.impl.CourseVersionReferenceChecker;
 import project.lms_rikkei_edu.modules.quiz.dto.request.QuizMetadataRequest;
 import project.lms_rikkei_edu.modules.quiz.dto.response.QuizSummaryResponse;
 import project.lms_rikkei_edu.modules.quiz.entity.QuizEntity;
@@ -62,6 +63,7 @@ class CourseServiceLessonAndVersionTest {
     @Mock private QuizService quizService;
     @Mock private QuizRepository quizRepository;
     @Mock private StudentCourseService studentCourseService;
+    @Mock private CourseVersionReferenceChecker courseVersionReferenceChecker;
 
     @InjectMocks private CourseServiceImpl courseService;
 
@@ -493,6 +495,303 @@ class CourseServiceLessonAndVersionTest {
         assertThat(softDeletedLesson.getDeletedAt()).isNull();
         verify(chapterRepository).save(softDeletedChapter);
         verify(lessonRepository).save(softDeletedLesson);
+    }
+
+    // Regression: rollback về 1 version khi chapter/lesson VẪN CÒN SỐNG ở đúng vị trí (không cần
+    // hồi sinh) — phải đi vào nhánh diff resources (applyResourceDiffForRollback) thay vì nhánh
+    // resurrect/tạo mới. Bao phủ cả 3 nhánh của applyResourceDiffForRollback: tài liệu sống nhưng
+    // không có trong snapshot (đánh dấu pending_delete), tài liệu có trong snapshot nhưng đã bị
+    // soft-delete và tìm lại được (hồi sinh), và tài liệu có trong snapshot nhưng KHÔNG tìm lại
+    // được bản soft-delete nào (bỏ qua, không lỗi).
+    @Test
+    void rollbackToVersion_liveLessonMatchedByOrderIndex_diffsResourcesAndTitleContent() throws Exception {
+        course.setStatus(CourseStatus.PUBLISHED);
+
+        LessonResource keepResource = new LessonResource();
+        keepResource.setDisplayName("keep.pdf");
+        LessonResource staleResource = new LessonResource();
+        staleResource.setDisplayName("stale.pdf");
+
+        Lesson liveLesson = new Lesson();
+        liveLesson.setId(lessonId);
+        liveLesson.setOrderIndex(1);
+        liveLesson.setTitle("Old Title");
+        liveLesson.setContentText("Old Content");
+        liveLesson.setResources(new ArrayList<>(List.of(keepResource, staleResource)));
+
+        Chapter ch = new Chapter();
+        ch.setId(chapterId);
+        ch.setOrderIndex(1);
+        ch.setTitle("Chapter 1");
+        ch.setLessons(new ArrayList<>(List.of(liveLesson)));
+        course.setChapters(new ArrayList<>(List.of(ch)));
+        when(courseRepository.findByIdWithCategory(courseId)).thenReturn(Optional.of(course));
+
+        CourseVersion v = CourseVersion.builder()
+                .id(versionId).courseId(courseId).status("APPROVED").snapshot("{...}").build();
+        when(courseVersionRepository.findById(versionId)).thenReturn(Optional.of(v));
+
+        LessonResource resurrectedResource = new LessonResource();
+        resurrectedResource.setDisplayName("resurrect.pdf");
+        resurrectedResource.setDeletedAt(Instant.now());
+        when(lessonResourceRepository.findSoftDeletedByLessonIdAndDisplayName(lessonId, "resurrect.pdf"))
+                .thenReturn(Optional.of(resurrectedResource));
+        when(lessonResourceRepository.findSoftDeletedByLessonIdAndDisplayName(lessonId, "truly-gone.pdf"))
+                .thenReturn(Optional.empty());
+
+        CourseSnapshotDto.ResourceSnap keepSnap = CourseSnapshotDto.ResourceSnap.builder().displayName("keep.pdf").build();
+        CourseSnapshotDto.ResourceSnap resurrectSnap = CourseSnapshotDto.ResourceSnap.builder().displayName("resurrect.pdf").build();
+        CourseSnapshotDto.ResourceSnap goneSnap = CourseSnapshotDto.ResourceSnap.builder().displayName("truly-gone.pdf").build();
+        CourseSnapshotDto.LessonSnap lessonSnap = CourseSnapshotDto.LessonSnap.builder()
+                .title("New Title").contentText("New Content").orderIndex(1)
+                .resources(List.of(keepSnap, resurrectSnap, goneSnap)).build();
+        CourseSnapshotDto.ChapterSnap chapterSnap = CourseSnapshotDto.ChapterSnap.builder()
+                .title("Chapter 1").orderIndex(1).lessons(List.of(lessonSnap)).build();
+        CourseSnapshotDto snap = CourseSnapshotDto.builder().title("T").chapters(List.of(chapterSnap)).build();
+        when(objectMapper.readValue(v.getSnapshot(), CourseSnapshotDto.class)).thenReturn(snap);
+        when(courseMapper.toDetailResponse(any())).thenReturn(CourseDetailResponse.builder().build());
+
+        courseService.rollbackToVersion(instructorId, courseId, versionId);
+
+        // Title/content diff — matched-lesson branch of applyLessonDiffForRollback
+        assertThat(liveLesson.getDraftTitle()).isEqualTo("New Title");
+        assertThat(liveLesson.getDraftContentText()).isEqualTo("New Content");
+        // keep.pdf stays untouched
+        assertThat(keepResource.getPendingDelete()).isNotEqualTo(true);
+        // stale.pdf lives but isn't in the snapshot -> marked pending delete
+        assertThat(staleResource.getPendingDelete()).isTrue();
+        assertThat(staleResource.getStatus()).isEqualTo("PENDING_DELETE");
+        // resurrect.pdf is in the snapshot, was soft-deleted, and gets found -> resurrected
+        assertThat(resurrectedResource.getDeletedAt()).isNull();
+        assertThat(resurrectedResource.getStatus()).isEqualTo("ACTIVE");
+        assertThat(resurrectedResource.getPendingDelete()).isFalse();
+        assertThat(resurrectedResource.getIsNewInUpdate()).isTrue();
+        verify(lessonResourceRepository).save(resurrectedResource);
+        // truly-gone.pdf is in the snapshot but no soft-deleted match exists -> silently skipped
+        verify(lessonResourceRepository, never()).save(argThat(r -> "truly-gone.pdf".equals(r.getDisplayName())));
+    }
+
+    @Test
+    void rollbackToVersion_notPublishedAndNotDraftRestore_throws() {
+        course.setStatus(CourseStatus.DRAFT); // not PUBLISHED
+        when(courseRepository.findByIdWithCategory(courseId)).thenReturn(Optional.of(course));
+
+        CourseVersion v = CourseVersion.builder()
+                .id(versionId).courseId(courseId).status("APPROVED").snapshot("{}").build();
+        when(courseVersionRepository.findById(versionId)).thenReturn(Optional.of(v));
+
+        assertThatThrownBy(() -> courseService.rollbackToVersion(instructorId, courseId, versionId))
+                .isInstanceOf(CourseStateException.class)
+                .hasMessageContaining("PUBLISHED");
+    }
+
+    @Test
+    void rollbackToVersion_versionNotApprovedNorDraft_throws() {
+        course.setStatus(CourseStatus.PUBLISHED);
+        when(courseRepository.findByIdWithCategory(courseId)).thenReturn(Optional.of(course));
+
+        CourseVersion v = CourseVersion.builder()
+                .id(versionId).courseId(courseId).status("REJECTED").snapshot("{}").build();
+        when(courseVersionRepository.findById(versionId)).thenReturn(Optional.of(v));
+
+        assertThatThrownBy(() -> courseService.rollbackToVersion(instructorId, courseId, versionId))
+                .isInstanceOf(CourseStateException.class)
+                .hasMessageContaining("APPROVED");
+    }
+
+    @Test
+    void rollbackToVersion_coursePendingUpdate_throwsEvenForDraftRestore() {
+        // version DRAFT -> isDraftRestore=true bỏ qua 2 guard đầu, nhưng vẫn phải chặn nếu course
+        // đang PENDING/PENDING_UPDATE.
+        course.setStatus(CourseStatus.PENDING_UPDATE);
+        when(courseRepository.findByIdWithCategory(courseId)).thenReturn(Optional.of(course));
+
+        CourseVersion v = CourseVersion.builder()
+                .id(versionId).courseId(courseId).status("DRAFT").snapshot("{}").build();
+        when(courseVersionRepository.findById(versionId)).thenReturn(Optional.of(v));
+
+        assertThatThrownBy(() -> courseService.rollbackToVersion(instructorId, courseId, versionId))
+                .isInstanceOf(CourseStateException.class)
+                .hasMessageContaining("chờ duyệt");
+    }
+
+    @Test
+    void rollbackToVersion_malformedSnapshotJson_throwsIllegalState() throws Exception {
+        course.setStatus(CourseStatus.PUBLISHED);
+        when(courseRepository.findByIdWithCategory(courseId)).thenReturn(Optional.of(course));
+
+        CourseVersion v = CourseVersion.builder()
+                .id(versionId).courseId(courseId).status("APPROVED").snapshot("not-json").build();
+        when(courseVersionRepository.findById(versionId)).thenReturn(Optional.of(v));
+        when(objectMapper.readValue(anyString(), eq(CourseSnapshotDto.class)))
+                .thenThrow(new RuntimeException("bad token"));
+
+        assertThatThrownBy(() -> courseService.rollbackToVersion(instructorId, courseId, versionId))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("snapshot");
+    }
+
+    @Test
+    void rollbackToVersion_hardDeletesIsNewInUpdateResources_andRestoresPendingDeleteResources() throws Exception {
+        course.setStatus(CourseStatus.PUBLISHED);
+        when(courseRepository.findByIdWithCategory(courseId)).thenReturn(Optional.of(course));
+
+        CourseVersion v = CourseVersion.builder()
+                .id(versionId).courseId(courseId).status("APPROVED").snapshot("{}").build();
+        when(courseVersionRepository.findById(versionId)).thenReturn(Optional.of(v));
+
+        LessonResource newInUpdateSafe = new LessonResource();
+        newInUpdateSafe.setS3Key("courses/safe.pdf");
+        LessonResource newInUpdateExternal = new LessonResource();
+        newInUpdateExternal.setS3Key("ext://https://cdn.example.com/video");
+        when(lessonResourceRepository.findAllByCourseIdAndIsNewInUpdateTrue(courseId))
+                .thenReturn(List.of(newInUpdateSafe, newInUpdateExternal));
+        when(courseVersionReferenceChecker.isSafeToDelete(courseId, "courses/safe.pdf")).thenReturn(true);
+
+        LessonResource pendingDeleteResource = new LessonResource();
+        pendingDeleteResource.setPendingDelete(true);
+        pendingDeleteResource.setStatus("PENDING_DELETE");
+        when(lessonResourceRepository.findAllByCourseIdAndPendingDeleteTrue(courseId))
+                .thenReturn(List.of(pendingDeleteResource));
+
+        CourseSnapshotDto snap = CourseSnapshotDto.builder().title(course.getTitle()).chapters(List.of()).build();
+        when(objectMapper.readValue(v.getSnapshot(), CourseSnapshotDto.class)).thenReturn(snap);
+        when(courseMapper.toDetailResponse(any())).thenReturn(CourseDetailResponse.builder().build());
+
+        courseService.rollbackToVersion(instructorId, courseId, versionId);
+
+        assertThat(newInUpdateSafe.getDeletedAt()).isNotNull();
+        assertThat(newInUpdateSafe.getStatus()).isEqualTo("DELETED");
+        verify(s3Service).deleteObjectAsync("courses/safe.pdf");
+        // external URL resource: hard-deleted in DB but never sent to S3 cleanup
+        assertThat(newInUpdateExternal.getDeletedAt()).isNotNull();
+        verify(s3Service, never()).deleteObjectAsync("ext://https://cdn.example.com/video");
+
+        assertThat(pendingDeleteResource.getPendingDelete()).isFalse();
+        assertThat(pendingDeleteResource.getStatus()).isEqualTo("ACTIVE");
+    }
+
+    @Test
+    void rollbackToVersion_draftThumbnailUrlDiff_setWhenChanged() throws Exception {
+        course.setStatus(CourseStatus.PUBLISHED);
+        course.setThumbnailUrl("old-thumb.png");
+        when(courseRepository.findByIdWithCategory(courseId)).thenReturn(Optional.of(course));
+
+        CourseVersion v = CourseVersion.builder()
+                .id(versionId).courseId(courseId).status("APPROVED").snapshot("{}").build();
+        when(courseVersionRepository.findById(versionId)).thenReturn(Optional.of(v));
+
+        CourseSnapshotDto snap = CourseSnapshotDto.builder()
+                .title(course.getTitle()).thumbnailUrl("new-thumb.png").chapters(List.of()).build();
+        when(objectMapper.readValue(v.getSnapshot(), CourseSnapshotDto.class)).thenReturn(snap);
+        when(courseMapper.toDetailResponse(any())).thenReturn(CourseDetailResponse.builder().build());
+
+        courseService.rollbackToVersion(instructorId, courseId, versionId);
+
+        assertThat(course.getDraftThumbnailUrl()).isEqualTo("new-thumb.png");
+    }
+
+    @Test
+    void rollbackToVersion_liveChapterNotInSnapshot_marksPendingDelete() throws Exception {
+        course.setStatus(CourseStatus.PUBLISHED);
+        Chapter staleChapter = new Chapter();
+        staleChapter.setId(UUID.randomUUID());
+        staleChapter.setOrderIndex(5); // not present in the snapshot's chapter order set
+        staleChapter.setLessons(new ArrayList<>());
+        course.setChapters(new ArrayList<>(List.of(staleChapter)));
+        when(courseRepository.findByIdWithCategory(courseId)).thenReturn(Optional.of(course));
+
+        CourseVersion v = CourseVersion.builder()
+                .id(versionId).courseId(courseId).status("APPROVED").snapshot("{}").build();
+        when(courseVersionRepository.findById(versionId)).thenReturn(Optional.of(v));
+
+        CourseSnapshotDto snap = CourseSnapshotDto.builder().title(course.getTitle()).chapters(List.of()).build();
+        when(objectMapper.readValue(v.getSnapshot(), CourseSnapshotDto.class)).thenReturn(snap);
+        when(courseMapper.toDetailResponse(any())).thenReturn(CourseDetailResponse.builder().build());
+
+        courseService.rollbackToVersion(instructorId, courseId, versionId);
+
+        assertThat(staleChapter.getPendingDelete()).isTrue();
+        verify(chapterRepository).save(staleChapter);
+    }
+
+    @Test
+    void rollbackToVersion_brandNewChapterNeverExisted_createsAsDraftWithLessons() throws Exception {
+        course.setStatus(CourseStatus.PUBLISHED);
+        course.setChapters(new ArrayList<>()); // nothing live at all
+        when(courseRepository.findByIdWithCategory(courseId)).thenReturn(Optional.of(course));
+
+        CourseVersion v = CourseVersion.builder()
+                .id(versionId).courseId(courseId).status("APPROVED").snapshot("{}").build();
+        when(courseVersionRepository.findById(versionId)).thenReturn(Optional.of(v));
+
+        // No soft-deleted chapter/lesson to resurrect -> both resolve to Optional.empty()
+        when(chapterRepository.findSoftDeletedByCourseIdAndOrderIndex(eq(courseId), any())).thenReturn(Optional.empty());
+        Chapter savedChapter = new Chapter();
+        savedChapter.setId(chapterId);
+        when(chapterRepository.save(any())).thenReturn(savedChapter);
+
+        CourseSnapshotDto.LessonSnap lessonSnap = CourseSnapshotDto.LessonSnap.builder()
+                .title("Brand New Lesson").orderIndex(1).build();
+        CourseSnapshotDto.ChapterSnap chapterSnap = CourseSnapshotDto.ChapterSnap.builder()
+                .title("Brand New Chapter").orderIndex(1).lessons(List.of(lessonSnap)).build();
+        CourseSnapshotDto snap = CourseSnapshotDto.builder()
+                .title(course.getTitle()).chapters(List.of(chapterSnap)).build();
+        when(objectMapper.readValue(v.getSnapshot(), CourseSnapshotDto.class)).thenReturn(snap);
+        when(courseMapper.toDetailResponse(any())).thenReturn(CourseDetailResponse.builder().build());
+
+        courseService.rollbackToVersion(instructorId, courseId, versionId);
+
+        ArgumentCaptor<Chapter> chapterCaptor = ArgumentCaptor.forClass(Chapter.class);
+        verify(chapterRepository).save(chapterCaptor.capture());
+        assertThat(chapterCaptor.getValue().getTitle()).isEqualTo("Brand New Chapter");
+        assertThat(chapterCaptor.getValue().getIsDraft()).isTrue();
+
+        ArgumentCaptor<Lesson> lessonCaptor = ArgumentCaptor.forClass(Lesson.class);
+        verify(lessonRepository).save(lessonCaptor.capture());
+        assertThat(lessonCaptor.getValue().getTitle()).isEqualTo("Brand New Lesson");
+        assertThat(lessonCaptor.getValue().getIsDraft()).isTrue();
+    }
+
+    @Test
+    void rollbackToVersion_resurrectedLessonWithDifferentTitleAndContent_setsDraftFields() throws Exception {
+        course.setStatus(CourseStatus.PUBLISHED);
+        Chapter ch = new Chapter();
+        ch.setId(chapterId);
+        ch.setOrderIndex(1);
+        ch.setTitle("Chapter 1");
+        ch.setLessons(new ArrayList<>()); // no live lesson at this position
+        course.setChapters(new ArrayList<>(List.of(ch)));
+        when(courseRepository.findByIdWithCategory(courseId)).thenReturn(Optional.of(course));
+
+        CourseVersion v = CourseVersion.builder()
+                .id(versionId).courseId(courseId).status("APPROVED").snapshot("{}").build();
+        when(courseVersionRepository.findById(versionId)).thenReturn(Optional.of(v));
+
+        Lesson softDeleted = new Lesson();
+        softDeleted.setId(lessonId);
+        softDeleted.setChapter(ch);
+        softDeleted.setOrderIndex(1);
+        softDeleted.setTitle("Old Title");
+        softDeleted.setContentText("Old Content");
+        softDeleted.setDeletedAt(Instant.now());
+        softDeleted.setResources(new ArrayList<>());
+        when(lessonRepository.findSoftDeletedByChapterIdAndOrderIndex(chapterId, 1))
+                .thenReturn(Optional.of(softDeleted));
+
+        CourseSnapshotDto.LessonSnap lessonSnap = CourseSnapshotDto.LessonSnap.builder()
+                .title("New Title").contentText("New Content").orderIndex(1).resources(List.of()).build();
+        CourseSnapshotDto.ChapterSnap chapterSnap = CourseSnapshotDto.ChapterSnap.builder()
+                .title("Chapter 1").orderIndex(1).lessons(List.of(lessonSnap)).build();
+        CourseSnapshotDto snap = CourseSnapshotDto.builder()
+                .title(course.getTitle()).chapters(List.of(chapterSnap)).build();
+        when(objectMapper.readValue(v.getSnapshot(), CourseSnapshotDto.class)).thenReturn(snap);
+        when(courseMapper.toDetailResponse(any())).thenReturn(CourseDetailResponse.builder().build());
+
+        courseService.rollbackToVersion(instructorId, courseId, versionId);
+
+        assertThat(softDeleted.getDraftTitle()).isEqualTo("New Title");
+        assertThat(softDeleted.getDraftContentText()).isEqualTo("New Content");
     }
 
     // ── reorderChapters ──────────────────────────────────────────────────────

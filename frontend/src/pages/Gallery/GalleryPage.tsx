@@ -68,7 +68,7 @@ function registerGalleryPage() {
       { k: "courses", l: "Quản lý Khóa học", ic: "book" },
       { k: "approval", l: "Phê duyệt", ic: "check_circle" },
       { k: "certificates", l: "Chứng chỉ", ic: "award" },
-      { k: "reports", l: "Báo cáo", ic: "chart" },
+      // { k: "reports", l: "Báo cáo", ic: "chart" },
       { k: "logs", l: "Nhật ký hệ thống", ic: "file" },
       { k: "aiDocs", l: "Quản lý Tài liệu AI", ic: "sparkles" },
       { k: "settings", l: "Cài đặt", ic: "settings" },

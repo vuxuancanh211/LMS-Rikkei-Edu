@@ -287,20 +287,22 @@ public class LessonResourceServiceImpl implements LessonResourceService {
      * PDF vào khung Video, hoặc video vào khung Tài liệu).
      */
     private void validateResourceTypeMatchesFile(ResourceType resourceType, String originalFilename, String mimeType) {
-        if (resourceType == null || resourceType == ResourceType.OTHER) return;
+        if (resourceType == null) return;
 
         String ext = originalFilename != null && originalFilename.contains(".")
                 ? originalFilename.substring(originalFilename.lastIndexOf('.') + 1).toLowerCase()
                 : "";
         String mime = mimeType != null ? mimeType.toLowerCase() : "";
 
+        // OTHER là fallback cho định dạng không nhận diện được — không có tập extension/mimeType
+        // "đúng" cố định để so khớp nên luôn coi là hợp lệ, không chặn cứng.
         boolean matches = switch (resourceType) {
             case VIDEO -> mime.startsWith("video/") || List.of("mp4", "mov", "webm").contains(ext);
             case PDF -> mime.equals("application/pdf") || ext.equals("pdf");
             case DOC -> ext.equals("doc") || ext.equals("docx");
             case SLIDE -> ext.equals("ppt") || ext.equals("pptx");
             case IMAGE -> mime.startsWith("image/") || List.of("png", "jpg", "jpeg", "gif", "webp").contains(ext);
-            default -> true;
+            case OTHER -> true;
         };
 
         if (!matches) {
