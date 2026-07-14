@@ -110,6 +110,14 @@ class RedisServiceTest {
         assertThat(redisService.isAccessTokenBlacklisted(jti)).isTrue();
     }
 
+    @Test
+    void isAccessTokenBlacklisted_returnsFalse_whenRedisCheckFails() {
+        when(redisTemplate.hasKey(RedisKeyConstants.ACCESS_TOKEN_BLACKLIST + jti))
+                .thenThrow(new RuntimeException("Redis unavailable"));
+
+        assertThat(redisService.isAccessTokenBlacklisted(jti)).isFalse();
+    }
+
     // ── Refresh Token ─────────────────────────────────────────────────────────
 
     @Test
