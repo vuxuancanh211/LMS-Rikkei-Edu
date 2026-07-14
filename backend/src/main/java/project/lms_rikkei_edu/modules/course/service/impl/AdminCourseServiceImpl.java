@@ -3,11 +3,14 @@ package project.lms_rikkei_edu.modules.course.service.impl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import project.lms_rikkei_edu.infrastructure.s3.S3Service;
+import project.lms_rikkei_edu.modules.ai.service.LessonAiDataCleanupService;
 import project.lms_rikkei_edu.modules.course.dto.response.*;
 import project.lms_rikkei_edu.modules.course.entity.*;
 import project.lms_rikkei_edu.modules.course.enums.CourseStatus;
@@ -43,6 +46,23 @@ public class AdminCourseServiceImpl implements AdminCourseService {
     private final UserRepository userRepository;
     private final S3Service s3Service;
     private final ObjectMapper objectMapper;
+    private final CacheManager cacheManager;
+    private final LessonProgressRepository lessonProgressRepo;
+    private final VideoUploadJobRepository videoUploadJobRepo;
+    private final LessonAiDataCleanupService lessonAiDataCleanupService;
+    private final CourseVersionReferenceChecker courseVersionReferenceChecker;
+
+    /* Cache "course-detail" key theo courseId + INSTRUCTOR id (xem CourseServiceImpl), nhưng
+       admin action chỉ có adminId trong tham số nên không thể evict bằng @CacheEvict(key=...)
+       declaratively. Phải evict thủ công bằng instructorId đọc được từ chính course sau khi
+       load — nếu không, sau khi admin duyệt/từ chối, instructor vẫn thấy trạng thái/nội dung
+       cũ trên trang chi tiết khóa học cho tới khi cache tự hết hạn (TTL 10 phút). */
+    private void evictCourseDetailCache(Course course) {
+        Cache cache = cacheManager.getCache("course-detail");
+        if (cache != null) {
+            cache.evict(course.getId() + "_" + course.getInstructorId());
+        }
+    }
 
     @Override
     @Transactional(readOnly = true)
@@ -54,10 +74,12 @@ public class AdminCourseServiceImpl implements AdminCourseService {
 
     @Override
     @Transactional(readOnly = true)
-    public Page<CourseResponse> listAllCourses(Pageable pageable) {
-        Page<Course> courses = courseRepo.findAllByStatusIn(
-                List.of(CourseStatus.DRAFT, CourseStatus.PENDING, CourseStatus.PENDING_UPDATE,
-                        CourseStatus.PUBLISHED, CourseStatus.REJECTED, CourseStatus.ARCHIVED), pageable);
+    public Page<CourseResponse> listAllCourses(Pageable pageable, CourseStatus status) {
+        List<CourseStatus> statuses = status != null
+                ? List.of(status)
+                : List.of(CourseStatus.DRAFT, CourseStatus.PENDING, CourseStatus.PENDING_UPDATE,
+                        CourseStatus.PUBLISHED, CourseStatus.REJECTED, CourseStatus.ARCHIVED);
+        Page<Course> courses = courseRepo.findAllByStatusIn(statuses, pageable);
         return mapCoursePage(courses);
     }
 
@@ -137,6 +159,7 @@ public class AdminCourseServiceImpl implements AdminCourseService {
         });
 
         saveLog(adminId, courseId, "APPROVED_FIRST", null);
+        evictCourseDetailCache(course);
 
         log.info("Course approved: courseId={}, adminId={}", courseId, adminId);
 
@@ -164,6 +187,7 @@ public class AdminCourseServiceImpl implements AdminCourseService {
         });
 
         saveLog(adminId, courseId, VERSION_REJECTED, reason);
+        evictCourseDetailCache(course);
         log.info("Course rejected: courseId={}, adminId={}", courseId, adminId);
 
         return courseMapper.toDetailResponse(course);
@@ -189,18 +213,41 @@ public class AdminCourseServiceImpl implements AdminCourseService {
         if (course.getDraftThumbnailUrl() != null) course.setThumbnailUrl(course.getDraftThumbnailUrl());
 
         // 2. Áp dụng draft chapters & lessons
-        List<Chapter> chaptersToRemove = new ArrayList<>();
+        // Chương/bài đã từng LIVE bị đánh dấu pendingDelete: KHÔNG xóa cứng (setDeletedAt thay vì
+        // removeAll()/orphanRemoval) — CourseVersion.snapshot lưu tài liệu bằng s3Key (không lưu
+        // ID), nên nếu xóa cứng row lesson/lesson_resources, sau này rollback về 1 version còn cần
+        // tài liệu đó sẽ mất vĩnh viễn, không có cách nào phục hồi. Soft-delete giữ nguyên row (ẩn
+        // khỏi mọi query qua @SQLRestriction trên Chapter/Lesson) để tài liệu vẫn còn nếu cần.
+        List<UUID> lessonIdsToCleanup = new ArrayList<>();
+        // ai_sources.resource_id cũng REFERENCES lesson_resources(id) không cascade, và nguồn AI
+        // tạo từ resource có sẵn (upsertResourceSource) chỉ set resourceId chứ không set lessonId
+        // — nên phải thu luôn resourceId của các lesson sắp xóa mới dọn hết được (xem
+        // LessonAiDataCleanupService). Progress/AI vẫn bị xóa hẳn dù lesson chỉ soft-delete — bài
+        // đã "xóa" thì không nên còn hiện tiến độ/lịch sử chat AI, dù row lesson được giữ lại.
+        List<UUID> resourceIdsToCleanup = new ArrayList<>();
         for (Chapter ch : course.getChapters()) {
             if (Boolean.TRUE.equals(ch.getPendingDelete())) {
-                chaptersToRemove.add(ch);
+                ch.getLessons().forEach(l -> {
+                    lessonIdsToCleanup.add(l.getId());
+                    l.getResources().forEach(r -> resourceIdsToCleanup.add(r.getId()));
+                    // Phải soft-delete luôn từng lesson con — nếu chỉ ẩn chapter, các lesson này vẫn
+                    // có deleted_at NULL, nên bất kỳ truy vấn nào không đi qua chapter.getLessons()
+                    // (VD: đếm số lesson của khóa học, tra theo lessonId trực tiếp) vẫn thấy chúng
+                    // "còn sống" dù chapter cha đã bị coi là xóa — không nhất quán/có thể rò rỉ.
+                    l.setDeletedAt(Instant.now());
+                });
+                ch.setDeletedAt(Instant.now());
+                ch.setPendingDelete(false);
             } else if (Boolean.TRUE.equals(ch.getIsDraft())) {
                 ch.setIsDraft(false);
                 ch.getLessons().forEach(l -> l.setIsDraft(false));
             } else {
-                List<Lesson> lessonsToRemove = new ArrayList<>();
                 for (Lesson l : ch.getLessons()) {
                     if (Boolean.TRUE.equals(l.getPendingDelete())) {
-                        lessonsToRemove.add(l);
+                        lessonIdsToCleanup.add(l.getId());
+                        l.getResources().forEach(r -> resourceIdsToCleanup.add(r.getId()));
+                        l.setDeletedAt(Instant.now());
+                        l.setPendingDelete(false);
                     } else {
                         if (Boolean.TRUE.equals(l.getIsDraft())) l.setIsDraft(false);
                         if (l.getDraftTitle() != null) {
@@ -213,12 +260,17 @@ public class AdminCourseServiceImpl implements AdminCourseService {
                         }
                     }
                 }
-                ch.getLessons().removeAll(lessonsToRemove);
             }
         }
-        course.getChapters().removeAll(chaptersToRemove);
+        if (!lessonIdsToCleanup.isEmpty()) {
+            lessonProgressRepo.deleteByLessonIdIn(lessonIdsToCleanup);
+            videoUploadJobRepo.deleteByLessonIdIn(lessonIdsToCleanup);
+            lessonAiDataCleanupService.hardDeleteByLessonIds(lessonIdsToCleanup, resourceIdsToCleanup);
+        }
 
-        // 3. Xử lý resources: xóa thật pendingDelete, reset flag isNewInUpdate
+        // 3. Xử lý resources: xóa thật pendingDelete, reset flag isNewInUpdate. Chỉ xóa file S3 nếu
+        // không còn CourseVersion nào (mọi trạng thái) còn tham chiếu key này — tránh phá tài liệu
+        // mà 1 version khác (VD: bản đang PUBLISHED) vẫn cần để rollback về sau.
         List<LessonResource> toDelete = lessonResourceRepo.findAllByCourseIdAndPendingDeleteTrue(courseId);
         for (LessonResource r : toDelete) {
             r.setDeletedAt(Instant.now());
@@ -226,10 +278,9 @@ public class AdminCourseServiceImpl implements AdminCourseService {
             r.setPendingDelete(false);
             lessonResourceRepo.save(r);
             String s3Key = r.getS3Key();
-            if (s3Key != null && !s3Key.startsWith("ext://")) {
-                try { s3Service.deleteObject(s3Key); } catch (Exception ex) {
-                    log.warn("S3 delete failed for key {}: {}", s3Key, ex.getMessage());
-                }
+            if (s3Key != null && !s3Key.startsWith("ext://")
+                    && courseVersionReferenceChecker.isSafeToDelete(courseId, s3Key)) {
+                s3Service.deleteObjectAsync(s3Key);
             }
         }
         lessonResourceRepo.findAllByCourseIdAndIsNewInUpdateTrue(courseId)
@@ -257,6 +308,7 @@ public class AdminCourseServiceImpl implements AdminCourseService {
         });
 
         saveLog(adminId, courseId, "APPROVED_UPDATE", null);
+        evictCourseDetailCache(course);
 
         log.info("Course update approved: courseId={}, adminId={}", courseId, adminId);
 
@@ -271,12 +323,12 @@ public class AdminCourseServiceImpl implements AdminCourseService {
             throw new CourseStateException("Only PENDING_UPDATE courses can have updates rejected. Current status: " + course.getStatus());
         }
 
-        // Khôi phục resources bị đánh dấu pending_delete (giữ draft để instructor xem lại)
-        lessonResourceRepo.findAllByCourseIdAndPendingDeleteTrue(courseId)
-                .forEach(r -> { r.setPendingDelete(false); r.setStatus("ACTIVE"); lessonResourceRepo.save(r); });
-        // Reset flag isNewInUpdate — resources mới thêm vẫn giữ nguyên nhưng không còn "mới"
-        lessonResourceRepo.findAllByCourseIdAndIsNewInUpdateTrue(courseId)
-                .forEach(r -> { r.setIsNewInUpdate(false); lessonResourceRepo.save(r); });
+        // KHÔNG đụng vào pendingDelete/isNewInUpdate của resources — reject nghĩa là chưa có gì
+        // được duyệt, giữ nguyên y hệt draft instructor đã để lại (đúng tinh thần comment dưới đây).
+        // Trước đây code reset isNewInUpdate=false ở đây (copy từ approveUpdate, sai ngữ cảnh):
+        // resource vừa thêm trong draft này CHƯA từng lên live, reset cờ khiến deleteResource()
+        // tưởng nó đã live nên xóa lần sau lại đi nhánh "đánh dấu chờ xóa" thay vì xóa thật ngay —
+        // tạo cảm giác "xóa mà vẫn hiện cần gửi cập nhật" dù file đó đã bị rejected chưa từng publish.
 
         // Giữ lại toàn bộ draft — instructor có thể xem thay đổi bị từ chối và sửa lại
         course.setDraftRejectionReason(reason);
@@ -295,6 +347,7 @@ public class AdminCourseServiceImpl implements AdminCourseService {
         });
 
         saveLog(adminId, courseId, "REJECTED_UPDATE", reason);
+        evictCourseDetailCache(course);
         log.info("Course update rejected (drafts kept): courseId={}, adminId={}, reason={}", courseId, adminId, reason);
 
         return courseMapper.toDetailResponse(course);

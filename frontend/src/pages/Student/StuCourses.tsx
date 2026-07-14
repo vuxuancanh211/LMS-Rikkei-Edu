@@ -53,7 +53,7 @@ function StuCourses({ nav }) {
         <div style={{ padding: 40, textAlign: "center", color: "#94a3b8" }}>Đang tải...</div>
       ) : pg.total ? (
         <>
-          <div className="grid grid-cards">{pg.slice.map(c => <CC key={c.id} c={c} onOpen={() => nav("player", { courseId: c.id })} onCert={() => nav("certs", { courseId: c.id })} />)}</div>
+          <div className="grid grid-cards">{pg.slice.map(c => <CC key={c.id} c={c} onOpen={() => nav("player", { courseId: c.id, from: "courses" })} onCert={() => nav("certs", { courseId: c.id })} />)}</div>
           <window.PageBar pg={pg} unit="khóa học" />
         </>
       ) : <Em icon="book" title="Không tìm thấy khóa học" text="Thử thay đổi bộ lọc hoặc từ khóa tìm kiếm khác." />}

@@ -103,7 +103,7 @@ class AdminCourseControllerTest {
 
         @Test
         void returns200_withAllCourses() throws Exception {
-            when(adminCourseService.listAllCourses(any()))
+            when(adminCourseService.listAllCourses(any(), any()))
                     .thenReturn(new PageImpl<>(
                             List.of(courseResponse(CourseStatus.PUBLISHED)),
                             PageRequest.of(0, 20), 1));

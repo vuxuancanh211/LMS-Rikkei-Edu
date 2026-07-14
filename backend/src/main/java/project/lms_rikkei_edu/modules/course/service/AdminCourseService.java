@@ -6,6 +6,7 @@ import project.lms_rikkei_edu.modules.course.dto.response.CourseDiffResponse;
 import project.lms_rikkei_edu.modules.course.dto.response.CourseDetailResponse;
 import project.lms_rikkei_edu.modules.course.dto.response.CourseResponse;
 import project.lms_rikkei_edu.modules.course.dto.response.ResourceDownloadUrlResponse;
+import project.lms_rikkei_edu.modules.course.enums.CourseStatus;
 
 import java.util.UUID;
 
@@ -13,7 +14,8 @@ public interface AdminCourseService {
 
     Page<CourseResponse> listPendingCourses(Pageable pageable);
 
-    Page<CourseResponse> listAllCourses(Pageable pageable);
+    /** {@code status} rỗng → tất cả trạng thái (tab "Tất cả"); có giá trị → lọc đúng 1 trạng thái ở DB, không lọc phía FE sau khi đã phân trang. */
+    Page<CourseResponse> listAllCourses(Pageable pageable, CourseStatus status);
 
     CourseDetailResponse getCourseDetail(UUID courseId);
 

@@ -137,14 +137,8 @@
     );
   }
 
-  function InsCourseDetail({ nav, courseId: propCourseId }: { nav?: any; courseId?: string } = {}) {
-    const [urlCourseId, setUrlCourseId] = useState(() => new URLSearchParams(window.location.search).get("courseId"));
-    useEffect(() => {
-      const checkUrl = () => setUrlCourseId(new URLSearchParams(window.location.search).get("courseId"));
-      window.addEventListener("popstate", checkUrl);
-      return () => window.removeEventListener("popstate", checkUrl);
-    }, []);
-    const courseId = propCourseId || urlCourseId || window.__selectedCourseId || sessionStorage.getItem("selectedCourseId") || null;
+  function InsCourseDetail({ nav, slug }) {
+    const [courseId, setCourseId] = useState(null);
 
     const [course, setCourse]     = useState(null);
     const [chapters, setChapters] = useState([]);
@@ -206,13 +200,24 @@
     const showAlert   = (message, opts?)           => setAlertState({ message, ...opts });
 
     function loadCourse(silent = false) {
-      if (!courseId) { setLoading(false); return; }
+      if (!slug) { setLoading(false); return; }
       if (!silent) { setLoading(true); setErr(null); }
       const scrollEl = document.querySelector(".page");
       const savedScroll = scrollEl?.scrollTop ?? 0;
-      api.get(`/instructor/courses/${courseId}`)
+      // Sau lần tải đầu tiên đã biết courseId thật — dùng lại nó cho các lần tải ngầm
+      // (sau khi sửa) thay vì tra lại theo slug, vì đổi tên khóa học sẽ sinh slug mới
+      // khiến slug cũ trên URL không còn khớp dữ liệu (dù URL chưa được cập nhật).
+      const request = courseId
+        ? api.get(`/instructor/courses/${courseId}`)
+        : api.get(`/instructor/courses/by-slug/${encodeURIComponent(slug)}`);
+      request
         .then(r => {
           setCourse(r.data);
+          setCourseId(r.data.id);
+          // AIChatbot/LecturePlayer đọc khóa học "đang mở" qua kênh này — giữ để
+          // không phá vỡ các nơi đó, dù trang này giờ không còn phụ thuộc vào nó nữa.
+          window.__selectedCourseId = r.data.id;
+          sessionStorage.setItem("selectedCourseId", r.data.id);
           setChapters(mapCourse(r.data));
           setEditTitle(r.data.title || "");
           setEditDesc(r.data.description || "");
@@ -225,7 +230,7 @@
         .catch(e => setErr(e?.response?.data?.message || "Không thể tải khóa học"))
         .finally(() => { if (!silent) setLoading(false); });
     }
-    useEffect(() => { loadCourse(); setViewingVersion(null); }, [courseId]);
+    useEffect(() => { loadCourse(); setViewingVersion(null); }, [slug]);
     useEffect(() => {
       api.get("/instructor/courses/categories").then(r => setCategories(r.data || [])).catch(() => {});
     }, []);
@@ -235,9 +240,32 @@
       }
     }, [courseId]);
 
+    // Gửi duyệt/rút duyệt đều tạo hoặc thay đổi bản ghi lịch sử + phiên bản ở backend — nhưng
+    // history/versions chỉ được fetch khi CHUYỂN sang tab "Lịch sử duyệt"/"Phiên bản" (xem
+    // onChange của Tabs bên dưới), nên nếu học viên đang xem sẵn tab đó thì không tự cập nhật
+    // (phải F5 mới thấy). Gọi refetch tường minh ngay sau khi thao tác thành công để tab hiện
+    // tại (nếu có) và các lần mở tab sau đều thấy dữ liệu mới nhất.
+    function refreshHistoryAndVersions() {
+      if (!courseId) return;
+      Promise.all([
+        api.get(`/instructor/courses/${courseId}/history`),
+        api.get(`/instructor/courses/${courseId}/versions`),
+      ])
+        .then(([hRes, vRes]) => {
+          setHistory(hRes.data || []);
+          setVersions(vRes.data || []);
+        })
+        .catch(() => {});
+    }
+
     async function handleSubmit() {
       setSubmitting(true); setSubmitMsg(null);
-      try { await api.put(`/instructor/courses/${courseId}/submit`); setSubmitMsg("Đã gửi duyệt thành công!"); loadCourse(true); }
+      try {
+        await api.put(`/instructor/courses/${courseId}/submit`);
+        setSubmitMsg("Đã gửi duyệt thành công!");
+        loadCourse(true);
+        refreshHistoryAndVersions();
+      }
       catch (e) { setSubmitMsg(e?.response?.data?.message || "Gửi duyệt thất bại"); }
       finally { setSubmitting(false); }
     }
@@ -253,6 +281,7 @@
           await api.put(`/instructor/courses/${courseId}/withdraw`);
           setSubmitMsg(isPendingUpdate ? "Đã hủy cập nhật – khóa học trở về trạng thái đang xuất bản." : "Đã rút duyệt – khóa học trở về Bản nháp.");
           loadCourse(true);
+          refreshHistoryAndVersions();
         }
         catch (e) { setSubmitMsg(e?.response?.data?.message || "Thao tác thất bại"); }
         finally { setSubmitting(false); }
@@ -512,7 +541,7 @@
     }
 
     /* guards */
-    if (!courseId) return (
+    if (!slug) return (
       <div className="page fade-in">
         <div className="page-head"><h1 className="t-h1">Chi tiết Khóa học</h1></div>
         <Empty icon="book" title="Chưa chọn khóa học" sub="Quay lại danh sách và chọn một khóa học." />
@@ -548,7 +577,7 @@
     return (
       <div className="page fade-in">
         {/* Header */}
-        <div className="page-head between" style={{ marginBottom: 20 }}>
+        <div className="page-head between wrap" style={{ marginBottom: 20, rowGap: 10 }}>
           <div className="row gap-10" style={{ alignItems: "center" }}>
             <button className="btn btn-ghost btn-sm" onClick={() => nav("courses")} style={{ gap: 6 }}>
               <Ic n="arrow_left" size={18} /><span style={{ fontWeight: 600 }}>Quay lại danh sách khóa học</span>
@@ -682,8 +711,8 @@
               );
             })()}
           </div>
-          <div className="row gap-10">
-            <button className="btn btn-ghost btn-sm" onClick={() => setShowPreview(true)}><Ic n="eye" size={15} />Xem trước</button>
+          <div className="row gap-10 wrap" style={{ rowGap: 10 }}>
+            <button className="btn btn-ghost btn-sm" onClick={() => { window.__previewCourse = { courseId, role: "instructor" }; setShowPreview(true); }}><Ic n="eye" size={15} />Xem trước</button>
             {!viewingVersion && (course?.status === "DRAFT" || course?.status === "REJECTED") && (
               <button className="btn btn-success btn-sm" disabled={submitting} onClick={handleSubmit}><Ic n="send" size={15} />{submitting ? "Đang gửi..." : "Gửi duyệt"}</button>
             )}
@@ -698,9 +727,6 @@
             )}
             {!viewingVersion && course?.status === "PUBLISHED" && hasPendingChanges && (
               <button className="btn btn-ghost btn-sm" disabled={submitting} onClick={handleWithdraw}>Hủy thay đổi</button>
-            )}
-            {!viewingVersion && course?.status === "PENDING_UPDATE" && (
-              <button className="btn btn-success btn-sm" disabled={submitting} onClick={handleSubmit}><Ic n="send" size={15} />{submitting ? "Đang gửi..." : "Gửi cập nhật"}</button>
             )}
             {!viewingVersion && (course?.status === "PENDING" || course?.status === "PENDING_UPDATE") && (
               <button className="btn btn-ghost btn-sm" disabled={submitting} onClick={handleWithdraw}>
@@ -811,7 +837,7 @@
               setHistoryLoading(true);
               Promise.all([
                 api.get(`/instructor/courses/${courseId}/history`),
-                ...(versions.length === 0 ? [api.get(`/instructor/courses/${courseId}/versions`)] : [Promise.resolve({ data: versions })]),
+                api.get(`/instructor/courses/${courseId}/versions`),
               ])
                 .then(([hRes, vRes]) => {
                   setHistory(hRes.data || []);
@@ -1164,13 +1190,29 @@
                   setThumbUploading(true); setThumbProgress(0);
                   try {
                     const { data } = await api.post(`/instructor/courses/presign-thumbnail?mimeType=${encodeURIComponent(thumbModalFile.type)}`);
+                    // XHR mặc định không có timeout — nếu kết nối treo (không byte nào đi tiếp)
+                    // promise sẽ không bao giờ resolve/reject, kẹt ở "Đang upload... 0%" mãi mãi.
+                    // Đồng hồ "stall" reset mỗi lần có tiến độ mới, chỉ hủy khi thực sự đứng yên.
                     await new Promise<void>((resolve, reject) => {
                       const xhr = new XMLHttpRequest();
                       xhr.open("PUT", data.uploadUrl);
                       xhr.setRequestHeader("Content-Type", thumbModalFile.type);
-                      xhr.upload.onprogress = e => { if (e.lengthComputable) setThumbProgress(Math.round(e.loaded / e.total * 100)); };
-                      xhr.onload  = () => xhr.status < 300 ? resolve() : reject(new Error("Upload thất bại"));
-                      xhr.onerror = () => reject(new Error("Mất kết nối"));
+                      const STALL_TIMEOUT_MS = 30000;
+                      let stallTimer: any;
+                      const resetStallTimer = () => {
+                        clearTimeout(stallTimer);
+                        stallTimer = setTimeout(() => {
+                          xhr.abort();
+                          reject(new Error("Upload bị treo do mất kết nối — vui lòng thử lại."));
+                        }, STALL_TIMEOUT_MS);
+                      };
+                      resetStallTimer();
+                      xhr.upload.onprogress = e => {
+                        resetStallTimer();
+                        if (e.lengthComputable) setThumbProgress(Math.round(e.loaded / e.total * 100));
+                      };
+                      xhr.onload  = () => { clearTimeout(stallTimer); xhr.status < 300 ? resolve() : reject(new Error("Upload thất bại")); };
+                      xhr.onerror = () => { clearTimeout(stallTimer); reject(new Error("Mất kết nối")); };
                       xhr.send(thumbModalFile);
                     });
                     await api.put(`/instructor/courses/${courseId}`, { thumbnailUrl: data.viewUrl });

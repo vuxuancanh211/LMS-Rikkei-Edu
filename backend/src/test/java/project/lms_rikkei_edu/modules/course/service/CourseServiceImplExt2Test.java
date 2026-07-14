@@ -14,9 +14,12 @@ import project.lms_rikkei_edu.infrastructure.s3.S3Service;
 import project.lms_rikkei_edu.modules.course.dto.response.CourseDetailResponse;
 import project.lms_rikkei_edu.modules.course.entity.*;
 import project.lms_rikkei_edu.modules.course.enums.CourseStatus;
+import project.lms_rikkei_edu.modules.course.exception.CourseStateException;
 import project.lms_rikkei_edu.modules.course.mapper.*;
 import project.lms_rikkei_edu.modules.course.repository.*;
+import project.lms_rikkei_edu.modules.course.service.impl.CourseListCacheGateway;
 import project.lms_rikkei_edu.modules.course.service.impl.CourseServiceImpl;
+import project.lms_rikkei_edu.modules.course.service.impl.CourseVersionReferenceChecker;
 import project.lms_rikkei_edu.modules.quiz.repository.QuizRepository;
 import project.lms_rikkei_edu.modules.quiz.service.QuizService;
 
@@ -26,6 +29,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -49,6 +53,7 @@ class CourseServiceImplExt2Test {
     @Mock QuizService quizService;
     @Mock QuizRepository quizRepository;
     @Mock StudentCourseService studentCourseService;
+    @Mock CourseVersionReferenceChecker courseVersionReferenceChecker;
 
     CourseServiceImpl service;
 
@@ -62,8 +67,11 @@ class CourseServiceImplExt2Test {
                 lessonResourceRepository, categoryRepository,
                 approvalLogRepository, courseVersionRepository,
                 courseMapper, objectMapper, chapterMapper, lessonMapper,
-                entityManager, s3Service, quizService, quizRepository, studentCourseService
+                entityManager, s3Service, quizService, quizRepository, studentCourseService,
+                new CourseListCacheGateway(courseRepository, courseMapper),
+                courseVersionReferenceChecker
         );
+        when(courseVersionReferenceChecker.isSafeToDelete(any(), any())).thenReturn(true);
     }
 
     // ── entity builders ───────────────────────────────────────────────────────
@@ -119,7 +127,7 @@ class CourseServiceImplExt2Test {
             Chapter ch = chapter(false, false, List.of(l));
             Course c = course(CourseStatus.DRAFT, List.of(ch));
 
-            when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.of(c));
+            when(courseRepository.findByIdWithFullContent(COURSE_ID)).thenReturn(Optional.of(c));
             when(courseMapper.toDetailResponse(c)).thenReturn(detailResponse());
 
             CourseDetailResponse result = service.getCourseDetail(INSTRUCTOR_ID, COURSE_ID);
@@ -143,18 +151,14 @@ class CourseServiceImplExt2Test {
 
         // lines 150–155: PENDING_UPDATE branch
         @Test
-        void submits_whenStatusIsPendingUpdate() throws Exception {
+        void throwsCourseStateException_whenStatusIsPendingUpdate() {
             Course c = course(CourseStatus.PENDING_UPDATE, List.of());
             when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.of(c));
-            when(courseRepository.save(c)).thenReturn(c);
-            when(courseMapper.toDetailResponse(c)).thenReturn(detailResponse());
-            stubVersionRepos();
 
-            service.submitForApproval(INSTRUCTOR_ID, COURSE_ID, "Re-submit after rejection");
+            assertThatThrownBy(() -> service.submitForApproval(INSTRUCTOR_ID, COURSE_ID, "Re-submit while still pending"))
+                    .isInstanceOf(CourseStateException.class);
 
-            assertThat(c.getChangeSummary()).isEqualTo("Re-submit after rejection");
-            assertThat(c.getDraftRejectionReason()).isNull();
-            verify(approvalLogRepository).save(argThat(log -> "SUBMITTED_UPDATE".equals(log.getAction())));
+            verifyNoInteractions(approvalLogRepository);
         }
 
         // lines 164–171: PUBLISHED branch with hasDraftChanges=true
@@ -180,7 +184,8 @@ class CourseServiceImplExt2Test {
         // lines 483–484: saveLogWithSnapshot catch when objectMapper throws
         @Test
         void logsWarn_whenObjectMapperThrowsInSaveLogWithSnapshot() throws Exception {
-            Course c = course(CourseStatus.PENDING_UPDATE, List.of());
+            Chapter draftCh = chapter(true, false, List.of());
+            Course c = course(CourseStatus.PUBLISHED, List.of(draftCh));
             when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.of(c));
             when(courseRepository.save(c)).thenReturn(c);
             when(courseMapper.toDetailResponse(c)).thenReturn(detailResponse());
@@ -244,13 +249,17 @@ class CourseServiceImplExt2Test {
 
         // lines 206–222: resource flags reset in PUBLISHED branch
         @Test
-        void resetsResourceFlags_whenStatusIsPublishedWithResourceChanges() {
+        void deletesNeverLiveResource_andRestoresPendingDeleteResource_whenStatusIsPublishedWithResourceChanges() {
             // hasDraft=false, but hasResourceChanges=true
             Course c = course(CourseStatus.PUBLISHED, List.of());
 
+            // Resource thêm trong lần sửa này, CHƯA TỪNG lên live — "hủy thay đổi" phải xóa hẳn,
+            // không chỉ gỡ cờ (nếu chỉ gỡ cờ, file chưa từng được duyệt sẽ biến thành "đang live").
             LessonResource newResource = new LessonResource();
             newResource.setIsNewInUpdate(true);
+            newResource.setS3Key("ext://placeholder"); // external → không gọi S3 thật
 
+            // Resource này VẪN đang live, chỉ bị đánh dấu chờ xóa — hủy thay đổi = bỏ đánh dấu, giữ lại.
             LessonResource pendingDeleteResource = new LessonResource();
             pendingDeleteResource.setPendingDelete(true);
 
@@ -265,7 +274,8 @@ class CourseServiceImplExt2Test {
 
             service.withdrawFromReview(INSTRUCTOR_ID, COURSE_ID);
 
-            assertThat(newResource.getIsNewInUpdate()).isFalse();
+            assertThat(newResource.getDeletedAt()).isNotNull();
+            assertThat(newResource.getStatus()).isEqualTo("DELETED");
             assertThat(pendingDeleteResource.getPendingDelete()).isFalse();
             assertThat(pendingDeleteResource.getStatus()).isEqualTo("ACTIVE");
         }
@@ -312,8 +322,8 @@ class CourseServiceImplExt2Test {
             // Draft chapter removed
             assertThat(c.getChapters()).doesNotContain(draftCh);
             // S3 called for both keys
-            verify(s3Service).deleteObject("courses/lesson-resource.pdf");
-            verify(s3Service).deleteObject("courses/chapter-resource.mp4");
+            verify(s3Service).deleteObjectAsync("courses/lesson-resource.pdf");
+            verify(s3Service).deleteObjectAsync("courses/chapter-resource.mp4");
         }
 
         // line 393 (initChapters forEach body) + line 448,450,453 with ext:// S3 key skipped
@@ -333,14 +343,16 @@ class CourseServiceImplExt2Test {
 
             service.withdrawFromReview(INSTRUCTOR_ID, COURSE_ID);
 
-            // ext:// key filtered out → s3Service.deleteObject NOT called
-            verify(s3Service, never()).deleteObject(anyString());
+            // ext:// key filtered out → s3Service.deleteObjectAsync NOT called
+            verify(s3Service, never()).deleteObjectAsync(anyString());
             assertThat(c.getChapters()).doesNotContain(draftCh);
         }
 
-        // lines 461–463: S3 delete for draft chapter keys fails → log warn, no exception
+        // lines 461–463: S3 cleanup cho draft chapter keys chạy qua deleteObjectAsync
+        // (fire-and-forget) — lỗi S3 do S3Service tự log warn nội bộ, không còn propagate
+        // ngược lại withdrawFromReview() để mock giả lập ở đây nữa.
         @Test
-        void logsWarn_whenS3DeleteFailsForDraftChapterKey() {
+        void removesDraftChapter_regardlessOfS3CleanupOutcome() {
             LessonResource chapRes = resource("courses/failing-key.mp4");
             Lesson draftChLesson = lesson(false, false, null, null, List.of(chapRes));
             Chapter draftCh = chapter(true, false, List.of(draftChLesson));
@@ -352,17 +364,16 @@ class CourseServiceImplExt2Test {
                     .thenReturn(Optional.empty());
             when(courseRepository.save(c)).thenReturn(c);
             when(courseMapper.toDetailResponse(c)).thenReturn(detailResponse());
-            doThrow(new RuntimeException("S3 error")).when(s3Service).deleteObject("courses/failing-key.mp4");
 
-            // Must not throw — logs warn and continues
             service.withdrawFromReview(INSTRUCTOR_ID, COURSE_ID);
 
             assertThat(c.getChapters()).doesNotContain(draftCh);
+            verify(s3Service).deleteObjectAsync("courses/failing-key.mp4");
         }
 
-        // S3 delete for draft LESSON keys (inside live chapter) fails → log warn (lines 438-441)
+        // S3 cleanup cho draft LESSON keys (inside live chapter) — cùng lý do như trên (lines 438-441)
         @Test
-        void logsWarn_whenS3DeleteFailsForDraftLessonKey() {
+        void removesDraftLesson_regardlessOfS3CleanupOutcome() {
             LessonResource lessonRes = resource("courses/lesson-s3-fail.pdf");
             Lesson draftLesson = lesson(true, false, null, null, List.of(lessonRes));
             Chapter liveCh = chapter(false, false, List.of(draftLesson));
@@ -374,12 +385,11 @@ class CourseServiceImplExt2Test {
                     .thenReturn(Optional.empty());
             when(courseRepository.save(c)).thenReturn(c);
             when(courseMapper.toDetailResponse(c)).thenReturn(detailResponse());
-            doThrow(new RuntimeException("S3 fail")).when(s3Service).deleteObject("courses/lesson-s3-fail.pdf");
 
-            // Must not throw
             service.withdrawFromReview(INSTRUCTOR_ID, COURSE_ID);
 
             assertThat(liveCh.getLessons()).doesNotContain(draftLesson);
+            verify(s3Service).deleteObjectAsync("courses/lesson-s3-fail.pdf");
         }
     }
 }

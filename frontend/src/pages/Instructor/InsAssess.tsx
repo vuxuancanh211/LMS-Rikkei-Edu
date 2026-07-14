@@ -2,6 +2,7 @@
 /* ============================================================
    RIKKEI EDU — Giảng viên · Bài tập & Trắc nghiệm
    ============================================================ */
+import { createPortal } from 'react-dom';
 (function () {
   const { useState, useEffect, useCallback, useRef } = React;
   const Ic = window.Icon;
@@ -56,6 +57,13 @@
     const data = err?.response?.data;
     if (!data) return 'Không thể kết nối tới máy chủ';
     return data.message || 'Lỗi không xác định';
+  }
+
+  // input type="number" của trình duyệt vẫn cho gõ -, +, e, E (cú pháp số hợp lệ về mặt kỹ thuật
+  // nhưng không hợp lệ với các trường thời gian/số lần/điểm ở đây) — chặn thẳng ở bàn phím để
+  // không thể nhập được số âm/ký tự đặc biệt, thay vì chỉ dựa vào validate sau khi đã nhập xong.
+  function blockNumberSpecialKeys(e) {
+    if (['-', '+', 'e', 'E'].includes(e.key)) e.preventDefault();
   }
 
   /* ─── Main Component ──────────────────────────────────────── */
@@ -188,6 +196,10 @@
     const [qzCooldown, setQzCooldown] = useState(20);
     const [qzPass, setQzPass] = useState(50);
     const qzPassInvalid = qzPass === '' || Number.isNaN(Number(qzPass)) || Number(qzPass) < 0 || Number(qzPass) > 100;
+    // Thời gian làm bài tối thiểu 10 phút — quá ngắn không đủ để học viên đọc và trả lời câu hỏi.
+    const qzDurationInvalid = qzDuration === '' || Number.isNaN(Number(qzDuration)) || Number(qzDuration) < 10;
+    const qzMaxInvalid = !qzUnlimited && (qzMax === '' || Number.isNaN(Number(qzMax)) || Number(qzMax) < 1);
+    const qzCooldownInvalid = qzCooldown === '' || Number.isNaN(Number(qzCooldown)) || Number(qzCooldown) < 0;
     const [qzProctoring, setQzProctoring] = useState(false);
     const [qzShuffleQuestions, setQzShuffleQuestions] = useState(false);
     const [qzShuffleOptions, setQzShuffleOptions] = useState(false);
@@ -446,6 +458,9 @@
     const handleCreateQuiz = useCallback(async () => {
       if (!qzTitle.trim()) { showToast('Vui lòng nhập tên quiz', 'error'); return; }
       if (!activeCourseId) { showToast('Chưa chọn khóa học', 'error'); return; }
+      if (qzDurationInvalid) { showToast('Thời gian làm bài tối thiểu 10 phút', 'error'); return; }
+      if (qzMaxInvalid) { showToast('Số lần làm tối đa phải từ 1 trở lên', 'error'); return; }
+      if (qzCooldownInvalid) { showToast('Khoảng cách giữa các lần không được âm', 'error'); return; }
       if (qzPassInvalid) { showToast('Điểm đạt phải trong khoảng 0-100', 'error'); return; }
       setSubmitting(true);
       try {
@@ -475,7 +490,7 @@
       } finally {
         setSubmitting(false);
       }
-    }, [activeCourseId, qzTitle, qzType, qzDuration, qzMax, qzUnlimited, qzCooldown, qzPass, qzPassInvalid, qzProctoring, qzShuffleQuestions, qzShuffleOptions, editQuizItem, fetchQuizzes, showToast]);
+    }, [activeCourseId, qzTitle, qzType, qzDuration, qzMax, qzUnlimited, qzCooldown, qzPass, qzPassInvalid, qzDurationInvalid, qzMaxInvalid, qzCooldownInvalid, qzProctoring, qzShuffleQuestions, qzShuffleOptions, editQuizItem, fetchQuizzes, showToast]);
 
     /* ── Publish / Archive quiz ── */
     const handlePublish = useCallback(async (quiz) => {
@@ -637,14 +652,17 @@
     /* ─── Render ─────────────────────────────────────────────── */
     return (
       <div className="page fade-in">
-        {/* Toast */}
-        {toast && (
+        {/* Toast — portal thẳng ra document.body giống Modal (component/base/index.tsx), tránh bị
+            kẹt trong stacking context của .page/.main khi có modal (dùng backdrop-filter blur +
+            z-index 1000) đang mở đè lên, khiến toast tuy z-index cao hơn vẫn bị chìm/mờ phía sau. */}
+        {toast && createPortal(
           <div style={{ position: 'fixed', top: 20, right: 24, zIndex: 9999, minWidth: 280,
             background: toast.type === 'error' ? 'var(--error)' : '#10b981',
             color: '#fff', borderRadius: 11, padding: '13px 18px', fontWeight: 600, fontSize: 14,
             boxShadow: '0 4px 24px rgba(0,0,0,.18)' }}>
             {toast.msg}
-          </div>
+          </div>,
+          document.body
         )}
 
         <div className="page-head between">
@@ -1008,7 +1026,14 @@
                 </div>
                 <div>
                   <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Thời gian làm bài (phút)</label>
-                  <input className="input" type="number" min={1} value={qzDuration} onChange={e => setQzDuration(e.target.value)} />
+                  <input className="input" type="number" min={10} value={qzDuration}
+                    style={qzDurationInvalid ? { borderColor: 'var(--error)' } : undefined}
+                    onKeyDown={blockNumberSpecialKeys} onChange={e => setQzDuration(e.target.value)} />
+                  {qzDurationInvalid && (
+                    <div className="t-xs" style={{ color: 'var(--error)', marginTop: 4 }}>
+                      Thời gian làm bài tối thiểu 10 phút.
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -1019,7 +1044,13 @@
                 <div>
                   <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Số lần làm tối đa</label>
                   <input className="input" type="number" min={1} value={qzMax} disabled={qzUnlimited}
-                    onChange={e => setQzMax(e.target.value)} />
+                    style={qzMaxInvalid ? { borderColor: 'var(--error)' } : undefined}
+                    onKeyDown={blockNumberSpecialKeys} onChange={e => setQzMax(e.target.value)} />
+                  {qzMaxInvalid && (
+                    <div className="t-xs" style={{ color: 'var(--error)', marginTop: 4 }}>
+                      Số lần làm tối đa phải từ 1 trở lên.
+                    </div>
+                  )}
                   <label className="row gap-6" style={{ marginTop: 6, cursor: 'pointer', alignItems: 'center' }}>
                     <input type="checkbox" checked={qzUnlimited} onChange={e => setQzUnlimited(e.target.checked)} style={{ width: 15, height: 15 }} />
                     <span className="t-xs muted">Không giới hạn số lần</span>
@@ -1027,7 +1058,14 @@
                 </div>
                 <div>
                   <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Khoảng cách giữa các lần (phút)</label>
-                  <input className="input" type="number" min={0} value={qzCooldown} onChange={e => setQzCooldown(e.target.value)} />
+                  <input className="input" type="number" min={0} value={qzCooldown}
+                    style={qzCooldownInvalid ? { borderColor: 'var(--error)' } : undefined}
+                    onKeyDown={blockNumberSpecialKeys} onChange={e => setQzCooldown(e.target.value)} />
+                  {qzCooldownInvalid && (
+                    <div className="t-xs" style={{ color: 'var(--error)', marginTop: 4 }}>
+                      Khoảng cách giữa các lần không được âm.
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -1038,7 +1076,7 @@
                 <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Điểm đạt (%)</label>
                 <input className="input" type="number" min={0} max={100} value={qzPass}
                   style={qzPassInvalid ? { borderColor: 'var(--error)' } : undefined}
-                  onChange={e => setQzPass(e.target.value)} />
+                  onKeyDown={blockNumberSpecialKeys} onChange={e => setQzPass(e.target.value)} />
                 {qzPassInvalid && (
                   <div className="t-xs" style={{ color: 'var(--error)', marginTop: 4 }}>
                     Điểm đạt phải trong khoảng 0-100.
@@ -1082,7 +1120,8 @@
           </div>
           <div className="modal-foot">
             <button className="btn btn-ghost" onClick={() => { setCreateQuizOpen(false); setEditQuizItem(null); }}>Hủy</button>
-            <button className="btn btn-primary" onClick={handleCreateQuiz} disabled={submitting || qzPassInvalid}>
+            <button className="btn btn-primary" onClick={handleCreateQuiz}
+              disabled={submitting || qzPassInvalid || qzDurationInvalid || qzMaxInvalid || qzCooldownInvalid}>
               {submitting
                 ? (editQuizItem ? 'Đang lưu...' : 'Đang tạo...')
                 : <><Ic n={editQuizItem ? 'check' : 'plus'} size={16} />{editQuizItem ? 'Lưu thay đổi' : 'Tạo quiz'}</>}

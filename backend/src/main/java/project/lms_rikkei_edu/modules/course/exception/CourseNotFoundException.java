@@ -6,4 +6,8 @@ public class CourseNotFoundException extends RuntimeException {
     public CourseNotFoundException(UUID courseId) {
         super("Course not found: " + courseId);
     }
+
+    public CourseNotFoundException(String slug) {
+        super("Course not found: " + slug);
+    }
 }

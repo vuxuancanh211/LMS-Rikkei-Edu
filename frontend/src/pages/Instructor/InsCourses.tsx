@@ -5,7 +5,7 @@
 (function () {
   const { useState, useEffect, useRef } = React;
   const Ic = window.Icon;
-  const { Modal, ModalHead, Empty, Search, Select, StatCard } = window;
+  const { Modal, ModalHead, Empty, Search, Select, StatCard, Pager } = window;
   const api = window.httpClient;
 
   const LEVELS = [
@@ -49,7 +49,6 @@
     const [level, setLevel]                   = useState(LEVELS[1].value);
     const [categoryId, setCategoryId]         = useState(null);
     const [duration, setDuration]             = useState("");
-    const [prereq, setPrereq]                 = useState("");
     const [categories, setCategories]         = useState([]);
     const [thumbFile, setThumbFile]           = useState(null);
     const [thumbPreview, setThumbPreview]     = useState(null);
@@ -69,7 +68,7 @@
 
     const reset = () => {
       setStep(1); setTitle(""); setDesc(""); setLevel(LEVELS[1].value);
-      setCategoryId(null); setDuration(""); setPrereq(""); setErr(null);
+      setCategoryId(null); setDuration(""); setErr(null);
       setThumbFile(null); setThumbPreview(null); setThumbUrl(null); setThumbProgress(0);
     };
     const close = () => { reset(); onClose(); };
@@ -114,8 +113,7 @@
           categoryId: categoryId || null,
           thumbnailUrl: finalThumb || null,
         });
-        window.__selectedCourseId = data.id; sessionStorage.setItem("selectedCourseId", data.id);
-        reset(); onCreated && onCreated();
+        reset(); onCreated && onCreated(data.slug);
       } catch (e) {
         setErr(e?.response?.data?.message || e?.message || "Tạo khóa học thất bại");
       } finally { setSaving(false); }
@@ -205,18 +203,6 @@
                 <span style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", color: "var(--text-3)", fontSize: 14, pointerEvents: "none", userSelect: "none" }}>giờ</span>
               </div>
             </Field>
-            <Field label="Yêu cầu đầu vào">
-              <input className="input" value={prereq} onChange={e => setPrereq(e.target.value)} placeholder="VD: Đã biết JavaScript cơ bản" />
-            </Field>
-
-            <label className="row gap-10" style={{ gridColumn: "1/-1", padding: "12px 14px", background: "var(--chip-info-bg)", borderRadius: 11, cursor: "pointer" }}>
-              <input type="checkbox" style={{ width: 18, height: 18 }} defaultChecked />
-              <div>
-                <div style={{ fontWeight: 600, fontSize: 13.5, color: "var(--chip-info-fg)" }}>Gửi duyệt ngay sau khi tạo</div>
-                <div className="t-xs" style={{ color: "var(--chip-info-fg)", opacity: .8 }}>Khóa học sẽ chuyển tới Quản trị viên để phê duyệt</div>
-              </div>
-            </label>
-
             {err && <div style={{ gridColumn: "1/-1", color: "var(--error)", fontSize: 13 }}>{err}</div>}
           </>)}
         </div>
@@ -245,23 +231,38 @@
 
   /* ── Trang danh sách khóa học ───────────────────────────────────────── */
   function InsCourses({ nav }) {
-    const [q, setQ]             = useState("");
-    const [filter, setFilter]   = useState("all");
-    const [courses, setCourses] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [create, setCreate]   = useState(false);
+    const size = 20;
+    const [q, setQ]                     = useState("");
+    const [debouncedQ, setDebouncedQ]   = useState("");
+    const [filter, setFilter]           = useState("all");
+    const [page, setPage]               = useState(1);
+    const [courses, setCourses]         = useState([]);
+    const [totalPages, setTotalPages]   = useState(1);
+    const [totalElements, setTotalElements] = useState(0);
+    const [loading, setLoading]         = useState(true);
+    const [create, setCreate]           = useState(false);
+
+    useEffect(() => {
+      const t = setTimeout(() => { setDebouncedQ(q); setPage(1); }, 350);
+      return () => clearTimeout(t);
+    }, [q]);
 
     function loadCourses() {
       setLoading(true);
-      api.get("/instructor/courses", { params: { page: 0, size: 50, sort: "createdAt,desc" } })
-        .then(r => setCourses(r.data.content || []))
-        .catch(() => setCourses([]))
+      const params = { page: page - 1, size, sort: "createdAt,desc" };
+      if (debouncedQ) params.keyword = debouncedQ;
+      api.get("/instructor/courses", { params })
+        .then(r => {
+          setCourses(r.data.content || []);
+          setTotalPages(r.data.totalPages || 1);
+          setTotalElements(r.data.totalElements || 0);
+        })
+        .catch(() => { setCourses([]); setTotalPages(1); setTotalElements(0); })
         .finally(() => setLoading(false));
     }
-    useEffect(() => { loadCourses(); }, []);
+    useEffect(() => { loadCourses(); }, [page, debouncedQ]);
 
     const list = courses.filter(c => {
-      if (q && !c.title.toLowerCase().includes(q.toLowerCase())) return false;
       if (filter === "pub"   && c.status !== "PUBLISHED") return false;
       if (filter === "pend"  && c.status !== "PENDING" && c.status !== "PENDING_UPDATE") return false;
       if (filter === "draft" && c.status !== "DRAFT") return false;
@@ -278,7 +279,7 @@
           <button className="btn btn-primary" onClick={() => setCreate(true)}><Ic n="plus" size={17} />Tạo khóa học</button>
         </div>
 
-        <window.CreateCourseModal open={create} onClose={() => setCreate(false)} onCreated={() => nav("courseDetail", { courseId: window.__selectedCourseId || sessionStorage.getItem("selectedCourseId") })} />
+        <window.CreateCourseModal open={create} onClose={() => setCreate(false)} onCreated={(slug) => nav("courseDetail", { slug })} />
 
         <div className="toolbar">
           <Search placeholder="Tìm khóa học..." value={q} onChange={setQ} />
@@ -295,41 +296,47 @@
         {loading ? (
           <div className="muted" style={{ textAlign: "center", padding: 60 }}>Đang tải...</div>
         ) : list.length === 0 ? (
-          <Empty icon="book" title="Chưa có khóa học nào" sub={q ? "Không tìm thấy kết quả phù hợp." : "Nhấn 'Tạo khóa học' để bắt đầu."} />
+          <Empty icon="book" title="Chưa có khóa học nào" sub={debouncedQ ? "Không tìm thấy kết quả phù hợp." : "Nhấn 'Tạo khóa học' để bắt đầu."} />
         ) : (
-          <div className="grid grid-cards">
-            {list.map(c => {
-              const sc = STATUS_COLOR[c.status] || {};
-              return (
-                <div key={c.id} className="card course-card fade-in">
-                  <div className="course-thumb" style={{ backgroundImage: c.thumbnailUrl ? `url(${c.thumbnailUrl})` : "linear-gradient(135deg,#1e3a5f,#2563eb)" }}>
-                    <span className="tl">
-                      <span className="chip" style={{ background: "rgba(15,23,42,.72)", color: "#fff" }}>{c.category?.name || "—"}</span>
-                    </span>
-                    <span className="tr">
-                      <span className="chip" style={{ background: sc.bg, color: sc.color, fontWeight: 600 }}>{STATUS_LABEL[c.status] || c.status}</span>
-                    </span>
-                  </div>
-                  <div className="course-body">
-                    <h3 className="clamp-2">{c.title}</h3>
-                    <div className="row gap-16 wrap" style={{ marginBottom: 8 }}>
-                      {c.level && <span className="meta-row"><Ic n="layers" size={15} /> {c.level}</span>}
+          <>
+            <div className="grid grid-cards grid-cards-fixed">
+              {list.map(c => {
+                const sc = STATUS_COLOR[c.status] || {};
+                return (
+                  <div key={c.id} className="card course-card fade-in">
+                    <div className="course-thumb" style={{ backgroundImage: c.thumbnailUrl ? `url(${c.thumbnailUrl})` : "linear-gradient(135deg,#1e3a5f,#2563eb)" }}>
+                      <span className="tl">
+                        <span className="chip" style={{ background: "rgba(15,23,42,.72)", color: "#fff" }}>{c.category?.name || "—"}</span>
+                      </span>
+                      <span className="tr">
+                        <span className="chip" style={{ background: sc.bg, color: sc.color, fontWeight: 600 }}>{STATUS_LABEL[c.status] || c.status}</span>
+                      </span>
                     </div>
-                    <div className="row gap-10" style={{ marginTop: "auto", paddingTop: 6 }}>
-                      <button className="btn btn-ghost btn-sm grow" onClick={() => {
-                        window.__previewCourse = { courseId: c.id, role: "instructor" };
-                        nav("preview", { courseId: c.id });
-                      }}><Ic n="eye" size={15} />Xem</button>
-                      <button className="btn btn-primary btn-sm grow" onClick={() => {
-                        window.__selectedCourseId = c.id; sessionStorage.setItem("selectedCourseId", c.id);
-                        nav("courseDetail", { courseId: c.id });
-                      }}><Ic n="edit" size={15} />Sửa</button>
+                    <div className="course-body">
+                      <h3 className="clamp-2">{c.title}</h3>
+                      <div className="row gap-16 wrap" style={{ marginBottom: 8 }}>
+                        {c.level && <span className="meta-row"><Ic n="layers" size={15} /> {c.level}</span>}
+                      </div>
+                      <div className="row gap-10" style={{ marginTop: "auto", paddingTop: 6 }}>
+                        <button className="btn btn-ghost btn-sm grow" onClick={() => {
+                          window.__previewCourse = { courseId: c.id, role: "instructor" };
+                          nav("preview");
+                        }}><Ic n="eye" size={15} />Xem</button>
+                        <button className="btn btn-primary btn-sm grow" onClick={() => nav("courseDetail", { slug: c.slug })}>
+                          <Ic n="edit" size={15} />Sửa</button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+            {totalPages > 1 && (
+              <div className="between wrap pagebar" style={{ gap: 12, marginTop: 16 }}>
+                <span className="t-sm muted">Trang <b style={{ color: "var(--text)" }}>{page}</b> / <b style={{ color: "var(--text)" }}>{totalPages}</b> · tổng <b style={{ color: "var(--text)" }}>{totalElements}</b> khóa học</span>
+                <Pager page={page} pages={totalPages} onPage={setPage} />
+              </div>
+            )}
+          </>
         )}
       </div>
     );

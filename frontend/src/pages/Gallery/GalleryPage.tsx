@@ -12,7 +12,21 @@ import {
   markAllAsRead,
   connectNotificationSSE,
 } from '../../services/notification-service';
+import { login } from '../../services/auth-service';
+import { useAuthStore, mapApiRole } from '../../store';
 import { NotificationTypeMetadata, getNotificationTargetUrl, parseNotificationUrl } from '../../constants/notification-types';
+
+/* Chuyển nhanh giữa các tài khoản seed sẵn khi phát triển/kiểm thử — chỉ hiện khi
+   chạy `vite dev` (import.meta.env.DEV), không bao giờ lọt vào bản build production. */
+const DEV_QUICK_ACCOUNTS = [
+  { label: 'Admin', email: 'admin@rikkei.edu' },
+  { label: 'Giảng viên 1', email: 'instructor1@rikkei.edu' },
+  { label: 'Giảng viên 2', email: 'instructor2@rikkei.edu' },
+  { label: 'Học viên 1', email: 'student1@rikkei.edu' },
+  { label: 'Học viên 2', email: 'student2@rikkei.edu' },
+  { label: 'Học viên 3', email: 'student3@rikkei.edu' },
+];
+const DEV_QUICK_PASSWORD = '123456'; // khớp mật khẩu seed thật (V2__seed_data.sql), không đổi DB
 
 function registerGalleryPage() {
   const { useState, useEffect, useCallback, useMemo } = React;
@@ -54,7 +68,7 @@ function registerGalleryPage() {
       { k: "courses", l: "Quản lý Khóa học", ic: "book" },
       { k: "approval", l: "Phê duyệt", ic: "check_circle" },
       { k: "certificates", l: "Chứng chỉ", ic: "award" },
-      { k: "reports", l: "Báo cáo", ic: "chart" },
+      // { k: "reports", l: "Báo cáo", ic: "chart" },
       { k: "logs", l: "Nhật ký hệ thống", ic: "file" },
       { k: "aiDocs", l: "Quản lý Tài liệu AI", ic: "sparkles" },
       { k: "settings", l: "Cài đặt", ic: "settings" },
@@ -107,6 +121,9 @@ function registerGalleryPage() {
     const [notificationList, setNotificationList] = useState([]);
     const [unreadCount, setUnreadCount] = useState(0);
     const [notifLoading, setNotifLoading] = useState(false);
+    const [switchingAccount, setSwitchingAccount] = useState(null);
+    const [switchAlert, setSwitchAlert] = useState(null); // { title, message }
+    const loginSuccess = useAuthStore((state) => state.loginSuccess);
 
     const loadNotifications = async (showLoading = true) => {
       if (showLoading) setNotifLoading(true);
@@ -165,7 +182,12 @@ function registerGalleryPage() {
     const go = useCallback((k, params) => {
       setDemo(null);
       let p = { ...params };
-      if (k === 'courseDetail' || k === 'player' || k === 'courses' || k === 'preview') {
+      if (k === 'courseDetail' || k === 'player' || k === 'preview') {
+        // Chỉ fallback về courseId đã chọn trước đó (window/sessionStorage) cho các key vốn đã
+        // mang ý định "vào 1 khóa cụ thể". "courses" là điều hướng tới DANH SÁCH khóa học — nếu
+        // không có courseId tường minh (VD bấm mục "Khóa học của tôi" ở sidebar) thì không được
+        // tự ý gắn courseId cũ vào, nếu không sẽ bị redirect nhầm sang màn học 1 khóa đã xem lần
+        // trước (có thể học viên không còn đăng ký/không liên quan) thay vì hiện đúng danh sách.
         const cid = p.courseId || window.__selectedCourseId || sessionStorage.getItem("selectedCourseId");
         if (cid) p.courseId = cid;
       }
@@ -195,6 +217,24 @@ function registerGalleryPage() {
       if (onNavigate) { onNavigate(r, "dashboard"); return; }
       setRole(r);
       setRoute("dashboard");
+    };
+
+    const quickSwitchAccount = async (email) => {
+      if (switchingAccount) return;
+      setSwitchingAccount(email);
+      try {
+        const response = await login({ email, password: DEV_QUICK_PASSWORD });
+        loginSuccess(response, response.user);
+        setUmenu(false);
+        switchRole(mapApiRole(response.user.role));
+      } catch (e) {
+        setSwitchAlert({
+          title: "Đăng nhập thất bại",
+          message: `Không thể đăng nhập thử "${email}": ${e?.response?.data?.message || e?.message || "lỗi không xác định"}`,
+        });
+      } finally {
+        setSwitchingAccount(null);
+      }
     };
 
     if (FULLBARE[route]) {
@@ -302,15 +342,35 @@ function registerGalleryPage() {
                     <Avatar name={persona.name} size={40} /><div style={{ minWidth: 0 }}><div style={{ fontWeight: 700, fontSize: 14 }} className="truncate">{persona.name}</div><div className="t-xs muted truncate">{persona.email}</div></div>
                   </div>
                   <div className="row gap-11" style={{ padding: "10px 12px", borderRadius: 9, cursor: "pointer", fontSize: 14, fontWeight: 500 }} onClick={() => { go("settings"); setUmenu(false); }}><Ic n="settings" size={18} style={{ color: "var(--text-2)" }} />Cài đặt</div>
+                  {import.meta.env.DEV && (
+                    <>
+                      <div className="t-xs muted" style={{ padding: "8px 12px 4px", fontWeight: 700, borderTop: "1px solid var(--border)", marginTop: 6 }}>Chuyển tài khoản (dev)</div>
+                      <div style={{ maxHeight: 220, overflowY: "auto" }}>
+                        {DEV_QUICK_ACCOUNTS.map(acc => (
+                          <div key={acc.email}
+                            className="row gap-11"
+                            style={{ padding: "8px 12px", borderRadius: 9, cursor: switchingAccount ? "default" : "pointer", fontSize: 13.5, opacity: switchingAccount && switchingAccount !== acc.email ? .5 : 1 }}
+                            onClick={() => quickSwitchAccount(acc.email)}>
+                            <Ic n="user" size={16} style={{ color: "var(--text-2)" }} />
+                            <div style={{ minWidth: 0 }}>
+                              <div className="truncate">{acc.label}{switchingAccount === acc.email ? "…" : ""}</div>
+                              <div className="t-xs muted truncate">{acc.email}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
                   {!authUser && <div className="row gap-11" style={{ padding: "10px 12px", borderRadius: 9, cursor: "pointer", fontSize: 14, fontWeight: 500, color: "var(--error)", borderTop: "1px solid var(--border)", marginTop: 6 }} onClick={onExit}><Ic n="grid" size={18} />Thư viện màn hình</div>}
                   {authUser && <div className="row gap-11" style={{ padding: "10px 12px", borderRadius: 9, cursor: "pointer", fontSize: 14, fontWeight: 500, color: "var(--error)", borderTop: "1px solid var(--border)", marginTop: 6 }} onClick={onLogout}><Ic n="logout" size={18} />Đăng xuất</div>}
                 </div>
               )}
             </div>
           </header>
-          <main style={{ flex: 1 }}>{useMemo(() => <Comp nav={go} persona={persona} demo={demo} groupId={routeParams?.groupId} courseId={routeParams?.courseId} quizId={routeParams?.quizId} postId={routeParams?.postId || routeParams?.id} />, [route, role, routeParams?.groupId, routeParams?.courseId, routeParams?.quizId, routeParams?.postId, routeParams?.id, persona, demo, go])}</main>
+          <main style={{ flex: 1 }}>{useMemo(() => <Comp nav={go} persona={persona} demo={demo} groupId={routeParams?.groupId} courseId={routeParams?.courseId} slug={routeParams?.slug} quizId={routeParams?.quizId} postId={routeParams?.postId || routeParams?.id} />, [route, role, routeParams?.groupId, routeParams?.courseId, routeParams?.slug, routeParams?.quizId, routeParams?.postId, routeParams?.id, persona, demo, go])}</main>
         </div>
         {(role === "student" || role === "instructor") && <window.AIChatbot />}
+        <window.AlertModal open={!!switchAlert} onClose={() => setSwitchAlert(null)} title={switchAlert?.title} message={switchAlert?.message} type="error" />
       </div>
     );
   }

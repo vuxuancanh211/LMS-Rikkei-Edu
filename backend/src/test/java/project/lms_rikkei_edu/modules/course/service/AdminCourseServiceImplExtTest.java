@@ -9,6 +9,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import org.springframework.cache.CacheManager;
 import project.lms_rikkei_edu.infrastructure.s3.S3Service;
 import project.lms_rikkei_edu.modules.course.dto.response.CourseDiffResponse;
 import project.lms_rikkei_edu.modules.course.dto.response.CourseDetailResponse;
@@ -36,6 +37,11 @@ class AdminCourseServiceImplExtTest {
     @Mock CourseVersionRepository courseVersionRepo;
     @Mock UserRepository userRepository;
     @Mock S3Service s3Service;
+    @Mock CacheManager cacheManager;
+    @Mock LessonProgressRepository lessonProgressRepo;
+    @Mock VideoUploadJobRepository videoUploadJobRepo;
+    @Mock project.lms_rikkei_edu.modules.ai.service.LessonAiDataCleanupService lessonAiDataCleanupService;
+    @Mock project.lms_rikkei_edu.modules.course.service.impl.CourseVersionReferenceChecker courseVersionReferenceChecker;
 
     AdminCourseServiceImpl service;
 
@@ -47,8 +53,10 @@ class AdminCourseServiceImplExtTest {
         service = new AdminCourseServiceImpl(
                 courseRepo, courseMapper,
                 approvalLogRepo, lessonResourceRepo, courseVersionRepo,
-                userRepository, s3Service, new ObjectMapper()
+                userRepository, s3Service, new ObjectMapper(), cacheManager, lessonProgressRepo, videoUploadJobRepo,
+                lessonAiDataCleanupService, courseVersionReferenceChecker
         );
+        when(courseVersionReferenceChecker.isSafeToDelete(any(), any())).thenReturn(true);
         when(userRepository.findAllByIdInAndDeletedAtIsNull(anyList())).thenReturn(List.of());
     }
 
@@ -135,16 +143,61 @@ class AdminCourseServiceImplExtTest {
             assertThat(c.getStatus()).isEqualTo(CourseStatus.PUBLISHED);
         }
 
-        // lines 163–164 — chapter with pendingDelete=true is removed
+        // lines 163–164 — chapter with pendingDelete=true is soft-deleted, not removed from DB —
+        // xóa cứng sẽ làm mất tài liệu không thể phục hồi khi rollback về version cũ còn cần nó
+        // (xem CourseVersionReferenceChecker).
         @Test
-        void removesPendingDeleteChapter() {
+        void softDeletesPendingDeleteChapter() {
             Chapter ch = chapter(false, true, List.of());
             Course c = courseWith(CourseStatus.PENDING_UPDATE, List.of(ch));
             stubApproveUpdate(c);
 
             service.approveUpdate(adminId, courseId);
 
-            assertThat(c.getChapters()).doesNotContain(ch);
+            assertThat(c.getChapters()).contains(ch);
+            assertThat(ch.getDeletedAt()).isNotNull();
+            assertThat(ch.getPendingDelete()).isFalse();
+        }
+
+        // Regression: lesson_progress.lesson_id và video_upload_jobs.lesson_id có FK REFERENCES
+        // lessons(id) nhưng KHÔNG có ON DELETE CASCADE — xóa hẳn 1 chương/bài đã từng LIVE (học
+        // viên có thể đã học, hoặc đã từng upload video) mà không dọn 2 bảng này trước sẽ vỡ
+        // foreign key constraint ở Postgres, Spring bọc thành lỗi 500 chung chung ("duyệt không
+        // được"). Chỉ tái hiện được với dữ liệu thật có học viên/video — unit test ở đây chỉ xác
+        // nhận repo dọn dẹp được GỌI đúng lesson id.
+        @Test
+        void removesPendingDeleteChapter_alsoCleansUpLessonProgressForItsLessons() {
+            Lesson l = lesson(false, false, null, null);
+            UUID lessonId = UUID.randomUUID();
+            l.setId(lessonId);
+            Chapter ch = chapter(false, true, List.of(l));
+            Course c = courseWith(CourseStatus.PENDING_UPDATE, List.of(ch));
+            stubApproveUpdate(c);
+
+            service.approveUpdate(adminId, courseId);
+
+            verify(lessonProgressRepo).deleteByLessonIdIn(List.of(lessonId));
+            verify(videoUploadJobRepo).deleteByLessonIdIn(List.of(lessonId));
+            verify(lessonAiDataCleanupService).hardDeleteByLessonIds(List.of(lessonId), List.of());
+        }
+
+        @Test
+        void removesPendingDeleteLesson_alsoCleansUpLessonProgress() {
+            Lesson keep = lesson(false, false, null, null);
+            Lesson toDelete = lesson(false, true, null, null);
+            UUID lessonId = UUID.randomUUID();
+            toDelete.setId(lessonId);
+            Chapter ch = chapter(false, false, List.of(keep, toDelete));
+            Course c = courseWith(CourseStatus.PENDING_UPDATE, List.of(ch));
+            stubApproveUpdate(c);
+
+            service.approveUpdate(adminId, courseId);
+
+            assertThat(ch.getLessons()).containsExactlyInAnyOrder(keep, toDelete);
+            assertThat(toDelete.getDeletedAt()).isNotNull();
+            verify(lessonProgressRepo).deleteByLessonIdIn(List.of(lessonId));
+            verify(videoUploadJobRepo).deleteByLessonIdIn(List.of(lessonId));
+            verify(lessonAiDataCleanupService).hardDeleteByLessonIds(List.of(lessonId), List.of());
         }
 
         // lines 165–167 — isDraft chapter: clear isDraft flag + all lessons
@@ -161,9 +214,9 @@ class AdminCourseServiceImplExtTest {
             assertThat(l.getIsDraft()).isFalse();
         }
 
-        // lines 169–185 — existing chapter: pendingDelete lesson removed
+        // lines 169–185 — existing chapter: pendingDelete lesson soft-deleted, not removed
         @Test
-        void removesPendingDeleteLesson() {
+        void softDeletesPendingDeleteLesson() {
             Lesson l = lesson(false, true, null, null);
             Chapter ch = chapter(false, false, List.of(l));
             Course c = courseWith(CourseStatus.PENDING_UPDATE, List.of(ch));
@@ -171,7 +224,9 @@ class AdminCourseServiceImplExtTest {
 
             service.approveUpdate(adminId, courseId);
 
-            assertThat(ch.getLessons()).doesNotContain(l);
+            assertThat(ch.getLessons()).contains(l);
+            assertThat(l.getDeletedAt()).isNotNull();
+            assertThat(l.getPendingDelete()).isFalse();
         }
 
         // lines 174, 175–178 — existing lesson with isDraft + draftTitle
@@ -203,9 +258,11 @@ class AdminCourseServiceImplExtTest {
             assertThat(l.getDraftContentText()).isNull();
         }
 
-        // line 200 — S3 delete fails → log warn, no exception
+        // line 200 — S3 cleanup chạy qua deleteObjectAsync (fire-and-forget, không chặn luồng
+        // gọi) — lỗi S3 (nếu có) được S3Service tự log warn nội bộ, không còn cách nào propagate
+        // ngược lại approveUpdate() để mock giả lập ở đây nữa (khác với try/catch cũ tại chỗ gọi).
         @Test
-        void logsWarn_whenS3DeleteFails() {
+        void deletesResource_regardlessOfS3CleanupOutcome() {
             LessonResource r = new LessonResource();
             r.setS3Key("courses/file.pdf");
             r.setPendingDelete(true);
@@ -216,13 +273,37 @@ class AdminCourseServiceImplExtTest {
             when(lessonResourceRepo.findAllByCourseIdAndIsNewInUpdateTrue(courseId)).thenReturn(List.of());
             when(courseVersionRepo.findFirstByCourseIdAndStatus(courseId, "PENDING")).thenReturn(Optional.empty());
             when(courseMapper.toDetailResponse(c)).thenReturn(detailResponse());
-            doThrow(new RuntimeException("S3 error")).when(s3Service).deleteObject("courses/file.pdf");
 
-            // Should not throw — just logs warn
             service.approveUpdate(adminId, courseId);
 
             assertThat(r.getDeletedAt()).isNotNull();
             assertThat(r.getStatus()).isEqualTo("DELETED");
+            verify(s3Service).deleteObjectAsync("courses/file.pdf");
+        }
+
+        // Tài liệu vẫn phải soft-delete ở DB (không còn hiện cho học viên/giảng viên) nhưng KHÔNG
+        // được xóa file S3 nếu còn 1 CourseVersion khác (VD: bản đang PUBLISHED) còn tham chiếu
+        // key này trong snapshot — nếu không, rollback về version đó sau này sẽ mất tài liệu vĩnh
+        // viễn (xem CourseVersionReferenceChecker).
+        @Test
+        void keepsS3File_whenStillReferencedByAnotherCourseVersion() {
+            LessonResource r = new LessonResource();
+            r.setS3Key("courses/file.pdf");
+            r.setPendingDelete(true);
+
+            Course c = courseWith(CourseStatus.PENDING_UPDATE, List.of());
+            when(courseRepo.findByIdWithCategory(courseId)).thenReturn(Optional.of(c));
+            when(lessonResourceRepo.findAllByCourseIdAndPendingDeleteTrue(courseId)).thenReturn(List.of(r));
+            when(lessonResourceRepo.findAllByCourseIdAndIsNewInUpdateTrue(courseId)).thenReturn(List.of());
+            when(courseVersionRepo.findFirstByCourseIdAndStatus(courseId, "PENDING")).thenReturn(Optional.empty());
+            when(courseMapper.toDetailResponse(c)).thenReturn(detailResponse());
+            when(courseVersionReferenceChecker.isSafeToDelete(courseId, "courses/file.pdf")).thenReturn(false);
+
+            service.approveUpdate(adminId, courseId);
+
+            assertThat(r.getDeletedAt()).isNotNull();
+            assertThat(r.getStatus()).isEqualTo("DELETED");
+            verify(s3Service, never()).deleteObjectAsync(anyString());
         }
 
         // lines 222–226 — version updated to APPROVED when present

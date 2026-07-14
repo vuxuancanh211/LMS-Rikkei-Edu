@@ -1,7 +1,9 @@
 package project.lms_rikkei_edu.modules.course.dto.response;
 
+import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
+import lombok.NoArgsConstructor;
 import lombok.Setter;
 import project.lms_rikkei_edu.modules.course.enums.LessonType;
 import project.lms_rikkei_edu.modules.course.enums.VideoStatus;
@@ -11,9 +13,12 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+/* NoArgsConstructor cần cho Jackson deserialize lại từ Redis cache "course-detail" — @Builder một mình sẽ bỏ constructor mặc định. */
 @Getter
 @Setter
 @Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class LessonResponse {
     private UUID id;
     private String title;

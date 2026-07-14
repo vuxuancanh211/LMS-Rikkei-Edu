@@ -14,6 +14,52 @@
     OTHER: { ic: "file",   bg: "#f1f5f9", fg: "#475569" },
   };
 
+  /* Xác định loại tài nguyên thực tế từ mimeType + phần mở rộng file — dùng chung cho cả
+     AddResourceModal và EditResourceModal để chặn nhầm file (VD kéo thả PDF vào khung Video,
+     hoặc video vào khung Tài liệu): input `accept` chỉ là gợi ý cho hộp thoại chọn file của
+     trình duyệt, KHÔNG có tác dụng khi kéo thả (drag-and-drop bỏ qua `accept` hoàn toàn), nên
+     bắt buộc phải tự kiểm tra lại loại file thật sau khi đã có File object. */
+  function detectResourceType(file: any) {
+    const ext = file.name.split(".").pop()?.toLowerCase() || "";
+    if (file.type.startsWith("video/") || ["mp4","mov","webm"].includes(ext)) return "VIDEO";
+    if (file.type === "application/pdf" || ext === "pdf") return "PDF";
+    if (ext === "ppt" || ext === "pptx") return "SLIDE";
+    if (ext === "doc" || ext === "docx") return "DOC";
+    if (file.type.startsWith("image/") || ["png","jpg","jpeg","gif","webp"].includes(ext)) return "IMAGE";
+    return "OTHER";
+  }
+
+  /* Upload thẳng lên presigned URL bằng XHR để lấy progress — XHR mặc định KHÔNG có
+     timeout, nên nếu kết nối treo (mất mạng, presigned host không phản hồi...) mà
+     không có byte nào được gửi tiếp, promise sẽ không bao giờ resolve/reject: UI kẹt ở
+     "Đang upload... 0%" mãi mãi, chỉ thoát được bằng cách F5 lại trang. Đồng hồ "stall"
+     dưới đây tự reset mỗi khi có tiến độ mới nên không giết oan các upload lớn/chậm
+     nhưng vẫn đang chạy — chỉ hủy khi thực sự không còn tiến triển gì. */
+  function uploadWithProgress(url: string, file: any, contentType: string, onProgress: (pct: number) => void) {
+    const STALL_TIMEOUT_MS = 30000;
+    return new Promise((res, rej) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("PUT", url);
+      xhr.setRequestHeader("Content-Type", contentType);
+      let stallTimer: any;
+      const resetStallTimer = () => {
+        clearTimeout(stallTimer);
+        stallTimer = setTimeout(() => {
+          xhr.abort();
+          rej(new Error("Upload bị treo do mất kết nối — vui lòng thử lại."));
+        }, STALL_TIMEOUT_MS);
+      };
+      resetStallTimer();
+      xhr.upload.onprogress = (e: any) => {
+        resetStallTimer();
+        if (e.lengthComputable) onProgress(Math.round(e.loaded / e.total * 100));
+      };
+      xhr.onload = () => { clearTimeout(stallTimer); xhr.status < 300 ? res(null) : rej(new Error("Upload thất bại")); };
+      xhr.onerror = () => { clearTimeout(stallTimer); rej(new Error("Mất kết nối")); };
+      xhr.send(file);
+    });
+  }
+
   /* ── UI primitives (local copies) ── */
   function Field({ label, children, full }: any) {
     return (
@@ -43,6 +89,40 @@
         }
       </div>
     );
+  }
+
+  function DocViewer({ url, type, height = 300 }: any) {
+    if (!url) return null;
+    if (type === "PDF") return (
+      <div style={{ position: "relative", width: "100%", height }}>
+        <iframe src={`${url}#toolbar=0&navpanes=0&scrollbar=0`} style={{ width: "100%", height, border: "none", display: "block" }} title="preview" />
+        <div style={{ position: "absolute", top: 0, right: 0, width: 180, height: 50, zIndex: 10, background: "transparent" }}
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); }} />
+      </div>
+    );
+    if (type === "SLIDE" || type === "DOC") {
+      const isLocal = url.includes("localhost") || url.includes("127.0.0.1") || url.startsWith("/");
+      if (isLocal) {
+        return (
+          <div style={{ height, background: "var(--surface-2)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 20, textAlign: "center", gap: 10 }}>
+            <Ic n="book" size={28} style={{ color: "var(--muted)" }} />
+            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--fg)" }}>Tài liệu {type === "SLIDE" ? "Slide PowerPoint" : "Word / Docx"}</div>
+            <div style={{ fontSize: 12, color: "var(--muted)", maxWidth: 380, lineHeight: 1.5 }}>Trình xem trực tuyến không kết nối được Localhost. Tài liệu sẽ hiển thị trực tiếp khi chạy trên máy chủ chính thức.</div>
+          </div>
+        );
+      }
+      return (
+        <div style={{ position: "relative", width: "100%", height }}>
+          <iframe src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}&wdDownloadButton=False&wdPrint=0`}
+            style={{ width: "100%", height, border: "none", display: "block" }} title="preview" />
+          <div style={{ position: "absolute", top: 0, right: 0, width: 160, height: 48, zIndex: 10, background: "transparent" }}
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); }} />
+          <div style={{ position: "absolute", bottom: 0, right: 0, width: 200, height: 44, zIndex: 10, background: "transparent" }}
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); }} />
+        </div>
+      );
+    }
+    return null;
   }
 
   /* ── AddChapterModal ── */
@@ -385,6 +465,9 @@
 
     function onVideoFilePick(f: any) {
       if (!f) return;
+      // input `accept` chỉ lọc hộp thoại chọn file, không chặn được kéo-thả — tự kiểm tra lại
+      // loại file thật để không nhận nhầm PDF/DOCX... vào tab Video.
+      if (detectResourceType(f) !== "VIDEO") { setErr("Vui lòng chọn file video (MP4, MOV, WebM)"); return; }
       if (f.size > 2 * 1024 * 1024 * 1024) { setErr("File vượt quá 2GB"); return; }
       setVideoFile(f);
       setVideoName(prev => prev || f.name.replace(/\.[^.]+$/, ""));
@@ -393,6 +476,8 @@
     }
     function onDocFilePick(f: any) {
       if (!f) return;
+      // Tương tự onVideoFilePick — chặn video bị kéo thả nhầm vào tab Tài liệu.
+      if (detectResourceType(f) === "VIDEO") { setErr("Vui lòng chọn file tài liệu (PDF, DOCX, PPTX, ảnh...), không phải video"); return; }
       if (f.size > 200 * 1024 * 1024) { setErr("File vượt quá 200MB"); return; }
       setDocFile(f);
       setDocName(prev => prev || f.name.replace(/\.[^.]+$/, ""));
@@ -410,13 +495,7 @@
             const displayName = videoName.trim() || videoFile.name.replace(/\.[^.]+$/, "");
             const { data: p } = await api.post(`/instructor/courses/${courseId}/lessons/${lessonId}/resources/presign-upload`,
               { originalFilename: videoFile.name, mimeType: videoFile.type || "video/mp4", fileSizeBytes: videoFile.size, resourceType: "VIDEO", displayName });
-            await new Promise((res, rej) => {
-              const xhr = new XMLHttpRequest();
-              xhr.open("PUT", p.presignedUrl); xhr.setRequestHeader("Content-Type", videoFile.type || "video/mp4");
-              xhr.upload.onprogress = (e: any) => { if (e.lengthComputable) setProgress(Math.round(e.loaded / e.total * 100)); };
-              xhr.onload = () => xhr.status < 300 ? res(null) : rej(new Error("Upload thất bại"));
-              xhr.onerror = () => rej(new Error("Mất kết nối")); xhr.send(videoFile);
-            });
+            await uploadWithProgress(p.presignedUrl, videoFile, videoFile.type || "video/mp4", setProgress);
             await api.post(`/instructor/courses/${courseId}/lessons/${lessonId}/resources/confirm-upload`,
               { s3Key: p.s3Key, originalFilename: videoFile.name, resourceType: "VIDEO", displayName });
           } else {
@@ -426,18 +505,10 @@
         } else {
           if (!docFile) { setErr("Vui lòng chọn file tài liệu"); setSaving(false); return; }
           if (!docName.trim()) { setErr("Vui lòng nhập tên tài liệu"); setSaving(false); return; }
-          const ext = docFile.name.split(".").pop()?.toLowerCase() || "";
-          const resourceType = ext === "pdf" ? "PDF" : (ext === "doc" || ext === "docx") ? "DOC"
-            : (ext === "ppt" || ext === "pptx") ? "SLIDE" : (["png","jpg","jpeg","gif"].includes(ext)) ? "IMAGE" : "OTHER";
+          const resourceType = detectResourceType(docFile);
           const { data: p } = await api.post(`/instructor/courses/${courseId}/lessons/${lessonId}/resources/presign-upload`,
             { originalFilename: docFile.name, mimeType: docFile.type || "application/octet-stream", fileSizeBytes: docFile.size, resourceType, displayName: docName.trim() });
-          await new Promise((res, rej) => {
-            const xhr = new XMLHttpRequest();
-            xhr.open("PUT", p.presignedUrl); xhr.setRequestHeader("Content-Type", docFile.type || "application/octet-stream");
-            xhr.upload.onprogress = (e: any) => { if (e.lengthComputable) setProgress(Math.round(e.loaded / e.total * 100)); };
-            xhr.onload = () => xhr.status < 300 ? res(null) : rej(new Error("Upload thất bại"));
-            xhr.onerror = () => rej(new Error("Mất kết nối")); xhr.send(docFile);
-          });
+          await uploadWithProgress(p.presignedUrl, docFile, docFile.type || "application/octet-stream", setProgress);
           await api.post(`/instructor/courses/${courseId}/lessons/${lessonId}/resources/confirm-upload`,
             { s3Key: p.s3Key, originalFilename: docFile.name, resourceType, displayName: docName.trim() });
         }
@@ -554,19 +625,14 @@
       return () => URL.revokeObjectURL(url);
     }, [newFile]);
 
-    function detectResourceType(file: any) {
-      const ext = file.name.split(".").pop()?.toLowerCase() || "";
-      if (file.type.startsWith("video/") || ["mp4","mov","webm"].includes(ext)) return "VIDEO";
-      if (file.type === "application/pdf" || ext === "pdf") return "PDF";
-      if (ext === "ppt" || ext === "pptx") return "SLIDE";
-      if (ext === "doc" || ext === "docx") return "DOC";
-      if (file.type.startsWith("image/") || ["png","jpg","jpeg","gif","webp"].includes(ext)) return "IMAGE";
-      return "OTHER";
-    }
-
     function onReplacePick(f: any) {
       if (!f) return;
       const isVid = detectResourceType(f) === "VIDEO";
+      // input `accept` chỉ lọc hộp thoại chọn file, không chặn được kéo-thả — tự kiểm tra lại
+      // loại file thật khớp với loại tài nguyên đang thay thế (video chỉ nhận video, tài liệu
+      // không nhận video và ngược lại).
+      if (isVideo && !isVid) { setErr("Vui lòng chọn file video (MP4, MOV, WebM)"); return; }
+      if (!isVideo && isVid) { setErr("Vui lòng chọn file tài liệu (PDF, DOCX, PPTX, ảnh...), không phải video"); return; }
       if (f.size > (isVid ? 2 * 1024 * 1024 * 1024 : 200 * 1024 * 1024)) { setErr(`File vượt quá ${isVid ? "2GB" : "200MB"}`); return; }
       setNewFile(f); setErr(null);
     }
@@ -574,40 +640,6 @@
     function fmtBytes(b: number) {
       if (!b) return "";
       return b < 1024 * 1024 ? (b / 1024).toFixed(1) + " KB" : (b / (1024 * 1024)).toFixed(1) + " MB";
-    }
-
-    function DocViewer({ url, type, height = 300 }: any) {
-      if (!url) return null;
-      if (type === "PDF") return (
-        <div style={{ position: "relative", width: "100%", height }}>
-          <iframe src={`${url}#toolbar=0&navpanes=0&scrollbar=0`} style={{ width: "100%", height, border: "none", display: "block" }} title="preview" />
-          <div style={{ position: "absolute", top: 0, right: 0, width: 180, height: 50, zIndex: 10, background: "transparent" }}
-            onClick={(e) => { e.preventDefault(); e.stopPropagation(); }} />
-        </div>
-      );
-      if (type === "SLIDE" || type === "DOC") {
-        const isLocal = url.includes("localhost") || url.includes("127.0.0.1") || url.startsWith("/");
-        if (isLocal) {
-          return (
-            <div style={{ height, background: "var(--surface-2)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 20, textAlign: "center", gap: 10 }}>
-              <Ic n="book" size={28} style={{ color: "var(--muted)" }} />
-              <div style={{ fontSize: 13, fontWeight: 600, color: "var(--fg)" }}>Tài liệu {type === "SLIDE" ? "Slide PowerPoint" : "Word / Docx"}</div>
-              <div style={{ fontSize: 12, color: "var(--muted)", maxWidth: 380, lineHeight: 1.5 }}>Trình xem trực tuyến không kết nối được Localhost. Tài liệu sẽ hiển thị trực tiếp khi chạy trên máy chủ chính thức.</div>
-            </div>
-          );
-        }
-        return (
-          <div style={{ position: "relative", width: "100%", height }}>
-            <iframe src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}&wdDownloadButton=False&wdPrint=0`}
-              style={{ width: "100%", height, border: "none", display: "block" }} title="preview" />
-            <div style={{ position: "absolute", top: 0, right: 0, width: 160, height: 48, zIndex: 10, background: "transparent" }}
-              onClick={(e) => { e.preventDefault(); e.stopPropagation(); }} />
-            <div style={{ position: "absolute", bottom: 0, right: 0, width: 200, height: 44, zIndex: 10, background: "transparent" }}
-              onClick={(e) => { e.preventDefault(); e.stopPropagation(); }} />
-          </div>
-        );
-      }
-      return null;
     }
 
     function NewFilePreview() {
@@ -657,15 +689,7 @@
             const detectedType = detectResourceType(newFile);
             const { data: p } = await api.post(`/instructor/courses/${courseId}/lessons/${s.lessonId}/resources/presign-upload`,
               { originalFilename: newFile.name, mimeType: newFile.type || "application/octet-stream", fileSizeBytes: newFile.size, resourceType: detectedType, displayName: name.trim() });
-            await new Promise((res, rej) => {
-              const xhr = new XMLHttpRequest();
-              xhr.open("PUT", p.presignedUrl);
-              xhr.setRequestHeader("Content-Type", newFile.type || "application/octet-stream");
-              xhr.upload.onprogress = (e: any) => { if (e.lengthComputable) setProgress(Math.round(e.loaded / e.total * 100)); };
-              xhr.onload = () => xhr.status < 300 ? res(null) : rej(new Error("Upload thất bại"));
-              xhr.onerror = () => rej(new Error("Mất kết nối"));
-              xhr.send(newFile);
-            });
+            await uploadWithProgress(p.presignedUrl, newFile, newFile.type || "application/octet-stream", setProgress);
             await api.post(`/instructor/courses/${courseId}/lessons/${s.lessonId}/resources/confirm-upload`,
               { s3Key: p.s3Key, originalFilename: newFile.name, resourceType: detectedType, displayName: name.trim() });
             await api.delete(`/instructor/courses/${courseId}/lessons/${s.lessonId}/resources/${s.resourceId}`);
@@ -825,7 +849,7 @@
                     : loading ? loadingNode : errorNode
           ) : (isSlide || isPdf || isDoc) ? (
             loading ? loadingNode : viewUrl
-              ? <DocViewer url={viewUrl} type={s.resourceType} height={iframeH} />
+              ? <DocViewer url={viewUrl} type={resourceType} height={iframeH} />
               : errorNode
           ) : (
             <div className="row gap-12" style={{ padding: "28px 20px" }}>

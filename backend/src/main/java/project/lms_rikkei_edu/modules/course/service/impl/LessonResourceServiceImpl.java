@@ -2,8 +2,10 @@ package project.lms_rikkei_edu.modules.course.service.impl;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import project.lms_rikkei_edu.common.exception.BusinessException;
 import project.lms_rikkei_edu.infrastructure.s3.S3Service;
 import project.lms_rikkei_edu.modules.course.dto.request.ResourceConfirmUploadRequest;
 import project.lms_rikkei_edu.modules.course.dto.request.ResourceUploadPresignRequest;
@@ -43,6 +45,7 @@ public class LessonResourceServiceImpl implements LessonResourceService {
     private final CourseRepository courseRepository;
     private final S3Service s3Service;
     private final LessonResourceMapper lessonResourceMapper;
+    private final CourseVersionReferenceChecker courseVersionReferenceChecker;
 
     @Value("${app.s3.presigned-url-expiry:3600}")
     private long presignedUrlExpiry;
@@ -51,6 +54,7 @@ public class LessonResourceServiceImpl implements LessonResourceService {
     public ResourceUploadPresignResponse requestUploadUrl(UUID instructorId, UUID courseId, UUID lessonId,
                                                           ResourceUploadPresignRequest request) {
         loadOwnedLesson(instructorId, courseId, lessonId);
+        validateResourceTypeMatchesFile(request.getResourceType(), request.getOriginalFilename(), request.getMimeType());
 
         boolean isVideo = request.getResourceType() == ResourceType.VIDEO;
         long maxBytes = isVideo ? MAX_VIDEO_SIZE_BYTES : MAX_DOC_SIZE_BYTES;
@@ -76,6 +80,7 @@ public class LessonResourceServiceImpl implements LessonResourceService {
     }
 
     @Override
+    @CacheEvict(value = "course-detail", key = "#courseId + '_' + #instructorId")
     public LessonResourceResponse confirmUpload(UUID instructorId, UUID courseId, UUID lessonId,
                                                 ResourceConfirmUploadRequest request) {
         Lesson lesson = loadOwnedLesson(instructorId, courseId, lessonId);
@@ -91,6 +96,10 @@ public class LessonResourceServiceImpl implements LessonResourceService {
             if (!s3Service.objectExists(request.getS3Key())) {
                 throw new IllegalStateException("File chưa được upload lên S3: " + request.getS3Key());
             }
+            // Chặn nguồn từ presign-upload cũng bị bỏ qua cross-check (VD gọi thẳng API, bỏ qua
+            // FE) — resourceType client khai báo phải thực sự khớp với file đã upload, nếu không
+            // học viên sẽ thấy 1 lesson video nhưng resource thật là PDF (hoặc ngược lại).
+            validateResourceTypeMatchesFile(request.getResourceType(), request.getOriginalFilename(), request.getMimeType());
             s3Key = request.getS3Key();
         }
 
@@ -182,6 +191,7 @@ public class LessonResourceServiceImpl implements LessonResourceService {
     }
 
     @Override
+    @CacheEvict(value = "course-detail", key = "#courseId + '_' + #instructorId")
     public void deleteResource(UUID instructorId, UUID courseId, UUID lessonId, UUID resourceId) {
         loadOwnedLesson(instructorId, courseId, lessonId);
 
@@ -211,14 +221,18 @@ public class LessonResourceServiceImpl implements LessonResourceService {
         resource.setStatus("DELETED");
         lessonResourceRepository.save(resource);
 
-        // Xóa thật trên S3 (bỏ qua external URL)
+        // Xóa thật trên S3 (bỏ qua external URL), chạy async (không chặn response) — DB là
+        // nguồn sự thật, S3 chỉ dọn rác best-effort. Bỏ qua nếu còn CourseVersion nào (VD: 1 bản
+        // nháp đã lưu trước đó) còn tham chiếu key này trong snapshot.
         String s3Key = resource.getS3Key();
-        if (s3Key != null && !s3Key.startsWith("ext://")) {
-            s3Service.deleteObject(s3Key);
+        if (s3Key != null && !s3Key.startsWith("ext://")
+                && courseVersionReferenceChecker.isSafeToDelete(courseId, s3Key)) {
+            s3Service.deleteObjectAsync(s3Key);
         }
     }
 
     @Override
+    @CacheEvict(value = "course-detail", key = "#courseId + '_' + #instructorId")
     public LessonResourceResponse renameResource(UUID instructorId, UUID courseId, UUID lessonId, UUID resourceId, String displayName) {
         loadOwnedLesson(instructorId, courseId, lessonId);
 
@@ -263,5 +277,36 @@ public class LessonResourceServiceImpl implements LessonResourceService {
     private String extractExtension(String filename) {
         if (filename == null || !filename.contains(".")) return "";
         return "." + filename.substring(filename.lastIndexOf('.') + 1).toLowerCase();
+    }
+
+    /**
+     * Frontend đã tự kiểm tra loại file khớp với tab Video/Tài liệu đang thao tác, nhưng đó chỉ là
+     * UX — client luôn có thể bị bypass (gọi thẳng API). Đây là biên giới tin cậy thật: chặn
+     * trường hợp resourceType client khai báo (VIDEO/PDF/DOC/...) không khớp với phần mở rộng/
+     * mimeType file thực tế đã upload, để tránh 1 lesson bị gắn nhầm loại resource (VD kéo thả
+     * PDF vào khung Video, hoặc video vào khung Tài liệu).
+     */
+    private void validateResourceTypeMatchesFile(ResourceType resourceType, String originalFilename, String mimeType) {
+        if (resourceType == null) return;
+
+        String ext = originalFilename != null && originalFilename.contains(".")
+                ? originalFilename.substring(originalFilename.lastIndexOf('.') + 1).toLowerCase()
+                : "";
+        String mime = mimeType != null ? mimeType.toLowerCase() : "";
+
+        // OTHER là fallback cho định dạng không nhận diện được — không có tập extension/mimeType
+        // "đúng" cố định để so khớp nên luôn coi là hợp lệ, không chặn cứng.
+        boolean matches = switch (resourceType) {
+            case VIDEO -> mime.startsWith("video/") || List.of("mp4", "mov", "webm").contains(ext);
+            case PDF -> mime.equals("application/pdf") || ext.equals("pdf");
+            case DOC -> ext.equals("doc") || ext.equals("docx");
+            case SLIDE -> ext.equals("ppt") || ext.equals("pptx");
+            case IMAGE -> mime.startsWith("image/") || List.of("png", "jpg", "jpeg", "gif", "webp").contains(ext);
+            case OTHER -> true;
+        };
+
+        if (!matches) {
+            throw new BusinessException("Loại file không khớp với loại tài nguyên đã chọn (" + resourceType + ")");
+        }
     }
 }
