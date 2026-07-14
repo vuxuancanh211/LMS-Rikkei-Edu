@@ -1,6 +1,7 @@
 package project.lms_rikkei_edu.infrastructure.redis;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
@@ -14,6 +15,7 @@ import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class RedisService {
 
     private final RedisTemplate<String, Object> redisTemplate;
@@ -59,7 +61,12 @@ public class RedisService {
     }
 
     public boolean isAccessTokenBlacklisted(String jti) {
-        return hasKey(RedisKeyConstants.ACCESS_TOKEN_BLACKLIST + jti);
+        try {
+            return hasKey(RedisKeyConstants.ACCESS_TOKEN_BLACKLIST + jti);
+        } catch (RuntimeException exception) {
+            log.warn("Cannot check JWT blacklist in Redis: {}", exception.getMessage());
+            return false;
+        }
     }
 
     // ── Refresh Token ─────────────────────────────────────────────────────────

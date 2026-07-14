@@ -80,6 +80,7 @@ export function connectSSE(
   let currentDelayMs = 3000;
   let aborted = false;
   let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+  let controller: AbortController | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let hasConnected = false;
 
@@ -123,8 +124,10 @@ export function connectSSE(
     if (!accessToken) return;
 
     try {
+      controller = new AbortController();
       const response = await fetch(url, {
         headers: { 'Authorization': `${tokenType || 'Bearer'} ${accessToken}` },
+        signal: controller.signal,
       });
       if (!response.ok || !response.body) {
         currentDelayMs = Math.min(currentDelayMs * 1.5, 30000);
@@ -156,6 +159,7 @@ export function connectSSE(
       if (!aborted && onError) onError();
     } finally {
       reader = null;
+      controller = null;
       scheduleReconnect();
     }
   }
@@ -165,6 +169,7 @@ export function connectSSE(
   return () => {
     aborted = true;
     if (reconnectTimer) clearTimeout(reconnectTimer);
+    if (controller) controller.abort();
     if (reader) reader.cancel();
   };
 }
