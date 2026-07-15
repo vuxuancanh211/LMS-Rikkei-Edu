@@ -293,6 +293,50 @@ class AuthServiceImplTest {
         }
 
         @Test
+        void getClientIp_fallbackBranches() {
+            org.springframework.mock.web.MockHttpServletRequest mockRequest = new org.springframework.mock.web.MockHttpServletRequest();
+            mockRequest.addHeader("X-Forwarded-For", "unknown");
+            mockRequest.addHeader("X-Real-IP", "unknown");
+            mockRequest.setRemoteAddr("192.168.1.100");
+            org.springframework.web.context.request.RequestContextHolder.setRequestAttributes(
+                    new org.springframework.web.context.request.ServletRequestAttributes(mockRequest));
+
+            try {
+                LoginRequest req = new LoginRequest();
+                req.setEmail("test@example.com");
+                req.setPassword("password");
+
+                when(redisService.isRateLimited(eq(RedisKeyConstants.AUTH_RATE_LIMIT_LOGIN + "test@example.com"))).thenReturn(false);
+                when(redisService.isRateLimited(eq(RedisKeyConstants.AUTH_RATE_LIMIT_LOGIN + "ip:192.168.1.100"))).thenReturn(true);
+
+                assertThatThrownBy(() -> authService.login(req))
+                        .isInstanceOf(BusinessException.class)
+                        .satisfies(e -> assertThat(((BusinessException) e).getStatus()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS));
+            } finally {
+                org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes();
+            }
+        }
+
+        @Test
+        void login_withEmptyOrNullPassword_testsDecodeBranches() {
+            LoginRequest req = new LoginRequest();
+            req.setEmail("test@example.com");
+            req.setPassword("");
+
+            UserEntity user = activeUser();
+            when(redisService.isRateLimited(anyString())).thenReturn(false);
+            when(userRepository.findByEmailIgnoreCaseAndDeletedAtIsNull("test@example.com"))
+                    .thenReturn(Optional.of(user));
+            when(passwordEncoder.matches(eq(""), anyString())).thenReturn(true);
+            when(jwtService.generateAccessToken(user)).thenReturn("access-token");
+            when(jwtService.getAccessTokenExpirationSeconds()).thenReturn(3600L);
+            when(userMapper.toResponse(user)).thenReturn(userResponse());
+
+            LoginResponse resp = authService.login(req);
+            assertThat(resp.getAccessToken()).isEqualTo("access-token");
+        }
+
+        @Test
         void throws403_whenAccountDisabled() {
             LoginRequest req = new LoginRequest();
             req.setEmail("test@example.com");

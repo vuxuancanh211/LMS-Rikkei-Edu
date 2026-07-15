@@ -10,6 +10,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -107,6 +108,48 @@ class JwtAuthenticationFilterTest {
         UserDetails userDetails = new User("test@example.com", "password", Collections.emptyList());
         when(userDetailsService.loadUserByUsername("test@example.com")).thenReturn(userDetails);
         when(jwtService.isTokenValid("invalid-token", userDetails)).thenReturn(false);
+
+        filter.doFilterInternal(request, response, filterChain);
+
+        verify(filterChain).doFilter(request, response);
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+    }
+
+    @Test
+    void doFilterInternal_whenEmailIsNull_proceedsWithoutAuth() throws ServletException, IOException {
+        request.addHeader("Authorization", "Bearer token-no-email");
+        when(jwtService.extractJti("token-no-email")).thenReturn("jti-ok");
+        when(redisService.isAccessTokenBlacklisted("jti-ok")).thenReturn(false);
+        when(jwtService.extractUsername("token-no-email")).thenReturn(null);
+
+        filter.doFilterInternal(request, response, filterChain);
+
+        verify(filterChain).doFilter(request, response);
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+        verifyNoInteractions(userDetailsService);
+    }
+
+    @Test
+    void doFilterInternal_whenAlreadyAuthenticated_doesNotLoadUser() throws ServletException, IOException {
+        request.addHeader("Authorization", "Bearer token-already-auth");
+        when(jwtService.extractJti("token-already-auth")).thenReturn("jti-ok");
+        when(redisService.isAccessTokenBlacklisted("jti-ok")).thenReturn(false);
+        when(jwtService.extractUsername("token-already-auth")).thenReturn("test@example.com");
+
+        UsernamePasswordAuthenticationToken existingAuth = new UsernamePasswordAuthenticationToken("existing", null, Collections.emptyList());
+        SecurityContextHolder.getContext().setAuthentication(existingAuth);
+
+        filter.doFilterInternal(request, response, filterChain);
+
+        verify(filterChain).doFilter(request, response);
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isEqualTo(existingAuth);
+        verifyNoInteractions(userDetailsService);
+    }
+
+    @Test
+    void doFilterInternal_whenRuntimeExceptionThrown_clearsContextAndProceeds() throws ServletException, IOException {
+        request.addHeader("Authorization", "Bearer bad-token");
+        when(jwtService.extractJti("bad-token")).thenThrow(new RuntimeException("Malformed JWT"));
 
         filter.doFilterInternal(request, response, filterChain);
 

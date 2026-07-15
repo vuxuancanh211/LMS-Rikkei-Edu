@@ -163,6 +163,32 @@ class AuthControllerTest {
                             .content(objectMapper.writeValueAsString(req)))
                     .andExpect(status().isOk());
         }
+
+        @Test
+        void coversAllSecretHeaderBranchCombinations() throws Exception {
+            LoginRequest req = new LoginRequest();
+            req.setEmail("test@example.com");
+            when(authService.login(any())).thenReturn(LoginResponse.builder().accessToken("token").build());
+
+            req.setPassword("*******");
+            mockMvc.perform(post("/api/auth/login")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(req)))
+                    .andExpect(status().isOk());
+
+            mockMvc.perform(post("/api/auth/login")
+                            .header("X-Auth-Secret", "")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(req)))
+                    .andExpect(status().isOk());
+
+            req.setPassword(null);
+            mockMvc.perform(post("/api/auth/login")
+                            .header("X-Auth-Secret", "Secret123")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(req)))
+                    .andExpect(status().isBadRequest());
+        }
     }
 
     // ── POST /api/auth/refresh ────────────────────────────────────────────────
@@ -346,6 +372,36 @@ class AuthControllerTest {
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(req)))
                     .andExpect(status().isOk());
+        }
+
+        @Test
+        void coversAllSecretHeaderBranchCombinationsReset() throws Exception {
+            ResetPasswordRequest req = new ResetPasswordRequest();
+            req.setToken("valid-token");
+            when(authService.resetPassword(any())).thenReturn(ResetPasswordResponse.builder().message("ok").build());
+
+            req.setNewPassword("********");
+            req.setConfirmPassword("********");
+            mockMvc.perform(post("/api/auth/reset-password")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(req)))
+                    .andExpect(status().isOk());
+
+            mockMvc.perform(post("/api/auth/reset-password")
+                            .header("X-Auth-Secret-New", "")
+                            .header("X-Auth-Secret-Confirm", "")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(req)))
+                    .andExpect(status().isOk());
+
+            req.setNewPassword(null);
+            req.setConfirmPassword(null);
+            mockMvc.perform(post("/api/auth/reset-password")
+                            .header("X-Auth-Secret-New", "SecretPass123!")
+                            .header("X-Auth-Secret-Confirm", "SecretPass123!")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(req)))
+                    .andExpect(status().isBadRequest());
         }
     }
 
