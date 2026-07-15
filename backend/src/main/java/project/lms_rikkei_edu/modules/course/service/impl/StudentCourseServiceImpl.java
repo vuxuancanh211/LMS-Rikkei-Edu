@@ -300,7 +300,11 @@ public class StudentCourseServiceImpl implements StudentCourseService {
         applyProgressStatus(progress, completed, wp, dv);
 
         // Calculate lesson percentage
-        progress.setLessonPercentage(calculateLessonPercentage(wp, dv, hasVideo, hasDocument));
+        if (completed && !hasVideo) {
+            progress.setLessonPercentage(BigDecimal.valueOf(100));
+        } else {
+            progress.setLessonPercentage(calculateLessonPercentage(wp, dv, hasVideo, hasDocument));
+        }
 
         lessonProgressRepository.save(progress);
 
@@ -318,6 +322,9 @@ public class StudentCourseServiceImpl implements StudentCourseService {
         }
         if (request.getCompleted() != null) {
             return request.getCompleted();
+        }
+        if (!hasVideo && !hasDocument) {
+            return true;
         }
         if (hasVideo) {
             return wp >= 90;

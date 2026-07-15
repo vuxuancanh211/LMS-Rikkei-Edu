@@ -533,6 +533,7 @@ class StudentCourseServiceImplTest {
 
         UpdateProgressRequest req = new UpdateProgressRequest();
         req.setDocumentViewSeconds(25);
+        req.setCompleted(true);
 
         studentCourseService.updateLessonProgress(studentId, courseId, lessonId, req);
 
@@ -566,6 +567,7 @@ class StudentCourseServiceImplTest {
 
         UpdateProgressRequest req = new UpdateProgressRequest();
         req.setDocumentViewSeconds(25);
+        req.setCompleted(true);
 
         studentCourseService.updateLessonProgress(studentId, courseId, lessonId, req);
 

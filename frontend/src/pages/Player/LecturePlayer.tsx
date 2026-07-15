@@ -1098,7 +1098,7 @@
       window.addEventListener("message", handleYtMessage);
       const pingYt = () => {
         document.querySelectorAll("iframe").forEach(ifr => {
-          try { ifr.contentWindow?.postMessage(JSON.stringify({ event: "listening", id: resId, channel: "widget" }), "*"); } catch {}
+          try { ifr.contentWindow?.postMessage(JSON.stringify({ event: "listening", id: resId, channel: "widget" }), "*"); } catch { /* ignore */ }
         });
       };
       pingYt();
