@@ -9,9 +9,7 @@ import {
   getNotifications,
   getUnreadCount,
   markAsRead,
-  markAllAsRead,
   connectNotificationSSE,
-  connectAccountLockedSSE,
 } from '../../services/notification-service';
 import { login } from '../../services/auth-service';
 import { useAuthStore, mapApiRole } from '../../store';

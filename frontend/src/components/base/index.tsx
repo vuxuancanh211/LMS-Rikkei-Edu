@@ -417,7 +417,7 @@ function AccountLockedOverlay() {
             color: "#fff", cursor: "pointer"
           }}
           onClick={() => {
-            try { localStorage.setItem('account_locked_sync', Date.now().toString()); } catch (err) {}
+            try { localStorage.setItem('account_locked_sync', Date.now().toString()); } catch (err) { void err; }
             useAuthStore.getState().logout();
             sessionStorage.clear();
             window.location.href = "/login";
