@@ -17,6 +17,7 @@ import project.lms_rikkei_edu.common.security.CurrentUserProvider;
 import project.lms_rikkei_edu.common.security.JwtService;
 import project.lms_rikkei_edu.infrastructure.email.EmailService;
 import project.lms_rikkei_edu.infrastructure.redis.RedisService;
+import project.lms_rikkei_edu.common.constants.RedisKeyConstants;
 import project.lms_rikkei_edu.modules.auth.dto.request.ForgotPasswordRequest;
 import project.lms_rikkei_edu.modules.auth.dto.request.LoginRequest;
 import project.lms_rikkei_edu.modules.auth.dto.request.RefreshTokenRequest;
@@ -182,6 +183,48 @@ class AuthServiceImplTest {
             assertThatThrownBy(() -> authService.login(req))
                     .isInstanceOf(BusinessException.class)
                     .satisfies(e -> assertThat(((BusinessException) e).getStatus()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS));
+        }
+
+        @Test
+        void throws429_whenIpRateLimitExceeded() {
+            org.springframework.mock.web.MockHttpServletRequest mockRequest = new org.springframework.mock.web.MockHttpServletRequest();
+            mockRequest.addHeader("X-Forwarded-For", "192.168.1.100");
+            org.springframework.web.context.request.RequestContextHolder.setRequestAttributes(
+                    new org.springframework.web.context.request.ServletRequestAttributes(mockRequest));
+
+            try {
+                LoginRequest req = new LoginRequest();
+                req.setEmail("test@example.com");
+                req.setPassword("password");
+
+                when(redisService.isRateLimited(eq(RedisKeyConstants.AUTH_RATE_LIMIT_LOGIN + "test@example.com"))).thenReturn(false);
+                when(redisService.isRateLimited(eq(RedisKeyConstants.AUTH_RATE_LIMIT_LOGIN + "ip:192.168.1.100"))).thenReturn(true);
+
+                assertThatThrownBy(() -> authService.login(req))
+                        .isInstanceOf(BusinessException.class)
+                        .satisfies(e -> assertThat(((BusinessException) e).getStatus()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS));
+            } finally {
+                org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes();
+            }
+        }
+
+        @Test
+        void login_decodesBase64Password() {
+            LoginRequest req = new LoginRequest();
+            req.setEmail("test@example.com");
+            req.setPassword(java.util.Base64.getEncoder().encodeToString("password".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+
+            UserEntity user = activeUser();
+            when(redisService.isRateLimited(anyString())).thenReturn(false);
+            when(userRepository.findByEmailIgnoreCaseAndDeletedAtIsNull("test@example.com"))
+                    .thenReturn(Optional.of(user));
+            when(passwordEncoder.matches("password", "hashed")).thenReturn(true);
+            when(jwtService.generateAccessToken(user)).thenReturn("access-token");
+            when(jwtService.getAccessTokenExpirationSeconds()).thenReturn(3600L);
+            when(userMapper.toResponse(user)).thenReturn(userResponse());
+
+            LoginResponse resp = authService.login(req);
+            assertThat(resp.getAccessToken()).isEqualTo("access-token");
         }
 
         @Test

@@ -51,12 +51,31 @@ httpClient.interceptors.response.use(
       originalRequest._retry ||
       originalRequest.skipAuthRefresh
     ) {
+      if (status === 403 || (status === 401 && /khóa|locked|disabled|vô hiệu/i.test(error.response?.data?.message || ''))) {
+        if (typeof window !== 'undefined' && (window as any).__triggerAccountLockedModal) {
+          (window as any).__triggerAccountLockedModal(error.response?.data);
+          return Promise.reject(error);
+        }
+      }
       return Promise.reject(error);
+    }
+
+    if (/khóa|locked|disabled|vô hiệu/i.test(error.response?.data?.message || '')) {
+      if (typeof window !== 'undefined' && (window as any).__triggerAccountLockedModal) {
+        (window as any).__triggerAccountLockedModal(error.response?.data);
+        return Promise.reject(error);
+      }
     }
 
     const { refreshToken: storedRefreshToken, setTokens, logout } = useAuthStore.getState();
 
     if (!storedRefreshToken) {
+      if (status === 403 || /khóa|locked|disabled|vô hiệu/i.test(error.response?.data?.message || '')) {
+        if (typeof window !== 'undefined' && (window as any).__triggerAccountLockedModal) {
+          (window as any).__triggerAccountLockedModal(error.response?.data);
+          return Promise.reject(error);
+        }
+      }
       logout();
       if (window.location.pathname !== '/login') {
         window.location.assign('/login');
@@ -97,6 +116,13 @@ httpClient.interceptors.response.use(
       flushQueue(null, refreshError);
       const refreshStatus = refreshError?.response?.status;
       if (refreshStatus === 401 || refreshStatus === 403) {
+        const msg = refreshError?.response?.data?.message || '';
+        if (refreshStatus === 403 || /khóa|locked|disabled|vô hiệu/i.test(msg)) {
+          if (typeof window !== 'undefined' && (window as any).__triggerAccountLockedModal) {
+            (window as any).__triggerAccountLockedModal(refreshError?.response?.data);
+            return Promise.reject(refreshError);
+          }
+        }
         logout();
         if (window.location.pathname !== '/login') {
           window.location.assign('/login');

@@ -121,6 +121,27 @@ class AuthControllerTest {
                             .content(objectMapper.writeValueAsString(req)))
                     .andExpect(status().isTooManyRequests());
         }
+
+        @Test
+        void usesSecretHeader_whenPasswordIsAsterisks() throws Exception {
+            LoginRequest req = new LoginRequest();
+            req.setEmail("test@example.com");
+            req.setPassword("*******");
+
+            LoginResponse resp = LoginResponse.builder()
+                    .accessToken("access-token")
+                    .refreshToken("refresh-token")
+                    .tokenType("Bearer")
+                    .expiresIn(3600L)
+                    .build();
+            when(authService.login(any())).thenReturn(resp);
+
+            mockMvc.perform(post("/api/auth/login")
+                            .header("X-Auth-Secret", "ActualSecret123!")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(req)))
+                    .andExpect(status().isOk());
+        }
     }
 
     // ── POST /api/auth/refresh ────────────────────────────────────────────────
@@ -257,6 +278,26 @@ class AuthControllerTest {
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(req)))
                     .andExpect(status().isBadRequest());
+        }
+
+        @Test
+        void usesSecretHeaders_whenPasswordsAreAsterisks() throws Exception {
+            ResetPasswordRequest req = new ResetPasswordRequest();
+            req.setToken("valid-token");
+            req.setNewPassword("********");
+            req.setConfirmPassword("********");
+
+            when(authService.resetPassword(any()))
+                    .thenReturn(ResetPasswordResponse.builder()
+                            .message("Password has been reset successfully")
+                            .build());
+
+            mockMvc.perform(post("/api/auth/reset-password")
+                            .header("X-Auth-Secret-New", "ActualSecret123!")
+                            .header("X-Auth-Secret-Confirm", "ActualSecret123!")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(req)))
+                    .andExpect(status().isOk());
         }
     }
 

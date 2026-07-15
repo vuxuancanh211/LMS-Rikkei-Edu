@@ -13,7 +13,16 @@ export type MessageResponse = {
 };
 
 export async function login(payload: LoginFormValues) {
-  const response = await httpClient.post<LoginResponse>('/auth/login', payload, { skipAuthRefresh: true });
+  const maskedPayload = {
+    ...payload,
+    password: '*******',
+  };
+  const response = await httpClient.post<LoginResponse>('/auth/login', maskedPayload, {
+    skipAuthRefresh: true,
+    headers: {
+      'X-Auth-Secret': payload.password,
+    },
+  });
   return response.data;
 }
 
@@ -23,7 +32,17 @@ export async function forgotPassword(payload: ForgotPasswordFormValues) {
 }
 
 export async function resetPassword(payload: ResetPasswordFormValues) {
-  const response = await httpClient.post<MessageResponse>('/auth/reset-password', payload);
+  const maskedPayload = {
+    ...payload,
+    newPassword: '********',
+    confirmPassword: '********',
+  };
+  const response = await httpClient.post<MessageResponse>('/auth/reset-password', maskedPayload, {
+    headers: {
+      'X-Auth-Secret-New': payload.newPassword,
+      'X-Auth-Secret-Confirm': payload.confirmPassword,
+    },
+  });
   return response.data;
 }
 

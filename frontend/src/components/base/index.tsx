@@ -3,6 +3,8 @@
    RIKKEI EDU — Shared components
    ============================================================ */
 import { createPortal } from 'react-dom';
+import { connectAccountLockedSSE } from '../../services/notification-service';
+import { useAuthStore } from '../../store';
 
 const { useState, useEffect, useRef } = React;
 const I = window.Icon;
@@ -344,4 +346,88 @@ function AlertModal({ open, onClose, title, message, type = "error" }) {
   );
 }
 
-Object.assign(window, { Avatar, Status, STATUS, Progress, StatCard, CourseCard, Search, Tabs, Select, Section, Pager, PageBar, usePaged, Modal, ModalHead, ConfirmModal, AlertModal, Empty, LineChart, BarChart, Donut });
+/* ---------- AccountLockedOverlay ---------- */
+function AccountLockedOverlay() {
+  const [lockedData, setLockedData] = useState(null);
+
+  useEffect(() => {
+    window.__triggerAccountLockedModal = (data) => {
+      setLockedData(data || { message: "Tài khoản của bạn đã bị quản trị viên khóa hoặc vô hiệu hóa quyền truy cập." });
+    };
+    const disconnectLocked = connectAccountLockedSSE((data) => {
+      if (window.__triggerAccountLockedModal) {
+        window.__triggerAccountLockedModal(data);
+      } else {
+        setLockedData(data || { message: "Tài khoản của bạn đã bị quản trị viên khóa hoặc vô hiệu hóa quyền truy cập." });
+      }
+    });
+
+    /* Multi-tab Sync: Khi 1 tab bấm Xác nhận hoặc đăng xuất, các tab song song khác tự động nhảy về /login */
+    const handleStorage = (e) => {
+      if (e.key === 'account_locked_sync' || (e.key === 'auth-storage' && (!e.newValue || e.newValue.includes('"isAuthenticated":false')))) {
+        if (window.location.pathname !== '/login') {
+          useAuthStore.getState().logout();
+          sessionStorage.clear();
+          window.location.href = '/login';
+        }
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+
+    return () => {
+      disconnectLocked();
+      if (window.__triggerAccountLockedModal) delete window.__triggerAccountLockedModal;
+      window.removeEventListener('storage', handleStorage);
+    };
+  }, []);
+
+  if (!lockedData) return null;
+
+  const Ico = window.Icon;
+  return (
+    <div style={{
+      position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+      background: "rgba(15, 23, 42, 0.88)", backdropFilter: "blur(8px)",
+      zIndex: 9999999, display: "flex", alignItems: "center", justifyContent: "center",
+      padding: 20
+    }} onClick={(e) => e.stopPropagation()}>
+      <div style={{
+        background: "var(--bg-card, #fff)", borderRadius: 16, maxWidth: 440, width: "100%",
+        padding: "28px 24px", boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.5)",
+        textAlign: "center", border: "1px solid var(--border)", animation: "popIn 0.2s ease-out"
+      }} onClick={(e) => e.stopPropagation()}>
+        <div style={{
+          width: 64, height: 64, borderRadius: "50%", background: "rgba(239, 68, 68, 0.12)",
+          color: "#ef4444", display: "flex", alignItems: "center", justifyContent: "center",
+          margin: "0 auto 18px"
+        }}>
+          {Ico && <Ico n="lock" size={32} />}
+        </div>
+        <h3 style={{ fontSize: 20, fontWeight: 700, margin: "0 0 10px", color: "var(--text-1, #0f172a)" }}>
+          {lockedData.title || "Tài khoản đã bị khóa"}
+        </h3>
+        <p style={{ fontSize: 14.5, lineHeight: 1.6, color: "var(--text-2, #475569)", margin: "0 0 26px" }}>
+          {lockedData.message || "Tài khoản của bạn đã bị quản trị viên khóa hoặc vô hiệu hóa quyền truy cập. Bạn vui lòng bấm nút bên dưới để xác nhận và quay về trang đăng nhập."}
+        </p>
+        <button
+          className="btn btn-primary"
+          style={{
+            width: "100%", padding: "12px 20px", fontSize: 15, fontWeight: 600,
+            background: "#ef4444", borderColor: "#ef4444", borderRadius: 10,
+            color: "#fff", cursor: "pointer"
+          }}
+          onClick={() => {
+            try { localStorage.setItem('account_locked_sync', Date.now().toString()); } catch (err) {}
+            useAuthStore.getState().logout();
+            sessionStorage.clear();
+            window.location.href = "/login";
+          }}
+        >
+          Xác nhận
+        </button>
+      </div>
+    </div>
+  );
+}
+
+Object.assign(window, { Avatar, Status, STATUS, Progress, StatCard, CourseCard, Search, Tabs, Select, Section, Pager, PageBar, usePaged, Modal, ModalHead, ConfirmModal, AlertModal, AccountLockedOverlay, Empty, LineChart, BarChart, Donut });
