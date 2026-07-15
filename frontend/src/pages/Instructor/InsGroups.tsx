@@ -4,7 +4,7 @@
   const Ic = window.Icon;
   const { Search, Select, Modal, ModalHead, Empty } = window;
   const { getGroups, createGroup, updateGroup, deleteGroup, getUnassignedStudents } = window.__groupService;
-  const { getMyCourses } = window.__courseService;
+  const { getMyCourseOptions } = window.__courseService;
 
   function InsGroups({ nav }) {
     const [add, setAdd] = useState(false);
@@ -55,8 +55,8 @@
     }, [editTarget]);
 
     useEffect(() => {
-      getMyCourses()
-        .then(res => setCourses(res.content || []))
+      getMyCourseOptions()
+        .then(list => setCourses(list || []))
         .catch(() => setCourses([]))
         .finally(() => setCoursesLoading(false));
     }, []);

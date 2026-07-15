@@ -174,23 +174,32 @@ public class BankQuestionServiceImpl implements BankQuestionService {
      * Embed lỗi → pha 2 rỗng, kết quả degrade về text-only (không 500).
      */
     @Override
+    public List<String> getTags(UUID courseId) {
+        return bankQuestionRepository.findDistinctTagsByCourseId(courseId);
+    }
+
+    @Override
     public List<BankQuestionSearchHit> search(UUID courseId, String q, QuestionStatus status,
                                               QuestionDifficulty difficulty, String subjectTag) {
         String query = q == null ? "" : q.trim();
         if (query.isEmpty()) return List.of();
 
-        String lowered = query.toLowerCase();
-        List<BankQuestionResponse> textHits = list(courseId, status, difficulty, subjectTag).stream()
-                .filter(r -> r.getQuestionText().toLowerCase().contains(lowered))
-                .toList();
-
-        Set<UUID> textHitIds = textHits.stream().map(BankQuestionResponse::getId)
-                .collect(java.util.stream.Collectors.toSet());
-
         // Mirror mặc định của list(): có difficulty/subjectTag mà status null → ngầm hiểu ACTIVE,
         // để 2 pha text/semantic lọc nhất quán với nhau
         QuestionStatus effectiveStatus = status != null ? status
                 : (difficulty != null || subjectTag != null ? QuestionStatus.ACTIVE : null);
+
+        String statusStr = effectiveStatus != null ? effectiveStatus.name() : null;
+        String diffStr = difficulty != null ? difficulty.name() : null;
+
+        List<BankQuestionResponse> textHits = bankQuestionRepository
+                .searchAndFilter(courseId, query, statusStr, diffStr, subjectTag)
+                .stream()
+                .map(this::toResponse)
+                .toList();
+
+        Set<UUID> textHitIds = textHits.stream().map(BankQuestionResponse::getId)
+                .collect(java.util.stream.Collectors.toSet());
 
         List<SemanticHit> semanticHits = embeddingService.searchSimilar(
                 courseId, query, effectiveStatus, difficulty, subjectTag, textHitIds,

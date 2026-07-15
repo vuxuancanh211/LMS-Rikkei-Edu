@@ -44,6 +44,11 @@ export async function listBankQuestions(courseId: string, params?: BankQuestionL
   return res.data;
 }
 
+export async function getBankTags(courseId: string) {
+  const res = await httpClient.get(`/api/v1/bank-questions/tags`, { params: { courseId } });
+  return res.data; // List<String>
+}
+
 /** Hybrid search: khớp chữ xếp trước, tương đồng ngữ nghĩa (pgvector) nối sau. */
 export async function searchBankQuestions(
   courseId: string,

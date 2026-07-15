@@ -224,7 +224,7 @@ function ModalHead({ title, sub, onClose, icon, iconBg, iconColor }) {
     <div className="modal-head">
       <div className="row gap-12">
         {icon && <div className="stat-ic" style={{ width: 42, height: 42, background: iconBg, color: iconColor }}><I n={icon} size={21} /></div>}
-        <div><h3 className="t-h2">{title}</h3>{sub && <div className="t-sm muted" style={{ marginTop: 3 }}>{sub}</div>}</div>
+        <div><h3 className="t-h2" style={{ margin: 0 }}>{title}</h3>{sub && <div className="t-sm muted" style={{ marginTop: 3 }}>{sub}</div>}</div>
       </div>
       <button className="icon-btn" style={{ width: 36, height: 36 }} onClick={onClose}><I n="x" size={18} /></button>
     </div>

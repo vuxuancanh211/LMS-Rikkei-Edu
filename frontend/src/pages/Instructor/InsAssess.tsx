@@ -19,7 +19,7 @@ import { createPortal } from 'react-dom';
     removeQuestionFromQuiz, configureRandomDraw,
   } = window.__quizService;
 
-  const { getMyCourses } = window.__courseService;
+  const { getMyCourseOptions } = window.__courseService;
   const { listAiSources } = window.__aiService;
 
   const DIFF_LABEL = { EASY: 'Dễ', MEDIUM: 'Trung bình', HARD: 'Khó' };
@@ -94,11 +94,10 @@ import { createPortal } from 'react-dom';
     }, [selectedCourseId]);
 
     useEffect(() => {
-      getMyCourses()
-        .then(page => {
-          const list = page.content || [];
-          setCourses(list);
-          if (!selectedCourseId && !courseId && list.length > 0) {
+      getMyCourseOptions()
+        .then(list => {
+          setCourses(list || []);
+          if (!selectedCourseId && !courseId && list && list.length > 0) {
             setSelectedCourseId(list[0].id);
           }
         })
@@ -131,6 +130,19 @@ import { createPortal } from 'react-dom';
     const [quizTotalPages, setQuizTotalPages] = useState(1);
     const [debouncedQuizSearch, setDebouncedQuizSearch] = useState('');
 
+    // Fetch stats cho Quiz và Bank (vì Assignments giữ nguyên cách tải toàn bộ)
+    useEffect(() => {
+      if (!activeCourseId) return;
+      api.get(`/instructor/courses/${activeCourseId}/assess-stats`)
+        .then(res => {
+          if (res.data) {
+            setQuizTotalElements(res.data.quizCount || 0);
+            setBankTotalElements(res.data.bankQuestionCount || 0);
+          }
+        })
+        .catch(() => {});
+    }, [activeCourseId]);
+
     // Bank state — 2 chế độ: "duyệt" (browse, phân trang phía server, tránh lag) khi không
     // gõ tìm kiếm, và "tìm kiếm" (hybrid search — khớp chữ + tương đồng ngữ nghĩa, không phân
     // trang vì kết quả đã tự giới hạn hợp lý) khi gõ ≥ 3 ký tự.
@@ -138,7 +150,26 @@ import { createPortal } from 'react-dom';
     const [bankList, setBankList] = useState([]);
     const [bankLoading, setBankLoading] = useState(false);
     const [bankFilter, setBankFilter] = useState('ALL');
+    const [bankTagFilter, setBankTagFilter] = useState('');
+    const [debouncedBankTagFilter, setDebouncedBankTagFilter] = useState('');
     const [bankStatusFilter, setBankStatusFilter] = useState('ALL');
+    const [availableTags, setAvailableTags] = useState([]);
+    
+    // Fetch tags khi mở tab bank
+    useEffect(() => {
+      if (tab === 'bank' && activeCourseId) {
+        import('../../services/quiz-service').then(s => {
+          s.getBankTags(activeCourseId).then(tags => setAvailableTags(tags || [])).catch(() => {});
+        });
+      }
+    }, [tab, activeCourseId]);
+
+    useEffect(() => {
+      const handler = setTimeout(() => {
+        setDebouncedBankTagFilter(bankTagFilter);
+      }, 400);
+      return () => clearTimeout(handler);
+    }, [bankTagFilter]);
     const [bankPageNum, setBankPageNum] = useState(() => {
       const params = new URLSearchParams(window.location.search);
       if (params.get('tab') !== 'bank') return 1;
@@ -167,6 +198,7 @@ import { createPortal } from 'react-dom';
 
     // Modal states
     const [confirmState, setConfirmState] = useState(null); // { message, title?, danger?, onConfirm }
+    const [advSearchOpen, setAdvSearchOpen] = useState(false);
     const [createQuizOpen, setCreateQuizOpen] = useState(false);
     const [addBankOpen, setAddBankOpen] = useState(false);
     const [editBankItem, setEditBankItem] = useState(null);
@@ -293,6 +325,7 @@ import { createPortal } from 'react-dom';
           title: debouncedQuizSearch || undefined,
         });
         setQuizzes(data.content);
+        // setQuizTotalElements(data.totalElements); // Đã được xử lý bởi assess-stats, có thể update nếu muốn chính xác nhưng giữ để đồng bộ
         setQuizTotalElements(data.totalElements);
         setQuizTotalPages(Math.max(1, data.totalPages));
       } catch (err) {
@@ -331,6 +364,7 @@ import { createPortal } from 'react-dom';
         const params = { page: bankPageNum - 1, size: BANK_PAGE_SIZE };
         if (bankFilter !== 'ALL') params.difficulty = bankFilter;
         if (bankStatusFilter !== 'ALL') params.status = bankStatusFilter;
+        if (debouncedBankTagFilter.trim()) params.subjectTag = debouncedBankTagFilter.trim();
         const data = await listBankQuestions(activeCourseId, params);
         setBankList(data.content);
         setBankTotalElements(data.totalElements);
@@ -340,23 +374,26 @@ import { createPortal } from 'react-dom';
       } finally {
         setBankLoading(false);
       }
-    }, [activeCourseId, bankPageNum, bankFilter, bankStatusFilter, showToast]);
+    }, [activeCourseId, bankPageNum, bankFilter, bankStatusFilter, debouncedBankTagFilter, showToast]);
 
-    useEffect(() => { fetchQuizzes(); }, [fetchQuizzes]);
-    // Bỏ điều kiện tab === 'bank' — tải số lượng câu hỏi ngay khi đổi khóa học/bộ lọc dù đang ở
-    // tab nào, để badge đếm trên Tabs luôn đúng (khớp cách fetchQuizzes ở trên không phụ thuộc tab).
+    // Lazy load: chỉ fetch quiz khi ở tab quiz
+    useEffect(() => { 
+      if (tab === 'quiz') fetchQuizzes(); 
+    }, [fetchQuizzes, tab]);
+    
+    // Lazy load: chỉ fetch bank khi ở tab bank và không đang dùng ô tìm kiếm nhanh (q)
     useEffect(() => {
-      if (q.trim().length < 3) fetchBank();
-    }, [fetchBank, q]);
+      if (tab === 'bank' && q.trim().length < 3) fetchBank();
+    }, [fetchBank, q, tab]);
 
     // Đổi khóa học/bộ lọc → về trang 1 — lý do dùng key-comparison thay vì cờ boolean tương tự trên.
-    const lastBankResetKey = useRef(`${activeCourseId}:${bankFilter}:${bankStatusFilter}`);
+    const lastBankResetKey = useRef(`${activeCourseId}:${bankFilter}:${bankStatusFilter}:${debouncedBankTagFilter}`);
     useEffect(() => {
-      const key = `${activeCourseId}:${bankFilter}:${bankStatusFilter}`;
+      const key = `${activeCourseId}:${bankFilter}:${bankStatusFilter}:${debouncedBankTagFilter}`;
       if (lastBankResetKey.current === key) return;
       lastBankResetKey.current = key;
       setBankPageNum(1);
-    }, [activeCourseId, bankFilter, bankStatusFilter]);
+    }, [activeCourseId, bankFilter, bankStatusFilter, debouncedBankTagFilter]);
 
     /* ── Chế độ tìm kiếm (hybrid, debounce 400ms) — thay hẳn cho danh sách phân trang ── */
     useEffect(() => {
@@ -368,6 +405,7 @@ import { createPortal } from 'react-dom';
           const params = {};
           if (bankFilter !== 'ALL') params.difficulty = bankFilter;
           if (bankStatusFilter !== 'ALL') params.status = bankStatusFilter;
+          if (debouncedBankTagFilter.trim()) params.subjectTag = debouncedBankTagFilter.trim();
           const hits = await searchBankQuestions(activeCourseId, q.trim(), params);
           if (bankSearchSeq.current !== mySeq) return; // response cũ, bỏ qua
           setSearchHits(hits);
@@ -378,7 +416,7 @@ import { createPortal } from 'react-dom';
         }
       }, 400);
       return () => clearTimeout(timer);
-    }, [q, tab, activeCourseId, bankFilter, bankStatusFilter]);
+    }, [q, tab, activeCourseId, bankFilter, bankStatusFilter, debouncedBankTagFilter]);
 
     /* ── 1 dòng bảng ngân hàng câu hỏi — dùng chung cho kết quả khớp chữ và ngữ nghĩa ── */
     const renderBankRow = (item, similarity) => (
@@ -734,29 +772,16 @@ import { createPortal } from 'react-dom';
           />
           <div className="grow" />
           {tab === 'bank' && (
-            <>
-              <Select
-                value={bankStatusFilter}
-                onChange={setBankStatusFilter}
-                options={[
-                  { v: 'ALL', label: 'Tất cả trạng thái' },
-                  { v: 'ACTIVE', label: 'Hoạt động' },
-                  { v: 'INACTIVE', label: 'Vô hiệu' },
-                ]}
-                style={{ width: 170, flex: 'none' }}
-              />
-              <Select
-                value={bankFilter}
-                onChange={setBankFilter}
-                options={[
-                  { v: 'ALL', label: 'Tất cả độ khó' },
-                  { v: 'EASY', label: 'Dễ' },
-                  { v: 'MEDIUM', label: 'Trung bình' },
-                  { v: 'HARD', label: 'Khó' },
-                ]}
-                style={{ width: 160, flex: 'none' }}
-              />
-            </>
+            <button className="btn" onClick={() => setAdvSearchOpen(true)} style={{ position: 'relative' }}>
+              <Ic n="filter" /> Tìm kiếm nâng cao
+              {(bankStatusFilter !== 'ALL' || bankFilter !== 'ALL' || bankTagFilter.trim() !== '') && (
+                <span style={{
+                  position: 'absolute', top: -4, right: -4,
+                  background: 'var(--primary)', color: '#fff',
+                  fontSize: 10, padding: '2px 5px', borderRadius: '50%', fontWeight: 'bold'
+                }}>!</span>
+              )}
+            </button>
           )}
           <Search placeholder="Tìm theo tên..." value={q} onChange={setQ} style={{ width: 240, flex: 'none' }} />
         </div>
@@ -992,6 +1017,65 @@ import { createPortal } from 'react-dom';
           danger={confirmState?.danger}
           confirmLabel="Xóa"
         />
+
+        {/* ═══ Modal: Tìm kiếm nâng cao ═══ */}
+        <Modal open={advSearchOpen} onClose={() => setAdvSearchOpen(false)} max={400}>
+          <ModalHead
+            title="Bộ lọc nâng cao"
+            sub="Lọc câu hỏi trong ngân hàng"
+            icon="filter" iconBg="#f3f4f6" iconColor="#4b5563"
+            onClose={() => setAdvSearchOpen(false)}
+          />
+          <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+            <div>
+              <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Trạng thái</label>
+              <Select
+                value={bankStatusFilter}
+                onChange={setBankStatusFilter}
+                options={[
+                  { v: 'ALL', label: 'Tất cả trạng thái' },
+                  { v: 'ACTIVE', label: 'Hoạt động' },
+                  { v: 'INACTIVE', label: 'Vô hiệu' },
+                ]}
+                style={{ width: '100%' }}
+              />
+            </div>
+            <div>
+              <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Độ khó</label>
+              <Select
+                value={bankFilter}
+                onChange={setBankFilter}
+                options={[
+                  { v: 'ALL', label: 'Tất cả độ khó' },
+                  { v: 'EASY', label: 'Dễ' },
+                  { v: 'MEDIUM', label: 'Trung bình' },
+                  { v: 'HARD', label: 'Khó' },
+                ]}
+                style={{ width: '100%' }}
+              />
+            </div>
+            <div>
+              <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Danh sách Tag</label>
+              <Select
+                value={bankTagFilter}
+                onChange={setBankTagFilter}
+                options={[
+                  { v: '', label: 'Tất cả tag' },
+                  ...availableTags.map(tag => ({ v: tag, label: tag }))
+                ]}
+                style={{ width: '100%' }}
+              />
+            </div>
+          </div>
+          <div className="modal-foot" style={{ justifyContent: 'space-between' }}>
+            <button className="btn btn-ghost" onClick={() => {
+              setBankFilter('ALL');
+              setBankStatusFilter('ALL');
+              setBankTagFilter('');
+            }}>Xóa bộ lọc</button>
+            <button className="btn btn-primary" onClick={() => setAdvSearchOpen(false)}>Hoàn tất</button>
+          </div>
+        </Modal>
 
         {/* ═══ Modal: Tạo / Sửa quiz ═══ */}
         <Modal open={createQuizOpen} onClose={() => { setCreateQuizOpen(false); setEditQuizItem(null); }} max={600}>
