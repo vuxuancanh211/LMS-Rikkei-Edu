@@ -310,22 +310,19 @@ public class StudentCourseServiceImpl implements StudentCourseService {
 
     private boolean determineCompleted(UpdateProgressRequest request, LessonProgressEntity progress,
                                         boolean hasVideo, boolean hasDocument, int wp, int dv) {
+        if (STATUS_COMPLETED.equals(progress.getStatus())) {
+            return true;
+        }
         if (Boolean.TRUE.equals(request.getCompleted())) {
             return true;
         }
         if (request.getCompleted() != null) {
             return request.getCompleted();
         }
-        if (hasVideo && hasDocument) {
-            return wp >= 90 && dv >= 10;
-        }
         if (hasVideo) {
             return wp >= 90;
         }
-        if (hasDocument) {
-            return dv >= 20 || wp >= 90;
-        }
-        return progress.getStatus() == null || STATUS_COMPLETED.equals(progress.getStatus());
+        return false;
     }
 
     private void applyProgressStatus(LessonProgressEntity progress, boolean completed, int wp, int dv) {
@@ -334,7 +331,7 @@ public class StudentCourseServiceImpl implements StudentCourseService {
             if (progress.getCompletedAt() == null) {
                 progress.setCompletedAt(Instant.now());
             }
-        } else if (progress.getStatus() == null || wp > 0 || dv > 0) {
+        } else if (progress.getStatus() == null || !STATUS_COMPLETED.equals(progress.getStatus())) {
             progress.setStatus(STATUS_IN_PROGRESS);
         }
     }
