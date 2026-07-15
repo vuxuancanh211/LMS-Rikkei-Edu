@@ -180,8 +180,26 @@ export function connectNotificationSSE(
   onReconnect?: () => void,
 ): () => void {
   return connectSSE((eventName, data) => {
+    if (eventName === 'ACCOUNT_LOCKED') {
+      if (typeof window !== 'undefined' && (window as any).__triggerAccountLockedModal) {
+        (window as any).__triggerAccountLockedModal(data);
+      }
+      return;
+    }
     if (eventName !== 'NOTIFICATION' || !data || typeof data !== 'object') return;
     const notification = (data as { notification?: NotificationItem }).notification;
     if (notification) onNotification(notification);
+  }, onError, onReconnect);
+}
+
+export function connectAccountLockedSSE(
+  onLocked: (data: unknown) => void,
+  onError?: () => void,
+  onReconnect?: () => void,
+): () => void {
+  return connectSSE((eventName, data) => {
+    if (eventName === 'ACCOUNT_LOCKED') {
+      onLocked(data);
+    }
   }, onError, onReconnect);
 }
