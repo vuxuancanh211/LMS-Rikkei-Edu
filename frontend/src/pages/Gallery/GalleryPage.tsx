@@ -9,7 +9,6 @@ import {
   getNotifications,
   getUnreadCount,
   markAsRead,
-  markAllAsRead,
   connectNotificationSSE,
 } from '../../services/notification-service';
 import { login } from '../../services/auth-service';
@@ -371,6 +370,7 @@ function registerGalleryPage() {
         </div>
         {(role === "student" || role === "instructor") && <window.AIChatbot />}
         <window.AlertModal open={!!switchAlert} onClose={() => setSwitchAlert(null)} title={switchAlert?.title} message={switchAlert?.message} type="error" />
+        {window.AccountLockedOverlay && <window.AccountLockedOverlay />}
       </div>
     );
   }
@@ -383,6 +383,7 @@ function registerGalleryPage() {
       <div className="app" style={{ position: "relative" }}>
         <button className="btn btn-ghost btn-sm gallery-float" onClick={onExit}><Ic n="arrow_left" size={16} />Thư viện</button>
         <Comp onBack={onExit} onSubmit={() => setCur("QuizResult")} />
+        {window.AccountLockedOverlay && <window.AccountLockedOverlay />}
       </div>
     );
   }
@@ -496,6 +497,7 @@ function registerGalleryPage() {
             Mẹo: trong mỗi màn hình bạn vẫn đổi vai trò, điều hướng và mở mọi popup bằng cách bấm các nút bên trong. Thu nhỏ cửa sổ để xem responsive (tablet/mobile).
           </div>
         </div>
+        {window.AccountLockedOverlay && <window.AccountLockedOverlay />}
       </div>
     );
   }

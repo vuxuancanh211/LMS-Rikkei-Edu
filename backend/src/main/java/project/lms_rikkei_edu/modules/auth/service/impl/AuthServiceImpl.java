@@ -66,12 +66,20 @@ public class AuthServiceImpl implements AuthService {
     @Transactional
     public LoginResponse login(LoginRequest request) {
         String email = normalizeEmail(request.getEmail());
+        String clientIp = getClientIp();
         enforceRateLimit(RedisKeyConstants.AUTH_RATE_LIMIT_LOGIN + email);
+        if (!"unknown".equals(clientIp)) {
+            enforceRateLimit(RedisKeyConstants.AUTH_RATE_LIMIT_LOGIN + "ip:" + clientIp);
+        }
 
         UserEntity user = userRepository.findByEmailIgnoreCaseAndDeletedAtIsNull(email)
                 .orElseThrow(() -> new BusinessException("Email or password is incorrect", HttpStatus.UNAUTHORIZED));
 
-        if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
+        String rawPassword = request.getPassword();
+        String decodedPassword = decodeIfBase64(rawPassword);
+
+        if (!passwordEncoder.matches(rawPassword, user.getPasswordHash())
+                && !passwordEncoder.matches(decodedPassword, user.getPasswordHash())) {
             throw new BusinessException("Email or password is incorrect", HttpStatus.UNAUTHORIZED);
         }
 
@@ -178,7 +186,9 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public ForgotPasswordResponse forgotPassword(ForgotPasswordRequest request) {
         String email = normalizeEmail(request.getEmail());
-        if (redisService.isRateLimited(RedisKeyConstants.AUTH_RATE_LIMIT_FORGOT_PASSWORD + email)) {
+        String clientIp = getClientIp();
+        if (redisService.isRateLimited(RedisKeyConstants.AUTH_RATE_LIMIT_FORGOT_PASSWORD + email)
+                || (!"unknown".equals(clientIp) && redisService.isRateLimited(RedisKeyConstants.AUTH_RATE_LIMIT_FORGOT_PASSWORD + "ip:" + clientIp))) {
             return ForgotPasswordResponse.builder()
                     .message(FORGOT_PASSWORD_MESSAGE)
                     .build();
@@ -219,7 +229,11 @@ public class AuthServiceImpl implements AuthService {
                 .filter(existingUser -> existingUser.getDeletedAt() == null)
                 .orElseThrow(() -> new BusinessException("Password reset token is invalid or expired"));
 
-        user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
+        String rawNew = request.getNewPassword();
+        String decodedNew = decodeIfBase64(rawNew);
+        String passwordToUse = !decodedNew.equals(rawNew) ? decodedNew : rawNew;
+
+        user.setPasswordHash(passwordEncoder.encode(passwordToUse));
         user.setPasswordChangedAt(OffsetDateTime.now());
 
         redisService.deletePasswordResetToken(tokenHash);
@@ -312,5 +326,42 @@ public class AuthServiceImpl implements AuthService {
 
     private String normalizeEmail(String email) {
         return email.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private String decodeIfBase64(String input) {
+        if (input == null || input.isEmpty()) {
+            return input;
+        }
+        try {
+            byte[] decoded = Base64.getDecoder().decode(input);
+            String str = new String(decoded, StandardCharsets.UTF_8);
+            if (Base64.getEncoder().encodeToString(decoded).equals(input)) {
+                return str;
+            }
+        } catch (Exception ignored) {
+        }
+        return input;
+    }
+
+    private String getClientIp() {
+        try {
+            org.springframework.web.context.request.ServletRequestAttributes attrs =
+                    (org.springframework.web.context.request.ServletRequestAttributes) org.springframework.web.context.request.RequestContextHolder.getRequestAttributes();
+            if (attrs != null && attrs.getRequest() != null) {
+                jakarta.servlet.http.HttpServletRequest req = attrs.getRequest();
+                String ip = req.getHeader("X-Forwarded-For");
+                if (ip == null || ip.isBlank() || "unknown".equalsIgnoreCase(ip)) {
+                    ip = req.getHeader("X-Real-IP");
+                }
+                if (ip == null || ip.isBlank() || "unknown".equalsIgnoreCase(ip)) {
+                    ip = req.getRemoteAddr();
+                }
+                if (ip != null && ip.contains(",")) {
+                    ip = ip.split(",")[0].trim();
+                }
+                return ip != null ? ip : "unknown";
+            }
+        } catch (Exception ignored) {}
+        return "unknown";
     }
 }

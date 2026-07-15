@@ -38,6 +38,7 @@ import project.lms_rikkei_edu.modules.user.entity.UserEntity;
 import project.lms_rikkei_edu.modules.user.enums.UserRole;
 import project.lms_rikkei_edu.modules.user.enums.UserStatus;
 import project.lms_rikkei_edu.modules.user.mapper.UserMapper;
+import project.lms_rikkei_edu.infrastructure.sse.SseEmitterRegistry;
 import project.lms_rikkei_edu.modules.user.repository.UserRepository;
 
 import java.time.OffsetDateTime;
@@ -81,6 +82,8 @@ class UserServiceImplTest {
     private CurrentUserProvider currentUserProvider;
     @Mock
     private AuditLogRepository auditLogRepository;
+    @Mock
+    private SseEmitterRegistry sseEmitterRegistry;
 
     private UserServiceImpl userService;
 
@@ -90,7 +93,7 @@ class UserServiceImplTest {
                 userRepository, passwordEncoder, userMapper,
                 redisService, emailService, emailAsyncService,
                 jwtService, currentUserProvider, auditLogRepository,
-                courseRepository, courseEnrollmentRepository
+                courseRepository, courseEnrollmentRepository, sseEmitterRegistry
         );
         ReflectionTestUtils.setField(userService, "defaultTempPassword", "123456@");
     }
