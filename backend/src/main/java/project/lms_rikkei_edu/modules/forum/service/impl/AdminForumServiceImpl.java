@@ -185,8 +185,6 @@ public class AdminForumServiceImpl implements AdminForumService {
                 .status(report.getStatus())
                 .reporter(toAuthor(reporter))
                 .createdAt(report.getCreatedAt())
-                .reviewedBy(report.getReviewedBy())
-                .reviewedAt(report.getReviewedAt())
                 .targetDeleted(reply != null ? Boolean.TRUE.equals(reply.getDeleted()) : post != null && Boolean.TRUE.equals(post.getDeleted()))
                 .build();
     }

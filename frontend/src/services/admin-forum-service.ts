@@ -33,8 +33,6 @@ export type AdminForumReport = {
   status: 'PENDING' | 'RESOLVED' | 'DISMISSED';
   reporter?: ForumAuthor | null;
   createdAt: string;
-  reviewedBy?: string | null;
-  reviewedAt?: string | null;
   targetDeleted: boolean;
 };
 

@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 import project.lms_rikkei_edu.modules.forum.dto.request.AdminForumReportReviewRequest;
 import project.lms_rikkei_edu.modules.forum.dto.response.AdminForumPostResponse;
 import project.lms_rikkei_edu.modules.forum.dto.response.AdminForumReportResponse;
+import project.lms_rikkei_edu.modules.forum.dto.response.ForumAdminPageResponse;
 import project.lms_rikkei_edu.modules.forum.service.AdminForumService;
 
 import java.util.UUID;
@@ -31,20 +32,22 @@ public class AdminForumController {
     private final AdminForumService adminForumService;
 
     @GetMapping("/posts")
-    public ResponseEntity<Page<AdminForumPostResponse>> getPosts(
+    public ResponseEntity<ForumAdminPageResponse<AdminForumPostResponse>> getPosts(
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) Boolean reportedOnly,
             @RequestParam(required = false) Boolean includeDeleted,
             @PageableDefault(size = 10) Pageable pageable) {
-        return ResponseEntity.ok(adminForumService.getPosts(keyword, reportedOnly, includeDeleted, pageable));
+        Page<AdminForumPostResponse> page = adminForumService.getPosts(keyword, reportedOnly, includeDeleted, pageable);
+        return ResponseEntity.ok(ForumAdminPageResponse.from(page));
     }
 
     @GetMapping("/reports")
-    public ResponseEntity<Page<AdminForumReportResponse>> getReports(
+    public ResponseEntity<ForumAdminPageResponse<AdminForumReportResponse>> getReports(
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String targetType,
             @PageableDefault(size = 10) Pageable pageable) {
-        return ResponseEntity.ok(adminForumService.getReports(status, targetType, pageable));
+        Page<AdminForumReportResponse> page = adminForumService.getReports(status, targetType, pageable);
+        return ResponseEntity.ok(ForumAdminPageResponse.from(page));
     }
 
     @PatchMapping("/reports/{reportId}")

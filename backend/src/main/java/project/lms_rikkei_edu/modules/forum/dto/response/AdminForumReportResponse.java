@@ -21,7 +21,5 @@ public class AdminForumReportResponse {
     private String status;
     private ForumAuthorResponse reporter;
     private OffsetDateTime createdAt;
-    private UUID reviewedBy;
-    private OffsetDateTime reviewedAt;
     private boolean targetDeleted;
 }
