@@ -170,7 +170,11 @@ export function connectSSE(
     aborted = true;
     if (reconnectTimer) clearTimeout(reconnectTimer);
     if (controller) controller.abort();
-    if (reader) reader.cancel();
+    if (reader) {
+      reader.cancel().catch(() => {
+        // Ignore expected AbortError when React unmounts the SSE stream.
+      });
+    }
   };
 }
 
