@@ -28,7 +28,6 @@ import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequ
 
 import java.math.BigDecimal;
 import java.net.URI;
-import java.net.URL;
 import java.time.Instant;
 import java.util.*;
 
@@ -533,6 +532,7 @@ class StudentCourseServiceImplTest {
 
         UpdateProgressRequest req = new UpdateProgressRequest();
         req.setDocumentViewSeconds(25);
+        req.setCompleted(true);
 
         studentCourseService.updateLessonProgress(studentId, courseId, lessonId, req);
 
@@ -566,6 +566,7 @@ class StudentCourseServiceImplTest {
 
         UpdateProgressRequest req = new UpdateProgressRequest();
         req.setDocumentViewSeconds(25);
+        req.setCompleted(true);
 
         studentCourseService.updateLessonProgress(studentId, courseId, lessonId, req);
 

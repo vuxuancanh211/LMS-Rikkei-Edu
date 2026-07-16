@@ -221,6 +221,8 @@ public class StudentCourseServiceImpl implements StudentCourseService {
     }
 
     private void attachLessonProgress(UUID studentId, UUID courseId, CourseDetailResponse response) {
+        if (response.getChapters() == null) return;
+
         List<LessonProgressEntity> lessonProgressList = lessonProgressRepository
                 .findByStudentIdAndCourseId(studentId, courseId);
         Map<UUID, String> progressMap = lessonProgressList.stream()
@@ -229,18 +231,19 @@ public class StudentCourseServiceImpl implements StudentCourseService {
                 .filter(e -> e.getLessonPercentage() != null)
                 .collect(Collectors.toMap(LessonProgressEntity::getLessonId, LessonProgressEntity::getLessonPercentage));
 
-        if (response.getChapters() != null) {
-            for (var ch : response.getChapters()) {
-                if (ch.getLessons() != null) {
-                    for (var lesson : ch.getLessons()) {
-                        String p = progressMap.get(lesson.getId());
-                        if (p != null) lesson.setProgress(p);
-                        BigDecimal lp = lessonPctMap.get(lesson.getId());
-                        if (lp != null) lesson.setProgressPercentage(lp.intValue());
-                    }
-                }
+        for (var ch : response.getChapters()) {
+            if (ch.getLessons() == null) continue;
+            for (var lesson : ch.getLessons()) {
+                applyProgressToLesson(lesson, progressMap, lessonPctMap);
             }
         }
+    }
+
+    private void applyProgressToLesson(LessonResponse lesson, Map<UUID, String> progressMap, Map<UUID, BigDecimal> lessonPctMap) {
+        String p = progressMap.get(lesson.getId());
+        if (p != null) lesson.setProgress(p);
+        BigDecimal lp = lessonPctMap.get(lesson.getId());
+        if (lp != null) lesson.setProgressPercentage(lp.intValue());
     }
 
     @Override
@@ -295,12 +298,16 @@ public class StudentCourseServiceImpl implements StudentCourseService {
         int wp = progress.getWatchedPercentage() != null ? progress.getWatchedPercentage().intValue() : 0;
         int dv = progress.getDocumentViewSeconds() != null ? progress.getDocumentViewSeconds() : 0;
 
-        boolean completed = determineCompleted(request, progress, hasVideo, hasDocument, wp, dv);
+        boolean completed = determineCompleted(request, progress, hasVideo, hasDocument, wp);
 
-        applyProgressStatus(progress, completed, wp, dv);
+        applyProgressStatus(progress, completed);
 
         // Calculate lesson percentage
-        progress.setLessonPercentage(calculateLessonPercentage(wp, dv, hasVideo, hasDocument));
+        if (completed && !hasVideo) {
+            progress.setLessonPercentage(BigDecimal.valueOf(100));
+        } else {
+            progress.setLessonPercentage(calculateLessonPercentage(wp, dv, hasVideo, hasDocument));
+        }
 
         lessonProgressRepository.save(progress);
 
@@ -309,32 +316,32 @@ public class StudentCourseServiceImpl implements StudentCourseService {
     }
 
     private boolean determineCompleted(UpdateProgressRequest request, LessonProgressEntity progress,
-                                        boolean hasVideo, boolean hasDocument, int wp, int dv) {
+                                        boolean hasVideo, boolean hasDocument, int wp) {
+        if (STATUS_COMPLETED.equals(progress.getStatus())) {
+            return true;
+        }
         if (Boolean.TRUE.equals(request.getCompleted())) {
             return true;
         }
         if (request.getCompleted() != null) {
             return request.getCompleted();
         }
-        if (hasVideo && hasDocument) {
-            return wp >= 90 && dv >= 10;
+        if (!hasVideo && !hasDocument) {
+            return true;
         }
         if (hasVideo) {
             return wp >= 90;
         }
-        if (hasDocument) {
-            return dv >= 20 || wp >= 90;
-        }
-        return progress.getStatus() == null || STATUS_COMPLETED.equals(progress.getStatus());
+        return false;
     }
 
-    private void applyProgressStatus(LessonProgressEntity progress, boolean completed, int wp, int dv) {
+    private void applyProgressStatus(LessonProgressEntity progress, boolean completed) {
         if (completed || STATUS_COMPLETED.equals(progress.getStatus())) {
             progress.setStatus(STATUS_COMPLETED);
             if (progress.getCompletedAt() == null) {
                 progress.setCompletedAt(Instant.now());
             }
-        } else if (progress.getStatus() == null || wp > 0 || dv > 0) {
+        } else if (progress.getStatus() == null || !STATUS_COMPLETED.equals(progress.getStatus())) {
             progress.setStatus(STATUS_IN_PROGRESS);
         }
     }
