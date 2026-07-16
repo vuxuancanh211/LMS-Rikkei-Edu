@@ -437,8 +437,8 @@ public class QuizServiceImpl implements QuizService {
 
     private QuizEntity findDraftQuiz(UUID courseId, UUID quizId) {
         QuizEntity quiz = findQuiz(courseId, quizId);
-        if (quiz.getStatus() != QuizStatus.DRAFT)
-            throw new BusinessException("Chỉ có thể chỉnh sửa quiz đang ở trạng thái DRAFT");
+        if (quiz.getStatus() == QuizStatus.PUBLISHED)
+            throw new BusinessException("Chỉ có thể chỉnh sửa quiz khi đang Tắt (Nháp hoặc Lưu trữ)");
         return quiz;
     }
 

@@ -213,6 +213,7 @@ import { createPortal } from 'react-dom';
     // Quiz detail modal state
     const [detailQuiz, setDetailQuiz] = useState(null);
     const [detailOpen, setDetailOpen] = useState(false);
+    const [detailRefreshTs, setDetailRefreshTs] = useState(0);
     const openedQuizIdRef = useRef(null);
 
     // AI generate modal state
@@ -518,6 +519,7 @@ import { createPortal } from 'react-dom';
         if (editQuizItem) {
           await updateQuiz(activeCourseId, editQuizItem.id, payload);
           showToast('Đã cập nhật quiz');
+          setDetailRefreshTs(Date.now());
         } else {
           await createQuiz(activeCourseId, payload);
           showToast('Tạo quiz thành công');
@@ -1110,7 +1112,7 @@ import { createPortal } from 'react-dom';
         <Modal open={createQuizOpen} onClose={() => { setCreateQuizOpen(false); setEditQuizItem(null); }} max={600}>
           <ModalHead
             title={editQuizItem ? 'Sửa quiz' : 'Tạo quiz mới'}
-            sub={editQuizItem ? 'Chỉ áp dụng được khi quiz đang ở trạng thái Nháp' : 'Bạn có thể thêm câu hỏi và xuất bản sau'}
+            sub={editQuizItem ? 'Chỉ áp dụng được khi quiz đang tắt (Nháp hoặc Lưu trữ)' : 'Bạn có thể thêm câu hỏi và xuất bản sau'}
             icon="clipboard" iconBg="#eaf1ff" iconColor="#2563eb"
             onClose={() => { setCreateQuizOpen(false); setEditQuizItem(null); }}
           />
@@ -1387,6 +1389,7 @@ import { createPortal } from 'react-dom';
           quiz={detailQuiz}
           showToast={showToast}
           nav={nav}
+          detailRefreshTs={detailRefreshTs}
           onEdit={(q) => { setDetailOpen(false); setDetailQuiz(null); openEditQuiz(q); }}
         />
 
@@ -2372,7 +2375,7 @@ import { createPortal } from 'react-dom';
   }
 
   /* ═══ QuizDetailModal — quản lý câu hỏi / cấu hình random ═══ */
-  function QuizDetailModal({ open, onClose, courseId, quiz, showToast, nav, onEdit }) {
+  function QuizDetailModal({ open, onClose, courseId, quiz, showToast, nav, onEdit, detailRefreshTs }) {
     const [detail, setDetail] = useState(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
@@ -2438,11 +2441,11 @@ import { createPortal } from 'react-dom';
       setTab(quiz.quizType === 'RANDOM_DRAW' ? 'random' : 'questions');
       setRandomError('');
       load();
-    }, [open, quiz?.id]);
+    }, [open, quiz?.id, detailRefreshTs]);
 
     if (!open || !quiz) return null;
 
-    const isDraft = (detail?.status || quiz.status) === 'DRAFT';
+    const isDraft = (detail?.status || quiz.status) !== 'PUBLISHED';
     const isRandom = quiz.quizType === 'RANDOM_DRAW';
     const byDifficultyTotal = Number(easyCount || 0) + Number(mediumCount || 0) + Number(hardCount || 0);
 
@@ -2561,7 +2564,7 @@ import { createPortal } from 'react-dom';
             <div>
               <div className="row gap-8" style={{ marginBottom: 14, flexWrap: 'wrap' }}>
                 {!isDraft && (
-                  <span className="t-xs muted">Quiz đã xuất bản — không thể sửa câu hỏi. Chuyển về Nháp để chỉnh sửa.</span>
+                  <span className="t-xs muted">Quiz đang Bật — không thể sửa câu hỏi. Tắt đi để chỉnh sửa.</span>
                 )}
                 {isDraft && (
                   <>
@@ -2658,7 +2661,7 @@ import { createPortal } from 'react-dom';
                 /* ── Read-only summary khi quiz đã publish ── */
                 <div style={{ padding: '14px 16px', border: '1px solid var(--border)', borderRadius: 12 }}>
                   <div className="t-xs muted" style={{ marginBottom: 10 }}>
-                    Quiz đã xuất bản — chuyển về Nháp để đổi cấu hình. Cấu hình hiện tại:
+                    Quiz đang Bật — Tắt đi để đổi cấu hình. Cấu hình hiện tại:
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13.5 }}>
                     <div>Chế độ: <b>{randomMode === 'FULLY_RANDOM' ? 'Ngẫu nhiên hoàn toàn' : 'Theo tỉ lệ độ khó'}</b></div>
