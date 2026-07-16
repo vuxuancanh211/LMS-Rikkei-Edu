@@ -342,7 +342,7 @@ public class QuizServiceImpl implements QuizService {
 
     /**
      * Chấm điểm bản xem thử — tính đúng/sai + điểm dựa trên dữ liệu gốc
-     * (bank_options cho RANDOM_DRAW, quiz_options cho STATIC/SHUFFLED_POOL).
+     * (bank_options cho RANDOM_DRAW, quiz_options cho STATIC).
      * Không ghi bất kỳ bảng nào, không ảnh hưởng thống kê thật của quiz.
      */
     @Override

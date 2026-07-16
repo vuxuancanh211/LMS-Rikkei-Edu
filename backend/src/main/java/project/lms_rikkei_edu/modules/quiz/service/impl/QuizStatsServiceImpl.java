@@ -52,7 +52,7 @@ public class QuizStatsServiceImpl implements QuizStatsService {
                         .multiply(BigDecimal.valueOf(100)).setScale(2, RoundingMode.HALF_UP)
                 : BigDecimal.ZERO;
 
-        // Per-question stats — chỉ cho STATIC / SHUFFLED_POOL (có quiz_questions)
+        // Per-question stats — chỉ cho STATIC (có quiz_questions)
         List<QuizQuestionStatsResponse> questionStats = buildQuestionStats(quizId);
 
         return QuizStatsResponse.builder()

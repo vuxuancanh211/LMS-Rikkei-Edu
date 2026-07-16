@@ -23,13 +23,13 @@ import { createPortal } from 'react-dom';
   const { listAiSources } = window.__aiService;
 
   const DIFF_LABEL = { EASY: 'Dễ', MEDIUM: 'Trung bình', HARD: 'Khó' };
-  const DIFF_CHIP  = { EASY: 'success', MEDIUM: 'warning', HARD: 'error' };
+  const DIFF_CHIP = { EASY: 'success', MEDIUM: 'warning', HARD: 'error' };
   // DRAFT (chưa từng xuất bản) và ARCHIVED (đã xuất bản rồi lưu trữ lại) đều khiến quiz bị khóa với
   // học viên như nhau (xem LecturePlayer: quizLocked khi quizStatus !== PUBLISHED) — gộp chung nhãn
   // "Tắt" cho cả 2, chỉ PUBLISHED mới là "Bật" (khớp cách cột "Giám sát" cùng bảng dùng Bật/Tắt).
   const STATUS_LABEL = { DRAFT: 'Tắt', PUBLISHED: 'Bật', ARCHIVED: 'Tắt' };
-  const STATUS_CHIP  = { DRAFT: 'neutral', PUBLISHED: 'success', ARCHIVED: 'neutral' };
-  const TYPE_LABEL = { STATIC: 'Cố định', SHUFFLED_POOL: 'Xáo câu', RANDOM_DRAW: 'Ngẫu nhiên' };
+  const STATUS_CHIP = { DRAFT: 'neutral', PUBLISHED: 'success', ARCHIVED: 'neutral' };
+  const TYPE_LABEL = { STATIC: 'Tự chọn câu hỏi', RANDOM_DRAW: 'Ngẫu nhiên' };
 
   // Số câu tối đa sinh được trong 1 lần gọi AI — khớp @Max(40) ở AiGenerateQuestionsRequest phía BE
   const AI_MAX_QUESTIONS_PER_GEN = 40;
@@ -37,14 +37,14 @@ import { createPortal } from 'react-dom';
   // Bài tập tự luận (assignment) — nhãn trạng thái + phạm vi áp dụng, khớp AssignmentStatus/
   // AssignmentScope phía BE (modules/assignment/enums).
   const ASSIGN_STATUS_LABEL = { DRAFT: 'Nháp', PUBLISHED: 'Đã đăng', CLOSED: 'Đã đóng' };
-  const ASSIGN_STATUS_CHIP  = { DRAFT: 'neutral', PUBLISHED: 'success', CLOSED: 'neutral' };
-  const ASSIGN_SCOPE_LABEL  = { ALL_GROUPS: 'Tất cả nhóm', SPECIFIC_GROUPS: 'Nhóm cụ thể' };
+  const ASSIGN_STATUS_CHIP = { DRAFT: 'neutral', PUBLISHED: 'success', CLOSED: 'neutral' };
+  const ASSIGN_SCOPE_LABEL = { ALL_GROUPS: 'Tất cả nhóm', SPECIFIC_GROUPS: 'Nhóm cụ thể' };
 
   // Thứ tự các bước sinh câu hỏi AI — dùng để hiện tiến trình + chấm tròn highlight bước đang chạy
   const GEN_STEP_ORDER = ['RETRIEVING_CONTEXT', 'GENERATING', 'CHECKING_DUPLICATES'];
   const GEN_STEP_LABEL = {
     RETRIEVING_CONTEXT: { title: 'Đang tìm tài liệu liên quan...', sub: 'Tìm đoạn tài liệu AI phù hợp nhất với chủ đề trong khóa học' },
-    GENERATING:          { title: 'Đang gọi AI sinh câu hỏi...', sub: 'Có thể mất 30–90 giây tuỳ số câu yêu cầu' },
+    GENERATING: { title: 'Đang gọi AI sinh câu hỏi...', sub: 'Có thể mất 30–90 giây tuỳ số câu yêu cầu' },
     CHECKING_DUPLICATES: { title: 'Đang kiểm tra trùng lặp...', sub: 'So sánh với ngân hàng câu hỏi hiện có của khóa học' },
   };
 
@@ -101,7 +101,7 @@ import { createPortal } from 'react-dom';
             setSelectedCourseId(list[0].id);
           }
         })
-        .catch(() => {})
+        .catch(() => { })
         .finally(() => setCoursesLoading(false));
     }, []);
 
@@ -140,7 +140,7 @@ import { createPortal } from 'react-dom';
             setBankTotalElements(res.data.bankQuestionCount || 0);
           }
         })
-        .catch(() => {});
+        .catch(() => { });
     }, [activeCourseId]);
 
     // Bank state — 2 chế độ: "duyệt" (browse, phân trang phía server, tránh lag) khi không
@@ -154,12 +154,12 @@ import { createPortal } from 'react-dom';
     const [debouncedBankTagFilter, setDebouncedBankTagFilter] = useState('');
     const [bankStatusFilter, setBankStatusFilter] = useState('ALL');
     const [availableTags, setAvailableTags] = useState([]);
-    
+
     // Fetch tags khi mở tab bank
     useEffect(() => {
       if (tab === 'bank' && activeCourseId) {
         import('../../services/quiz-service').then(s => {
-          s.getBankTags(activeCourseId).then(tags => setAvailableTags(tags || [])).catch(() => {});
+          s.getBankTags(activeCourseId).then(tags => setAvailableTags(tags || [])).catch(() => { });
         });
       }
     }, [tab, activeCourseId]);
@@ -377,10 +377,10 @@ import { createPortal } from 'react-dom';
     }, [activeCourseId, bankPageNum, bankFilter, bankStatusFilter, debouncedBankTagFilter, showToast]);
 
     // Lazy load: chỉ fetch quiz khi ở tab quiz
-    useEffect(() => { 
-      if (tab === 'quiz') fetchQuizzes(); 
+    useEffect(() => {
+      if (tab === 'quiz') fetchQuizzes();
     }, [fetchQuizzes, tab]);
-    
+
     // Lazy load: chỉ fetch bank khi ở tab bank và không đang dùng ô tìm kiếm nhanh (q)
     useEffect(() => {
       if (tab === 'bank' && q.trim().length < 3) fetchBank();
@@ -689,21 +689,23 @@ import { createPortal } from 'react-dom';
 
     /* ─── Render ─────────────────────────────────────────────── */
     return (
-      <div className="page fade-in">
+      <div className="page fade-in" style={{ height: 'calc(100vh - var(--header-h))', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
         {/* Toast — portal thẳng ra document.body giống Modal (component/base/index.tsx), tránh bị
             kẹt trong stacking context của .page/.main khi có modal (dùng backdrop-filter blur +
             z-index 1000) đang mở đè lên, khiến toast tuy z-index cao hơn vẫn bị chìm/mờ phía sau. */}
         {toast && createPortal(
-          <div style={{ position: 'fixed', top: 20, right: 24, zIndex: 9999, minWidth: 280,
+          <div style={{
+            position: 'fixed', top: 20, right: 24, zIndex: 9999, minWidth: 280,
             background: toast.type === 'error' ? 'var(--error)' : '#10b981',
             color: '#fff', borderRadius: 11, padding: '13px 18px', fontWeight: 600, fontSize: 14,
-            boxShadow: '0 4px 24px rgba(0,0,0,.18)' }}>
+            boxShadow: '0 4px 24px rgba(0,0,0,.18)'
+          }}>
             {toast.msg}
           </div>,
           document.body
         )}
 
-        <div className="page-head between">
+        <div className="page-head between" style={{ flex: 'none', alignItems: 'flex-end', flexWrap: 'wrap', gap: 16 }}>
           <div>
             <h1 className="t-h1">Bài tập & Trắc nghiệm</h1>
             <div className="row gap-8" style={{ marginTop: 6 }}>
@@ -722,7 +724,7 @@ import { createPortal } from 'react-dom';
               )}
             </div>
           </div>
-          <div className="row gap-10">
+          <div className="row gap-10" style={{ flexWrap: 'wrap' }}>
             {tab === 'assign' && (
               <button className="btn btn-primary" onClick={() => { setEditAssignment(null); setCreateAssignOpen(true); }}>
                 <Ic n="plus" size={17} />Tạo bài tập
@@ -739,7 +741,7 @@ import { createPortal } from 'react-dom';
               </button>
             )}
             {tab === 'bank' && (
-              <div className="row gap-8">
+              <>
                 <button className="btn btn-ghost" onClick={() => exportBankQuestions(activeCourseId, 'xlsx')}>
                   <Ic n="download" size={16} />Xuất Excel
                 </button>
@@ -755,12 +757,12 @@ import { createPortal } from 'react-dom';
                 }}>
                   <Ic n="plus" size={17} />Thêm câu hỏi
                 </button>
-              </div>
+              </>
             )}
           </div>
         </div>
 
-        <div className="toolbar">
+        <div className="toolbar" style={{ flex: 'none' }}>
           <Tabs
             items={[
               { v: 'assign', label: 'Bài tập tự luận', count: assignments.length },
@@ -788,7 +790,8 @@ import { createPortal } from 'react-dom';
 
         {/* ── ASSIGN TAB (bài tập tự luận) ── */}
         {tab === 'assign' && (
-          <Section pad={false}>
+          <div className="card section-card fade-in" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+            <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
             {assignmentsLoading && assignments.length === 0 ? (
               <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-2)' }}>Đang tải...</div>
             ) : pgAssign.slice.length === 0 ? (
@@ -797,16 +800,16 @@ import { createPortal } from 'react-dom';
                 <p>Chưa có bài tập nào. Nhấn "Tạo bài tập" để bắt đầu.</p>
               </div>
             ) : (
-              <div style={{ overflowX: 'auto' }}>
+              <div style={{ flex: 1, overflow: 'auto' }}>
                 <table className="tbl">
                   <thead>
                     <tr>
-                      <th>Tên bài tập</th>
-                      <th>Phạm vi</th>
-                      <th>Hạn nộp</th>
-                      <th>Điểm tối đa</th>
-                      <th>Trạng thái</th>
-                      <th></th>
+                      <th style={{ position: 'sticky', top: 0, zIndex: 10, background: 'var(--surface)', boxShadow: '0 1px 0 var(--border)' }}>Tên bài tập</th>
+                      <th style={{ position: 'sticky', top: 0, zIndex: 10, background: 'var(--surface)', boxShadow: '0 1px 0 var(--border)' }}>Phạm vi</th>
+                      <th style={{ position: 'sticky', top: 0, zIndex: 10, background: 'var(--surface)', boxShadow: '0 1px 0 var(--border)' }}>Hạn nộp</th>
+                      <th style={{ position: 'sticky', top: 0, zIndex: 10, background: 'var(--surface)', boxShadow: '0 1px 0 var(--border)' }}>Điểm tối đa</th>
+                      <th style={{ position: 'sticky', top: 0, zIndex: 10, background: 'var(--surface)', boxShadow: '0 1px 0 var(--border)' }}>Trạng thái</th>
+                      <th style={{ position: 'sticky', top: 0, zIndex: 10, background: 'var(--surface)', boxShadow: '0 1px 0 var(--border)' }}></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -843,13 +846,14 @@ import { createPortal } from 'react-dom';
                 </table>
               </div>
             )}
-          </Section>
+          </div></div>
         )}
-        {tab === 'assign' && <PageBar pg={pgAssign} unit="bài tập" />}
+        {tab === 'assign' && <div style={{ flex: 'none', paddingTop: 16 }}><PageBar pg={pgAssign} unit="bài tập" /></div>}
 
         {/* ── QUIZ TAB ── */}
         {tab === 'quiz' && (
-          <Section pad={false}>
+          <div className="card section-card fade-in" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+            <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
             {/* Chỉ thay cả bảng bằng "Đang tải..." lúc tải lần đầu (chưa có dữ liệu) — các lần
                 refetch sau (VD sau khi xuất bản/lưu trữ) giữ nguyên bảng cũ, tránh bảng biến mất
                 rồi hiện lại làm trang giật/nhảy lên đầu mỗi lần thao tác. */}
@@ -861,18 +865,18 @@ import { createPortal } from 'react-dom';
                 <p>Chưa có quiz nào. Nhấn "Tạo quiz" để bắt đầu.</p>
               </div>
             ) : (
-              <div style={{ overflowX: 'auto' }}>
+              <div style={{ flex: 1, overflow: 'auto' }}>
                 <table className="tbl">
                   <thead>
                     <tr>
-                      <th>Tên quiz</th>
-                      <th>Loại</th>
-                      <th>Thời gian</th>
-                      <th>Số câu</th>
-                      <th>Giám sát</th>
-                      <th>Hạn</th>
-                      <th>Trạng thái</th>
-                      <th></th>
+                      <th style={{ position: 'sticky', top: 0, zIndex: 10, background: 'var(--surface)', boxShadow: '0 1px 0 var(--border)' }}>Tên quiz</th>
+                      <th style={{ position: 'sticky', top: 0, zIndex: 10, background: 'var(--surface)', boxShadow: '0 1px 0 var(--border)' }}>Loại</th>
+                      <th style={{ position: 'sticky', top: 0, zIndex: 10, background: 'var(--surface)', boxShadow: '0 1px 0 var(--border)' }}>Thời gian</th>
+                      <th style={{ position: 'sticky', top: 0, zIndex: 10, background: 'var(--surface)', boxShadow: '0 1px 0 var(--border)' }}>Số câu</th>
+                      <th style={{ position: 'sticky', top: 0, zIndex: 10, background: 'var(--surface)', boxShadow: '0 1px 0 var(--border)' }}>Giám sát</th>
+                      <th style={{ position: 'sticky', top: 0, zIndex: 10, background: 'var(--surface)', boxShadow: '0 1px 0 var(--border)' }}>Hạn</th>
+                      <th style={{ position: 'sticky', top: 0, zIndex: 10, background: 'var(--surface)', boxShadow: '0 1px 0 var(--border)' }}>Trạng thái</th>
+                      <th style={{ position: 'sticky', top: 0, zIndex: 10, background: 'var(--surface)', boxShadow: '0 1px 0 var(--border)' }}></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -933,17 +937,19 @@ import { createPortal } from 'react-dom';
                 </table>
               </div>
             )}
-          </Section>
+          </div></div>
         )}
         {tab === 'quiz' && !quizLoading && (
-          <PageBar pg={{
-            page: quizPageNum,
-            pages: quizTotalPages,
-            total: quizTotalElements,
-            from: quizTotalElements ? (quizPageNum - 1) * QUIZ_PAGE_SIZE + 1 : 0,
-            to: Math.min(quizPageNum * QUIZ_PAGE_SIZE, quizTotalElements),
-            setPage: setQuizPageNum,
-          }} unit="quiz" forcePager />
+          <div style={{ flex: 'none', paddingTop: 16 }}>
+            <PageBar pg={{
+              page: quizPageNum,
+              pages: quizTotalPages,
+              total: quizTotalElements,
+              from: quizTotalElements ? (quizPageNum - 1) * QUIZ_PAGE_SIZE + 1 : 0,
+              to: Math.min(quizPageNum * QUIZ_PAGE_SIZE, quizTotalElements),
+              setPage: setQuizPageNum,
+            }} unit="quiz" forcePager />
+          </div>
         )}
 
         {/* ── BANK TAB ── */}
@@ -953,7 +959,8 @@ import { createPortal } from 'react-dom';
           const loading = searching ? searchLoading : bankLoading;
           const firstSemanticIdx = searching ? searchHits.findIndex(h => h.matchType === 'SEMANTIC') : -1;
           return (
-            <Section pad={false}>
+            <div className="card section-card fade-in" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+              <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
               {loading && rows.length === 0 ? (
                 <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-2)' }}>Đang tải...</div>
               ) : rows.length === 0 ? (
@@ -962,26 +969,32 @@ import { createPortal } from 'react-dom';
                   <p>{searching ? 'Không tìm thấy câu hỏi phù hợp.' : 'Ngân hàng câu hỏi trống. Thêm câu hỏi hoặc import CSV.'}</p>
                 </div>
               ) : (
-                <div style={{ overflowX: 'auto' }}>
+                <div style={{ flex: 1, overflow: 'auto' }}>
                   <table className="tbl">
                     <thead>
-                      <tr><th>Câu hỏi</th><th>Độ khó</th><th>Dùng trong</th><th>Trạng thái</th><th></th></tr>
+                      <tr>
+                        <th style={{ position: 'sticky', top: 0, zIndex: 10, background: 'var(--surface)', boxShadow: '0 1px 0 var(--border)' }}>Câu hỏi</th>
+                        <th style={{ position: 'sticky', top: 0, zIndex: 10, background: 'var(--surface)', boxShadow: '0 1px 0 var(--border)' }}>Độ khó</th>
+                        <th style={{ position: 'sticky', top: 0, zIndex: 10, background: 'var(--surface)', boxShadow: '0 1px 0 var(--border)' }}>Dùng trong</th>
+                        <th style={{ position: 'sticky', top: 0, zIndex: 10, background: 'var(--surface)', boxShadow: '0 1px 0 var(--border)' }}>Trạng thái</th>
+                        <th style={{ position: 'sticky', top: 0, zIndex: 10, background: 'var(--surface)', boxShadow: '0 1px 0 var(--border)' }}></th>
+                      </tr>
                     </thead>
                     <tbody>
                       {searching
                         ? searchHits.flatMap((hit, idx) => [
-                            idx === firstSemanticIdx && (
-                              <tr key={`divider-${hit.question.id}`}>
-                                <td colSpan={5} style={{ padding: '10px 18px', background: 'var(--surface-2)' }}>
-                                  <div className="row gap-8" style={{ alignItems: 'center' }}>
-                                    <Ic n="sparkles" size={13} style={{ color: 'var(--accent)' }} />
-                                    <span className="t-xs" style={{ fontWeight: 600 }}>Kết quả tương đồng ngữ nghĩa</span>
-                                  </div>
-                                </td>
-                              </tr>
-                            ),
-                            renderBankRow(hit.question, hit.matchType === 'SEMANTIC' ? hit.similarity : null),
-                          ].filter(Boolean))
+                          idx === firstSemanticIdx && (
+                            <tr key={`divider-${hit.question.id}`}>
+                              <td colSpan={5} style={{ padding: '10px 18px', background: 'var(--surface-2)' }}>
+                                <div className="row gap-8" style={{ alignItems: 'center' }}>
+                                  <Ic n="sparkles" size={13} style={{ color: 'var(--accent)' }} />
+                                  <span className="t-xs" style={{ fontWeight: 600 }}>Kết quả tương đồng ngữ nghĩa</span>
+                                </div>
+                              </td>
+                            </tr>
+                          ),
+                          renderBankRow(hit.question, hit.matchType === 'SEMANTIC' ? hit.similarity : null),
+                        ].filter(Boolean))
                         : bankList.map(item => renderBankRow(item, null))}
                       {searching && searchLoading && (
                         <tr>
@@ -994,18 +1007,20 @@ import { createPortal } from 'react-dom';
                   </table>
                 </div>
               )}
-            </Section>
+            </div></div>
           );
         })()}
         {tab === 'bank' && !bankLoading && q.trim().length < 3 && (
-          <PageBar pg={{
-            page: bankPageNum,
-            pages: bankTotalPages,
-            total: bankTotalElements,
-            from: bankTotalElements ? (bankPageNum - 1) * BANK_PAGE_SIZE + 1 : 0,
-            to: Math.min(bankPageNum * BANK_PAGE_SIZE, bankTotalElements),
-            setPage: setBankPageNum,
-          }} unit="câu hỏi" />
+          <div style={{ flex: 'none', paddingTop: 16 }}>
+            <PageBar pg={{
+              page: bankPageNum,
+              pages: bankTotalPages,
+              total: bankTotalElements,
+              from: bankTotalElements ? (bankPageNum - 1) * BANK_PAGE_SIZE + 1 : 0,
+              to: Math.min(bankPageNum * BANK_PAGE_SIZE, bankTotalElements),
+              setPage: setBankPageNum,
+            }} unit="câu hỏi" />
+          </div>
         )}
 
         <ConfirmModal
@@ -1102,9 +1117,8 @@ import { createPortal } from 'react-dom';
                     </div>
                   ) : (
                     <Select value={qzType} onChange={setQzType} options={[
-                      { v: 'STATIC', label: 'Cố định' },
-                      { v: 'SHUFFLED_POOL', label: 'Xáo câu' },
-                      { v: 'RANDOM_DRAW', label: 'Ngẫu nhiên (bank)' },
+                      { v: 'STATIC', label: 'Tự chọn câu hỏi' },
+                      { v: 'RANDOM_DRAW', label: 'Ngẫu nhiên (từ ngân hàng)' },
                     ]} />
                   )}
                 </div>
@@ -1629,7 +1643,7 @@ import { createPortal } from 'react-dom';
 
     const DIFF_LBL = { EASY: 'Dễ', MEDIUM: 'Trung bình', HARD: 'Khó' };
     const DIFF_OPTS = [{ v: 'EASY', label: 'Dễ' }, { v: 'MEDIUM', label: 'Trung bình' }, { v: 'HARD', label: 'Khó' }];
-    const TYPE_LBL  = { SINGLE_CHOICE: 'Một đáp án', MULTIPLE_CHOICE: 'Nhiều đáp án' };
+    const TYPE_LBL = { SINGLE_CHOICE: 'Một đáp án', MULTIPLE_CHOICE: 'Nhiều đáp án' };
     const TYPE_OPTS = [{ v: 'SINGLE_CHOICE', label: 'Một đáp án đúng' }, { v: 'MULTIPLE_CHOICE', label: 'Nhiều đáp án đúng' }];
     const selectedCount = selected.filter(Boolean).length;
 
@@ -2019,16 +2033,16 @@ import { createPortal } from 'react-dom';
     function fmtTime(secs) {
       if (!secs) return '—';
       const m = Math.floor(secs / 60), s = secs % 60;
-      return `${m}p${String(s).padStart(2,'0')}s`;
+      return `${m}p${String(s).padStart(2, '0')}s`;
     }
 
     function fmtDate(d) {
       if (!d) return '—';
-      return new Date(d).toLocaleString('vi-VN', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
+      return new Date(d).toLocaleString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
     }
 
     const DIFF_COLOR = { EASY: 'success', MEDIUM: 'warning', HARD: 'error' };
-    const DIFF_LBL   = { EASY: 'Dễ', MEDIUM: 'TB', HARD: 'Khó' };
+    const DIFF_LBL = { EASY: 'Dễ', MEDIUM: 'TB', HARD: 'Khó' };
 
     return (
       <Modal open={open} onClose={onClose} max={820}>
@@ -2042,7 +2056,7 @@ import { createPortal } from 'react-dom';
         {/* Sub-tabs */}
         <div style={{ padding: '0 24px', borderBottom: '1px solid var(--border)' }}>
           <div className="row gap-0">
-            {[['overview','Tổng quan'], ['attempts','Tất cả lần thi']].map(([v, l]) => (
+            {[['overview', 'Tổng quan'], ['attempts', 'Tất cả lần thi']].map(([v, l]) => (
               <button
                 key={v}
                 onClick={() => setView(v)}
@@ -2340,7 +2354,7 @@ import { createPortal } from 'react-dom';
           });
           setBankSummary({ total: items.length, counts, tags: Array.from(tagSet).sort() });
         })
-        .catch(() => {});
+        .catch(() => { });
     }, [open, courseId]);
 
     const load = useCallback(async () => {

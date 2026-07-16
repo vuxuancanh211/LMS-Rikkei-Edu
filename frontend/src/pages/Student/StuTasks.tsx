@@ -11,7 +11,7 @@
   const { getStudentCourseProgress, getMyAttempts } = window.__quizService;
 
   const QUIZ_STATUS_CHIP = { DRAFT: 'neutral', PUBLISHED: 'success', ARCHIVED: 'muted' };
-  const QUIZ_TYPE_LABEL  = { STATIC: 'Cố định', SHUFFLED_POOL: 'Xáo câu', RANDOM_DRAW: 'Ngẫu nhiên' };
+  const QUIZ_TYPE_LABEL  = { STATIC: 'Tự chọn câu', RANDOM_DRAW: 'Ngẫu nhiên' };
 
   /* ─── Tab: Trắc nghiệm (API thực) ──────────────────────── */
   function QuizTab({ nav, courses, initialCourseId, onQuizStatsUpdate }) {

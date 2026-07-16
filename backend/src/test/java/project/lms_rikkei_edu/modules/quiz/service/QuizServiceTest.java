@@ -890,9 +890,9 @@ class QuizServiceTest {
     }
 
     @Test
-    void dryRun_shuffledPoolType_alwaysShufflesRegardlessOfFlag() {
+    void dryRun_staticType_noQuestions_returnsZero() {
         QuizEntity quiz = buildDraftQuiz();
-        quiz.setQuizType(QuizType.SHUFFLED_POOL);
+        quiz.setQuizType(QuizType.STATIC);
         quiz.setShuffleQuestions(false);
         when(quizRepository.findByIdAndCourseId(quizId, courseId)).thenReturn(Optional.of(quiz));
         when(quizQuestionRepository.findByQuizIdOrderByOrderIndex(quizId)).thenReturn(List.of());

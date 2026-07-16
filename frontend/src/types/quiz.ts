@@ -10,7 +10,7 @@ export type SpringPage<T> = {
 
 // ─── Enums ────────────────────────────────────────────────────────────────────
 
-export type QuizType = 'STATIC' | 'SHUFFLED_POOL' | 'RANDOM_DRAW';
+export type QuizType = 'STATIC' | 'RANDOM_DRAW';
 export type QuizStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
 export type AttemptStatus = 'IN_PROGRESS' | 'SUBMITTED' | 'GRADED' | 'EXPIRED';
 export type QuestionType = 'SINGLE_CHOICE' | 'MULTIPLE_CHOICE';
