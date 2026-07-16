@@ -7,6 +7,8 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import project.lms_rikkei_edu.modules.forum.entity.ForumPostEntity;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -55,4 +57,46 @@ Page<ForumPostEntity> findAllActive(@Param("courseId") UUID courseId, @Param("to
           and (lower(p.title) like lower(concat('%', :keyword, '%')) or lower(coalesce(p.content, '')) like lower(concat('%', :keyword, '%')))
         """)
 Page<ForumPostEntity> searchActive(@Param("courseId") UUID courseId, @Param("keyword") String keyword, @Param("topic") String topic, Pageable pageable);
+
+    @Query(value = """
+            select p from ForumPostEntity p
+            join fetch p.course c
+            join fetch p.author a
+            where (:includeDeleted = true or p.deleted = false)
+            order by p.createdAt desc
+            """, countQuery = """
+            select count(p) from ForumPostEntity p
+            where (:includeDeleted = true or p.deleted = false)
+            """)
+    Page<ForumPostEntity> findAdminPosts(@Param("includeDeleted") boolean includeDeleted, Pageable pageable);
+
+    @Query(value = """
+            select p from ForumPostEntity p
+            join fetch p.course c
+            join fetch p.author a
+            where (:includeDeleted = true or p.deleted = false)
+              and (lower(p.title) like lower(concat('%', :keyword, '%'))
+                   or lower(coalesce(p.content, '')) like lower(concat('%', :keyword, '%'))
+                   or lower(a.fullName) like lower(concat('%', :keyword, '%'))
+                   or lower(c.title) like lower(concat('%', :keyword, '%')))
+            order by p.createdAt desc
+            """, countQuery = """
+            select count(p) from ForumPostEntity p
+            join p.course c
+            join p.author a
+            where (:includeDeleted = true or p.deleted = false)
+              and (lower(p.title) like lower(concat('%', :keyword, '%'))
+                   or lower(coalesce(p.content, '')) like lower(concat('%', :keyword, '%'))
+                   or lower(a.fullName) like lower(concat('%', :keyword, '%'))
+                   or lower(c.title) like lower(concat('%', :keyword, '%')))
+            """)
+    Page<ForumPostEntity> searchAdminPosts(@Param("keyword") String keyword, @Param("includeDeleted") boolean includeDeleted, Pageable pageable);
+
+    @Query("""
+            select p from ForumPostEntity p
+            join fetch p.course
+            join fetch p.author
+            where p.id in :ids
+            """)
+    List<ForumPostEntity> findByIdInWithRelations(@Param("ids") Collection<UUID> ids);
 }

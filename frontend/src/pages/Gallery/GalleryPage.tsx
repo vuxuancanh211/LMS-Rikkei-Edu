@@ -67,6 +67,7 @@ function registerGalleryPage() {
       { k: "courses", l: "Quản lý Khóa học", ic: "book" },
       { k: "approval", l: "Phê duyệt", ic: "check_circle" },
       { k: "certificates", l: "Chứng chỉ", ic: "award" },
+      { k: "forum", l: "Quản lý Forum", ic: "message" },
       // { k: "reports", l: "Báo cáo", ic: "chart" },
       { k: "logs", l: "Nhật ký hệ thống", ic: "file" },
       { k: "aiDocs", l: "Quản lý Tài liệu AI", ic: "sparkles" },
@@ -76,7 +77,7 @@ function registerGalleryPage() {
   const SCREENS = {
     student: { dashboard: "StuDashboard", courses: "StuCourses", courseDetail: "StuCourseDetail", groups: "StuGroups", groupDetail: "StuGroupDetail", tasks: "StuTasks", forum: "ForumPage", chat: "ChatScreen", certs: "StuCerts", settings: "Settings", notifications: "NotificationsPage" },
     instructor: { dashboard: "InsDashboard", courses: "InsCourses", courseDetail: "InsCourseDetail", groups: "InsGroups", groupDetail: "InsGroupDetail", assess: "InsAssess", grading: "InsGrading", students: "InsStudents", forum: "ForumPage", chat: "ChatScreen", aiDocs: "InsAiDocs", settings: "Settings", notifications: "NotificationsPage" },
-    admin: { dashboard: "AdminDashboard", users: "AdminUsers", courses: "AdminCourses", approval: "AdminApproval", certificates: "AdminCertificates", reports: "AdminReports", logs: "AdminLogs", aiDocs: "AdminAiDocs", settings: "Settings", notifications: "NotificationsPage" },
+    admin: { dashboard: "AdminDashboard", users: "AdminUsers", courses: "AdminCourses", approval: "AdminApproval", certificates: "AdminCertificates", forum: "AdminForum", forumBrowse: "ForumPage", reports: "AdminReports", logs: "AdminLogs", aiDocs: "AdminAiDocs", settings: "Settings", notifications: "NotificationsPage" },
   };
   const FULLBARE = { player: "LecturePlayer", quiz: "QuizPlayer", result: "QuizResult", preview: "PreviewPlayer", dryRun: "QuizDryRunPlayer" };
   const ROLES = [["student", "Học viên"], ["instructor", "Giảng viên"], ["admin", "Quản trị"]];
@@ -425,6 +426,7 @@ function registerGalleryPage() {
       { kind: "screen", role: "admin", route: "users", ic: "users", label: "Quản lý Người dùng", desc: "Bảng + phân trang" },
       { kind: "screen", role: "admin", route: "courses", ic: "book", label: "Quản lý Khóa học", desc: "Toàn bộ khóa học" },
       { kind: "screen", role: "admin", route: "approval", ic: "check_circle", label: "Phê duyệt Khóa học", desc: "Kiểm duyệt nội dung" },
+      { kind: "screen", role: "admin", route: "forum", ic: "message", label: "Quản lý Forum", desc: "Bài viết & báo cáo" },
       { kind: "screen", role: "admin", route: "reports", ic: "chart", label: "Báo cáo & Thống kê", desc: "Doanh thu · hiệu suất" },
       { kind: "screen", role: "admin", route: "logs", ic: "file", label: "Nhật ký hệ thống", desc: "Activity log" },
     ]},

@@ -49,6 +49,7 @@ import '../pages/Admin/AdminUsers';
 import '../pages/Admin/AdminCourses';
 import '../pages/Admin/AdminApproval';
 import '../pages/Admin/AdminCertificates';
+import '../pages/Admin/AdminForum';
 import '../pages/Admin/AdminReports';
 import '../pages/Admin/AdminLogs';
 import '../pages/Admin/AdminAiDocs';
