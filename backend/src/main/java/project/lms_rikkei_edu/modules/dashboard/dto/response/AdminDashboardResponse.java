@@ -28,6 +28,16 @@ public class AdminDashboardResponse {
     private List<Integer> weeklyCoursesData;
     private List<String> weeklyCoursesLabels;
 
+    private List<Integer> newUsersData;
+    private List<String> newUsersLabels;
+    private List<Integer> weeklyUsersData;
+    private List<String> weeklyUsersLabels;
+
+    private List<Integer> enrollmentsData;
+    private List<String> enrollmentsLabels;
+    private List<Integer> weeklyEnrollmentsData;
+    private List<String> weeklyEnrollmentsLabels;
+
     private List<PendingApprovalDto> pendingApprovals;
     private List<SystemActivityDto> recentActivities;
 }

@@ -41,4 +41,74 @@ class StudentDashboardControllerTest {
         assertEquals(200, result.getStatusCode().value());
         assertEquals(mockResponse, result.getBody());
     }
+
+    @Test
+    void getStats_ShouldReturnOk() {
+        UUID studentId = UUID.randomUUID();
+        when(currentUserProvider.getCurrentUserId()).thenReturn(Optional.of(studentId));
+        project.lms_rikkei_edu.modules.dashboard.dto.response.StudentDashboardStatsResponse mockResponse = new project.lms_rikkei_edu.modules.dashboard.dto.response.StudentDashboardStatsResponse();
+        when(studentDashboardService.getStats(studentId)).thenReturn(mockResponse);
+
+        ResponseEntity<project.lms_rikkei_edu.modules.dashboard.dto.response.StudentDashboardStatsResponse> result = studentDashboardController.getStats();
+
+        assertNotNull(result);
+        assertEquals(200, result.getStatusCode().value());
+        assertEquals(mockResponse, result.getBody());
+    }
+
+    @Test
+    void getInProgressCourses_ShouldReturnOk() {
+        UUID studentId = UUID.randomUUID();
+        when(currentUserProvider.getCurrentUserId()).thenReturn(Optional.of(studentId));
+        java.util.List<project.lms_rikkei_edu.modules.dashboard.dto.response.StudentDashboardResponse.CourseSummaryDto> mockResponse = java.util.Collections.emptyList();
+        when(studentDashboardService.getInProgressCourses(studentId)).thenReturn(mockResponse);
+
+        ResponseEntity<java.util.List<project.lms_rikkei_edu.modules.dashboard.dto.response.StudentDashboardResponse.CourseSummaryDto>> result = studentDashboardController.getInProgressCourses();
+
+        assertNotNull(result);
+        assertEquals(200, result.getStatusCode().value());
+        assertEquals(mockResponse, result.getBody());
+    }
+
+    @Test
+    void getDueAssignments_ShouldReturnOk() {
+        UUID studentId = UUID.randomUUID();
+        when(currentUserProvider.getCurrentUserId()).thenReturn(Optional.of(studentId));
+        java.util.List<project.lms_rikkei_edu.modules.dashboard.dto.response.StudentDashboardResponse.DueAssignmentDto> mockResponse = java.util.Collections.emptyList();
+        when(studentDashboardService.getDueAssignments(studentId)).thenReturn(mockResponse);
+
+        ResponseEntity<java.util.List<project.lms_rikkei_edu.modules.dashboard.dto.response.StudentDashboardResponse.DueAssignmentDto>> result = studentDashboardController.getDueAssignments();
+
+        assertNotNull(result);
+        assertEquals(200, result.getStatusCode().value());
+        assertEquals(mockResponse, result.getBody());
+    }
+
+    @Test
+    void getWeeklyStudyHours_ShouldReturnOk() {
+        UUID studentId = UUID.randomUUID();
+        when(currentUserProvider.getCurrentUserId()).thenReturn(Optional.of(studentId));
+        java.util.List<Double> mockResponse = java.util.Collections.emptyList();
+        when(studentDashboardService.getWeeklyStudyHours(studentId)).thenReturn(mockResponse);
+
+        ResponseEntity<java.util.List<Double>> result = studentDashboardController.getWeeklyStudyHours();
+
+        assertNotNull(result);
+        assertEquals(200, result.getStatusCode().value());
+        assertEquals(mockResponse, result.getBody());
+    }
+
+    @Test
+    void getSkillProgress_ShouldReturnOk() {
+        UUID studentId = UUID.randomUUID();
+        when(currentUserProvider.getCurrentUserId()).thenReturn(Optional.of(studentId));
+        java.util.List<project.lms_rikkei_edu.modules.dashboard.dto.response.StudentDashboardResponse.SkillProgressDto> mockResponse = java.util.Collections.emptyList();
+        when(studentDashboardService.getSkillProgress(studentId)).thenReturn(mockResponse);
+
+        ResponseEntity<java.util.List<project.lms_rikkei_edu.modules.dashboard.dto.response.StudentDashboardResponse.SkillProgressDto>> result = studentDashboardController.getSkillProgress();
+
+        assertNotNull(result);
+        assertEquals(200, result.getStatusCode().value());
+        assertEquals(mockResponse, result.getBody());
+    }
 }

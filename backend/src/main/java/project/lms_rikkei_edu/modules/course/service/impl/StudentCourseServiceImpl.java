@@ -285,6 +285,9 @@ public class StudentCourseServiceImpl implements StudentCourseService {
                     return newProgress;
                 });
 
+        String oldStatus = progress.getStatus();
+        BigDecimal oldPct = progress.getLessonPercentage();
+
         // Update incoming data
         applyWatchedPercentage(progress, request);
         applyLastPlaybackPosition(progress, request);
@@ -311,8 +314,10 @@ public class StudentCourseServiceImpl implements StudentCourseService {
 
         lessonProgressRepository.save(progress);
 
-        // Always update course-level progress
-        updateCourseProgress(studentId, courseId);
+        // Optimize DB load: only update course-level progress if status or lesson percentage actually changed
+        if (!java.util.Objects.equals(oldStatus, progress.getStatus()) || !java.util.Objects.equals(oldPct, progress.getLessonPercentage())) {
+            updateCourseProgress(studentId, courseId);
+        }
     }
 
     private boolean determineCompleted(UpdateProgressRequest request, LessonProgressEntity progress,
