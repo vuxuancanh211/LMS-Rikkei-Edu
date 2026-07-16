@@ -92,4 +92,28 @@ class AdminDashboardControllerTest {
         assertEquals(200, result.getStatusCode().value());
         assertEquals(mockResponse, result.getBody());
     }
+
+    @Test
+    void getUsersChart_ShouldReturnOk() {
+        project.lms_rikkei_edu.modules.dashboard.dto.response.AdminDashboardUsersChartResponse mockResponse = new project.lms_rikkei_edu.modules.dashboard.dto.response.AdminDashboardUsersChartResponse();
+        when(adminDashboardService.getUsersChart()).thenReturn(mockResponse);
+
+        ResponseEntity<project.lms_rikkei_edu.modules.dashboard.dto.response.AdminDashboardUsersChartResponse> result = adminDashboardController.getUsersChart();
+
+        assertNotNull(result);
+        assertEquals(200, result.getStatusCode().value());
+        assertEquals(mockResponse, result.getBody());
+    }
+
+    @Test
+    void getEnrollmentsChart_ShouldReturnOk() {
+        project.lms_rikkei_edu.modules.dashboard.dto.response.AdminDashboardEnrollmentsChartResponse mockResponse = new project.lms_rikkei_edu.modules.dashboard.dto.response.AdminDashboardEnrollmentsChartResponse();
+        when(adminDashboardService.getEnrollmentsChart()).thenReturn(mockResponse);
+
+        ResponseEntity<project.lms_rikkei_edu.modules.dashboard.dto.response.AdminDashboardEnrollmentsChartResponse> result = adminDashboardController.getEnrollmentsChart();
+
+        assertNotNull(result);
+        assertEquals(200, result.getStatusCode().value());
+        assertEquals(mockResponse, result.getBody());
+    }
 }
