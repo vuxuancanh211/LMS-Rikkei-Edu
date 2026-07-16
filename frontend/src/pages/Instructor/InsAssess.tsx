@@ -241,6 +241,8 @@ import { createPortal } from 'react-dom';
     const [bqDiff, setBqDiff] = useState('EASY');
     const [bqType, setBqType] = useState('SINGLE_CHOICE');
     const [bqTag, setBqTag] = useState('');
+    const [bqTagError, setBqTagError] = useState('');
+    const [bqTextError, setBqTextError] = useState('');
     const [bqOpts, setBqOpts] = useState([
       { optionText: '', isCorrect: true },
       { optionText: '', isCorrect: false },
@@ -577,8 +579,8 @@ import { createPortal } from 'react-dom';
 
     /* ── Save bank question ── */
     const resetBankForm = () => {
-      setBqText(''); setBqDiff('EASY'); setBqType('SINGLE_CHOICE');
-      setBqTag('');
+      setBqText(''); setBqTextError(''); setBqDiff('EASY'); setBqType('SINGLE_CHOICE');
+      setBqTag(''); setBqTagError('');
       setBqOpts([
         { optionText: '', isCorrect: true },
         { optionText: '', isCorrect: false },
@@ -588,10 +590,22 @@ import { createPortal } from 'react-dom';
     };
 
     const handleSaveBankQuestion = useCallback(async () => {
-      if (!bqText.trim()) { showToast('Vui lòng nhập nội dung câu hỏi', 'error'); return; }
+      let hasError = false;
+      if (!bqText.trim()) { setBqTextError('Vui lòng nhập nội dung câu hỏi'); hasError = true; } else { setBqTextError(''); }
+      if (!bqTag.trim()) { setBqTagError('Vui lòng nhập chủ đề (tag)'); hasError = true; } else { setBqTagError(''); }
+      if (hasError) return;
+      
       const filledOpts = bqOpts.filter(o => o.optionText.trim());
       if (filledOpts.length < 2) { showToast('Cần ít nhất 2 đáp án', 'error'); return; }
-      if (!filledOpts.some(o => o.isCorrect)) { showToast('Cần chọn ít nhất 1 đáp án đúng', 'error'); return; }
+      
+      const correctCount = filledOpts.filter(o => o.isCorrect).length;
+      if (bqType === 'SINGLE_CHOICE' && correctCount !== 1) {
+        showToast('Câu hỏi một đáp án phải có chính xác 1 đáp án đúng', 'error'); return;
+      }
+      if (bqType === 'MULTIPLE_CHOICE' && correctCount < 2) {
+        showToast('Câu hỏi nhiều đáp án phải có ít nhất 2 đáp án đúng', 'error'); return;
+      }
+      
       setSubmitting(true);
       try {
         const payload = {
@@ -1268,33 +1282,38 @@ import { createPortal } from 'react-dom';
               </div>
             </div>
             <div>
-              <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Chủ đề (tag)</label>
-              <input className="input" placeholder="VD: React Hooks" value={bqTag} onChange={e => setBqTag(e.target.value)} />
+              <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Chủ đề (tag) <span style={{ color: 'var(--error)' }}>*</span></label>
+              <input className="input" placeholder="VD: React Hooks" style={bqTagError ? { borderColor: 'var(--error)' } : null} value={bqTag} onChange={e => { setBqTag(e.target.value); setBqTagError(''); }} />
+              {bqTagError && <div className="t-xs" style={{ color: 'var(--error)', marginTop: 4 }}>{bqTagError}</div>}
             </div>
             <div>
-              <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Nội dung câu hỏi *</label>
-              <textarea className="input" style={{ height: 80, padding: 12, resize: 'vertical' }}
-                placeholder="Nhập nội dung câu hỏi..." value={bqText} onChange={e => setBqText(e.target.value)} />
+              <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Nội dung câu hỏi <span style={{ color: 'var(--error)' }}>*</span></label>
+              <textarea className="input" style={{ height: 80, padding: 12, resize: 'vertical', ...(bqTextError ? { borderColor: 'var(--error)' } : {}) }}
+                placeholder="Nhập nội dung câu hỏi..." value={bqText} onChange={e => { setBqText(e.target.value); setBqTextError(''); }} />
+              {bqTextError && <div className="t-xs" style={{ color: 'var(--error)', marginTop: 4 }}>{bqTextError}</div>}
             </div>
             <div>
               <label className="t-label" style={{ display: 'block', marginBottom: 8 }}>
                 Đáp án — {bqType === 'MULTIPLE_CHOICE' ? 'chọn nhiều đáp án đúng' : 'chọn 1 đáp án đúng'}
               </label>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-                {bqOpts.map((opt, i) => (
+                {bqOpts.map((opt, i) => {
+                  const toggleCorrect = () => {
+                    const next = bqOpts.map((o, j) => ({
+                      ...o,
+                      isCorrect: bqType === 'SINGLE_CHOICE' ? j === i : (j === i ? !o.isCorrect : o.isCorrect),
+                    }));
+                    setBqOpts(next);
+                  };
+                  return (
                   <div key={i} className="row gap-10" style={{
                     padding: '8px 12px', borderRadius: 10,
                     border: `1.5px solid ${opt.isCorrect ? 'var(--success)' : 'var(--border)'}`,
                     background: opt.isCorrect ? 'var(--chip-success-bg)' : '#fff',
                   }}>
                     <span
-                      onClick={() => {
-                        const next = bqOpts.map((o, j) => ({
-                          ...o,
-                          isCorrect: bqType === 'SINGLE_CHOICE' ? j === i : (j === i ? !o.isCorrect : o.isCorrect),
-                        }));
-                        setBqOpts(next);
-                      }}
+                      onClick={toggleCorrect}
+                      title="Chọn làm đáp án đúng"
                       style={{
                         width: 22, height: 22, borderRadius: bqType === 'MULTIPLE_CHOICE' ? 5 : 999,
                         flex: 'none', cursor: 'pointer',
@@ -1308,7 +1327,9 @@ import { createPortal } from 'react-dom';
                         background: 'var(--success)',
                       }} />}
                     </span>
-                    <span style={{ fontWeight: 700, color: 'var(--text-3)', width: 18 }}>{String.fromCharCode(65 + i)}</span>
+                    <span onClick={toggleCorrect} style={{ fontWeight: 700, color: 'var(--text-3)', width: 18, cursor: 'pointer' }} title="Chọn làm đáp án đúng">
+                      {String.fromCharCode(65 + i)}
+                    </span>
                     <input
                       className="input"
                       style={{ height: 36, border: 'none', background: 'transparent', padding: 0, flex: 1 }}
@@ -1316,10 +1337,22 @@ import { createPortal } from 'react-dom';
                       value={opt.optionText}
                       onChange={e => setBqOpts(bqOpts.map((o, j) => j === i ? { ...o, optionText: e.target.value } : o))}
                     />
-                    {opt.isCorrect && <span className="chip chip-success" style={{ flex: 'none' }}>Đúng</span>}
+                    {opt.isCorrect && <span className="chip chip-success" style={{ flex: 'none', cursor: 'pointer' }} onClick={toggleCorrect} title="Bỏ chọn">Đúng</span>}
+                    {bqOpts.length > 2 && (
+                      <button className="icon-btn" style={{ width: 34, height: 34, color: 'var(--error)', flex: 'none', marginLeft: 4 }} title="Xóa đáp án" onClick={() => {
+                        setBqOpts(bqOpts.filter((_, j) => j !== i));
+                      }}>
+                        <Ic n="trash" size={16} />
+                      </button>
+                    )}
                   </div>
-                ))}
+                )})}
               </div>
+              <button className="btn btn-ghost" style={{ marginTop: 12, width: '100%', border: '1px dashed var(--border)' }} onClick={() => {
+                setBqOpts([...bqOpts, { optionText: '', isCorrect: false }]);
+              }}>
+                <Ic n="plus" size={16} /> Thêm đáp án
+              </button>
             </div>
           </div>
           <div className="modal-foot">
@@ -1548,7 +1581,18 @@ import { createPortal } from 'react-dom';
     function cancelEdit() { setEditingIdx(null); setDraft(null); }
 
     function saveEdit(i) {
-      if (!draft.questionText.trim()) return;
+      if (!draft.questionText.trim()) { window.alert('Vui lòng nhập nội dung câu hỏi'); return; }
+      const filledOpts = draft.options.filter(o => o.text.trim());
+      if (filledOpts.length < 2) { window.alert('Cần ít nhất 2 đáp án'); return; }
+      
+      const correctCount = filledOpts.filter(o => o.correct).length;
+      if (draft.questionType === 'SINGLE_CHOICE' && correctCount !== 1) {
+        window.alert('Câu hỏi một đáp án phải có chính xác 1 đáp án đúng'); return;
+      }
+      if (draft.questionType === 'MULTIPLE_CHOICE' && correctCount < 2) {
+        window.alert('Câu hỏi nhiều đáp án phải có ít nhất 2 đáp án đúng'); return;
+      }
+
       const updated = { ...result.questions[i], ...draft };
       const newQuestions = result.questions.map((q, idx) => idx === i ? updated : q);
       setResult({ ...result, questions: newQuestions });
@@ -1617,6 +1661,19 @@ import { createPortal } from 'react-dom';
     async function handleSave() {
       const toSave = result.questions.filter((_, i) => selected[i]);
       if (toSave.length === 0) { setError('Chưa chọn câu nào để lưu.'); return; }
+
+      for (const q of toSave) {
+        const correctCount = q.options.filter(o => o.correct).length;
+        if (q.questionType === 'SINGLE_CHOICE' && correctCount !== 1) {
+          setError(`Câu hỏi "${q.questionText.substring(0, 30)}..." phải có chính xác 1 đáp án đúng.`);
+          return;
+        }
+        if (q.questionType === 'MULTIPLE_CHOICE' && correctCount < 2) {
+          setError(`Câu hỏi "${q.questionText.substring(0, 30)}..." phải có ít nhất 2 đáp án đúng.`);
+          return;
+        }
+      }
+
       setStep(STEPS.saving);
       try {
         const payload = toSave.map(q => ({
@@ -2914,6 +2971,8 @@ import { createPortal } from 'react-dom';
     const [type, setType] = useState('SINGLE_CHOICE');
     const [diff, setDiff] = useState('EASY');
     const [tag, setTag] = useState('');
+    const [tagError, setTagError] = useState('');
+    const [textError, setTextError] = useState('');
     const [saveToBank, setSaveToBank] = useState(true);
     const [opts, setOpts] = useState([
       { optionText: '', isCorrect: true },
@@ -2925,10 +2984,22 @@ import { createPortal } from 'react-dom';
     const [error, setError] = useState('');
 
     async function submit() {
-      if (!text.trim()) { setError('Vui lòng nhập nội dung câu hỏi'); return; }
+      let hasError = false;
+      if (!tag.trim()) { setTagError('Vui lòng nhập chủ đề (tag)'); hasError = true; } else { setTagError(''); }
+      if (!text.trim()) { setTextError('Vui lòng nhập nội dung câu hỏi'); hasError = true; } else { setTextError(''); }
+      if (hasError) return;
+      
       const filled = opts.filter(o => o.optionText.trim());
       if (filled.length < 2) { setError('Cần ít nhất 2 đáp án'); return; }
-      if (!filled.some(o => o.isCorrect)) { setError('Cần chọn ít nhất 1 đáp án đúng'); return; }
+      
+      const correctCount = filled.filter(o => o.isCorrect).length;
+      if (type === 'SINGLE_CHOICE' && correctCount !== 1) {
+        setError('Câu hỏi một đáp án phải có chính xác 1 đáp án đúng'); return;
+      }
+      if (type === 'MULTIPLE_CHOICE' && correctCount < 2) {
+        setError('Câu hỏi nhiều đáp án phải có ít nhất 2 đáp án đúng'); return;
+      }
+
       setSaving(true); setError('');
       try {
         await onConfirm({
@@ -2968,33 +3039,38 @@ import { createPortal } from 'react-dom';
             </div>
           </div>
           <div>
-            <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Chủ đề (tag)</label>
-            <input className="input" placeholder="VD: React Hooks" value={tag} onChange={e => setTag(e.target.value)} />
+            <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Chủ đề (tag) <span style={{ color: 'var(--error)' }}>*</span></label>
+            <input className="input" placeholder="VD: React Hooks" style={tagError ? { borderColor: 'var(--error)' } : null} value={tag} onChange={e => { setTag(e.target.value); setTagError(''); }} />
+            {tagError && <div className="t-xs" style={{ color: 'var(--error)', marginTop: 4 }}>{tagError}</div>}
           </div>
           <div>
-            <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Nội dung câu hỏi *</label>
-            <textarea className="input" style={{ height: 80, padding: 12, resize: 'vertical' }}
-              placeholder="Nhập nội dung câu hỏi..." value={text} onChange={e => setText(e.target.value)} />
+            <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Nội dung câu hỏi <span style={{ color: 'var(--error)' }}>*</span></label>
+            <textarea className="input" style={{ height: 80, padding: 12, resize: 'vertical', ...(textError ? { borderColor: 'var(--error)' } : {}) }}
+              placeholder="Nhập nội dung câu hỏi..." value={text} onChange={e => { setText(e.target.value); setTextError(''); }} />
+            {textError && <div className="t-xs" style={{ color: 'var(--error)', marginTop: 4 }}>{textError}</div>}
           </div>
           <div>
             <label className="t-label" style={{ display: 'block', marginBottom: 8 }}>
               Đáp án — {type === 'MULTIPLE_CHOICE' ? 'chọn nhiều đáp án đúng' : 'chọn 1 đáp án đúng'}
             </label>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-              {opts.map((opt, i) => (
+              {opts.map((opt, i) => {
+                const toggleCorrect = () => {
+                  const next = opts.map((o, j) => ({
+                    ...o,
+                    isCorrect: type === 'SINGLE_CHOICE' ? j === i : (j === i ? !o.isCorrect : o.isCorrect),
+                  }));
+                  setOpts(next);
+                };
+                return (
                 <div key={i} className="row gap-10" style={{
                   padding: '8px 12px', borderRadius: 10,
                   border: `1.5px solid ${opt.isCorrect ? 'var(--success)' : 'var(--border)'}`,
                   background: opt.isCorrect ? 'var(--chip-success-bg)' : '#fff',
                 }}>
                   <span
-                    onClick={() => {
-                      const next = opts.map((o, j) => ({
-                        ...o,
-                        isCorrect: type === 'SINGLE_CHOICE' ? j === i : (j === i ? !o.isCorrect : o.isCorrect),
-                      }));
-                      setOpts(next);
-                    }}
+                    onClick={toggleCorrect}
+                    title="Chọn làm đáp án đúng"
                     style={{
                       width: 22, height: 22, borderRadius: type === 'MULTIPLE_CHOICE' ? 5 : 999,
                       flex: 'none', cursor: 'pointer',
@@ -3008,7 +3084,9 @@ import { createPortal } from 'react-dom';
                       background: 'var(--success)',
                     }} />}
                   </span>
-                  <span style={{ fontWeight: 700, color: 'var(--text-3)', width: 18 }}>{String.fromCharCode(65 + i)}</span>
+                  <span onClick={toggleCorrect} style={{ fontWeight: 700, color: 'var(--text-3)', width: 18, cursor: 'pointer' }} title="Chọn làm đáp án đúng">
+                    {String.fromCharCode(65 + i)}
+                  </span>
                   <input
                     className="input"
                     style={{ height: 36, border: 'none', background: 'transparent', padding: 0, flex: 1 }}
@@ -3016,10 +3094,22 @@ import { createPortal } from 'react-dom';
                     value={opt.optionText}
                     onChange={e => setOpts(opts.map((o, j) => j === i ? { ...o, optionText: e.target.value } : o))}
                   />
-                  {opt.isCorrect && <span className="chip chip-success" style={{ flex: 'none' }}>Đúng</span>}
+                  {opt.isCorrect && <span className="chip chip-success" style={{ flex: 'none', cursor: 'pointer' }} onClick={toggleCorrect} title="Bỏ chọn">Đúng</span>}
+                  {opts.length > 2 && (
+                    <button className="icon-btn" style={{ width: 34, height: 34, color: 'var(--error)', flex: 'none', marginLeft: 4 }} title="Xóa đáp án" onClick={() => {
+                      setOpts(opts.filter((_, j) => j !== i));
+                    }}>
+                      <Ic n="trash" size={16} />
+                    </button>
+                  )}
                 </div>
-              ))}
+              )})}
             </div>
+            <button className="btn btn-ghost" style={{ marginTop: 12, width: '100%', border: '1px dashed var(--border)' }} onClick={() => {
+              setOpts([...opts, { optionText: '', isCorrect: false }]);
+            }}>
+              <Ic n="plus" size={16} /> Thêm đáp án
+            </button>
           </div>
           <label className="row gap-10" style={{ cursor: 'pointer' }}>
             <input type="checkbox" checked={saveToBank} onChange={e => setSaveToBank(e.target.checked)} />
