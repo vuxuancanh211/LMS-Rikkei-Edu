@@ -90,6 +90,9 @@
       return true;
     });
 
+    // Đặt 20 bài/trang vì 20 chia hết cho 5, 4, 2, 1 (tránh bị khuyết dòng trên màn hình lớn 5 cột)
+    const pg = window.usePaged(filtered, 20);
+
     return (
       <div>
         {/* Course + search bar */}
@@ -98,7 +101,7 @@
             value={courseId || 'ALL'}
             onChange={selectCourse}
             options={[{ v: 'ALL', label: 'Tất cả khóa học' }, ...courses.map(c => ({ v: c.id, label: c.title }))]}
-            style={{ width: 260, flex: 'none' }}
+            style={{ minWidth: 200, flex: '1 1 auto' }}
           />
           <Sl
             value={filterStatus}
@@ -109,7 +112,7 @@
               { v: 'FAILED', label: 'Chưa đạt' },
               { v: 'NOT_STARTED', label: 'Chưa làm' }
             ]}
-            style={{ width: 160, flex: 'none', marginLeft: 12 }}
+            style={{ minWidth: 160, flex: '1 1 auto', marginLeft: 12 }}
           />
           <div className="grow" />
           <Se placeholder="Tìm quiz..." value={q} onChange={setQ} style={{ width: 220, flex: 'none' }} />
@@ -138,7 +141,7 @@
           </Sn>
         ) : (
           <div className="grid grid-cards" style={{ marginTop: 16 }}>
-            {filtered.map(quiz => {
+            {pg.slice.map(quiz => {
               const locked = quiz.quizStatus !== 'PUBLISHED';
               const notStarted = quiz.attemptsUsed === 0;
               const scorePct = quiz.bestScorePercentage != null ? Number(quiz.bestScorePercentage) : null;
@@ -224,6 +227,8 @@
             })}
           </div>
         )}
+
+        <window.PageBar pg={pg} unit="bài" />
 
         <AttemptHistoryModal
           quiz={historyQuiz}
@@ -422,7 +427,7 @@
             value={courseId || ''}
             onChange={selectCourse}
             options={courses.map(c => ({ v: c.id, label: c.title }))}
-            style={{ width: 260, flex: 'none' }}
+            style={{ minWidth: 200, flex: '1 1 auto' }}
           />
           <div className="grow" />
           <Se placeholder="Tìm bài tập..." value={q} onChange={setQ} style={{ width: 220, flex: 'none' }} />
