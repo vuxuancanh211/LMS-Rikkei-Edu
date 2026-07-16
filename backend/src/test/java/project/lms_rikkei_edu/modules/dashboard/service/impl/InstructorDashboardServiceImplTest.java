@@ -172,6 +172,15 @@ class InstructorDashboardServiceImplTest {
     }
 
     @Test
+    void getCourseDistributions_ShouldHandleNullRate() {
+        when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(Collections.emptyList());
+        when(jdbc.queryForObject(anyString(), eq(Double.class), any(Object[].class))).thenReturn(null);
+        project.lms_rikkei_edu.modules.dashboard.dto.response.InstructorDashboardDistributionsResponse res = instructorDashboardService.getCourseDistributions(instructorId);
+        assertNotNull(res);
+        assertEquals(0.0, res.getAverageCompletionRate());
+    }
+
+    @Test
     void getPendingSubmissions_ShouldReturnSubmissions() {
         when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(Collections.emptyList());
         List<PendingSubmissionDto> res = instructorDashboardService.getPendingSubmissions(instructorId);

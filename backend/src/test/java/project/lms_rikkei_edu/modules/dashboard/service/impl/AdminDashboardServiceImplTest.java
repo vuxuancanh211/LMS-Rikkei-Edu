@@ -106,6 +106,42 @@ class AdminDashboardServiceImplTest {
 
         doAnswer(invocation -> {
             RowCallbackHandler handler = invocation.getArgument(1);
+            when(rs.getString("ym")).thenReturn(currentYm, "1999-01");
+            when(rs.getInt("cnt")).thenReturn(25, 3);
+            handler.processRow(rs);
+            handler.processRow(rs);
+            return null;
+        }).when(jdbc).query(contains("FROM users\n                WHERE created_at >= DATE_TRUNC('month'"), any(RowCallbackHandler.class));
+
+        doAnswer(invocation -> {
+            RowCallbackHandler handler = invocation.getArgument(1);
+            when(rs.getString("dstr")).thenReturn(currentDateStr, "1999-01-01");
+            when(rs.getInt("cnt")).thenReturn(5, 1);
+            handler.processRow(rs);
+            handler.processRow(rs);
+            return null;
+        }).when(jdbc).query(contains("FROM users\n                WHERE created_at >= NOW() - INTERVAL '7 days'"), any(RowCallbackHandler.class));
+
+        doAnswer(invocation -> {
+            RowCallbackHandler handler = invocation.getArgument(1);
+            when(rs.getString("ym")).thenReturn(currentYm, "1999-01");
+            when(rs.getInt("cnt")).thenReturn(40, 8);
+            handler.processRow(rs);
+            handler.processRow(rs);
+            return null;
+        }).when(jdbc).query(contains("FROM course_enrollments\n                WHERE enrolled_at >= DATE_TRUNC('month'"), any(RowCallbackHandler.class));
+
+        doAnswer(invocation -> {
+            RowCallbackHandler handler = invocation.getArgument(1);
+            when(rs.getString("dstr")).thenReturn(currentDateStr, "1999-01-01");
+            when(rs.getInt("cnt")).thenReturn(12, 2);
+            handler.processRow(rs);
+            handler.processRow(rs);
+            return null;
+        }).when(jdbc).query(contains("FROM course_enrollments\n                WHERE enrolled_at >= NOW() - INTERVAL '7 days'"), any(RowCallbackHandler.class));
+
+        doAnswer(invocation -> {
+            RowCallbackHandler handler = invocation.getArgument(1);
             Timestamp nowTs = Timestamp.from(Instant.now());
             when(rs.getString("id")).thenReturn(UUID.randomUUID().toString());
             when(rs.getString("full_name")).thenReturn("Admin Who");
@@ -141,6 +177,10 @@ class AdminDashboardServiceImplTest {
         assertEquals(79.8, response.getAverageCompletionRate());
         assertEquals(2, response.getPendingApprovals().size());
         assertTrue(response.getRecentActivities().size() <= 6);
+        assertNotNull(response.getNewUsersData());
+        assertNotNull(response.getWeeklyUsersData());
+        assertNotNull(response.getEnrollmentsData());
+        assertNotNull(response.getWeeklyEnrollmentsData());
     }
 
     @Test
