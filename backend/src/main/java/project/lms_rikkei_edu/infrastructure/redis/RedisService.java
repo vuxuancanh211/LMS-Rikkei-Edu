@@ -90,10 +90,7 @@ public class RedisService {
             return true;
         }
         Optional<String> legacy = getRefreshToken(userId);
-        if (legacy.isPresent() && tokenHash.equals(legacy.get())) {
-            return true;
-        }
-        return Boolean.TRUE.equals(redisTemplate.opsForSet().isMember(RedisKeyConstants.USER_TOKENS + userId, tokenHash));
+        return legacy.isPresent() && tokenHash.equals(legacy.get());
     }
 
     public void rotateRefreshTokenWithGracePeriod(UUID userId, String tokenHash, long graceSeconds) {

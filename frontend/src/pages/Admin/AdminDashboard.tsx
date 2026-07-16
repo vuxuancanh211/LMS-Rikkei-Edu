@@ -129,7 +129,7 @@
               <div style={{ overflowX: "auto" }}><table className="tbl">
                 <thead><tr><th>Tên khóa học</th><th>Giảng viên</th><th>Ngày gửi</th><th>Trạng thái</th></tr></thead>
                 <tbody>{approvalsList.map(a => (
-                  <tr key={a.id} style={{ cursor: "pointer" }} onClick={() => nav("approval")}><td><b className="t-sm truncate" style={{ maxWidth: 220, display: "block" }}>{a.courseName || a.course || "Khóa học"}</b></td><td className="dim t-sm">{a.instructorName || a.instructor || "Giảng viên"}</td><td className="dim t-sm">{a.submittedDate || a.date || ""}</td><td><Status s={a.status || "PENDING"} /></td></tr>
+                  <tr key={a.id} style={{ cursor: "pointer" }} onClick={() => { window.__selectedApprovalId = a.id; window.__selectedApprovalCourse = a; nav("approval", { approvalId: a.id }); }}><td><b className="t-sm truncate" style={{ maxWidth: 220, display: "block" }}>{a.courseName || a.course || "Khóa học"}</b></td><td className="dim t-sm">{a.instructorName || a.instructor || "Giảng viên"}</td><td className="dim t-sm">{a.submittedDate || a.date || ""}</td><td><Status s={a.status || "PENDING"} /></td></tr>
                 ))}</tbody>
               </table></div>
             )}

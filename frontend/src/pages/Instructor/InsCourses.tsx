@@ -278,7 +278,7 @@
           <button className="btn btn-primary" onClick={() => setCreate(true)}><Ic n="plus" size={17} />Tạo khóa học</button>
         </div>
 
-        <window.CreateCourseModal open={create} onClose={() => setCreate(false)} onCreated={() => nav("courseDetail")} />
+        <window.CreateCourseModal open={create} onClose={() => setCreate(false)} onCreated={() => nav("courseDetail", { courseId: window.__selectedCourseId || sessionStorage.getItem("selectedCourseId") })} />
 
         <div className="toolbar">
           <Search placeholder="Tìm khóa học..." value={q} onChange={setQ} />
@@ -318,11 +318,11 @@
                     <div className="row gap-10" style={{ marginTop: "auto", paddingTop: 6 }}>
                       <button className="btn btn-ghost btn-sm grow" onClick={() => {
                         window.__previewCourse = { courseId: c.id, role: "instructor" };
-                        nav("preview");
+                        nav("preview", { courseId: c.id });
                       }}><Ic n="eye" size={15} />Xem</button>
                       <button className="btn btn-primary btn-sm grow" onClick={() => {
                         window.__selectedCourseId = c.id; sessionStorage.setItem("selectedCourseId", c.id);
-                        nav("courseDetail");
+                        nav("courseDetail", { courseId: c.id });
                       }}><Ic n="edit" size={15} />Sửa</button>
                     </div>
                   </div>

@@ -5,7 +5,15 @@
   const { Avatar, StatCard, Search, Section, Modal, ModalHead, Empty } = window;
   const { getGroupDetail, addGroupMembers, removeGroupMember } = window.__groupService;
 
-  function InsGroupDetail({ nav, groupId }) {
+  function InsGroupDetail({ nav, groupId: propGroupId }: { nav?: any; groupId?: string } = {}) {
+    const [urlGroupId, setUrlGroupId] = useState(() => new URLSearchParams(window.location.search).get("groupId"));
+    useEffect(() => {
+      const checkUrl = () => setUrlGroupId(new URLSearchParams(window.location.search).get("groupId"));
+      window.addEventListener("popstate", checkUrl);
+      return () => window.removeEventListener("popstate", checkUrl);
+    }, []);
+    const groupId = propGroupId || urlGroupId || window.__selectedGroupId || sessionStorage.getItem("selectedGroupId") || null;
+
     const [q, setQ] = useState("");
     const [group, setGroup] = useState(null);
     const [loading, setLoading] = useState(true);

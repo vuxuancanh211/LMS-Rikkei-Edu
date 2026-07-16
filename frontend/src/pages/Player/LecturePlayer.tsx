@@ -225,6 +225,7 @@
 
   /* ── Viewer ─────────────────────────────────────────────── */
   function Viewer({ res, url, onVideoTimeUpdate, loading, error, onRetry }: any) {
+    const videoRef = useRef(null);
     useEffect(() => {
       const handleKeyDown = (e: any) => {
         if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'p' || e.key === 'S' || e.key === 'P' || e.key === 'u' || e.key === 'U')) {
@@ -234,6 +235,13 @@
       window.addEventListener('keydown', handleKeyDown);
       return () => window.removeEventListener('keydown', handleKeyDown);
     }, []);
+    useEffect(() => {
+      const el = videoRef.current;
+      if (!el || !onVideoTimeUpdate) return;
+      const handler = (e: any) => onVideoTimeUpdate(e);
+      el.addEventListener('seeked', handler);
+      return () => el.removeEventListener('seeked', handler);
+    }, [onVideoTimeUpdate]);
 
     if (!res) return (
       <div style={{ aspectRatio: "16/9", background: "#0a0f1c", borderRadius: 16, overflow: "hidden",
@@ -283,7 +291,7 @@
       return (
         <div style={{ position: "relative", borderRadius: 16, overflow: "hidden", aspectRatio: "16/9", background: "#000" }}
           onContextMenu={(e: any) => e.preventDefault()}>
-          <video key={url || res?.id} controls controlsList="nodownload" autoPlay src={url}
+          <video ref={videoRef} key={url || res?.id} controls controlsList="nodownload" autoPlay src={url}
             style={{ width: "100%", height: "100%", display: "block", outline: "none" }}
             onContextMenu={(e: any) => e.preventDefault()}
             onTimeUpdate={onVideoTimeUpdate} />
@@ -463,6 +471,9 @@
 
     /* Progress tracking */
     const progRef = useRef<any>({});
+    const maxWatchedPctRef = useRef<Record<string, number>>({});
+    const cumDocSecRef = useRef<Record<string, number>>({});
+    const ytElapsedRef = useRef<Record<string, number>>({});
     const updateProgress = useCallback(async (watchedPct, position, docSeconds, isCompleted) => {
       if (!courseId || !activeL?.id) return;
       const hasVid = videoResources.length > 0;
@@ -494,8 +505,8 @@
           documentViewSeconds: docSeconds,
           completed: isComp,
         });
-      } catch (e) { /* ignore */ }
-    }, [courseId, activeL?.id, videoResources.length]);
+      } catch (e) { console.error("updateProgress error", e); }
+    }, [courseId, activeL?.id, videoResources.length, docResources.length]);
 
     const endRef = useRef();
     function scrollBottom() { setTimeout(() => endRef.current?.scrollIntoView({ behavior: "smooth" }), 60); }
@@ -570,7 +581,7 @@
               localStorage.setItem('last_lesson_' + courseId, target.id);
               const newUrl = window.location.pathname + '?courseId=' + courseId + '&lessonId=' + target.id;
               window.history.replaceState(null, '', newUrl);
-            } catch (e) { /* ignore */ }
+      } catch (e) { console.error("updateProgress error", e); }
             const ch = chs.find(c => c.lessons?.some(x => x.id === target.id));
             if (ch) opened[ch.id] = true;
           }
@@ -641,20 +652,25 @@
       const video = e.target;
       if (!video?.duration || !activeL?.id || !videoUrl) return;
       const pct = (video.currentTime / video.duration) * 100;
+      maxWatchedPctRef.current[activeL.id] = Math.max(
+        maxWatchedPctRef.current[activeL.id] || 0,
+        pct
+      );
+      const effectivePct = maxWatchedPctRef.current[activeL.id];
       const curProg = progRef.current[activeL.id];
       if (curProg === "COMPLETED") return;
       const now = Date.now();
-      if (pct >= 5 && curProg !== "IN_PROGRESS") {
-        progRef.current[activeL.id] = "IN_PROGRESS";
-        updateProgress(Math.round(pct), Math.floor(video.currentTime), null, false);
-        videoThrottleRef.current = now;
-      } else if (pct >= 90 && curProg !== "COMPLETED") {
+      if (effectivePct >= 90 && curProg !== "COMPLETED") {
         progRef.current[activeL.id] = "COMPLETED";
-        updateProgress(Math.round(pct), Math.floor(video.currentTime), null, true);
+        updateProgress(Math.round(effectivePct), Math.floor(video.currentTime), null, true);
+        videoThrottleRef.current = now;
+      } else if (effectivePct >= 5 && curProg !== "IN_PROGRESS") {
+        progRef.current[activeL.id] = "IN_PROGRESS";
+        updateProgress(Math.round(effectivePct), Math.floor(video.currentTime), null, false);
         videoThrottleRef.current = now;
       } else if (now - videoThrottleRef.current >= 5000) {
         videoThrottleRef.current = now;
-        updateProgress(Math.round(pct), Math.floor(video.currentTime), null, false);
+        updateProgress(Math.round(effectivePct), Math.floor(video.currentTime), null, false);
       }
     }, [activeL?.id, updateProgress, activeVideoIdx, videoUrl]);
 
@@ -681,25 +697,31 @@
     useEffect(() => {
       if (!activeL?.durationSeconds || progRef.current[activeL.id] === "COMPLETED") return;
       if (!activeVideoRes || !getYoutubeId(activeVideoRes.externalUrl || "")) return;
+      const lid = activeL.id;
       const threshold = (activeL.durationSeconds * 90) / 100;
-      let elapsed = 0;
+      let elapsed = ytElapsedRef.current[lid] || 0;
+      if (elapsed >= threshold) {
+        progRef.current[lid] = "COMPLETED";
+        updateProgress(100, null, null, true);
+        return;
+      }
       const t = setInterval(() => {
         if (document.hidden) return;
         elapsed += 1;
+        ytElapsedRef.current[lid] = elapsed;
         if (elapsed >= threshold) {
           clearInterval(t);
-          progRef.current[activeL.id] = "COMPLETED";
+          progRef.current[lid] = "COMPLETED";
           updateProgress(100, null, null, true);
-        } else if (elapsed >= 5 && progRef.current[activeL.id] !== "IN_PROGRESS") {
-          progRef.current[activeL.id] = "IN_PROGRESS";
+        } else if (elapsed >= 5 && progRef.current[lid] !== "IN_PROGRESS") {
+          progRef.current[lid] = "IN_PROGRESS";
           updateProgress(Math.round((elapsed / activeL.durationSeconds) * 100), null, null, false);
         }
       }, 1000);
       return () => clearInterval(t);
     }, [activeL?.id, activeVideoRes?.id, activeVideoIdx]);
 
-    /* ── Progress: Document timer (count seconds while viewing) ── */
-    const docSecRef = useRef(0);
+    /* ── Progress: Document timer (cumulative across documents) ── */
     const docTimerRef = useRef<any>(null);
     const hiddenRef = useRef(false);
     useEffect(() => {
@@ -707,34 +729,31 @@
       if (!viewRes || viewRes.resourceType === "VIDEO") return;
       if (progRef.current[activeL?.id] === "COMPLETED") return;
 
-      // Reset counter when switching documents
-      docSecRef.current = 0;
       hiddenRef.current = false;
-
-      // Send initial progress immediately, then every 5 seconds
-      updateProgress(null, null, 0, false);
-
+      const lid = activeL?.id;
       const targetDocSec = isVideoLesson ? 10 : 20;
       const onVisibility = () => { hiddenRef.current = document.hidden; };
       document.addEventListener('visibilitychange', onVisibility);
 
+      let cum = cumDocSecRef.current[lid] || 0;
+      updateProgress(null, null, cum, false);
+
       docTimerRef.current = setInterval(() => {
         if (hiddenRef.current) return;
-        docSecRef.current += 1;
-        const isComp = !isVideoLesson && docSecRef.current >= targetDocSec;
-        if (isComp) progRef.current[activeL?.id] = "COMPLETED";
-        if (docSecRef.current % 5 === 0 || isComp) {
-          updateProgress(null, null, docSecRef.current, isComp);
+        cum += 1;
+        cumDocSecRef.current[lid] = cum;
+        const isComp = !isVideoLesson && cum >= targetDocSec;
+        if (isComp) progRef.current[lid] = "COMPLETED";
+        if (cum % 5 === 0 || isComp) {
+          updateProgress(null, null, cum, isComp);
         }
       }, 1000);
 
       return () => {
         document.removeEventListener('visibilitychange', onVisibility);
         if (docTimerRef.current) clearInterval(docTimerRef.current);
-        // Flush final count on unmount
-        if (docSecRef.current > 0) {
-          const target = isVideoLesson ? 10 : 20;
-          updateProgress(null, null, docSecRef.current, !isVideoLesson && docSecRef.current >= target);
+        if (cum > 0) {
+          updateProgress(null, null, cum, !isVideoLesson && cum >= targetDocSec);
         }
       };
     }, [viewRes?.id, activeL?.id, isVideoLesson]);
@@ -790,8 +809,15 @@
                     return (
                       <div key={n.id} className="row gap-12" style={{ padding: "13px 16px", background: n.read ? "#fff" : "var(--accent-soft)", borderBottom: "1px solid var(--border)", cursor: "pointer" }} onClick={() => {
                          if (!n.read) markRead(n.id);
-                         const targetUrl = window.getNotificationTargetUrl ? window.getNotificationTargetUrl(n, window.useAuthStore.getState().role || 'student') : '';
-                         window.location.href = targetUrl || '/notifications';
+                         setNotifOpen(false);
+                         const role = window.useAuthStore?.getState().role || 'student';
+                         const targetUrl = window.getNotificationTargetUrl ? window.getNotificationTargetUrl(n, role) : '';
+                         if (window.AppShell && typeof window.AppShell.go === 'function') {
+                           const { routeKey, params } = window.parseNotificationUrl ? window.parseNotificationUrl(targetUrl) : { routeKey: '', params: {} };
+                           window.AppShell.go(routeKey, Object.keys(params).length > 0 ? params : undefined);
+                         } else {
+                           window.location.href = targetUrl || '/notifications';
+                         }
                         }}>
                         <div className="stat-ic" style={{ width: 38, height: 38, borderRadius: 10, background: meta.color + "1a", color: meta.color, flex: "none" }}><Ic n={meta.icon} size={18} /></div>
                         <div className="grow" style={{ minWidth: 0 }}>
@@ -799,7 +825,8 @@
                             <span className="chip" style={{ background: meta.color + "1a", color: meta.color, borderColor: meta.color + "33", fontSize: 10, padding: "1px 5px" }}>{meta.label || 'Hệ thống'}</span>
                           </div>
                           <div className="t-sm" style={{ lineHeight: 1.4, fontWeight: n.read ? 400 : 600 }}>{n.title}</div>
-                          <div className="t-xs dim" style={{ marginTop: 3 }}>{timeAgo(n.createdAt)}</div>
+                          {n.body && <div className="t-xs muted" style={{ marginTop: 3, lineHeight: 1.3, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{n.body}</div>}
+                          <div className="t-xs dim" style={{ marginTop: n.body ? 3 : 4 }}>{timeAgo(n.createdAt)}</div>
                         </div>
                         {!n.read && <span style={{ width: 8, height: 8, borderRadius: 999, background: "var(--accent)", flex: "none" }} />}
                       </div>
