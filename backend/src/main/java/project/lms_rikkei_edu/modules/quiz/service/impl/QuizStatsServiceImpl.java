@@ -173,15 +173,21 @@ public class QuizStatsServiceImpl implements QuizStatsService {
         BigDecimal bestScore = best.map(QuizAttemptEntity::getScore).orElse(null);
         BigDecimal bestPct = best.map(QuizAttemptEntity::getScorePercentage).orElse(null);
 
-        // Cooldown check — lần thi gần nhất theo startedAt, không lọc status (khớp hành vi cũ)
         boolean cooldownPassed = true;
+        java.time.OffsetDateTime nextRetryAt = null;
         if (used > 0) {
             var latest = attempts.stream().max(Comparator.comparing(QuizAttemptEntity::getStartedAt));
-            cooldownPassed = latest.map(a -> {
-                if (a.getSubmittedAt() == null) return false; // still in progress
-                int cooldown = quiz.getCooldownMinutes() != null ? quiz.getCooldownMinutes() : 20;
-                return OffsetDateTime.now().isAfter(a.getSubmittedAt().plusMinutes(cooldown));
-            }).orElse(true);
+            if (latest.isPresent()) {
+                var a = latest.get();
+                if (a.getSubmittedAt() == null) {
+                    cooldownPassed = false; // still in progress
+                } else {
+                    int cooldown = quiz.getCooldownMinutes() != null ? quiz.getCooldownMinutes() : 20;
+                    nextRetryAt = a.getSubmittedAt().plusMinutes(cooldown);
+                    cooldownPassed = OffsetDateTime.now().isAfter(nextRetryAt);
+                    if (cooldownPassed) nextRetryAt = null;
+                }
+            }
         }
 
         boolean canRetry = (max == null || used < max) && cooldownPassed;
@@ -197,6 +203,8 @@ public class QuizStatsServiceImpl implements QuizStatsService {
                 .bestScore(bestScore)
                 .bestScorePercentage(bestPct)
                 .canRetry(canRetry)
+                .passScore(quiz.getPassScore())
+                .nextRetryAt(nextRetryAt)
                 .build();
     }
 
