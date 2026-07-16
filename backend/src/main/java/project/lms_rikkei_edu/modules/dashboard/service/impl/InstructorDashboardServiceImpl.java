@@ -3,9 +3,7 @@ package project.lms_rikkei_edu.modules.dashboard.service.impl;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
-import project.lms_rikkei_edu.modules.dashboard.dto.response.CourseDistributionDto;
-import project.lms_rikkei_edu.modules.dashboard.dto.response.InstructorDashboardResponse;
-import project.lms_rikkei_edu.modules.dashboard.dto.response.PendingSubmissionDto;
+import project.lms_rikkei_edu.modules.dashboard.dto.response.*;
 import project.lms_rikkei_edu.modules.dashboard.service.InstructorDashboardService;
 
 import java.time.Instant;
@@ -21,20 +19,17 @@ public class InstructorDashboardServiceImpl implements InstructorDashboardServic
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm").withZone(ZoneId.systemDefault());
 
     @Override
-    public InstructorDashboardResponse getDashboard(UUID instructorId) {
-        // 1. Active courses count
+    public InstructorDashboardStatsResponse getStats(UUID instructorId) {
         Integer activeCoursesCount = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM courses WHERE instructor_id = ? AND status IN ('PUBLISHED', 'ACTIVE')",
                 Integer.class, instructorId);
         if (activeCoursesCount == null) activeCoursesCount = 0;
 
-        // 2. Pending approval courses count
         Integer pendingCoursesCount = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM courses WHERE instructor_id = ? AND status = 'PENDING_APPROVAL'",
                 Integer.class, instructorId);
         if (pendingCoursesCount == null) pendingCoursesCount = 0;
 
-        // 3. Total students count
         Integer totalStudentsCount = jdbc.queryForObject("""
                 SELECT COUNT(DISTINCT ce.student_id)
                 FROM course_enrollments ce
@@ -43,13 +38,11 @@ public class InstructorDashboardServiceImpl implements InstructorDashboardServic
                 """, Integer.class, instructorId);
         if (totalStudentsCount == null) totalStudentsCount = 0;
 
-        // 4. Total groups count
         Integer totalGroupsCount = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM study_groups WHERE instructor_id = ?",
                 Integer.class, instructorId);
         if (totalGroupsCount == null) totalGroupsCount = 0;
 
-        // 5. Pending submissions count
         Integer pendingSubmissionsCount = jdbc.queryForObject("""
                 SELECT COUNT(*)
                 FROM assignment_submissions s
@@ -58,7 +51,6 @@ public class InstructorDashboardServiceImpl implements InstructorDashboardServic
                 """, Integer.class, instructorId);
         if (pendingSubmissionsCount == null) pendingSubmissionsCount = 0;
 
-        // 6. Average completion rate
         Double avgRate = jdbc.queryForObject("""
                 SELECT COALESCE(AVG(cp.overall_percentage), 0.0)
                 FROM course_progress cp
@@ -67,19 +59,31 @@ public class InstructorDashboardServiceImpl implements InstructorDashboardServic
                 """, Double.class, instructorId);
         double averageCompletionRate = avgRate != null ? Math.round(avgRate * 10.0) / 10.0 : 0.0;
 
-        // 7. Monthly completion rates (last 6 months rolling window - single query optimization)
+        return InstructorDashboardStatsResponse.builder()
+                .activeCoursesCount(activeCoursesCount)
+                .pendingCoursesCount(pendingCoursesCount)
+                .totalStudentsCount(totalStudentsCount)
+                .totalGroupsCount(totalGroupsCount)
+                .pendingSubmissionsCount(pendingSubmissionsCount)
+                .averageCompletionRate(averageCompletionRate)
+                .build();
+    }
+
+    @Override
+    public InstructorDashboardChartResponse getCompletionChart(UUID instructorId) {
         List<Double> monthlyCompletionRates = new ArrayList<>(Collections.nCopies(6, 0.0));
         List<String> monthlyLabels = new ArrayList<>();
         Map<String, Integer> ymToIndex = new HashMap<>();
 
+        String[] EN_MONTHS = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
         Calendar cal = Calendar.getInstance();
         for (int i = 5; i >= 0; i--) {
             Calendar c = (Calendar) cal.clone();
             c.add(Calendar.MONTH, -i);
-            int month = c.get(Calendar.MONTH) + 1;
+            int month = c.get(Calendar.MONTH);
             int year = c.get(Calendar.YEAR);
-            String ym = String.format("%04d-%02d", year, month);
-            monthlyLabels.add("Th" + month);
+            String ym = String.format("%04d-%02d", year, month + 1);
+            monthlyLabels.add(EN_MONTHS[month]);
             ymToIndex.put(ym, 5 - i);
         }
 
@@ -99,7 +103,25 @@ public class InstructorDashboardServiceImpl implements InstructorDashboardServic
             }
         }, instructorId);
 
-        // 8. Course student distribution
+        return InstructorDashboardChartResponse.builder()
+                .monthlyCompletionRates(monthlyCompletionRates)
+                .monthlyLabels(monthlyLabels)
+                .build();
+    }
+
+    @Override
+    public InstructorDashboardDistributionsResponse getCourseDistributions(UUID instructorId) {
+        Double avgRate = jdbc.queryForObject("""
+                SELECT COALESCE(AVG(cp.overall_percentage), 0.0)
+                FROM course_progress cp
+                JOIN courses c ON c.id = cp.course_id
+                WHERE c.instructor_id = ?
+                """, Double.class, instructorId);
+        double averageCompletionRate = avgRate != null ? Math.round(avgRate * 10.0) / 10.0 : 0.0;
+        return getCourseDistributionsInternal(instructorId, averageCompletionRate);
+    }
+
+    private InstructorDashboardDistributionsResponse getCourseDistributionsInternal(UUID instructorId, double averageCompletionRate) {
         List<String> palette = List.of("#2563eb", "#10b981", "#f59e0b", "#7c3aed", "#ec4899");
         List<CourseDistributionDto> courseDistributions = jdbc.query("""
                 SELECT c.title, COUNT(ce.student_id) AS student_count
@@ -115,8 +137,15 @@ public class InstructorDashboardServiceImpl implements InstructorDashboardServic
                 .color(palette.get(rowNum % palette.size()))
                 .build(), instructorId);
 
-        // 9. Recent submissions
-        List<PendingSubmissionDto> pendingSubmissions = jdbc.query("""
+        return InstructorDashboardDistributionsResponse.builder()
+                .averageCompletionRate(averageCompletionRate)
+                .courseDistributions(courseDistributions)
+                .build();
+    }
+
+    @Override
+    public List<PendingSubmissionDto> getPendingSubmissions(UUID instructorId) {
+        return jdbc.query("""
                 SELECT s.id, u.full_name, a.title AS assignment_title,
                        COALESCE((SELECT sg.name FROM group_members gm JOIN study_groups sg ON sg.id = gm.group_id WHERE gm.student_id = s.student_id AND sg.course_id = s.course_id LIMIT 1), 'Tự do') AS group_name,
                        s.submitted_at, s.status
@@ -138,18 +167,26 @@ public class InstructorDashboardServiceImpl implements InstructorDashboardServic
                     .status(rs.getString("status"))
                     .build();
         }, instructorId);
+    }
+
+    @Override
+    public InstructorDashboardResponse getDashboard(UUID instructorId) {
+        InstructorDashboardStatsResponse stats = getStats(instructorId);
+        InstructorDashboardChartResponse chart = getCompletionChart(instructorId);
+        InstructorDashboardDistributionsResponse dist = getCourseDistributionsInternal(instructorId, stats.getAverageCompletionRate());
+        List<PendingSubmissionDto> submissions = getPendingSubmissions(instructorId);
 
         return InstructorDashboardResponse.builder()
-                .activeCoursesCount(activeCoursesCount)
-                .pendingCoursesCount(pendingCoursesCount)
-                .totalStudentsCount(totalStudentsCount)
-                .totalGroupsCount(totalGroupsCount)
-                .pendingSubmissionsCount(pendingSubmissionsCount)
-                .monthlyCompletionRates(monthlyCompletionRates)
-                .monthlyLabels(monthlyLabels)
-                .averageCompletionRate(averageCompletionRate)
-                .courseDistributions(courseDistributions)
-                .pendingSubmissions(pendingSubmissions)
+                .activeCoursesCount(stats.getActiveCoursesCount())
+                .pendingCoursesCount(stats.getPendingCoursesCount())
+                .totalStudentsCount(stats.getTotalStudentsCount())
+                .totalGroupsCount(stats.getTotalGroupsCount())
+                .pendingSubmissionsCount(stats.getPendingSubmissionsCount())
+                .monthlyCompletionRates(chart.getMonthlyCompletionRates())
+                .monthlyLabels(chart.getMonthlyLabels())
+                .averageCompletionRate(stats.getAverageCompletionRate())
+                .courseDistributions(dist.getCourseDistributions())
+                .pendingSubmissions(submissions)
                 .build();
     }
 }

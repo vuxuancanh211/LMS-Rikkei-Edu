@@ -132,4 +132,58 @@ class InstructorDashboardServiceImplTest {
         assertEquals(0, response.getPendingSubmissionsCount());
         assertEquals(0.0, response.getAverageCompletionRate());
     }
+
+    @Test
+    void getStats_ShouldReturnStats() {
+        when(jdbc.queryForObject(contains("status IN ('PUBLISHED', 'ACTIVE')"), eq(Integer.class), eq(instructorId))).thenReturn(3);
+        when(jdbc.queryForObject(contains("status = 'PENDING_APPROVAL'"), eq(Integer.class), eq(instructorId))).thenReturn(1);
+        when(jdbc.queryForObject(contains("COUNT(DISTINCT ce.student_id)"), eq(Integer.class), eq(instructorId))).thenReturn(50);
+        when(jdbc.queryForObject(contains("FROM study_groups WHERE instructor_id"), eq(Integer.class), eq(instructorId))).thenReturn(2);
+        when(jdbc.queryForObject(contains("status IN ('SUBMITTED', 'LATE')"), eq(Integer.class), eq(instructorId))).thenReturn(7);
+        when(jdbc.queryForObject(contains("COALESCE(AVG(cp.overall_percentage)"), eq(Double.class), eq(instructorId))).thenReturn(88.0);
+
+        project.lms_rikkei_edu.modules.dashboard.dto.response.InstructorDashboardStatsResponse res = instructorDashboardService.getStats(instructorId);
+        assertNotNull(res);
+        assertEquals(3, res.getActiveCoursesCount());
+        assertEquals(1, res.getPendingCoursesCount());
+        assertEquals(50, res.getTotalStudentsCount());
+        assertEquals(2, res.getTotalGroupsCount());
+        assertEquals(7, res.getPendingSubmissionsCount());
+        assertEquals(88.0, res.getAverageCompletionRate());
+    }
+
+    @Test
+    void getCompletionChart_ShouldReturnChartData() {
+        doNothing().when(jdbc).query(anyString(), any(RowCallbackHandler.class), any(Object[].class));
+        project.lms_rikkei_edu.modules.dashboard.dto.response.InstructorDashboardChartResponse res = instructorDashboardService.getCompletionChart(instructorId);
+        assertNotNull(res);
+        assertNotNull(res.getMonthlyLabels());
+        assertNotNull(res.getMonthlyCompletionRates());
+    }
+
+    @Test
+    void getCourseDistributions_ShouldReturnDistributions() {
+        when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(Collections.emptyList());
+        when(jdbc.queryForObject(anyString(), eq(Double.class), any(Object[].class))).thenReturn(75.0);
+        project.lms_rikkei_edu.modules.dashboard.dto.response.InstructorDashboardDistributionsResponse res = instructorDashboardService.getCourseDistributions(instructorId);
+        assertNotNull(res);
+        assertNotNull(res.getCourseDistributions());
+        assertEquals(75.0, res.getAverageCompletionRate());
+    }
+
+    @Test
+    void getCourseDistributions_ShouldHandleNullRate() {
+        when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(Collections.emptyList());
+        when(jdbc.queryForObject(anyString(), eq(Double.class), any(Object[].class))).thenReturn(null);
+        project.lms_rikkei_edu.modules.dashboard.dto.response.InstructorDashboardDistributionsResponse res = instructorDashboardService.getCourseDistributions(instructorId);
+        assertNotNull(res);
+        assertEquals(0.0, res.getAverageCompletionRate());
+    }
+
+    @Test
+    void getPendingSubmissions_ShouldReturnSubmissions() {
+        when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(Collections.emptyList());
+        List<PendingSubmissionDto> res = instructorDashboardService.getPendingSubmissions(instructorId);
+        assertNotNull(res);
+    }
 }
