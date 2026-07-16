@@ -136,6 +136,7 @@ class StudentDashboardServiceImplTest {
         when(jdbc.queryForObject(contains("FROM course_enrollments"), eq(Integer.class), eq(studentId))).thenReturn(4);
         when(jdbc.queryForObject(contains("overall_percentage >= 70"), eq(Integer.class), eq(studentId))).thenReturn(2);
         when(jdbc.queryForObject(contains("FROM certificates"), eq(Integer.class), eq(studentId))).thenReturn(1);
+        when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(Collections.emptyList());
         doNothing().when(jdbc).query(anyString(), any(RowCallbackHandler.class), any(Object[].class));
 
         project.lms_rikkei_edu.modules.dashboard.dto.response.StudentDashboardStatsResponse res = studentDashboardService.getStats(studentId);
@@ -157,6 +158,13 @@ class StudentDashboardServiceImplTest {
     void getDueAssignments_ShouldReturnAssignments() {
         when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(Collections.emptyList());
         List<StudentDashboardResponse.DueAssignmentDto> res = studentDashboardService.getDueAssignments(studentId);
+        assertNotNull(res);
+    }
+
+    @Test
+    void getDueQuizzes_ShouldReturnQuizzes() {
+        when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(Collections.emptyList());
+        List<StudentDashboardResponse.DueAssignmentDto> res = studentDashboardService.getDueQuizzes(studentId);
         assertNotNull(res);
     }
 

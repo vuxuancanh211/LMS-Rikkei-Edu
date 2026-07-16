@@ -85,6 +85,20 @@ class StudentDashboardControllerTest {
     }
 
     @Test
+    void getDueQuizzes_ShouldReturnOk() {
+        UUID studentId = UUID.randomUUID();
+        when(currentUserProvider.getCurrentUserId()).thenReturn(Optional.of(studentId));
+        java.util.List<project.lms_rikkei_edu.modules.dashboard.dto.response.StudentDashboardResponse.DueAssignmentDto> mockResponse = java.util.Collections.emptyList();
+        when(studentDashboardService.getDueQuizzes(studentId)).thenReturn(mockResponse);
+
+        ResponseEntity<java.util.List<project.lms_rikkei_edu.modules.dashboard.dto.response.StudentDashboardResponse.DueAssignmentDto>> result = studentDashboardController.getDueQuizzes();
+
+        assertNotNull(result);
+        assertEquals(200, result.getStatusCode().value());
+        assertEquals(mockResponse, result.getBody());
+    }
+
+    @Test
     void getWeeklyStudyHours_ShouldReturnOk() {
         UUID studentId = UUID.randomUUID();
         when(currentUserProvider.getCurrentUserId()).thenReturn(Optional.of(studentId));
