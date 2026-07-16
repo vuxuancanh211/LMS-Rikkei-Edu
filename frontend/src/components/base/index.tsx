@@ -3,6 +3,8 @@
    RIKKEI EDU — Shared components
    ============================================================ */
 import { createPortal } from 'react-dom';
+import { connectAccountLockedSSE } from '../../services/notification-service';
+import { useAuthStore } from '../../store';
 
 const { useState, useEffect, useRef } = React;
 const I = window.Icon;
@@ -23,6 +25,9 @@ const STATUS = {
   pending:{c:"warning",t:"Chờ duyệt"}, approved:{c:"success",t:"Đã duyệt"}, rejected:{c:"error",t:"Từ chối"},
   published:{c:"success",t:"Đã xuất bản"}, draft:{c:"neutral",t:"Bản nháp"},
    graded:{c:"success",t:"Đã chấm"}, submitted:{c:"info",t:"Đã nộp"}, returned:{c:"neutral",t:"Trả lại"}, not_submitted:{c:"neutral",t:"Chưa nộp",dot:"#94a3b8"},
+  assignment_pending:{c:"warning",t:"Chờ chấm"},
+  quiz_pending:{c:"info",t:"Chờ làm"},
+  late:{c:"error",t:"Quá hạn"},
 };
 function Status({ s }) {
   const m = STATUS[s] || { c: "neutral", t: s };
@@ -142,16 +147,16 @@ function Select({ value, onChange, options, style, name }) {
 }
 
 /* ---------- Section card ---------- */
-function Section({ title, sub, action, children, pad }) {
+function Section({ title, sub, action, children, pad, style, className, bodyStyle }) {
   return (
-    <div className="card section-card fade-in">
+    <div className={`card section-card fade-in ${className || ""}`} style={style}>
       {(title || action) && (
         <div className="section-head">
           <div><h3 className="t-h3">{title}</h3>{sub && <div className="t-sm muted" style={{ marginTop: 3 }}>{sub}</div>}</div>
           {action}
         </div>
       )}
-      <div style={{ padding: pad === false ? 0 : 22 }}>{children}</div>
+      <div style={{ padding: pad === false ? 0 : 22, ...bodyStyle }}>{children}</div>
     </div>
   );
 }
@@ -246,8 +251,9 @@ function Empty({ icon, title, text, action }) {
 /* ============================================================
    CHARTS (inline SVG, data viz)
    ============================================================ */
-function LineChart({ data = [], labels = [], color = "#2563eb", height = 240 }) {
-  const w = 640, h = height, pad = 36, padB = 28;
+function LineChart({ data = [], labels = [], color = "#2563eb", height = 240, unit = "", yUnit = "" }) {
+  const u = (unit || yUnit || "").replace(/^\(|\)$/g, "").trim();
+  const w = 640, h = height, pad = u ? 64 : 44, padB = 28;
   const rawMax = Math.max(...data, 0);
   const max = rawMax === 0 ? 10 : rawMax * 1.15;
   const min = 0;
@@ -257,11 +263,20 @@ function LineChart({ data = [], labels = [], color = "#2563eb", height = 240 }) 
   const pts = data.map((v, i) => [x(i), y(v)]);
   const line = pts.map((p, i) => (i ? "L" : "M") + p[0] + " " + p[1]).join(" ");
   const area = pts.length > 0 ? (line + ` L ${x(data.length - 1)} ${h - padB} L ${x(0)} ${h - padB} Z`) : "";
-  const gridY = [0, 0.25, 0.5, 0.75, 1].map((t) => h - padB - t * (h - pad - padB));
+  const gridY = [0, 0.25, 0.5, 0.75, 1].map((t) => ({
+    pos: h - padB - t * (h - pad - padB),
+    val: Math.round(t * max)
+  }));
   return (
     <svg viewBox={`0 0 ${w} ${h}`} style={{ width: "100%", height }} preserveAspectRatio="none">
       <defs><linearGradient id="lg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={color} stopOpacity="0.18" /><stop offset="100%" stopColor={color} stopOpacity="0" /></linearGradient></defs>
-      {gridY.map((gy, i) => <line key={i} x1={pad} y1={gy} x2={w - 12} y2={gy} stroke="#eef2f7" strokeWidth="1" />)}
+      {u && <text x={pad - 4} y={16} textAnchor="end" fontSize="11.5" fill="#64748b" fontWeight="600">({u})</text>}
+      {gridY.map((gy, i) => (
+        <g key={i}>
+          <line x1={pad} y1={gy.pos} x2={w - 12} y2={gy.pos} stroke="#eef2f7" strokeWidth="1" />
+          <text x={pad - 6} y={gy.pos + 4} textAnchor="end" fontSize="11" fill="#94a3b8" fontWeight="500">{gy.val}</text>
+        </g>
+      ))}
       {area && <path d={area} fill="url(#lg)" />}
       {line && <path d={line} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />}
       {pts.map((p, i) => <circle key={i} cx={p[0]} cy={p[1]} r="3.5" fill="#fff" stroke={color} strokeWidth="2.5" />)}
@@ -269,16 +284,26 @@ function LineChart({ data = [], labels = [], color = "#2563eb", height = 240 }) 
     </svg>
   );
 }
-function BarChart({ data = [], labels = [], color = "#0f172a", height = 240 }) {
-  const w = 640, h = height, pad = 36, padB = 28;
+function BarChart({ data = [], labels = [], color = "#0f172a", height = 240, unit = "", yUnit = "" }) {
+  const u = (unit || yUnit || "").replace(/^\(|\)$/g, "").trim();
+  const w = 640, h = height, pad = u ? 64 : 44, padB = 28;
   const rawMax = Math.max(...data, 0);
   const max = rawMax === 0 ? 10 : rawMax * 1.15;
   const len = data.length || 1;
   const bw = (w - pad - 12) / len;
-  const gridY = [0, 0.25, 0.5, 0.75, 1].map((t) => h - padB - t * (h - pad - padB));
+  const gridY = [0, 0.25, 0.5, 0.75, 1].map((t) => ({
+    pos: h - padB - t * (h - pad - padB),
+    val: Math.round(t * max)
+  }));
   return (
     <svg viewBox={`0 0 ${w} ${h}`} style={{ width: "100%", height }} preserveAspectRatio="none">
-      {gridY.map((gy, i) => <line key={i} x1={pad} y1={gy} x2={w - 12} y2={gy} stroke="#eef2f7" strokeWidth="1" />)}
+      {u && <text x={pad - 4} y={16} textAnchor="end" fontSize="11.5" fill="#64748b" fontWeight="600">({u})</text>}
+      {gridY.map((gy, i) => (
+        <g key={i}>
+          <line x1={pad} y1={gy.pos} x2={w - 12} y2={gy.pos} stroke="#eef2f7" strokeWidth="1" />
+          <text x={pad - 6} y={gy.pos + 4} textAnchor="end" fontSize="11" fill="#94a3b8" fontWeight="500">{gy.val}</text>
+        </g>
+      ))}
       {data.map((v, i) => {
         const bh = (v / max) * (h - pad - padB);
         const bx = pad + i * bw + bw * 0.22, by = h - padB - bh;
@@ -344,4 +369,88 @@ function AlertModal({ open, onClose, title, message, type = "error" }) {
   );
 }
 
-Object.assign(window, { Avatar, Status, STATUS, Progress, StatCard, CourseCard, Search, Tabs, Select, Section, Pager, PageBar, usePaged, Modal, ModalHead, ConfirmModal, AlertModal, Empty, LineChart, BarChart, Donut });
+/* ---------- AccountLockedOverlay ---------- */
+function AccountLockedOverlay() {
+  const [lockedData, setLockedData] = useState(null);
+
+  useEffect(() => {
+    window.__triggerAccountLockedModal = (data) => {
+      setLockedData(data || { message: "Tài khoản của bạn đã bị quản trị viên khóa hoặc vô hiệu hóa quyền truy cập." });
+    };
+    const disconnectLocked = connectAccountLockedSSE((data) => {
+      if (window.__triggerAccountLockedModal) {
+        window.__triggerAccountLockedModal(data);
+      } else {
+        setLockedData(data || { message: "Tài khoản của bạn đã bị quản trị viên khóa hoặc vô hiệu hóa quyền truy cập." });
+      }
+    });
+
+    /* Multi-tab Sync: Khi 1 tab bấm Xác nhận hoặc đăng xuất, các tab song song khác tự động nhảy về /login */
+    const handleStorage = (e) => {
+      if (e.key === 'account_locked_sync' || (e.key === 'auth-storage' && (!e.newValue || e.newValue.includes('"isAuthenticated":false')))) {
+        if (window.location.pathname !== '/login') {
+          useAuthStore.getState().logout();
+          sessionStorage.clear();
+          window.location.href = '/login';
+        }
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+
+    return () => {
+      disconnectLocked();
+      if (window.__triggerAccountLockedModal) delete window.__triggerAccountLockedModal;
+      window.removeEventListener('storage', handleStorage);
+    };
+  }, []);
+
+  if (!lockedData) return null;
+
+  const Ico = window.Icon;
+  return (
+    <div style={{
+      position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+      background: "rgba(15, 23, 42, 0.88)", backdropFilter: "blur(8px)",
+      zIndex: 9999999, display: "flex", alignItems: "center", justifyContent: "center",
+      padding: 20
+    }} onClick={(e) => e.stopPropagation()}>
+      <div style={{
+        background: "var(--bg-card, #fff)", borderRadius: 16, maxWidth: 440, width: "100%",
+        padding: "28px 24px", boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.5)",
+        textAlign: "center", border: "1px solid var(--border)", animation: "popIn 0.2s ease-out"
+      }} onClick={(e) => e.stopPropagation()}>
+        <div style={{
+          width: 64, height: 64, borderRadius: "50%", background: "rgba(239, 68, 68, 0.12)",
+          color: "#ef4444", display: "flex", alignItems: "center", justifyContent: "center",
+          margin: "0 auto 18px"
+        }}>
+          {Ico && <Ico n="lock" size={32} />}
+        </div>
+        <h3 style={{ fontSize: 20, fontWeight: 700, margin: "0 0 10px", color: "var(--text-1, #0f172a)" }}>
+          {lockedData.title || "Tài khoản đã bị khóa"}
+        </h3>
+        <p style={{ fontSize: 14.5, lineHeight: 1.6, color: "var(--text-2, #475569)", margin: "0 0 26px" }}>
+          {lockedData.message || "Tài khoản của bạn đã bị quản trị viên khóa hoặc vô hiệu hóa quyền truy cập. Bạn vui lòng bấm nút bên dưới để xác nhận và quay về trang đăng nhập."}
+        </p>
+        <button
+          className="btn btn-primary"
+          style={{
+            width: "100%", padding: "12px 20px", fontSize: 15, fontWeight: 600,
+            background: "#ef4444", borderColor: "#ef4444", borderRadius: 10,
+            color: "#fff", cursor: "pointer"
+          }}
+          onClick={() => {
+            try { localStorage.setItem('account_locked_sync', Date.now().toString()); } catch (err) { void err; }
+            useAuthStore.getState().logout();
+            sessionStorage.clear();
+            window.location.href = "/login";
+          }}
+        >
+          Xác nhận
+        </button>
+      </div>
+    </div>
+  );
+}
+
+Object.assign(window, { Avatar, Status, STATUS, Progress, StatCard, CourseCard, Search, Tabs, Select, Section, Pager, PageBar, usePaged, Modal, ModalHead, ConfirmModal, AlertModal, AccountLockedOverlay, Empty, LineChart, BarChart, Donut });

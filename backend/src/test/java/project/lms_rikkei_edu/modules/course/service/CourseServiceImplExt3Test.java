@@ -19,7 +19,9 @@ import project.lms_rikkei_edu.modules.course.enums.CourseStatus;
 import project.lms_rikkei_edu.modules.course.exception.CourseStateException;
 import project.lms_rikkei_edu.modules.course.mapper.*;
 import project.lms_rikkei_edu.modules.course.repository.*;
+import project.lms_rikkei_edu.modules.course.service.impl.CourseListCacheGateway;
 import project.lms_rikkei_edu.modules.course.service.impl.CourseServiceImpl;
+import project.lms_rikkei_edu.modules.course.service.impl.CourseVersionReferenceChecker;
 import project.lms_rikkei_edu.modules.quiz.repository.QuizRepository;
 import project.lms_rikkei_edu.modules.quiz.service.QuizService;
 
@@ -52,6 +54,7 @@ class CourseServiceImplExt3Test {
     @Mock QuizService quizService;
     @Mock QuizRepository quizRepository;
     @Mock StudentCourseService studentCourseService;
+    @Mock CourseVersionReferenceChecker courseVersionReferenceChecker;
 
     CourseServiceImpl service;
 
@@ -65,8 +68,11 @@ class CourseServiceImplExt3Test {
                 lessonResourceRepository, categoryRepository,
                 approvalLogRepository, courseVersionRepository,
                 courseMapper, objectMapper, chapterMapper, lessonMapper,
-                entityManager, s3Service, quizService, quizRepository, studentCourseService
+                entityManager, s3Service, quizService, quizRepository, studentCourseService,
+                new CourseListCacheGateway(courseRepository, courseMapper),
+                courseVersionReferenceChecker
         );
+        when(courseVersionReferenceChecker.isSafeToDelete(any(), any())).thenReturn(true);
     }
 
     private Course course(CourseStatus status) {
@@ -284,7 +290,9 @@ class CourseServiceImplExt3Test {
                     lessonResourceRepository, categoryRepository,
                     approvalLogRepository, courseVersionRepository,
                     courseMapper, realMapper, chapterMapper, lessonMapper,
-                    entityManager, s3Service, quizService, quizRepository, studentCourseService
+                    entityManager, s3Service, quizService, quizRepository, studentCourseService,
+                    new CourseListCacheGateway(courseRepository, courseMapper),
+                    courseVersionReferenceChecker
             );
             when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.of(c));
             when(courseVersionRepository.findById(versionId)).thenReturn(Optional.of(version));
@@ -292,7 +300,140 @@ class CourseServiceImplExt3Test {
 
             service.deleteDraftVersion(INSTRUCTOR_ID, COURSE_ID, versionId);
 
-            verify(s3Service).deleteObject("courses/file.pdf");
+            verify(s3Service).deleteObjectAsync("courses/file.pdf");
+            verify(courseVersionRepository).delete(version);
+        }
+
+        @Test
+        void skipsS3Delete_whenStillReferencedByLiveResource() throws Exception {
+            UUID versionId = UUID.randomUUID();
+            Course c = course(CourseStatus.DRAFT);
+
+            String snapshot = """
+                {"chapters":[{"lessons":[{"resources":[{"s3Key":"courses/file.pdf"}]}]}]}
+                """;
+            CourseVersion version = new CourseVersion();
+            version.setId(versionId);
+            version.setCourseId(COURSE_ID);
+            version.setStatus("DRAFT");
+            version.setSnapshot(snapshot);
+
+            ObjectMapper realMapper = new ObjectMapper();
+            service = new CourseServiceImpl(
+                    courseRepository, chapterRepository, lessonRepository,
+                    lessonResourceRepository, categoryRepository,
+                    approvalLogRepository, courseVersionRepository,
+                    courseMapper, realMapper, chapterMapper, lessonMapper,
+                    entityManager, s3Service, quizService, quizRepository, studentCourseService,
+                    new CourseListCacheGateway(courseRepository, courseMapper),
+                    courseVersionReferenceChecker
+            );
+            when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.of(c));
+            when(courseVersionRepository.findById(versionId)).thenReturn(Optional.of(version));
+            // A live lesson_resource still points at this S3 key — must NOT delete it.
+            when(lessonResourceRepository.existsByS3KeyAndDeletedAtIsNull("courses/file.pdf")).thenReturn(true);
+
+            service.deleteDraftVersion(INSTRUCTOR_ID, COURSE_ID, versionId);
+
+            verify(s3Service, never()).deleteObjectAsync(anyString());
+            verify(courseVersionRepository).delete(version);
+        }
+
+        @Test
+        void skipsS3Delete_whenAnotherCourseVersionStillReferencesKey() throws Exception {
+            UUID versionId = UUID.randomUUID();
+            Course c = course(CourseStatus.DRAFT);
+
+            String snapshot = """
+                {"chapters":[{"lessons":[{"resources":[{"s3Key":"courses/file.pdf"}]}]}]}
+                """;
+            CourseVersion version = new CourseVersion();
+            version.setId(versionId);
+            version.setCourseId(COURSE_ID);
+            version.setStatus("DRAFT");
+            version.setSnapshot(snapshot);
+
+            ObjectMapper realMapper = new ObjectMapper();
+            service = new CourseServiceImpl(
+                    courseRepository, chapterRepository, lessonRepository,
+                    lessonResourceRepository, categoryRepository,
+                    approvalLogRepository, courseVersionRepository,
+                    courseMapper, realMapper, chapterMapper, lessonMapper,
+                    entityManager, s3Service, quizService, quizRepository, studentCourseService,
+                    new CourseListCacheGateway(courseRepository, courseMapper),
+                    courseVersionReferenceChecker
+            );
+            when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.of(c));
+            when(courseVersionRepository.findById(versionId)).thenReturn(Optional.of(version));
+            when(lessonResourceRepository.existsByS3KeyAndDeletedAtIsNull("courses/file.pdf")).thenReturn(false);
+            // No live resource references it, but another CourseVersion snapshot still does.
+            when(courseVersionReferenceChecker.isSafeToDelete(COURSE_ID, "courses/file.pdf")).thenReturn(false);
+
+            service.deleteDraftVersion(INSTRUCTOR_ID, COURSE_ID, versionId);
+
+            verify(s3Service, never()).deleteObjectAsync(anyString());
+            verify(courseVersionRepository).delete(version);
+        }
+
+        @Test
+        void skipsCleanup_whenSnapshotHasNoChapters() throws Exception {
+            UUID versionId = UUID.randomUUID();
+            Course c = course(CourseStatus.DRAFT);
+
+            CourseVersion version = new CourseVersion();
+            version.setId(versionId);
+            version.setCourseId(COURSE_ID);
+            version.setStatus("DRAFT");
+            version.setSnapshot("{}"); // no "chapters" key at all -> snap.getChapters() == null
+
+            ObjectMapper realMapper = new ObjectMapper();
+            service = new CourseServiceImpl(
+                    courseRepository, chapterRepository, lessonRepository,
+                    lessonResourceRepository, categoryRepository,
+                    approvalLogRepository, courseVersionRepository,
+                    courseMapper, realMapper, chapterMapper, lessonMapper,
+                    entityManager, s3Service, quizService, quizRepository, studentCourseService,
+                    new CourseListCacheGateway(courseRepository, courseMapper),
+                    courseVersionReferenceChecker
+            );
+            when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.of(c));
+            when(courseVersionRepository.findById(versionId)).thenReturn(Optional.of(version));
+
+            service.deleteDraftVersion(INSTRUCTOR_ID, COURSE_ID, versionId);
+
+            verifyNoInteractions(s3Service);
+            verify(courseVersionRepository).delete(version);
+        }
+
+        @Test
+        void skipsCleanup_whenSnapshotJsonIsMalformed() throws Exception {
+            UUID versionId = UUID.randomUUID();
+            Course c = course(CourseStatus.DRAFT);
+
+            CourseVersion version = new CourseVersion();
+            version.setId(versionId);
+            version.setCourseId(COURSE_ID);
+            version.setStatus("DRAFT");
+            version.setSnapshot("not-valid-json");
+
+            ObjectMapper realMapper = new ObjectMapper();
+            service = new CourseServiceImpl(
+                    courseRepository, chapterRepository, lessonRepository,
+                    lessonResourceRepository, categoryRepository,
+                    approvalLogRepository, courseVersionRepository,
+                    courseMapper, realMapper, chapterMapper, lessonMapper,
+                    entityManager, s3Service, quizService, quizRepository, studentCourseService,
+                    new CourseListCacheGateway(courseRepository, courseMapper),
+                    courseVersionReferenceChecker
+            );
+            when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.of(c));
+            when(courseVersionRepository.findById(versionId)).thenReturn(Optional.of(version));
+
+            // Malformed snapshot must not blow up the whole delete operation — cleanup is
+            // best-effort and swallows the parse error.
+            assertThatNoException().isThrownBy(() -> service.deleteDraftVersion(INSTRUCTOR_ID, COURSE_ID, versionId));
+
+            verifyNoInteractions(s3Service);
             verify(courseVersionRepository).delete(version);
         }
     }

@@ -25,7 +25,9 @@ import project.lms_rikkei_edu.modules.course.mapper.ChapterMapper;
 import project.lms_rikkei_edu.modules.course.mapper.CourseMapper;
 import project.lms_rikkei_edu.modules.course.mapper.LessonMapper;
 import project.lms_rikkei_edu.modules.course.repository.*;
+import project.lms_rikkei_edu.modules.course.service.impl.CourseListCacheGateway;
 import project.lms_rikkei_edu.modules.course.service.impl.CourseServiceImpl;
+import project.lms_rikkei_edu.modules.course.service.impl.CourseVersionReferenceChecker;
 import project.lms_rikkei_edu.modules.quiz.repository.QuizRepository;
 import project.lms_rikkei_edu.modules.quiz.service.QuizService;
 
@@ -59,6 +61,7 @@ class CourseServiceImplTest {
     @Mock QuizService quizService;
     @Mock QuizRepository quizRepository;
     @Mock StudentCourseService studentCourseService;
+    @Mock CourseVersionReferenceChecker courseVersionReferenceChecker;
 
     CourseServiceImpl courseService;
 
@@ -72,8 +75,11 @@ class CourseServiceImplTest {
                 lessonResourceRepository, categoryRepository,
                 approvalLogRepository, courseVersionRepository,
                 courseMapper, objectMapper, chapterMapper, lessonMapper,
-                entityManager, s3Service, quizService, quizRepository, studentCourseService
+                entityManager, s3Service, quizService, quizRepository, studentCourseService,
+                new CourseListCacheGateway(courseRepository, courseMapper),
+                courseVersionReferenceChecker
         );
+        when(courseVersionReferenceChecker.isSafeToDelete(any(), any())).thenReturn(true);
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────
@@ -193,7 +199,7 @@ class CourseServiceImplTest {
 
         @Test
         void throwsCourseNotFoundException_whenCourseDoesNotExist() {
-            when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.empty());
+            when(courseRepository.findByIdWithFullContent(COURSE_ID)).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> courseService.getCourseDetail(INSTRUCTOR_ID, COURSE_ID))
                     .isInstanceOf(CourseNotFoundException.class);
@@ -204,7 +210,7 @@ class CourseServiceImplTest {
             Course course = draftCourse();
             course.setInstructorId(UUID.randomUUID());
 
-            when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.of(course));
+            when(courseRepository.findByIdWithFullContent(COURSE_ID)).thenReturn(Optional.of(course));
 
             assertThatThrownBy(() -> courseService.getCourseDetail(INSTRUCTOR_ID, COURSE_ID))
                     .isInstanceOf(CourseNotOwnedException.class);
@@ -215,12 +221,61 @@ class CourseServiceImplTest {
             Course course = draftCourse();
             CourseDetailResponse detail = stubDetailResponse();
 
-            when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.of(course));
+            when(courseRepository.findByIdWithFullContent(COURSE_ID)).thenReturn(Optional.of(course));
             when(courseMapper.toDetailResponse(course)).thenReturn(detail);
 
             CourseDetailResponse result = courseService.getCourseDetail(INSTRUCTOR_ID, COURSE_ID);
 
             assertThat(result.getId()).isEqualTo(COURSE_ID);
+        }
+    }
+
+    // ── getCourseDetailBySlug ─────────────────────────────────────────────────
+    // Regression: getCourseDetailBySlug() phải resolve slug -> courseId rồi gọi getCourseDetail()
+    // QUA self-proxy để dùng chung 1 cache entry "course-detail" theo courseId (xem field `self`
+    // trong CourseServiceImpl) — trước đây cache riêng theo slug nên @CacheEvict(key=courseId) ở
+    // các thao tác sửa không xóa được, khiến trang chi tiết hiện dữ liệu cũ sau khi F5.
+
+    @Nested
+    class GetCourseDetailBySlug {
+
+        @BeforeEach
+        void wireSelfProxy() {
+            // Spring thật inject field `self` bằng @Autowired @Lazy lúc runtime; test dựng bean
+            // thủ công (new CourseServiceImpl(...)) nên phải gán tay để mô phỏng đúng self-proxy.
+            org.springframework.test.util.ReflectionTestUtils.setField(courseService, "self", courseService);
+        }
+
+        @Test
+        void throwsCourseNotFoundException_whenSlugDoesNotExist() {
+            when(courseRepository.findBySlug("missing-slug")).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> courseService.getCourseDetailBySlug(INSTRUCTOR_ID, "missing-slug"))
+                    .isInstanceOf(CourseNotFoundException.class);
+        }
+
+        @Test
+        void throwsCourseNotOwnedException_whenInstructorIsNotOwner() {
+            Course course = draftCourse();
+            course.setInstructorId(UUID.randomUUID());
+            when(courseRepository.findBySlug("test-course")).thenReturn(Optional.of(course));
+
+            assertThatThrownBy(() -> courseService.getCourseDetailBySlug(INSTRUCTOR_ID, "test-course"))
+                    .isInstanceOf(CourseNotOwnedException.class);
+        }
+
+        @Test
+        void delegatesToGetCourseDetail_andReturnsSameResult() {
+            Course course = draftCourse();
+            CourseDetailResponse detail = stubDetailResponse();
+            when(courseRepository.findBySlug("test-course")).thenReturn(Optional.of(course));
+            when(courseRepository.findByIdWithFullContent(COURSE_ID)).thenReturn(Optional.of(course));
+            when(courseMapper.toDetailResponse(course)).thenReturn(detail);
+
+            CourseDetailResponse result = courseService.getCourseDetailBySlug(INSTRUCTOR_ID, "test-course");
+
+            assertThat(result.getId()).isEqualTo(COURSE_ID);
+            verify(courseRepository).findByIdWithFullContent(COURSE_ID);
         }
     }
 
@@ -239,7 +294,7 @@ class CourseServiceImplTest {
             when(courseMapper.toResponse(course))
                     .thenReturn(stubCourseResponse(COURSE_ID, CourseStatus.DRAFT));
 
-            Page<CourseResponse> result = courseService.listCourses(INSTRUCTOR_ID, pageable);
+            Page<CourseResponse> result = courseService.listCourses(INSTRUCTOR_ID, pageable, null);
 
             assertThat(result.getTotalElements()).isEqualTo(1);
             assertThat(result.getContent().get(0).getId()).isEqualTo(COURSE_ID);
@@ -251,7 +306,7 @@ class CourseServiceImplTest {
             when(courseRepository.findAllByInstructorId(INSTRUCTOR_ID, pageable))
                     .thenReturn(Page.empty());
 
-            Page<CourseResponse> result = courseService.listCourses(INSTRUCTOR_ID, pageable);
+            Page<CourseResponse> result = courseService.listCourses(INSTRUCTOR_ID, pageable, null);
 
             assertThat(result.getTotalElements()).isZero();
         }
@@ -529,6 +584,27 @@ class CourseServiceImplTest {
             when(courseMapper.toDetailResponse(course)).thenReturn(stubDetailResponse());
 
             courseService.submitForApproval(INSTRUCTOR_ID, COURSE_ID, "pending-delete chapter excluded");
+
+            assertThat(course.getStatus()).isEqualTo(CourseStatus.PENDING);
+            verifyNoInteractions(quizRepository);
+        }
+
+        @Test
+        void quizLessonInPendingDeleteLesson_isExcludedFromCheck() throws Exception {
+            // Same guard as the pending-delete CHAPTER case above, but for a lesson individually
+            // marked pending_delete inside an otherwise-live chapter.
+            UUID quizId = UUID.randomUUID();
+            Course course = draftCourseWithQuizLesson(quizId, false, true);
+
+            when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.of(course));
+            when(lessonRepository.countByCourseId(COURSE_ID)).thenReturn(1L);
+            when(objectMapper.writeValueAsString(any())).thenReturn("{}");
+            when(courseVersionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+            when(approvalLogRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+            when(courseRepository.save(any())).thenReturn(course);
+            when(courseMapper.toDetailResponse(course)).thenReturn(stubDetailResponse());
+
+            courseService.submitForApproval(INSTRUCTOR_ID, COURSE_ID, "pending-delete lesson excluded");
 
             assertThat(course.getStatus()).isEqualTo(CourseStatus.PENDING);
             verifyNoInteractions(quizRepository);

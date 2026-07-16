@@ -23,7 +23,7 @@ const roleRoutes = {
   instructor: {
     dashboard: '/instructor/dashboard',
     courses: '/instructor/courses',
-    courseDetail: '/instructor/courses/detail',
+    courseDetail: '/instructor/courses',
     groups: '/instructor/groups',
     groupDetail: '/instructor/groups/detail',
     assess: '/instructor/assess',
@@ -41,6 +41,8 @@ const roleRoutes = {
     courses: '/admin/courses',
     approval: '/admin/approval',
     certificates: '/admin/certificates',
+    forum: '/admin/forum',
+    forumBrowse: '/admin/forum/posts',
     reports: '/admin/reports',
     logs: '/admin/logs',
     aiDocs: '/admin/ai-docs',
@@ -135,7 +137,11 @@ function RoutedShell({ role, route }: { role: keyof typeof roleRoutes; route: st
       }}
       onNavigate={(nextRole: keyof typeof roleRoutes, nextRoute: string, extra?: Record<string, string>) => {
         let params = { ...extra };
-        if (nextRoute === 'courseDetail' || nextRoute === 'player' || nextRoute === 'courses' || nextRoute === 'preview') {
+        if (nextRoute === 'courseDetail' || nextRoute === 'player' || nextRoute === 'preview') {
+          // Không fallback về courseId đã chọn trước đó cho "courses" — đó là điều hướng tới
+          // DANH SÁCH khóa học (VD bấm "Khóa học của tôi"), nếu không có courseId tường minh thì
+          // không được tự gắn courseId cũ vào, nếu không sẽ bị redirect nhầm sang màn học 1 khóa
+          // đã xem lần trước thay vì hiện đúng danh sách (xem cùng bug đã fix ở GalleryPage.tsx).
           const cid = params.courseId || window.__selectedCourseId || sessionStorage.getItem("selectedCourseId");
           if (cid) params.courseId = cid;
         }
@@ -166,6 +172,10 @@ function RoutedShell({ role, route }: { role: keyof typeof roleRoutes; route: st
           const path = playerRoutes[nextRoute as keyof typeof playerRoutes];
           const search = params && Object.keys(params).length > 0 ? '?' + new URLSearchParams(params).toString() : '';
           navigate(path + search);
+          return;
+        }
+        if (nextRole === 'instructor' && nextRoute === 'courseDetail' && extra?.slug) {
+          navigate(`/instructor/courses/${encodeURIComponent(extra.slug)}`);
           return;
         }
         const path = roleRoutes[nextRole]?.[nextRoute as keyof (typeof roleRoutes)[typeof nextRole]];
@@ -260,6 +270,16 @@ function PlayerRoute({ name }: { name: string }) {
     returnPath = params.from === 'lecture' && params.courseId
       ? `/player/lecture?courseId=${params.courseId}${params.lessonId ? '&lessonId=' + params.lessonId : ''}`
       : '/student/tasks';
+  } else if (name === 'LecturePlayer') {
+    // Vào từ Dashboard hay từ danh sách Khóa học — StuDashboard/StuCourses truyền "from" tương ứng.
+    returnPath = params.from === 'dashboard' ? '/student/dashboard' : '/student/courses';
+  } else if (name === 'QuizDryRunPlayer') {
+    // "Làm thử" chỉ được mở từ trang Bài tập & Bài kiểm tra của giảng viên (InsAssess) — quay lại
+    // đúng khóa học đang soạn thay vì rơi về /student/courses (sai hẳn khu vực, sai cả role).
+    returnPath = params.courseId ? `/instructor/assess?courseId=${params.courseId}` : '/instructor/assess';
+  } else if (name === 'PreviewPlayer') {
+    // Nút "Xem" chỉ có ở danh sách khóa học của giảng viên (InsCourses) — quay lại đúng đó.
+    returnPath = '/instructor/courses';
   }
 
   return (
@@ -304,7 +324,7 @@ export const router = createBrowserRouter([
   { path: '/student/groups/detail', element: <RequireAuth><RoutedShell role="student" route="groupDetail" /></RequireAuth> },
   { path: '/instructor/dashboard', element: <RequireAuth><RoutedShell role="instructor" route="dashboard" /></RequireAuth> },
   { path: '/instructor/courses', element: <RequireAuth><RoutedShell role="instructor" route="courses" /></RequireAuth> },
-  { path: '/instructor/courses/detail', element: <RequireAuth><RoutedShell role="instructor" route="courseDetail" /></RequireAuth> },
+  { path: '/instructor/courses/:slug', element: <RequireAuth><RoutedShell role="instructor" route="courseDetail" /></RequireAuth> },
   { path: '/instructor/groups', element: <RequireAuth><RoutedShell role="instructor" route="groups" /></RequireAuth> },
   { path: '/instructor/groups/detail', element: <RequireAuth><RoutedShell role="instructor" route="groupDetail" /></RequireAuth> },
   { path: '/instructor/assess', element: <RequireAuth><RoutedShell role="instructor" route="assess" /></RequireAuth> },
@@ -319,6 +339,8 @@ export const router = createBrowserRouter([
   { path: '/admin/courses', element: <RequireAuth><RoutedShell role="admin" route="courses" /></RequireAuth> },
   { path: '/admin/approval', element: <RequireAuth><RoutedShell role="admin" route="approval" /></RequireAuth> },
   { path: '/admin/certificates', element: <RequireAuth><RoutedShell role="admin" route="certificates" /></RequireAuth> },
+  { path: '/admin/forum', element: <RequireAuth><RoutedShell role="admin" route="forum" /></RequireAuth> },
+  { path: '/admin/forum/posts', element: <RequireAuth><RoutedShell role="admin" route="forumBrowse" /></RequireAuth> },
   { path: '/admin/reports', element: <RequireAuth><RoutedShell role="admin" route="reports" /></RequireAuth> },
   { path: '/admin/logs', element: <RequireAuth><RoutedShell role="admin" route="logs" /></RequireAuth> },
   { path: '/admin/ai-docs', element: <RequireAuth><RoutedShell role="admin" route="aiDocs" /></RequireAuth> },

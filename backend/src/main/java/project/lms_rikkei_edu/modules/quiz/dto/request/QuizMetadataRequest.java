@@ -24,7 +24,7 @@ public class QuizMetadataRequest {
     @NotNull(message = "Loại quiz không được để trống")
     private QuizType quizType;
 
-    @Min(value = 1, message = "Thời gian làm bài phải ít nhất 1 phút")
+    @Min(value = 10, message = "Thời gian làm bài phải ít nhất 10 phút")
     private Integer durationMinutes;
 
     @Min(value = 1, message = "Số lần thử phải ít nhất 1")

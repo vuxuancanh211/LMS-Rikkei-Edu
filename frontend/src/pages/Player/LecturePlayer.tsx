@@ -196,19 +196,19 @@
   }
 
   /* ── Unified Resource Card (for both Video & Document) ──── */
-  function ResourceCard({ title, subtitle, icon, iconBg, iconColor, isActive, onClick }) {
+  function ResourceCard({ title, subtitle, icon, iconBg, iconColor, isActive, isCompleted, onClick }) {
     return (
       <div onClick={onClick}
         style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px",
           border: "1.5px solid", borderRadius: 12, cursor: "pointer",
           background: isActive ? "#f5f3ff" : "#fff", transition: "all .15s ease",
-          borderColor: isActive ? "#8b5cf6" : "var(--border)",
+          borderColor: isActive ? "#8b5cf6" : isCompleted ? "#16a34a" : "var(--border)",
           boxShadow: isActive ? "0 2px 8px rgba(139,92,246,.12)" : "none" }}
-        onMouseEnter={e => { if (!isActive) { e.currentTarget.style.borderColor = "#cbd5e1"; e.currentTarget.style.background = "#f8fafc"; } }}
-        onMouseLeave={e => { if (!isActive) { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.background = "#fff"; } }}>
-        <div style={{ width: 42, height: 42, borderRadius: 11, background: isActive ? "#ede9fe" : iconBg || "#f1f5f9",
-          color: isActive ? "#7c3aed" : iconColor || "#64748b", display: "grid", placeItems: "center", flexShrink: 0 }}>
-          <Ic n={icon} size={20} />
+        onMouseEnter={e => { if (!isActive) { e.currentTarget.style.borderColor = isCompleted ? "#16a34a" : "#cbd5e1"; e.currentTarget.style.background = "#f8fafc"; } }}
+        onMouseLeave={e => { if (!isActive) { e.currentTarget.style.borderColor = isCompleted ? "#16a34a" : "var(--border)"; e.currentTarget.style.background = "#fff"; } }}>
+        <div style={{ width: 42, height: 42, borderRadius: 11, background: isActive ? "#ede9fe" : isCompleted ? "#dcfce7" : iconBg || "#f1f5f9",
+          color: isActive ? "#7c3aed" : isCompleted ? "#16a34a" : iconColor || "#64748b", display: "grid", placeItems: "center", flexShrink: 0 }}>
+          {isCompleted && !isActive ? <Ic n="check" size={20} /> : <Ic n={icon} size={20} />}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 600, fontSize: 13.5, color: isActive ? "#5b21b6" : "#0f172a" }} className="truncate">
@@ -216,15 +216,249 @@
           </div>
           {subtitle && <div className="t-xs muted truncate" style={{ marginTop: 2, color: isActive ? "#7c3aed" : "#64748b" }}>{subtitle}</div>}
         </div>
-        {isActive && (
+        {isCompleted && (
+          <span className="chip chip-success" style={{ fontSize: 10, padding: "2px 6px", borderRadius: 6, fontWeight: 600 }}>Xong</span>
+        )}
+        {isActive && !isCompleted && (
           <div style={{ width: 8, height: 8, borderRadius: 999, background: "#8b5cf6", flexShrink: 0 }} />
         )}
       </div>
     );
   }
 
+  /* ── Docx Native Viewer (`docx-preview`) ─────────────────── */
+  function DocxNativeViewer({ url, res, isCompleted, onMarkCompleted, docHeaderBar }: any) {
+    const containerRef = useRef<HTMLDivElement>(null);
+    const wrapperRef = useRef<HTMLDivElement>(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(false);
+
+    useEffect(() => {
+      let active = true;
+      if (!url) { setLoading(false); setError(true); return; }
+      setLoading(true);
+      setError(false);
+
+      fetch(url)
+        .then(r => {
+          if (!r.ok) throw new Error("Network response was not ok");
+          return r.blob();
+        })
+        .then(async (blob) => {
+          if (!active || !containerRef.current) return;
+          try {
+            const { renderAsync } = await import('docx-preview');
+            await renderAsync(blob, containerRef.current, undefined, {
+              className: "docx-viewer-inner",
+              inWrapper: false,
+              ignoreWidth: false,
+              ignoreHeight: false,
+              breakPages: true,
+            });
+            if (active) setLoading(false);
+          } catch (e) {
+            console.error("docx-preview render error:", e);
+            if (active) { setError(true); setLoading(false); }
+          }
+        })
+        .catch(e => {
+          console.error("Fetch docx error:", e);
+          if (active) { setError(true); setLoading(false); }
+        });
+
+      return () => { active = false; };
+    }, [url]);
+
+    const handleScroll = () => {
+      if (isCompleted || !wrapperRef.current) return;
+      const el = wrapperRef.current;
+      if (el.scrollHeight > el.clientHeight + 20) {
+        if (el.scrollTop + el.clientHeight >= el.scrollHeight - 50 && el.scrollTop > 10) {
+          if (onMarkCompleted) onMarkCompleted();
+        }
+      }
+    };
+
+    if (error) {
+      return (
+        <div style={{ position: "relative", borderRadius: 16, overflow: "hidden", background: "#fff", border: "1px solid var(--border)", display: "flex", flexDirection: "column" }}
+          onContextMenu={(e: any) => e.preventDefault()}>
+          {docHeaderBar}
+          <div style={{ position: "relative", height: 600 }}>
+            <iframe src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}&wdDownloadButton=False&wdPrint=0`}
+              title={res?.displayName} style={{ width: "100%", height: "100%", border: "none", display: "block" }} />
+            <div style={{ position: "absolute", top: 0, right: 0, width: 180, height: 56, zIndex: 10, background: "transparent" }}
+              onClick={(e: any) => { e.preventDefault(); e.stopPropagation(); }} />
+            <div style={{ position: "absolute", bottom: 0, right: 0, width: 240, height: 52, zIndex: 10, background: "transparent" }}
+              onClick={(e: any) => { e.preventDefault(); e.stopPropagation(); }} />
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div style={{ position: "relative", borderRadius: 16, overflow: "hidden", background: "#fff", border: "1px solid var(--border)", display: "flex", flexDirection: "column" }}
+        onContextMenu={(e: any) => e.preventDefault()}>
+        {docHeaderBar}
+        <div
+          ref={wrapperRef}
+          onScroll={handleScroll}
+          style={{
+            position: "relative",
+            height: 600,
+            overflowY: "auto",
+            background: "#f8fafc",
+            padding: "24px 16px",
+          }}
+        >
+          {loading && (
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: 400, gap: 12, color: "#64748b" }}>
+              <div className="spinner" style={{ width: 32, height: 32, border: "3px solid #e2e8f0", borderTopColor: "#2563eb", borderRadius: "50%" }} />
+              <div style={{ fontSize: 13.5, fontWeight: 500 }}>Đang chuẩn bị hiển thị tài liệu Word...</div>
+            </div>
+          )}
+          <div
+            ref={containerRef}
+            style={{
+              maxWidth: 820,
+              margin: "0 auto",
+              background: "#fff",
+              boxShadow: "0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03)",
+              borderRadius: 8,
+              padding: loading ? 0 : "32px 40px",
+              minHeight: loading ? 0 : 500,
+              display: loading ? "none" : "block",
+              color: "#0f172a",
+            }}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  /* ── PDF Native Viewer (`react-pdf`) ─────────────────────── */
+  function PdfNativeViewer({ url, res, isCompleted, onMarkCompleted, docHeaderBar }: any) {
+    const wrapperRef = useRef<HTMLDivElement>(null);
+    const [numPages, setNumPages] = useState<number | null>(null);
+    const [loading, setLoading] = useState<boolean>(true);
+    const [error, setError] = useState<boolean>(false);
+    const [containerWidth, setContainerWidth] = useState<number>(760);
+    const [pdfComponents, setPdfComponents] = useState<any>(null);
+
+    useEffect(() => {
+      let active = true;
+      if (!url) { setLoading(false); setError(true); return; }
+      setLoading(true);
+      setError(false);
+      setNumPages(null);
+
+      import('react-pdf').then(mod => {
+        if (!active) return;
+        const { Document, Page, pdfjs } = mod;
+        if (pdfjs && pdfjs.version) {
+          pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+        }
+        setPdfComponents({ Document, Page });
+      }).catch(e => {
+        console.error("import react-pdf error:", e);
+        if (active) { setError(true); setLoading(false); }
+      });
+
+      return () => { active = false; };
+    }, [url]);
+
+    useEffect(() => {
+      const updateWidth = () => {
+        if (wrapperRef.current) {
+          const w = wrapperRef.current.clientWidth - 48;
+          if (w > 200) setContainerWidth(Math.min(w, 860));
+        }
+      };
+      updateWidth();
+      window.addEventListener('resize', updateWidth);
+      return () => window.removeEventListener('resize', updateWidth);
+    }, [pdfComponents]);
+
+    const handleScroll = () => {
+      if (isCompleted || !wrapperRef.current) return;
+      const el = wrapperRef.current;
+      if (el.scrollHeight > el.clientHeight + 20) {
+        if (el.scrollTop + el.clientHeight >= el.scrollHeight - 60 && el.scrollTop > 10) {
+          if (onMarkCompleted) onMarkCompleted();
+        }
+      }
+    };
+
+    if (error || !pdfComponents) {
+      return (
+        <div style={{ position: "relative", borderRadius: 16, overflow: "hidden", background: "#fff", border: "1px solid var(--border)", display: "flex", flexDirection: "column" }}
+          onContextMenu={(e: any) => e.preventDefault()}>
+          {docHeaderBar}
+          <div style={{ position: "relative", height: 600 }}>
+            <iframe src={`${url}#toolbar=0&navpanes=0&scrollbar=0`} title={res?.displayName}
+              style={{ width: "100%", height: "100%", border: "none", display: "block" }} />
+          </div>
+        </div>
+      );
+    }
+
+    const { Document, Page } = pdfComponents;
+
+    return (
+      <div style={{ position: "relative", borderRadius: 16, overflow: "hidden", background: "#fff", border: "1px solid var(--border)", display: "flex", flexDirection: "column" }}
+        onContextMenu={(e: any) => e.preventDefault()}>
+        {docHeaderBar}
+        <div
+          ref={wrapperRef}
+          onScroll={handleScroll}
+          style={{
+            position: "relative",
+            height: 600,
+            overflowY: "auto",
+            background: "#525659",
+            padding: "24px 16px",
+          }}
+        >
+          {loading && (
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: 400, gap: 12, color: "#e2e8f0" }}>
+              <div className="spinner" style={{ width: 32, height: 32, border: "3px solid #64748b", borderTopColor: "#38bdf8", borderRadius: "50%" }} />
+              <div style={{ fontSize: 13.5, fontWeight: 500 }}>Đang chuẩn bị hiển thị trang PDF...</div>
+            </div>
+          )}
+          <div style={{ maxWidth: 880, margin: "0 auto", display: loading ? "none" : "block" }}>
+            <Document
+              file={url}
+              onLoadSuccess={({ numPages }: any) => {
+                setNumPages(numPages);
+                setLoading(false);
+              }}
+              onLoadError={(e: any) => {
+                console.error("react-pdf load error:", e);
+                setError(true);
+                setLoading(false);
+              }}
+              loading={null}
+            >
+              {!loading && numPages && Array.from(new Array(numPages), (el, index) => (
+                <div key={`page_${index + 1}`} style={{ marginBottom: 16, boxShadow: "0 4px 6px -1px rgba(0,0,0,0.3)", borderRadius: 4, overflow: "hidden", background: "#fff" }}>
+                  <Page
+                    pageNumber={index + 1}
+                    width={containerWidth}
+                    renderTextLayer={false}
+                    renderAnnotationLayer={false}
+                    onRenderSuccess={handleScroll}
+                  />
+                </div>
+              ))}
+            </Document>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   /* ── Viewer ─────────────────────────────────────────────── */
-  function Viewer({ res, url, onVideoTimeUpdate, loading, error, onRetry }: any) {
+  function Viewer({ res, url, onVideoTimeUpdate, loading, error, onRetry, onMarkCompleted, isCompleted }: any) {
     const videoRef = useRef(null);
     useEffect(() => {
       const handleKeyDown = (e: any) => {
@@ -283,7 +517,7 @@
       const ytId = url ? getYoutubeId(url) : null;
       if (ytId) return (
         <div style={{ position: "relative", borderRadius: 16, overflow: "hidden", aspectRatio: "16/9", background: "#000" }}>
-          <iframe src={`https://www.youtube-nocookie.com/embed/${ytId}?rel=0&autoplay=1`}
+          <iframe src={`https://www.youtube-nocookie.com/embed/${ytId}?rel=0&autoplay=1&enablejsapi=1`}
             style={{ width: "100%", height: "100%", border: "none", display: "block" }}
             allowFullScreen allow="autoplay" />
         </div>
@@ -308,43 +542,78 @@
       </div>
     );
 
-    if (t === "PDF") return (
-      <div style={{ position: "relative", borderRadius: 16, overflow: "hidden", background: "#f8fafc", border: "1px solid var(--border)", height: 600 }}
-        onContextMenu={(e: any) => e.preventDefault()}>
-        <iframe src={`${url}#toolbar=0&navpanes=0&scrollbar=0`} title={res.displayName}
-          style={{ width: "100%", height: "100%", border: "none", display: "block" }} />
-        <div style={{ position: "absolute", top: 0, right: 0, width: 220, height: 60, zIndex: 10, background: "transparent" }}
-          onClick={(e: any) => { e.preventDefault(); e.stopPropagation(); }} />
+    const docHeaderBar = (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 16px", background: "#f8fafc", borderBottom: "1px solid var(--border)", borderRadius: "16px 16px 0 0" }}>
+        <span style={{ fontSize: 13, fontWeight: 600, color: "#475569", display: "flex", alignItems: "center", gap: 6 }}>
+          <Ic n="file-text" size={16} /> Trình xem tài liệu ({t})
+        </span>
+        {isCompleted ? (
+          <span className="chip chip-success" style={{ fontSize: 12, fontWeight: 600, padding: "4px 10px" }}>Đã xem xong ✓</span>
+        ) : (
+          <span style={{ fontSize: 12, color: "#64748b", fontStyle: "italic" }}>Đang tự động ghi nhận...</span>
+        )}
       </div>
     );
 
-    if (t === "DOC" || t === "SLIDE") {
+    if (t === "PDF") {
+      return (
+        <PdfNativeViewer
+          url={url}
+          res={res}
+          isCompleted={isCompleted}
+          onMarkCompleted={onMarkCompleted}
+          docHeaderBar={docHeaderBar}
+        />
+      );
+    }
+
+    if (t === "DOC") {
+      return (
+        <DocxNativeViewer
+          url={url}
+          res={res}
+          isCompleted={isCompleted}
+          onMarkCompleted={onMarkCompleted}
+          docHeaderBar={docHeaderBar}
+        />
+      );
+    }
+
+    if (t === "SLIDE") {
       const isLocal = url.includes("localhost") || url.includes("127.0.0.1") || url.startsWith("/");
       if (isLocal) {
         return (
           <div style={{ borderRadius: 16, background: "#f8fafc", border: "1px solid var(--border)", padding: "40px 24px", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, minHeight: 320 }}
             onContextMenu={(e: any) => e.preventDefault()}>
-            <div style={{ width: 56, height: 56, borderRadius: 16, background: t === "SLIDE" ? "#fff7ed" : "#eff6ff", color: t === "SLIDE" ? "#ea580c" : "#2563eb", display: "grid", placeItems: "center" }}>
+            <div style={{ width: 56, height: 56, borderRadius: 16, background: "#fff7ed", color: "#ea580c", display: "grid", placeItems: "center" }}>
               <Ic n="book" size={28} />
             </div>
             <div style={{ fontWeight: 600, fontSize: 14.5, color: "#0f172a" }}>
-              {res.displayName || res.originalFilename || (t === "SLIDE" ? "Slide bài giảng PowerPoint" : "Tài liệu Word / Docx")}
+              {res.displayName || res.originalFilename || "Slide bài giảng PowerPoint"}
             </div>
             <div style={{ fontSize: 13, color: "#64748b", maxWidth: 440, lineHeight: 1.5 }}>
-              Trình xem trực tuyến không thể kết nối tới đường dẫn nội bộ (Localhost). Tài liệu sẽ hiển thị trực tiếp trong khung khi hệ thống chạy trên máy chủ chính thức (Production).
+              Trình xem trực tuyến không thể kết nối tới đường dẫn nội bộ (Localhost). Slide sẽ hiển thị trực tiếp trong khung khi hệ thống chạy trên máy chủ chính thức (Production).
             </div>
+            {isCompleted ? (
+              <span className="chip chip-success" style={{ fontWeight: 600 }}>Đã hoàn thành ✓</span>
+            ) : (
+              <span style={{ fontSize: 13, color: "#64748b", fontStyle: "italic", marginTop: 4 }}>Đang ghi nhận tiến độ...</span>
+            )}
           </div>
         );
       }
       return (
-        <div style={{ position: "relative", borderRadius: 16, overflow: "hidden", height: 600, background: "#f8fafc" }}
+        <div style={{ position: "relative", borderRadius: 16, overflow: "hidden", background: "#fff", border: "1px solid var(--border)", display: "flex", flexDirection: "column" }}
           onContextMenu={(e: any) => e.preventDefault()}>
-          <iframe src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}&wdDownloadButton=False&wdPrint=0`}
-            title={res.displayName} style={{ width: "100%", height: "100%", border: "none", display: "block" }} />
-          <div style={{ position: "absolute", top: 0, right: 0, width: 180, height: 56, zIndex: 10, background: "transparent" }}
-            onClick={(e: any) => { e.preventDefault(); e.stopPropagation(); }} />
-          <div style={{ position: "absolute", bottom: 0, right: 0, width: 240, height: 52, zIndex: 10, background: "transparent" }}
-            onClick={(e: any) => { e.preventDefault(); e.stopPropagation(); }} />
+          {docHeaderBar}
+          <div style={{ position: "relative", height: 600 }}>
+            <iframe src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}&wdDownloadButton=False&wdPrint=0`}
+              title={res.displayName} style={{ width: "100%", height: "100%", border: "none", display: "block" }} />
+            <div style={{ position: "absolute", top: 0, right: 0, width: 180, height: 56, zIndex: 10, background: "transparent" }}
+              onClick={(e: any) => { e.preventDefault(); e.stopPropagation(); }} />
+            <div style={{ position: "absolute", bottom: 0, right: 0, width: 240, height: 52, zIndex: 10, background: "transparent" }}
+              onClick={(e: any) => { e.preventDefault(); e.stopPropagation(); }} />
+          </div>
         </div>
       );
     }
@@ -400,6 +669,7 @@
     const [assignLoading, setAssignLoading] = useState(false);
     const [activeView, setActiveView] = useState("lesson");
     const [selectedAssignmentId, setSelectedAssignmentId] = useState(null);
+    const [resProgressMap, setResProgressMap] = useState<Record<string, { pct?: number; completed?: boolean }>>({});
 
     useEffect(() => {
       api.get('/profile').then(r => { if (r.data?.fullName) setUserName(r.data.fullName); }).catch(() => { /* ignore */ });
@@ -474,21 +744,28 @@
     const maxWatchedPctRef = useRef<Record<string, number>>({});
     const cumDocSecRef = useRef<Record<string, number>>({});
     const ytElapsedRef = useRef<Record<string, number>>({});
+    const ytStateRef = useRef<Record<string, number>>({});
+    const completedResRef = useRef<Record<string, boolean>>({});
+    const resourceWatchedPctRef = useRef<Record<string, number>>({});
+    const lastSentKeyRef = useRef<string>("");
+    const lastSentTimeRef = useRef<number>(0);
     const updateProgress = useCallback(async (watchedPct, position, docSeconds, isCompleted) => {
       if (!courseId || !activeL?.id) return;
-      const hasVid = videoResources.length > 0;
-      const hasDoc = docResources.length > 0;
-      const autoComp = (hasVid && hasDoc)
-        ? ((watchedPct !== null ? watchedPct >= 90 : false) && (docSeconds !== null ? docSeconds >= 10 : false))
-        : hasVid
-        ? (watchedPct !== null && watchedPct >= 90)
-        : hasDoc
-        ? ((docSeconds !== null && docSeconds >= 20) || (watchedPct !== null && watchedPct >= 90))
-        : true;
+      const vids = (activeL.resources || []).filter((r: any) => !r.pendingDelete && r.resourceType === "VIDEO");
+      const docs = (activeL.resources || []).filter((r: any) => !r.pendingDelete && r.resourceType !== "VIDEO" && r.resourceType !== "IMAGE");
+      const imgs = (activeL.resources || []).filter((r: any) => !r.pendingDelete && r.resourceType === "IMAGE");
+      const allVidsDone = vids.length === 0 || vids.every((v: any) => completedResRef.current[v.id] || (resourceWatchedPctRef.current[v.id] || 0) >= 90 || (ytElapsedRef.current[v.id] || 0) >= ((v.fileSizeBytes ? 60 : activeL.durationSeconds || 60) * 0.9));
+      const allDocsDone = docs.length === 0 || docs.every((d: any) => completedResRef.current[d.id]);
+      const allImgsDone = imgs.length === 0 || imgs.every((i: any) => completedResRef.current[i.id]);
+
+      const autoComp = allVidsDone && allDocsDone && allImgsDone && (vids.length > 0 || docs.length > 0 || imgs.length > 0);
       const targetStatus = isCompleted || progRef.current[activeL.id] === "COMPLETED" || autoComp ? "COMPLETED" : "IN_PROGRESS";
       if (targetStatus === "COMPLETED") {
         progRef.current[activeL.id] = "COMPLETED";
+      } else if (progRef.current[activeL.id] !== "COMPLETED") {
+        progRef.current[activeL.id] = targetStatus;
       }
+      setActiveL(prev => prev && prev.id === activeL.id ? { ...prev, progress: targetStatus } : prev);
       setChapters(prev => prev.map(ch => ({
         ...ch,
         lessons: (ch.lessons || []).map(l =>
@@ -498,7 +775,20 @@
         ),
       })));
       try {
+        const cached = JSON.parse(sessionStorage.getItem('lp_' + courseId) || '{}');
+        cached[activeL.id] = targetStatus;
+        sessionStorage.setItem('lp_' + courseId, JSON.stringify(cached));
+      } catch { /* ignore */ }
+      try {
         const isComp = isCompleted || targetStatus === "COMPLETED";
+        const payloadKey = `${activeL.id}_${isComp}_${Math.floor((watchedPct || 0) / 10)}`;
+        const now = Date.now();
+        if (!isComp && lastSentKeyRef.current === payloadKey && now - lastSentTimeRef.current < 20000) {
+          return;
+        }
+        lastSentKeyRef.current = payloadKey;
+        lastSentTimeRef.current = now;
+
         await api.post(`/student/courses/${courseId}/lessons/${activeL.id}/progress`, {
           watchedPercentage: watchedPct,
           lastPlaybackPosition: position,
@@ -507,6 +797,39 @@
         });
       } catch (e) { console.error("updateProgress error", e); }
     }, [courseId, activeL?.id, videoResources.length, docResources.length]);
+
+    const checkLessonCompletion = useCallback((currentResId?: string, forceCompleteRes?: boolean) => {
+      if (!activeL?.id) return;
+      if (currentResId && forceCompleteRes) {
+        completedResRef.current[currentResId] = true;
+        setResProgressMap(m => ({ ...m, [currentResId]: { completed: true, pct: 100 } }));
+      }
+      const vids = (activeL.resources || []).filter((r: any) => !r.pendingDelete && r.resourceType === "VIDEO");
+      const docs = (activeL.resources || []).filter((r: any) => !r.pendingDelete && r.resourceType !== "VIDEO" && r.resourceType !== "IMAGE");
+      const imgs = (activeL.resources || []).filter((r: any) => !r.pendingDelete && r.resourceType === "IMAGE");
+
+      const allVidsDone = vids.length === 0 || vids.every((v: any) => 
+        completedResRef.current[v.id] || (resourceWatchedPctRef.current[v.id] || 0) >= 90 || (ytElapsedRef.current[v.id] || 0) >= ((v.fileSizeBytes ? 60 : activeL.durationSeconds || 60) * 0.9)
+      );
+      const allDocsDone = docs.length === 0 || docs.every((d: any) => completedResRef.current[d.id]);
+      const allImgsDone = imgs.length === 0 || imgs.every((i: any) => completedResRef.current[i.id]);
+
+      if (allVidsDone && allDocsDone && allImgsDone) {
+        if (progRef.current[activeL.id] !== "COMPLETED") {
+          progRef.current[activeL.id] = "COMPLETED";
+          updateProgress(100, null, cumDocSecRef.current[activeL.id] || 10, true);
+        }
+      } else if (
+        vids.some((v: any) => (resourceWatchedPctRef.current[v.id] || 0) >= 1 || completedResRef.current[v.id]) ||
+        docs.some((d: any) => completedResRef.current[d.id] || (cumDocSecRef.current[activeL.id] || 0) >= 1) ||
+        imgs.some((i: any) => completedResRef.current[i.id])
+      ) {
+        if (progRef.current[activeL.id] !== "IN_PROGRESS" && progRef.current[activeL.id] !== "COMPLETED") {
+          progRef.current[activeL.id] = "IN_PROGRESS";
+          updateProgress(null, null, cumDocSecRef.current[activeL.id] || 1, false);
+        }
+      }
+    }, [activeL, updateProgress]);
 
     const endRef = useRef();
     function scrollBottom() { setTimeout(() => endRef.current?.scrollIntoView({ behavior: "smooth" }), 60); }
@@ -625,6 +948,12 @@
     function handleViewRes(r) {
       setViewRes(r);
       if (r && !r.externalUrl) fetchResUrl(r, activeL.id);
+      if (activeL && progRef.current[activeL.id] !== "COMPLETED") {
+        if (progRef.current[activeL.id] !== "IN_PROGRESS") {
+          progRef.current[activeL.id] = "IN_PROGRESS";
+        }
+        updateProgress(null, null, cumDocSecRef.current[activeL.id] || 1, false);
+      }
     }
 
     function goLesson(l) {
@@ -646,41 +975,148 @@
       return resUrls[res.id]?.url || null;
     }
 
-    /* ── Progress: Video time tracking ───────────────────── */
+    /* ── Progress: Video time tracking (Anti-seek / Adaptive Throttled Sync / Beacon Flush) ── */
     const videoThrottleRef = useRef(0);
+    const lastTimeUpdateRef = useRef({ time: 0, wallClock: 0 });
+    const realWatchSecondsRef = useRef<Record<string, number>>({});
+    const lastSyncedDocSecRef = useRef<Record<string, number>>({});
+
+    const flushPendingProgress = useCallback((forceBeacon = false) => {
+      if (!activeL?.id || !courseId) return;
+      const docSec = Math.round(realWatchSecondsRef.current[activeL.id] || cumDocSecRef.current[activeL.id] || 0);
+      if (docSec <= (lastSyncedDocSecRef.current[activeL.id] || 0) && !forceBeacon) return;
+
+      const pct = maxWatchedPctRef.current[activeL.id] || 0;
+      const pos = Math.floor(lastTimeUpdateRef.current.time || 0);
+      const isComp = progRef.current[activeL.id] === "COMPLETED";
+
+      const payloadStr = JSON.stringify({
+        watchedPercentage: pct,
+        lastPlaybackPosition: pos,
+        documentViewSeconds: docSec,
+        completed: isComp
+      });
+
+      lastSyncedDocSecRef.current[activeL.id] = docSec;
+      if (forceBeacon && typeof navigator !== 'undefined' && navigator.sendBeacon) {
+        const url = `/api/v1/student/courses/${courseId}/lessons/${activeL.id}/progress`;
+        const blob = new Blob([payloadStr], { type: 'application/json' });
+        navigator.sendBeacon(url, blob);
+      } else {
+        updateProgress(pct, pos, docSec, isComp);
+      }
+    }, [activeL?.id, courseId, updateProgress]);
+
+    useEffect(() => {
+      const handleExit = () => flushPendingProgress(true);
+      const handleVisibility = () => {
+        if (document.visibilityState === 'hidden') flushPendingProgress(true);
+      };
+      window.addEventListener('beforeunload', handleExit);
+      document.addEventListener('visibilitychange', handleVisibility);
+      return () => {
+        window.removeEventListener('beforeunload', handleExit);
+        document.removeEventListener('visibilitychange', handleVisibility);
+        flushPendingProgress(true);
+      };
+    }, [flushPendingProgress]);
+
     const handleVideoTimeUpdate = useCallback((e: any) => {
       const video = e.target;
-      if (!video?.duration || !activeL?.id || !videoUrl) return;
-      const pct = (video.currentTime / video.duration) * 100;
+      if (!video || !activeL?.id || !videoUrl) return;
+      const rawDur = video.duration || 0;
+      const cur = video.currentTime || 0;
+      const isFiniteDur = rawDur > 0 && isFinite(rawDur);
+      const dur = isFiniteDur 
+        ? rawDur 
+        : ((activeVideoRes?.fileSizeBytes && activeVideoRes.fileSizeBytes > 0 ? 60 : activeL.durationSeconds && activeL.durationSeconds > 0 ? activeL.durationSeconds : 60));
+
+      const now = Date.now();
+      if (realWatchSecondsRef.current[activeL.id] == null) {
+        realWatchSecondsRef.current[activeL.id] = cumDocSecRef.current[activeL.id] || 0;
+      }
+      const prev = lastTimeUpdateRef.current;
+      if (prev.time > 0 && prev.wallClock > 0 && !video.seeking) {
+        const deltaVideo = cur - prev.time;
+        const deltaWall = (now - prev.wallClock) / 1000;
+        if (deltaVideo > 0 && deltaVideo <= 2.0 && deltaWall > 0 && deltaWall <= 3.0) {
+          realWatchSecondsRef.current[activeL.id] = (realWatchSecondsRef.current[activeL.id] || 0) + deltaVideo;
+        }
+      }
+      lastTimeUpdateRef.current = { time: cur, wallClock: now };
+      const currentDocSec = Math.round(realWatchSecondsRef.current[activeL.id] || 0);
+
+      const pct = dur > 0 ? Math.min(100, Math.round((cur / dur) * 100)) : 100;
+      if (activeVideoRes?.id) {
+        const prevPct = resourceWatchedPctRef.current[activeVideoRes.id] || 0;
+        const newPct = Math.max(prevPct, pct);
+        resourceWatchedPctRef.current[activeVideoRes.id] = newPct;
+        setResProgressMap(m => ({ ...m, [activeVideoRes.id]: { pct: newPct, completed: newPct >= 90 || completedResRef.current[activeVideoRes.id] } }));
+      }
       maxWatchedPctRef.current[activeL.id] = Math.max(
         maxWatchedPctRef.current[activeL.id] || 0,
         pct
       );
-      const effectivePct = maxWatchedPctRef.current[activeL.id];
+      const effectivePct = activeVideoRes?.id ? (resourceWatchedPctRef.current[activeVideoRes.id] || 0) : maxWatchedPctRef.current[activeL.id];
       const curProg = progRef.current[activeL.id];
-      if (curProg === "COMPLETED") return;
-      const now = Date.now();
-      if (effectivePct >= 90 && curProg !== "COMPLETED") {
-        progRef.current[activeL.id] = "COMPLETED";
-        updateProgress(Math.round(effectivePct), Math.floor(video.currentTime), null, true);
+      const isEndedOrNearEnd = e.type === "ended" || effectivePct >= 90 || (isFiniteDur && rawDur - cur <= 3) || (!isFiniteDur && cur >= dur * 0.9);
+
+      try {
+        sessionStorage.setItem(`lp_buf_${courseId}_${activeL.id}`, JSON.stringify({
+          docSec: currentDocSec,
+          pos: Math.floor(cur),
+          pct: effectivePct,
+          updatedAt: now
+        }));
+      } catch { /* ignore */ }
+
+      if (isEndedOrNearEnd) {
+        if (activeVideoRes?.id) {
+          completedResRef.current[activeVideoRes.id] = true;
+          resourceWatchedPctRef.current[activeVideoRes.id] = 100;
+          setResProgressMap(m => ({ ...m, [activeVideoRes.id]: { pct: 100, completed: true } }));
+        }
+        checkLessonCompletion(activeVideoRes?.id, true);
+        if (now - videoThrottleRef.current >= 15000) {
+          videoThrottleRef.current = now;
+          lastSyncedDocSecRef.current[activeL.id] = currentDocSec;
+          updateProgress(100, Math.floor(cur), currentDocSec || cumDocSecRef.current[activeL.id] || 0, progRef.current[activeL.id] === "COMPLETED");
+        }
+      } else if (effectivePct >= 1 || cur >= 1) {
+        if (curProg !== "IN_PROGRESS" && curProg !== "COMPLETED") {
+          progRef.current[activeL.id] = "IN_PROGRESS";
+        }
+        checkLessonCompletion(activeVideoRes?.id, false);
+        if (now - videoThrottleRef.current >= 45000) {
+          videoThrottleRef.current = now;
+          lastSyncedDocSecRef.current[activeL.id] = currentDocSec;
+          updateProgress(effectivePct, Math.floor(cur), currentDocSec || cumDocSecRef.current[activeL.id] || 0, false);
+        }
+      } else if (now - videoThrottleRef.current >= 45000) {
         videoThrottleRef.current = now;
-      } else if (effectivePct >= 5 && curProg !== "IN_PROGRESS") {
-        progRef.current[activeL.id] = "IN_PROGRESS";
-        updateProgress(Math.round(effectivePct), Math.floor(video.currentTime), null, false);
-        videoThrottleRef.current = now;
-      } else if (now - videoThrottleRef.current >= 5000) {
-        videoThrottleRef.current = now;
-        updateProgress(Math.round(effectivePct), Math.floor(video.currentTime), null, false);
+        lastSyncedDocSecRef.current[activeL.id] = currentDocSec;
+        updateProgress(effectivePct, Math.floor(cur), currentDocSec || cumDocSecRef.current[activeL.id] || 0, false);
       }
-    }, [activeL?.id, updateProgress, activeVideoIdx, videoUrl]);
+    }, [activeL?.id, activeL?.durationSeconds, updateProgress, activeVideoIdx, videoUrl, docResources.length, activeVideoRes?.id, checkLessonCompletion, courseId]);
 
     /* Reset progress ref when lesson changes (run first) */
     useEffect(() => {
       if (activeL?.id) {
         if (activeL.progress === "COMPLETED") {
           progRef.current[activeL.id] = "COMPLETED";
-        } else if (!progRef.current[activeL.id]) {
-          progRef.current[activeL.id] = activeL.progress || "IN_PROGRESS";
+          (activeL.resources || []).forEach((r: any) => {
+            if (r?.id) {
+              completedResRef.current[r.id] = true;
+              setResProgressMap(m => ({ ...m, [r.id]: { completed: true, pct: 100 } }));
+            }
+          });
+        } else {
+          if (!progRef.current[activeL.id] || progRef.current[activeL.id] === "NOT_STARTED") {
+            progRef.current[activeL.id] = "IN_PROGRESS";
+            updateProgress(0, 0, cumDocSecRef.current[activeL.id] || 1, false);
+          } else {
+            progRef.current[activeL.id] = activeL.progress || "IN_PROGRESS";
+          }
         }
       }
     }, [activeL?.id, activeL?.progress]);
@@ -693,70 +1129,211 @@
       try { sessionStorage.setItem('lp_' + courseId, JSON.stringify(cache)); } catch { /* ignore */ }
     }, [courseId, chapters]);
 
-    /* ── Progress: YouTube iframe tracking (no onTimeUpdate) ── */
+    /* ── Progress: YouTube iframe tracking ── */
     useEffect(() => {
-      if (!activeL?.durationSeconds || progRef.current[activeL.id] === "COMPLETED") return;
-      if (!activeVideoRes || !getYoutubeId(activeVideoRes.externalUrl || "")) return;
+      if (!activeL?.id) return;
+      if (!activeVideoRes || activeVideoRes.resourceType !== "VIDEO") return;
       const lid = activeL.id;
-      const threshold = (activeL.durationSeconds * 90) / 100;
-      let elapsed = ytElapsedRef.current[lid] || 0;
-      if (elapsed >= threshold) {
-        progRef.current[lid] = "COMPLETED";
-        updateProgress(100, null, null, true);
-        return;
+      const resId = activeVideoRes.id;
+      const dur = (activeL.durationSeconds && activeL.durationSeconds > 0) ? activeL.durationSeconds : 60;
+      const threshold = (activeL.durationSeconds && activeL.durationSeconds > 0) ? (dur * 90) / 100 : 30;
+
+      let hasReceivedInfo = false;
+      const handleYtMessage = (e: MessageEvent) => {
+        try {
+          if (typeof e.data !== "string") return;
+          const data = JSON.parse(e.data);
+          if (data?.event === "infoDelivery" && data?.info) {
+            hasReceivedInfo = true;
+            const state = data.info.playerState;
+            if (typeof state === "number") ytStateRef.current[resId] = state;
+            const cur = data.info.currentTime;
+            const ytDur = data.info.duration || dur;
+            if (cur && ytDur) {
+              const pct = Math.min(100, Math.round((cur / ytDur) * 100));
+              resourceWatchedPctRef.current[resId] = Math.max(resourceWatchedPctRef.current[resId] || 0, pct);
+              setResProgressMap(m => ({ ...m, [resId]: { pct: resourceWatchedPctRef.current[resId], completed: resourceWatchedPctRef.current[resId] >= 90 || completedResRef.current[resId] } }));
+            }
+            if (state === 0 || (cur && ytDur && (cur / ytDur >= 0.9 || ytDur - cur <= 3))) {
+              if (resId) {
+                completedResRef.current[resId] = true;
+                resourceWatchedPctRef.current[resId] = 100;
+                setResProgressMap(m => ({ ...m, [resId]: { pct: 100, completed: true } }));
+              }
+              checkLessonCompletion(resId, true);
+            }
+          }
+        } catch { /* ignore */ }
+      };
+      window.addEventListener("message", handleYtMessage);
+      const pingYt = () => {
+        document.querySelectorAll("iframe").forEach(ifr => {
+          try { ifr.contentWindow?.postMessage(JSON.stringify({ event: "listening", id: resId, channel: "widget" }), "*"); } catch { /* ignore */ }
+        });
+      };
+      pingYt();
+
+      let elapsed = ytElapsedRef.current[resId] || 0;
+      if (elapsed >= threshold || completedResRef.current[resId] || (resourceWatchedPctRef.current[resId] || 0) >= 90) {
+        if (resId) {
+          completedResRef.current[resId] = true;
+          resourceWatchedPctRef.current[resId] = 100;
+          setResProgressMap(m => ({ ...m, [resId]: { pct: 100, completed: true } }));
+        }
+        checkLessonCompletion(resId, true);
+        return () => window.removeEventListener("message", handleYtMessage);
       }
+      let pingTicks = 0;
       const t = setInterval(() => {
         if (document.hidden) return;
+        pingTicks += 1;
+        if (!hasReceivedInfo || pingTicks % 15 === 0) {
+          pingYt();
+        }
+        const state = ytStateRef.current[resId];
+        if (state === 2) return;
+
         elapsed += 1;
-        ytElapsedRef.current[lid] = elapsed;
-        if (elapsed >= threshold) {
+        ytElapsedRef.current[resId] = elapsed;
+        const pct = Math.min(100, Math.round((elapsed / dur) * 100));
+        if (resId) {
+          resourceWatchedPctRef.current[resId] = Math.max(resourceWatchedPctRef.current[resId] || 0, pct);
+          setResProgressMap(m => ({ ...m, [resId]: { pct: resourceWatchedPctRef.current[resId], completed: resourceWatchedPctRef.current[resId] >= 90 || completedResRef.current[resId] } }));
+        }
+        if (elapsed >= threshold || (resourceWatchedPctRef.current[resId] || 0) >= 90) {
           clearInterval(t);
-          progRef.current[lid] = "COMPLETED";
-          updateProgress(100, null, null, true);
-        } else if (elapsed >= 5 && progRef.current[lid] !== "IN_PROGRESS") {
-          progRef.current[lid] = "IN_PROGRESS";
-          updateProgress(Math.round((elapsed / activeL.durationSeconds) * 100), null, null, false);
+          if (resId) {
+            completedResRef.current[resId] = true;
+            resourceWatchedPctRef.current[resId] = 100;
+            setResProgressMap(m => ({ ...m, [resId]: { pct: 100, completed: true } }));
+          }
+          checkLessonCompletion(resId, true);
+        } else if (elapsed >= 1) {
+          if (progRef.current[lid] !== "IN_PROGRESS" && progRef.current[lid] !== "COMPLETED") {
+            progRef.current[lid] = "IN_PROGRESS";
+          }
+          checkLessonCompletion(resId, false);
+        }
+        if (elapsed > 0 && elapsed % 30 === 0) {
+          updateProgress(resourceWatchedPctRef.current[resId] || pct, Math.floor(elapsed), cumDocSecRef.current[lid] || 0, false);
         }
       }, 1000);
-      return () => clearInterval(t);
-    }, [activeL?.id, activeVideoRes?.id, activeVideoIdx]);
-
-    /* ── Progress: Document timer (cumulative across documents) ── */
-    const docTimerRef = useRef<any>(null);
-    const hiddenRef = useRef(false);
-    useEffect(() => {
-      if (activeL?.progress === "COMPLETED") return;
-      if (!viewRes || viewRes.resourceType === "VIDEO") return;
-      if (progRef.current[activeL?.id] === "COMPLETED") return;
-
-      hiddenRef.current = false;
-      const lid = activeL?.id;
-      const targetDocSec = isVideoLesson ? 10 : 20;
-      const onVisibility = () => { hiddenRef.current = document.hidden; };
-      document.addEventListener('visibilitychange', onVisibility);
-
-      let cum = cumDocSecRef.current[lid] || 0;
-      updateProgress(null, null, cum, false);
-
-      docTimerRef.current = setInterval(() => {
-        if (hiddenRef.current) return;
-        cum += 1;
-        cumDocSecRef.current[lid] = cum;
-        const isComp = !isVideoLesson && cum >= targetDocSec;
-        if (isComp) progRef.current[lid] = "COMPLETED";
-        if (cum % 5 === 0 || isComp) {
-          updateProgress(null, null, cum, isComp);
-        }
-      }, 1000);
-
       return () => {
-        document.removeEventListener('visibilitychange', onVisibility);
-        if (docTimerRef.current) clearInterval(docTimerRef.current);
-        if (cum > 0) {
-          updateProgress(null, null, cum, !isVideoLesson && cum >= targetDocSec);
+        window.removeEventListener("message", handleYtMessage);
+        clearInterval(t);
+      };
+    }, [activeL?.id, activeL?.durationSeconds, activeVideoRes?.id, activeVideoIdx, updateProgress, checkLessonCompletion]);
+
+    /* ── Progress: Document & Image tracking (timer + scroll + completion) ── */
+    useEffect(() => {
+      if (!activeL || !viewRes || viewRes.resourceType === "VIDEO") return;
+      const resId = viewRes.id;
+      const lid = activeL.id;
+      if (!resId) return;
+
+      if (progRef.current[lid] !== "COMPLETED" && progRef.current[lid] !== "IN_PROGRESS") {
+        progRef.current[lid] = "IN_PROGRESS";
+        updateProgress(null, null, cumDocSecRef.current[lid] || 1, false);
+      }
+
+      if (completedResRef.current[resId]) {
+        setResProgressMap(m => ({ ...m, [resId]: { completed: true, pct: 100 } }));
+        checkLessonCompletion(resId, true);
+        return;
+      }
+
+      if (viewRes.resourceType === "IMAGE") {
+        completedResRef.current[resId] = true;
+        setResProgressMap(m => ({ ...m, [resId]: { completed: true, pct: 100 } }));
+        checkLessonCompletion(resId, true);
+        return;
+      }
+
+      if (viewRes.resourceType === "DOC" || viewRes.resourceType === "PDF") {
+        return;
+      }
+
+      const mainEl = document.querySelector('.lecture-wrap > div') || document.querySelector('.main > div');
+      const mountedTime = Date.now();
+      let hasScrolledOnce = false;
+      let wheelTicks = 0;
+
+      const checkScroll = (e?: any) => {
+        if (!resId || completedResRef.current[resId]) return;
+        const timeSinceMount = Date.now() - mountedTime;
+        if (timeSinceMount < 2500 && !e) return;
+
+        let reachedBottom = false;
+
+        if (e && (e.type === 'wheel' || e.type === 'touchmove' || e.type === 'keydown')) {
+          wheelTicks += 1;
+        }
+
+        if (mainEl && mainEl.scrollHeight > mainEl.clientHeight + 30) {
+          if (mainEl.scrollTop > 20) hasScrolledOnce = true;
+          if (mainEl.scrollTop + mainEl.clientHeight >= mainEl.scrollHeight - 60 && hasScrolledOnce) {
+            reachedBottom = true;
+          }
+        }
+        if (window.innerHeight < document.documentElement.scrollHeight - 30) {
+          if (window.scrollY > 20) hasScrolledOnce = true;
+          if (window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 60 && hasScrolledOnce) {
+            reachedBottom = true;
+          }
+        }
+        document.querySelectorAll('iframe').forEach(ifr => {
+          try {
+            const cw = ifr.contentWindow;
+            if (cw && cw.document && cw.document.documentElement) {
+              const d = cw.document.documentElement;
+              if (d.scrollHeight > cw.innerHeight + 30) {
+                if ((d.scrollTop || cw.scrollY) > 10) hasScrolledOnce = true;
+                if ((d.scrollTop || cw.scrollY) + cw.innerHeight >= d.scrollHeight - 60 && hasScrolledOnce) {
+                  reachedBottom = true;
+                }
+              }
+            }
+          } catch {
+            if (timeSinceMount >= 3000 && wheelTicks >= 12) {
+              reachedBottom = true;
+            }
+          }
+        });
+        if (timeSinceMount >= 3000 && wheelTicks >= 12) {
+          if (mainEl && mainEl.scrollHeight <= mainEl.clientHeight + 30 && window.innerHeight >= document.documentElement.scrollHeight - 30) {
+            reachedBottom = true;
+          }
+        }
+        if (reachedBottom) {
+          completedResRef.current[resId] = true;
+          setResProgressMap(m => ({ ...m, [resId]: { completed: true, pct: 100 } }));
+          checkLessonCompletion(resId, true);
         }
       };
-    }, [viewRes?.id, activeL?.id, isVideoLesson]);
+
+      if (mainEl) {
+        checkScroll();
+        mainEl.addEventListener('scroll', checkScroll, { passive: true });
+        mainEl.addEventListener('wheel', checkScroll, { passive: true });
+        mainEl.addEventListener('touchmove', checkScroll, { passive: true });
+      }
+      window.addEventListener('scroll', checkScroll, { passive: true });
+      window.addEventListener('resize', checkScroll);
+      window.addEventListener('wheel', checkScroll, { passive: true });
+      window.addEventListener('keydown', checkScroll, { passive: true });
+
+      return () => {
+        if (mainEl) {
+          mainEl.removeEventListener('scroll', checkScroll);
+          mainEl.removeEventListener('wheel', checkScroll);
+          mainEl.removeEventListener('touchmove', checkScroll);
+        }
+        window.removeEventListener('scroll', checkScroll);
+        window.removeEventListener('resize', checkScroll);
+        window.removeEventListener('wheel', checkScroll);
+        window.removeEventListener('keydown', checkScroll);
+      };
+    }, [activeL?.id, viewRes?.id, checkLessonCompletion, updateProgress]);
 
     /* ── Progress: Text-only lesson (no video/doc, mark on access) ── */
     useEffect(() => {
@@ -937,11 +1514,23 @@
                             icon="video"
                             iconBg="#eaf1ff" iconColor="#2563eb"
                             isActive={i === activeVideoIdx}
-                            onClick={() => setActiveVideoIdx(i)} />
+                            isCompleted={resProgressMap[v.id]?.completed || completedResRef.current[v.id] || (resourceWatchedPctRef.current[v.id] || 0) >= 90}
+                            onClick={() => {
+                              setActiveVideoIdx(i);
+                              if (activeL && progRef.current[activeL.id] !== "COMPLETED") {
+                                if (progRef.current[activeL.id] !== "IN_PROGRESS") {
+                                  progRef.current[activeL.id] = "IN_PROGRESS";
+                                }
+                                updateProgress(resourceWatchedPctRef.current[v.id] || null, null, cumDocSecRef.current[activeL.id] || 1, false);
+                              }
+                            }} />
                         ))}
                       </div>
                       {isVideoActive && (
-                        <Viewer key={activeVideoRes?.id || videoUrl || activeVideoIdx} res={activeVideoRes} url={videoUrl} onVideoTimeUpdate={handleVideoTimeUpdate} />
+                        <Viewer key={activeVideoRes?.id || videoUrl || activeVideoIdx}
+                          res={activeVideoRes} url={videoUrl} onVideoTimeUpdate={handleVideoTimeUpdate}
+                          isCompleted={activeVideoRes && (resProgressMap[activeVideoRes.id]?.completed || completedResRef.current[activeVideoRes.id] || (resourceWatchedPctRef.current[activeVideoRes.id] || 0) >= 90)}
+                          onMarkCompleted={() => activeVideoRes && checkLessonCompletion(activeVideoRes.id, true)} />
                       )}
                     </div>
                   )}
@@ -964,6 +1553,7 @@
                               icon={rs.icon}
                               iconBg={rs.bg} iconColor={rs.color}
                               isActive={viewRes?.id === r.id}
+                              isCompleted={resProgressMap[r.id]?.completed || completedResRef.current[r.id]}
                               onClick={() => handleViewRes(r)} />
                           );
                         })}
@@ -975,7 +1565,10 @@
                       </div>
                     )}
                     {viewRes && viewRes.resourceType !== "VIDEO" && (
-                      <Viewer key={viewRes?.id || getViewerUrl(viewRes)} res={viewRes} url={getViewerUrl(viewRes)} />
+                      <Viewer key={viewRes?.id || getViewerUrl(viewRes)}
+                        res={viewRes} url={getViewerUrl(viewRes)}
+                        isCompleted={resProgressMap[viewRes.id]?.completed || completedResRef.current[viewRes.id]}
+                        onMarkCompleted={() => checkLessonCompletion(viewRes.id, true)} />
                     )}
                   </div>
 

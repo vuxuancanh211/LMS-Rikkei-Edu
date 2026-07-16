@@ -18,7 +18,9 @@ import project.lms_rikkei_edu.modules.course.enums.CourseStatus;
 import project.lms_rikkei_edu.modules.course.exception.*;
 import project.lms_rikkei_edu.modules.course.mapper.*;
 import project.lms_rikkei_edu.modules.course.repository.*;
+import project.lms_rikkei_edu.modules.course.service.impl.CourseListCacheGateway;
 import project.lms_rikkei_edu.modules.course.service.impl.CourseServiceImpl;
+import project.lms_rikkei_edu.modules.course.service.impl.CourseVersionReferenceChecker;
 import project.lms_rikkei_edu.modules.quiz.repository.QuizRepository;
 import project.lms_rikkei_edu.modules.quiz.service.QuizService;
 
@@ -52,6 +54,7 @@ class CourseServiceImplExtTest {
     @Mock QuizService quizService;
     @Mock QuizRepository quizRepository;
     @Mock StudentCourseService studentCourseService;
+    @Mock CourseVersionReferenceChecker courseVersionReferenceChecker;
 
     CourseServiceImpl courseService;
 
@@ -67,8 +70,11 @@ class CourseServiceImplExtTest {
                 lessonResourceRepository, categoryRepository,
                 approvalLogRepository, courseVersionRepository,
                 courseMapper, objectMapper, chapterMapper, lessonMapper,
-                entityManager, s3Service, quizService, quizRepository, studentCourseService
+                entityManager, s3Service, quizService, quizRepository, studentCourseService,
+                new CourseListCacheGateway(courseRepository, courseMapper),
+                courseVersionReferenceChecker
         );
+        when(courseVersionReferenceChecker.isSafeToDelete(any(), any())).thenReturn(true);
     }
 
     private Course draftCourse() {

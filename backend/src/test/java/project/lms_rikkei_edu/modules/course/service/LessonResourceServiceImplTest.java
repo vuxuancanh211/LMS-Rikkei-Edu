@@ -9,6 +9,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.test.util.ReflectionTestUtils;
+import project.lms_rikkei_edu.common.exception.BusinessException;
 import project.lms_rikkei_edu.infrastructure.s3.S3Service;
 import project.lms_rikkei_edu.modules.course.dto.request.ResourceConfirmUploadRequest;
 import project.lms_rikkei_edu.modules.course.dto.request.ResourceUploadPresignRequest;
@@ -27,6 +28,7 @@ import project.lms_rikkei_edu.modules.course.mapper.LessonResourceMapper;
 import project.lms_rikkei_edu.modules.course.repository.CourseRepository;
 import project.lms_rikkei_edu.modules.course.repository.LessonRepository;
 import project.lms_rikkei_edu.modules.course.repository.LessonResourceRepository;
+import project.lms_rikkei_edu.modules.course.service.impl.CourseVersionReferenceChecker;
 import project.lms_rikkei_edu.modules.course.service.impl.LessonResourceServiceImpl;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedPutObjectRequest;
@@ -38,6 +40,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
@@ -51,6 +54,7 @@ class LessonResourceServiceImplTest {
     @Mock CourseRepository courseRepository;
     @Mock S3Service s3Service;
     @Mock LessonResourceMapper lessonResourceMapper;
+    @Mock CourseVersionReferenceChecker courseVersionReferenceChecker;
 
     LessonResourceServiceImpl service;
 
@@ -63,9 +67,10 @@ class LessonResourceServiceImplTest {
     void setUp() {
         service = new LessonResourceServiceImpl(
                 lessonRepository, lessonResourceRepository, courseRepository,
-                s3Service, lessonResourceMapper
+                s3Service, lessonResourceMapper, courseVersionReferenceChecker
         );
         ReflectionTestUtils.setField(service, "presignedUrlExpiry", 3600L);
+        when(courseVersionReferenceChecker.isSafeToDelete(any(), any())).thenReturn(true);
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────
@@ -225,6 +230,24 @@ class LessonResourceServiceImplTest {
             assertThatThrownBy(() -> service.requestUploadUrl(instructorId, courseId, lessonId, req))
                     .isInstanceOf(CourseStateException.class);
         }
+
+        @Test
+        void throws_whenCourseIsPendingUpdate() {
+            Course c = draftCourse();
+            c.setStatus(CourseStatus.PENDING_UPDATE);
+
+            when(lessonRepository.findByIdAndCourseId(lessonId, courseId)).thenReturn(Optional.of(lesson()));
+            when(courseRepository.findById(courseId)).thenReturn(Optional.of(c));
+
+            ResourceUploadPresignRequest req = new ResourceUploadPresignRequest();
+            req.setOriginalFilename("file.pdf");
+            req.setMimeType("application/pdf");
+            req.setFileSizeBytes(1024L);
+            req.setResourceType(ResourceType.PDF);
+
+            assertThatThrownBy(() -> service.requestUploadUrl(instructorId, courseId, lessonId, req))
+                    .isInstanceOf(CourseStateException.class);
+        }
     }
 
     // ── confirmUpload ─────────────────────────────────────────────────────────
@@ -247,6 +270,8 @@ class LessonResourceServiceImplTest {
             ResourceConfirmUploadRequest req = new ResourceConfirmUploadRequest();
             req.setS3Key("courses/file.pdf");
             req.setResourceType(ResourceType.PDF);
+            req.setOriginalFilename("lecture.pdf");
+            req.setMimeType("application/pdf");
             req.setDisplayName("Lecture Notes");
 
             LessonResourceResponse resp = service.confirmUpload(instructorId, courseId, lessonId, req);
@@ -296,6 +321,8 @@ class LessonResourceServiceImplTest {
             ResourceConfirmUploadRequest req = new ResourceConfirmUploadRequest();
             req.setS3Key("courses/file.pdf");
             req.setResourceType(ResourceType.PDF);
+            req.setOriginalFilename("lecture.pdf");
+            req.setMimeType("application/pdf");
 
             service.confirmUpload(instructorId, courseId, lessonId, req);
 
@@ -318,6 +345,8 @@ class LessonResourceServiceImplTest {
             ResourceConfirmUploadRequest req = new ResourceConfirmUploadRequest();
             req.setS3Key("courses/file.pdf");
             req.setResourceType(ResourceType.PDF);
+            req.setOriginalFilename("lecture.pdf");
+            req.setMimeType("application/pdf");
 
             service.confirmUpload(instructorId, courseId, lessonId, req);
 
@@ -351,6 +380,88 @@ class LessonResourceServiceImplTest {
             assertThatThrownBy(() -> service.confirmUpload(instructorId, courseId, lessonId, req))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("S3");
+        }
+
+        @Test
+        void throws_whenResourceTypeVideoButFileIsPdf() {
+            // Regression: chặn nhầm PDF được khai báo resourceType=VIDEO (VD kéo thả PDF vào
+            // khung Video ở FE rồi bypass check client, hoặc gọi thẳng API).
+            stubOwnedLesson();
+            when(courseRepository.findById(courseId)).thenReturn(Optional.of(draftCourse()));
+            when(s3Service.objectExists("courses/file.pdf")).thenReturn(true);
+
+            ResourceConfirmUploadRequest req = new ResourceConfirmUploadRequest();
+            req.setS3Key("courses/file.pdf");
+            req.setResourceType(ResourceType.VIDEO);
+            req.setOriginalFilename("slides.pdf");
+            req.setMimeType("application/pdf");
+
+            assertThatThrownBy(() -> service.confirmUpload(instructorId, courseId, lessonId, req))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("không khớp");
+        }
+
+        @Test
+        void throws_whenResourceTypePdfButFileIsVideo() {
+            // Ngược lại — video bị khai báo nhầm resourceType=PDF (VD kéo thả video vào khung
+            // Tài liệu).
+            stubOwnedLesson();
+            when(courseRepository.findById(courseId)).thenReturn(Optional.of(draftCourse()));
+            when(s3Service.objectExists("courses/file.mp4")).thenReturn(true);
+
+            ResourceConfirmUploadRequest req = new ResourceConfirmUploadRequest();
+            req.setS3Key("courses/file.mp4");
+            req.setResourceType(ResourceType.PDF);
+            req.setOriginalFilename("lecture.mp4");
+            req.setMimeType("video/mp4");
+
+            assertThatThrownBy(() -> service.confirmUpload(instructorId, courseId, lessonId, req))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("không khớp");
+        }
+
+        @Test
+        void allowsMatchByMimeType_whenFilenameHasNoExtension() {
+            // originalFilename không có dấu "." (hoặc null) — vẫn phải khớp được nhờ mimeType,
+            // không phụ thuộc hoàn toàn vào extension.
+            stubOwnedLesson();
+            when(courseRepository.findById(courseId)).thenReturn(Optional.of(draftCourse()));
+            when(s3Service.objectExists("courses/file")).thenReturn(true);
+            when(lessonResourceRepository.findAllByLessonIdAndDeletedAtIsNullOrderByOrderIndexAsc(lessonId))
+                    .thenReturn(List.of());
+            LessonResource saved = activeResource("courses/file");
+            when(lessonResourceRepository.save(any())).thenReturn(saved);
+            when(lessonResourceMapper.toResponse(saved)).thenReturn(resourceResponse());
+
+            ResourceConfirmUploadRequest req = new ResourceConfirmUploadRequest();
+            req.setS3Key("courses/file");
+            req.setResourceType(ResourceType.PDF);
+            req.setOriginalFilename("document-without-extension");
+            req.setMimeType("application/pdf");
+
+            assertThatNoException().isThrownBy(() -> service.confirmUpload(instructorId, courseId, lessonId, req));
+        }
+
+        @Test
+        void allowsOtherResourceType_withoutStrictValidation() {
+            // OTHER là fallback cho các định dạng không nhận diện được — không chặn cứng vì
+            // không có tập extension/mimeType "đúng" để so khớp.
+            stubOwnedLesson();
+            when(courseRepository.findById(courseId)).thenReturn(Optional.of(draftCourse()));
+            when(s3Service.objectExists("courses/file.xyz")).thenReturn(true);
+            when(lessonResourceRepository.findAllByLessonIdAndDeletedAtIsNullOrderByOrderIndexAsc(lessonId))
+                    .thenReturn(List.of());
+            LessonResource saved = activeResource("courses/file.xyz");
+            when(lessonResourceRepository.save(any())).thenReturn(saved);
+            when(lessonResourceMapper.toResponse(saved)).thenReturn(resourceResponse());
+
+            ResourceConfirmUploadRequest req = new ResourceConfirmUploadRequest();
+            req.setS3Key("courses/file.xyz");
+            req.setResourceType(ResourceType.OTHER);
+            req.setOriginalFilename("data.xyz");
+            req.setMimeType("application/octet-stream");
+
+            assertThatNoException().isThrownBy(() -> service.confirmUpload(instructorId, courseId, lessonId, req));
         }
     }
 
@@ -441,6 +552,52 @@ class LessonResourceServiceImplTest {
 
             assertThat(resp.getUrl()).contains("s3.example.com");
         }
+
+        @Test
+        void throws_whenResourceNotFound() {
+            when(courseRepository.findById(courseId)).thenReturn(Optional.of(draftCourse()));
+            when(lessonResourceRepository.findById(resourceId)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> service.getViewUrl(instructorId, courseId, lessonId, resourceId))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+
+        @Test
+        void throws_whenResourceBelongsToDifferentLesson() {
+            when(courseRepository.findById(courseId)).thenReturn(Optional.of(draftCourse()));
+
+            Lesson otherLesson = new Lesson();
+            otherLesson.setId(UUID.randomUUID()); // different lesson
+            LessonResource r = activeResource("courses/file.pdf");
+            r.setLesson(otherLesson);
+
+            when(lessonResourceRepository.findById(resourceId)).thenReturn(Optional.of(r));
+
+            assertThatThrownBy(() -> service.getViewUrl(instructorId, courseId, lessonId, resourceId))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+
+        @Test
+        void throws_whenResourceDeleted() {
+            when(courseRepository.findById(courseId)).thenReturn(Optional.of(draftCourse()));
+
+            LessonResource r = activeResource("courses/file.pdf");
+            r.setDeletedAt(Instant.now());
+            when(lessonResourceRepository.findById(resourceId)).thenReturn(Optional.of(r));
+
+            assertThatThrownBy(() -> service.getViewUrl(instructorId, courseId, lessonId, resourceId))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+
+        @Test
+        void throws_whenNotOwner() {
+            Course c = draftCourse();
+            c.setInstructorId(UUID.randomUUID());
+            when(courseRepository.findById(courseId)).thenReturn(Optional.of(c));
+
+            assertThatThrownBy(() -> service.getViewUrl(instructorId, courseId, lessonId, resourceId))
+                    .isInstanceOf(CourseNotOwnedException.class);
+        }
     }
 
     // ── listResources ─────────────────────────────────────────────────────────
@@ -494,7 +651,7 @@ class LessonResourceServiceImplTest {
 
             assertThat(r.getDeletedAt()).isNotNull();
             assertThat(r.getStatus()).isEqualTo("DELETED");
-            verify(s3Service).deleteObject("courses/file.pdf");
+            verify(s3Service).deleteObjectAsync("courses/file.pdf");
         }
 
         @Test
@@ -510,7 +667,7 @@ class LessonResourceServiceImplTest {
 
             assertThat(r.getPendingDelete()).isTrue();
             assertThat(r.getStatus()).isEqualTo("PENDING_DELETE");
-            verify(s3Service, never()).deleteObject(any());
+            verify(s3Service, never()).deleteObjectAsync(any());
         }
 
         @Test
@@ -525,7 +682,7 @@ class LessonResourceServiceImplTest {
             service.deleteResource(instructorId, courseId, lessonId, resourceId);
 
             assertThat(r.getDeletedAt()).isNotNull();
-            verify(s3Service).deleteObject("courses/new.pdf");
+            verify(s3Service).deleteObjectAsync("courses/new.pdf");
         }
 
         @Test
@@ -539,7 +696,7 @@ class LessonResourceServiceImplTest {
             service.deleteResource(instructorId, courseId, lessonId, resourceId);
 
             assertThat(r.getDeletedAt()).isNotNull();
-            verify(s3Service, never()).deleteObject(any());
+            verify(s3Service, never()).deleteObjectAsync(any());
         }
 
         @Test
@@ -549,6 +706,24 @@ class LessonResourceServiceImplTest {
 
             assertThatThrownBy(() -> service.deleteResource(instructorId, courseId, lessonId, resourceId))
                     .isInstanceOf(IllegalArgumentException.class);
+        }
+
+        // Vẫn soft-delete DB row (không còn hiện cho ai) nhưng KHÔNG xóa file S3 nếu còn 1
+        // CourseVersion nào đó (VD: một bản nháp đã lưu trước đó) còn tham chiếu key này.
+        @Test
+        void keepsS3File_whenStillReferencedByAnotherCourseVersion() {
+            stubOwnedLesson();
+            LessonResource r = activeResource("courses/file.pdf");
+
+            when(lessonResourceRepository.findById(resourceId)).thenReturn(Optional.of(r));
+            when(courseRepository.findById(courseId)).thenReturn(Optional.of(draftCourse()));
+            when(courseVersionReferenceChecker.isSafeToDelete(courseId, "courses/file.pdf")).thenReturn(false);
+
+            service.deleteResource(instructorId, courseId, lessonId, resourceId);
+
+            assertThat(r.getDeletedAt()).isNotNull();
+            assertThat(r.getStatus()).isEqualTo("DELETED");
+            verify(s3Service, never()).deleteObjectAsync(any());
         }
     }
 

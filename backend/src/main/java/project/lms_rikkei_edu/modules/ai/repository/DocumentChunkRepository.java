@@ -18,4 +18,8 @@ public interface DocumentChunkRepository extends JpaRepository<DocumentChunk, UU
     @Modifying
     @Query("DELETE FROM DocumentChunk c WHERE c.sourceId = :sourceId")
     void deleteBySourceId(@Param("sourceId") UUID sourceId);
+
+    @Modifying
+    @Query("DELETE FROM DocumentChunk c WHERE c.sourceId IN :sourceIds")
+    void deleteBySourceIdIn(@Param("sourceIds") List<UUID> sourceIds);
 }

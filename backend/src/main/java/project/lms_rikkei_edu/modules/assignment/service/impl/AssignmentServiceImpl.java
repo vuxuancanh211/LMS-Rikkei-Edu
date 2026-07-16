@@ -598,6 +598,24 @@ public class AssignmentServiceImpl implements AssignmentService {
             hasChanges = true;
         }
 
+        if (request.getMaxFileSizeMb() != null) {
+            assignment.setMaxFileSizeMb(request.getMaxFileSizeMb());
+            hasChanges = true;
+        }
+        if (request.getAllowedFileTypes() != null) {
+            assignment.setAllowedFileTypes(toJsonArray(request.getAllowedFileTypes()));
+            hasChanges = true;
+        }
+
+        if (request.getScope() != null) {
+            assignment.setScope(request.getScope());
+            hasChanges = true;
+        }
+        if (request.getScope() != null) {
+            updateAssignmentGroups(assignment, request.getScope(), request.getGroupIds());
+            hasChanges = true;
+        }
+
         if (!hasChanges) {
             throw new BusinessException("Sau khi publish chỉ có thể thay đổi deadline, allow_late_submission, late_penalty_percent, passing_score, max_file_size_mb, allowed_file_types, scope và group_ids");
         }

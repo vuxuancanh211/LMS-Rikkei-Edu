@@ -7,7 +7,6 @@ import type {
   CreateGroupPayload,
   UpdateGroupPayload,
   AddMembersPayload,
-  PagedResponse,
 } from '../types';
 
 type SpringPage<T> = {

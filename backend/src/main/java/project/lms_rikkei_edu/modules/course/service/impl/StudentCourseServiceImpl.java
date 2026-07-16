@@ -11,7 +11,10 @@ import org.springframework.transaction.annotation.Transactional;
 import project.lms_rikkei_edu.common.exception.BusinessException;
 import project.lms_rikkei_edu.infrastructure.s3.S3Service;
 import project.lms_rikkei_edu.modules.course.dto.request.UpdateProgressRequest;
+import project.lms_rikkei_edu.modules.course.dto.response.ChapterResponse;
 import project.lms_rikkei_edu.modules.course.dto.response.CourseDetailResponse;
+import project.lms_rikkei_edu.modules.course.dto.response.LessonResourceResponse;
+import project.lms_rikkei_edu.modules.course.dto.response.LessonResponse;
 import project.lms_rikkei_edu.modules.course.dto.response.ResourceDownloadUrlResponse;
 import project.lms_rikkei_edu.modules.course.dto.response.StudentCourseResponse;
 import project.lms_rikkei_edu.modules.course.entity.Chapter;
@@ -40,6 +43,7 @@ import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequ
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -91,7 +95,7 @@ public class StudentCourseServiceImpl implements StudentCourseService {
     public List<StudentCourseResponse> getEnrolledCourses(UUID studentId) {
         List<Course> courses = courseRepository.findEnrolledCoursesByStudentId(studentId)
                 .stream()
-                .filter(c -> c.getStatus() == CourseStatus.PUBLISHED)
+                .filter(this::isLive)
                 .toList();
 
         if (courses.isEmpty()) return Collections.emptyList();
@@ -171,7 +175,7 @@ public class StudentCourseServiceImpl implements StudentCourseService {
         if (course.getDeletedAt() != null) {
             throw new BusinessException("Khóa học đã bị xóa");
         }
-        if (course.getStatus() != CourseStatus.PUBLISHED) {
+        if (!isLive(course)) {
             throw new BusinessException("Khóa học chưa được xuất bản");
         }
 
@@ -181,6 +185,15 @@ public class StudentCourseServiceImpl implements StudentCourseService {
         }
 
         CourseDetailResponse response = courseMapper.toDetailResponse(course);
+
+        // Học viên chỉ được thấy nội dung ĐANG LIVE — courseMapper.toDetailResponse() dùng
+        // chung cho cả giảng viên (cần thấy toàn bộ, kể cả draft chưa duyệt, để hiển thị badge
+        // "Mới"/"Chờ xóa") lẫn học viên, nên trước đây chương/bài mới thêm (isDraft=true, chưa
+        // duyệt) và tài liệu vừa upload trong lần cập nhật đang chờ (isNewInUpdate=true, chưa
+        // duyệt) bị lộ thẳng cho học viên dù nội dung publish chưa hề có. pendingDelete KHÔNG bị
+        // lọc ở đây vì nội dung đó vẫn đang live cho tới khi admin duyệt xóa thật.
+        filterToLiveContentOnly(response);
+
         attachLessonProgress(studentId, courseId, response);
         return response;
     }
@@ -208,6 +221,8 @@ public class StudentCourseServiceImpl implements StudentCourseService {
     }
 
     private void attachLessonProgress(UUID studentId, UUID courseId, CourseDetailResponse response) {
+        if (response.getChapters() == null) return;
+
         List<LessonProgressEntity> lessonProgressList = lessonProgressRepository
                 .findByStudentIdAndCourseId(studentId, courseId);
         Map<UUID, String> progressMap = lessonProgressList.stream()
@@ -216,18 +231,19 @@ public class StudentCourseServiceImpl implements StudentCourseService {
                 .filter(e -> e.getLessonPercentage() != null)
                 .collect(Collectors.toMap(LessonProgressEntity::getLessonId, LessonProgressEntity::getLessonPercentage));
 
-        if (response.getChapters() != null) {
-            for (var ch : response.getChapters()) {
-                if (ch.getLessons() != null) {
-                    for (var lesson : ch.getLessons()) {
-                        String p = progressMap.get(lesson.getId());
-                        if (p != null) lesson.setProgress(p);
-                        BigDecimal lp = lessonPctMap.get(lesson.getId());
-                        if (lp != null) lesson.setProgressPercentage(lp.intValue());
-                    }
-                }
+        for (var ch : response.getChapters()) {
+            if (ch.getLessons() == null) continue;
+            for (var lesson : ch.getLessons()) {
+                applyProgressToLesson(lesson, progressMap, lessonPctMap);
             }
         }
+    }
+
+    private void applyProgressToLesson(LessonResponse lesson, Map<UUID, String> progressMap, Map<UUID, BigDecimal> lessonPctMap) {
+        String p = progressMap.get(lesson.getId());
+        if (p != null) lesson.setProgress(p);
+        BigDecimal lp = lessonPctMap.get(lesson.getId());
+        if (lp != null) lesson.setProgressPercentage(lp.intValue());
     }
 
     @Override
@@ -269,6 +285,9 @@ public class StudentCourseServiceImpl implements StudentCourseService {
                     return newProgress;
                 });
 
+        String oldStatus = progress.getStatus();
+        BigDecimal oldPct = progress.getLessonPercentage();
+
         // Update incoming data
         applyWatchedPercentage(progress, request);
         applyLastPlaybackPosition(progress, request);
@@ -282,46 +301,52 @@ public class StudentCourseServiceImpl implements StudentCourseService {
         int wp = progress.getWatchedPercentage() != null ? progress.getWatchedPercentage().intValue() : 0;
         int dv = progress.getDocumentViewSeconds() != null ? progress.getDocumentViewSeconds() : 0;
 
-        boolean completed = determineCompleted(request, progress, hasVideo, hasDocument, wp, dv);
+        boolean completed = determineCompleted(request, progress, hasVideo, hasDocument, wp);
 
-        applyProgressStatus(progress, completed, wp, dv);
+        applyProgressStatus(progress, completed);
 
         // Calculate lesson percentage
-        progress.setLessonPercentage(calculateLessonPercentage(wp, dv, hasVideo, hasDocument));
+        if (completed && !hasVideo) {
+            progress.setLessonPercentage(BigDecimal.valueOf(100));
+        } else {
+            progress.setLessonPercentage(calculateLessonPercentage(wp, dv, hasVideo, hasDocument));
+        }
 
         lessonProgressRepository.save(progress);
 
-        // Always update course-level progress
-        updateCourseProgress(studentId, courseId);
+        // Optimize DB load: only update course-level progress if status or lesson percentage actually changed
+        if (!java.util.Objects.equals(oldStatus, progress.getStatus()) || !java.util.Objects.equals(oldPct, progress.getLessonPercentage())) {
+            updateCourseProgress(studentId, courseId);
+        }
     }
 
     private boolean determineCompleted(UpdateProgressRequest request, LessonProgressEntity progress,
-                                        boolean hasVideo, boolean hasDocument, int wp, int dv) {
+                                        boolean hasVideo, boolean hasDocument, int wp) {
+        if (STATUS_COMPLETED.equals(progress.getStatus())) {
+            return true;
+        }
         if (Boolean.TRUE.equals(request.getCompleted())) {
             return true;
         }
         if (request.getCompleted() != null) {
             return request.getCompleted();
         }
-        if (hasVideo && hasDocument) {
-            return wp >= 90 && dv >= 10;
+        if (!hasVideo && !hasDocument) {
+            return true;
         }
         if (hasVideo) {
             return wp >= 90;
         }
-        if (hasDocument) {
-            return dv >= 20 || wp >= 90;
-        }
-        return progress.getStatus() == null || STATUS_COMPLETED.equals(progress.getStatus());
+        return false;
     }
 
-    private void applyProgressStatus(LessonProgressEntity progress, boolean completed, int wp, int dv) {
+    private void applyProgressStatus(LessonProgressEntity progress, boolean completed) {
         if (completed || STATUS_COMPLETED.equals(progress.getStatus())) {
             progress.setStatus(STATUS_COMPLETED);
             if (progress.getCompletedAt() == null) {
                 progress.setCompletedAt(Instant.now());
             }
-        } else if (progress.getStatus() == null || wp > 0 || dv > 0) {
+        } else if (progress.getStatus() == null || !STATUS_COMPLETED.equals(progress.getStatus())) {
             progress.setStatus(STATUS_IN_PROGRESS);
         }
     }
@@ -450,6 +475,50 @@ public class StudentCourseServiceImpl implements StudentCourseService {
         }
     }
 
+    /**
+     * Học viên phải thấy được khóa học ở cả 2 trạng thái "đang live": PUBLISHED bình thường, và
+     * PENDING_UPDATE (đã publish, đang có 1 bản cập nhật chờ duyệt) — trong lúc chờ duyệt, học
+     * viên vẫn xem được bản đã publish trước đó, không bị mất quyền truy cập khóa học.
+     */
+    private boolean isLive(Course course) {
+        return course.getStatus() == CourseStatus.PUBLISHED
+                || course.getStatus() == CourseStatus.PENDING_UPDATE;
+    }
+
+    private void filterToLiveContentOnly(CourseDetailResponse response) {
+        // Che các trường draft ở cấp khóa học — học viên không cần biết đang có bản cập nhật
+        // chờ duyệt hay nội dung cụ thể của bản đó (chỉ giảng viên/admin cần thấy để duyệt).
+        response.setHasPendingDraft(false);
+        response.setDraftTitle(null);
+        response.setDraftDescription(null);
+        response.setDraftThumbnailUrl(null);
+        response.setDraftLevel(null);
+        response.setChangeSummary(null);
+        response.setDraftRejectionReason(null);
+
+        if (response.getChapters() == null) return;
+        // Danh sách từ mapper có thể bất biến (List.of / Collections.unmodifiableList) — copy
+        // sang ArrayList trước khi lọc, rồi gán ngược lại qua setter.
+        List<ChapterResponse> chapters = new ArrayList<>(response.getChapters());
+        chapters.removeIf(ch -> Boolean.TRUE.equals(ch.getIsDraft()));
+        for (ChapterResponse ch : chapters) {
+            if (ch.getLessons() == null) continue;
+            List<LessonResponse> lessons = new ArrayList<>(ch.getLessons());
+            lessons.removeIf(l -> Boolean.TRUE.equals(l.getIsDraft()));
+            for (LessonResponse lesson : lessons) {
+                lesson.setDraftTitle(null);
+                lesson.setDraftContentText(null);
+                if (lesson.getResources() != null) {
+                    List<LessonResourceResponse> resources = new ArrayList<>(lesson.getResources());
+                    resources.removeIf(r -> Boolean.TRUE.equals(r.getIsNewInUpdate()));
+                    lesson.setResources(resources);
+                }
+            }
+            ch.setLessons(lessons);
+        }
+        response.setChapters(chapters);
+    }
+
     private boolean hasVideoContent(Lesson lesson) {
         if (lesson.getType() == LessonType.VIDEO) return true;
         if (lesson.getHlsManifestUrl() != null || lesson.getVideoS3Key() != null) return true;
@@ -533,9 +602,20 @@ public class StudentCourseServiceImpl implements StudentCourseService {
         Lesson lesson = lessonRepository.findById(lessonId)
                 .orElseThrow(() -> new BusinessException("Không tìm thấy bài học"));
 
-        return lesson.getResources().stream()
+        LessonResource resource = lesson.getResources().stream()
                 .filter(r -> r.getId().equals(resourceId))
                 .findFirst()
                 .orElseThrow(() -> new BusinessException("Không tìm thấy tài liệu"));
+
+        // Chặn truy cập trực tiếp bằng resourceId vào nội dung chưa từng publish — không chỉ lọc
+        // ở danh sách hiển thị (getCourseDetail), vì học viên vẫn có thể gọi thẳng endpoint này
+        // nếu biết resourceId (VD: cache cũ ở client, DevTools network tab).
+        if (Boolean.TRUE.equals(resource.getIsNewInUpdate())
+                || Boolean.TRUE.equals(lesson.getIsDraft())
+                || (lesson.getChapter() != null && Boolean.TRUE.equals(lesson.getChapter().getIsDraft()))) {
+            throw new BusinessException("Không tìm thấy tài liệu");
+        }
+
+        return resource;
     }
 }

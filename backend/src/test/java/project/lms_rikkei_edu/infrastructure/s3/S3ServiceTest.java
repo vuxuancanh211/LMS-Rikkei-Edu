@@ -16,6 +16,7 @@ import software.amazon.awssdk.services.s3.presigner.model.PresignedPutObjectRequ
 import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
@@ -125,6 +126,38 @@ class S3ServiceTest {
             service.deleteObject("courses/old-video.mp4");
 
             verify(s3Client).deleteObject(any(DeleteObjectRequest.class));
+        }
+    }
+
+    @Nested
+    class PutObject {
+
+        @Test
+        void delegatesToS3Client() {
+            byte[] bytes = "hello".getBytes();
+
+            service.putObject("courses/note.txt", bytes, "text/plain");
+
+            verify(s3Client).putObject(any(PutObjectRequest.class), any(software.amazon.awssdk.core.sync.RequestBody.class));
+        }
+    }
+
+    @Nested
+    class DeleteObjectAsync {
+
+        @Test
+        void delegatesToDeleteObject_onSuccess() {
+            service.deleteObjectAsync("courses/old-file.pdf");
+
+            verify(s3Client).deleteObject(any(DeleteObjectRequest.class));
+        }
+
+        @Test
+        void swallowsException_insteadOfPropagating() {
+            when(s3Client.deleteObject(any(DeleteObjectRequest.class)))
+                    .thenThrow(software.amazon.awssdk.services.s3.model.S3Exception.builder().message("boom").build());
+
+            assertThatCode(() -> service.deleteObjectAsync("courses/broken.pdf")).doesNotThrowAnyException();
         }
     }
 

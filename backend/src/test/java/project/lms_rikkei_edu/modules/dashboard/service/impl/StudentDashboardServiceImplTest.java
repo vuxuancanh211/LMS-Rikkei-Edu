@@ -130,4 +130,109 @@ class StudentDashboardServiceImplTest {
         assertEquals(0, response.getStats().getCertificatesCount());
         assertNull(response.getStats().getWeeklyHoursTrend());
     }
+
+    @Test
+    void getStats_ShouldReturnStats() {
+        when(jdbc.queryForObject(contains("FROM course_enrollments"), eq(Integer.class), eq(studentId))).thenReturn(4);
+        when(jdbc.queryForObject(contains("overall_percentage >= 70"), eq(Integer.class), eq(studentId))).thenReturn(2);
+        when(jdbc.queryForObject(contains("FROM certificates"), eq(Integer.class), eq(studentId))).thenReturn(1);
+        when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(Collections.emptyList());
+        doNothing().when(jdbc).query(anyString(), any(RowCallbackHandler.class), any(Object[].class));
+
+        project.lms_rikkei_edu.modules.dashboard.dto.response.StudentDashboardStatsResponse res = studentDashboardService.getStats(studentId);
+        assertNotNull(res);
+        assertNotNull(res.getStats());
+        assertEquals(4, res.getStats().getActiveCoursesCount());
+        assertEquals(2, res.getStats().getNearCompletionCoursesCount());
+        assertEquals(1, res.getStats().getCertificatesCount());
+    }
+
+    @Test
+    void getInProgressCourses_ShouldReturnCourses() {
+        when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(Collections.emptyList());
+        List<StudentDashboardResponse.CourseSummaryDto> res = studentDashboardService.getInProgressCourses(studentId);
+        assertNotNull(res);
+    }
+
+    @Test
+    void getDueAssignments_ShouldReturnAssignments() {
+        when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(Collections.emptyList());
+        List<StudentDashboardResponse.DueAssignmentDto> res = studentDashboardService.getDueAssignments(studentId);
+        assertNotNull(res);
+    }
+
+    @Test
+    void getDueQuizzes_ShouldReturnQuizData() throws SQLException {
+        UUID qid1 = UUID.randomUUID();
+        UUID qid2 = UUID.randomUUID();
+        when(jdbc.query(contains("FROM quizzes q"), any(RowMapper.class), eq(studentId), eq(studentId)))
+                .thenAnswer(invocation -> {
+                    RowMapper<StudentDashboardResponse.DueAssignmentDto> mapper = invocation.getArgument(1);
+                    when(rs.getObject("id", UUID.class)).thenReturn(qid1, qid2);
+                    when(rs.getString("title")).thenReturn("Quiz Week 1", "Quiz Week 2");
+                    when(rs.getString("deadline_str")).thenReturn("20/07/2026", "20/07/2026", null);
+                    when(rs.getString("status")).thenReturn("quiz_pending", "late");
+                    List<StudentDashboardResponse.DueAssignmentDto> list = new ArrayList<>();
+                    list.add(mapper.mapRow(rs, 0));
+                    list.add(mapper.mapRow(rs, 1));
+                    return list;
+                });
+        when(jdbc.query(contains("FROM assignments a"), any(RowMapper.class), eq(studentId), eq(studentId), anyInt()))
+                .thenAnswer(invocation -> {
+                    RowMapper<StudentDashboardResponse.DueAssignmentDto> mapper = invocation.getArgument(1);
+                    when(rs.getString("title")).thenReturn("Quiz-like HW");
+                    when(rs.getObject("id", UUID.class)).thenReturn(UUID.randomUUID());
+                    when(rs.getString("deadline_str")).thenReturn("25/07/2026");
+                    when(rs.getString("status")).thenReturn("quiz_pending");
+                    return Collections.singletonList(mapper.mapRow(rs, 0));
+                });
+
+        List<StudentDashboardResponse.DueAssignmentDto> res = studentDashboardService.getDueQuizzes(studentId);
+
+        assertNotNull(res);
+        assertEquals(3, res.size());
+        assertEquals("Quiz Week 1", res.get(0).getTitle());
+        assertEquals("quiz", res.get(0).getType());
+        assertEquals("20/07/2026", res.get(0).getDeadline());
+        assertEquals("Quiz Week 2", res.get(1).getTitle());
+        assertEquals("Không thời hạn", res.get(1).getDeadline());
+        assertEquals("Quiz-like HW", res.get(2).getTitle());
+    }
+
+    @Test
+    void getWeeklyStudyHours_ShouldReturnDataWithDowMapping() {
+        doAnswer(invocation -> {
+            RowCallbackHandler handler = invocation.getArgument(1);
+            when(rs.getInt("dow")).thenReturn(1, 4, 7);
+            when(rs.getDouble("hours")).thenReturn(2.35, 1.5, 0.8);
+            handler.processRow(rs);
+            handler.processRow(rs);
+            handler.processRow(rs);
+            return null;
+        }).when(jdbc).query(contains("FROM lesson_progress"), any(RowCallbackHandler.class), eq(studentId));
+
+        List<Double> res = studentDashboardService.getWeeklyStudyHours(studentId);
+
+        assertNotNull(res);
+        assertEquals(7, res.size());
+        assertEquals(2.4, res.get(0));
+        assertEquals(1.5, res.get(3));
+        assertEquals(0.8, res.get(6));
+    }
+
+    @Test
+    void getWeeklyStudyHours_ShouldReturnAllZerosWhenNoData() {
+        doNothing().when(jdbc).query(anyString(), any(RowCallbackHandler.class), any(Object[].class));
+        List<Double> res = studentDashboardService.getWeeklyStudyHours(studentId);
+        assertNotNull(res);
+        assertEquals(7, res.size());
+        assertEquals(0.0, res.get(0));
+    }
+
+    @Test
+    void getSkillProgress_ShouldReturnSkills() {
+        when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(Collections.emptyList());
+        List<StudentDashboardResponse.SkillProgressDto> res = studentDashboardService.getSkillProgress(studentId);
+        assertNotNull(res);
+    }
 }

@@ -35,6 +35,7 @@ import project.lms_rikkei_edu.modules.user.enums.UserRole;
 import project.lms_rikkei_edu.modules.user.enums.UserStatus;
 import project.lms_rikkei_edu.modules.user.mapper.UserMapper;
 import project.lms_rikkei_edu.modules.user.repository.UserRepository;
+import project.lms_rikkei_edu.infrastructure.sse.SseEmitterRegistry;
 import project.lms_rikkei_edu.modules.user.specification.UserSpecification;
 import project.lms_rikkei_edu.modules.user.service.UserService;
 
@@ -59,6 +60,7 @@ public class UserServiceImpl implements UserService {
     private final AuditLogRepository auditLogRepository;
     private final CourseRepository courseRepository;
     private final CourseEnrollmentRepository courseEnrollmentRepository;
+    private final SseEmitterRegistry sseEmitterRegistry;
 
     @Value("${app.auth.password-reset-url}")
     private String passwordResetUrl;
@@ -181,6 +183,19 @@ public class UserServiceImpl implements UserService {
 
         user.setUpdatedAt(OffsetDateTime.now(ZoneOffset.UTC));
         userRepository.save(user);
+
+        if (user.getStatus() != UserStatus.ACTIVE || user.getDisabledAt() != null || user.getDeletedAt() != null) {
+            try {
+                sseEmitterRegistry.sendToUser(userId, "ACCOUNT_LOCKED", java.util.Map.of(
+                        "title", "Tài khoản bị khóa",
+                        "message", "Tài khoản của bạn đã bị quản trị viên khóa hoặc vô hiệu hóa.",
+                        "timestamp", OffsetDateTime.now(ZoneOffset.UTC).toString()
+                ));
+            } catch (Exception ignored) {
+            }
+            revokeUserSessions(userId);
+            redisService.removeSseUser(userId.toString());
+        }
 
         invalidateUserCaches(userId);
 

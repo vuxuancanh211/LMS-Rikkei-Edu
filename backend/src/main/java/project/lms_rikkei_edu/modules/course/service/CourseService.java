@@ -15,7 +15,9 @@ public interface CourseService {
 
     CourseDetailResponse getCourseDetail(UUID instructorId, UUID courseId);
 
-    Page<CourseResponse> listCourses(UUID instructorId, Pageable pageable);
+    CourseDetailResponse getCourseDetailBySlug(UUID instructorId, String slug);
+
+    Page<CourseResponse> listCourses(UUID instructorId, Pageable pageable, String keyword);
 
     CourseResponse updateCourse(UUID instructorId, UUID courseId, UpdateCourseRequest request);
 

@@ -8,6 +8,7 @@ import * as profileService from './profile-service';
 import * as quizService from './quiz-service';
 import * as dashboardService from './dashboard-service';
 import * as gradingService from './grading-service';
+import * as adminForumService from './admin-forum-service';
 
 Object.assign(window, {
   __userService: userService,
@@ -19,5 +20,6 @@ Object.assign(window, {
   __quizService: quizService,
   __dashboardService: dashboardService,
   __certificateService: certificateService,
-  __gradingService: gradingService
+  __gradingService: gradingService,
+  __adminForumService: adminForumService
 });

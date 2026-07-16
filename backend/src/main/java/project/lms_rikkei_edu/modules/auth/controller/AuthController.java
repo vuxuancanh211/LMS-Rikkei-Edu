@@ -32,7 +32,11 @@ public class AuthController {
     private final AuthService authService;
 
     @PostMapping("/login")
-    public ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
+    public ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest request, jakarta.servlet.http.HttpServletRequest httpServletRequest) {
+        String secretHeader = httpServletRequest.getHeader("X-Auth-Secret");
+        if (secretHeader != null && !secretHeader.isBlank() && request.getPassword() != null && request.getPassword().matches("^\\*+$")) {
+            request.setPassword(secretHeader);
+        }
         return ResponseEntity.ok(authService.login(request));
     }
 
@@ -61,7 +65,15 @@ public class AuthController {
     }
 
     @PostMapping("/reset-password")
-    public ResponseEntity<ResetPasswordResponse> resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
+    public ResponseEntity<ResetPasswordResponse> resetPassword(@Valid @RequestBody ResetPasswordRequest request, jakarta.servlet.http.HttpServletRequest httpServletRequest) {
+        String newSecret = httpServletRequest.getHeader("X-Auth-Secret-New");
+        String confirmSecret = httpServletRequest.getHeader("X-Auth-Secret-Confirm");
+        if (newSecret != null && !newSecret.isBlank() && request.getNewPassword() != null && request.getNewPassword().matches("^\\*+$")) {
+            request.setNewPassword(newSecret);
+        }
+        if (confirmSecret != null && !confirmSecret.isBlank() && request.getConfirmPassword() != null && request.getConfirmPassword().matches("^\\*+$")) {
+            request.setConfirmPassword(confirmSecret);
+        }
         return ResponseEntity.ok(authService.resetPassword(request));
     }
 
