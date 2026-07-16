@@ -422,7 +422,16 @@
                             )}
                           </div>
                         </td>
-                        <td style={{ fontWeight: 700 }}>{a.score != null ? a.score : '—'}</td>
+                        <td style={{ fontWeight: 700 }}>
+                          {a.score != null ? (
+                            <div className="row gap-6 wrap" style={{ alignItems: "center" }}>
+                              <span>{a.score}</span>
+                              <span className={"chip " + (a.score >= (a.passScore ?? a.maxScore * 0.5) ? "chip-success" : "chip-error")} style={{ fontSize: 11, padding: "1px 6px" }}>
+                                {a.score >= (a.passScore ?? a.maxScore * 0.5) ? "Đạt" : "Chưa đạt"}
+                              </span>
+                            </div>
+                          ) : '—'}
+                        </td>
                         <td>
                           {!a.submissionStatus ? (
                             <button className="btn btn-primary btn-sm" onClick={() => setOpen(a)}>Nộp bài</button>
@@ -584,9 +593,10 @@
                 gap: '8px 16px', padding: 12, background: '#fff', borderRadius: 10,
                 border: '1px solid #e2e8f0',
               }}>
-                {[
-                  { label: 'Điểm tối đa', value: detail.maxScore != null ? detail.maxScore + ' điểm' : '—' },
-                  { label: 'Ngày bắt đầu', value: fmtDate(detail.startDate) },
+                  {[
+                    { label: 'Điểm tối đa', value: detail.maxScore != null ? detail.maxScore + ' điểm' : '—' },
+                    { label: 'Điểm đạt', value: detail.passScore != null ? detail.passScore + ' điểm' : '—' },
+                    { label: 'Ngày bắt đầu', value: fmtDate(detail.startDate) },
                   { label: 'Hạn nộp', value: fmtDate(detail.deadline) },
                   {
                     label: 'Nộp muộn',
@@ -607,12 +617,6 @@
                           return map[t] || t.split('/').pop()?.toUpperCase() || t;
                         }).join(', ')
                       : 'Tất cả'
-                  },
-                  {
-                    label: 'Số lần nộp',
-                    value: sub
-                      ? `Đã nộp: ${sub.submissionNumber} / ${detail.maxSubmissions ?? '?'} lần`
-                      : `0 / ${detail.maxSubmissions ?? '?'} lần`
                   },
                   { label: 'Kích thước file', value: detail.maxFileSizeMb != null ? detail.maxFileSizeMb + ' MB' : '—' },
                   { label: 'Ngày tạo', value: fmtDate(detail.createdAt) },
@@ -674,12 +678,17 @@
               )}
 
               {/* Grade result */}
-              {graded && sub.score != null && (
-                <div style={{ background: 'var(--chip-success-bg)', borderRadius: 12, padding: 14 }}>
-                  <div className="between">
-                    <span className="t-label" style={{ color: 'var(--chip-success-fg)', margin: 0 }}>Kết quả</span>
-                    <span style={{ fontWeight: 800, fontSize: 22, color: 'var(--success)' }}>{sub.score}</span>
-                  </div>
+                {graded && sub.score != null && (
+                  <div style={{ background: 'var(--chip-success-bg)', borderRadius: 12, padding: 14 }}>
+                    <div className="between">
+                      <span className="t-label" style={{ color: 'var(--chip-success-fg)', margin: 0 }}>Kết quả</span>
+                      <div className="row gap-8" style={{ alignItems: "center" }}>
+                        <span className={"chip " + (sub.score >= (detail.passScore ?? detail.maxScore * 0.5) ? "chip-success" : "chip-error")} style={{ fontSize: 11 }}>
+                          {sub.score >= (detail.passScore ?? detail.maxScore * 0.5) ? "Đạt" : "Chưa đạt"}
+                        </span>
+                        <span style={{ fontWeight: 800, fontSize: 22, color: sub.score >= (detail.passScore ?? detail.maxScore * 0.5) ? 'var(--success)' : 'var(--error)' }}>{sub.score}</span>
+                      </div>
+                    </div>
                   {sub.feedback && (
                     <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(0,0,0,.06)' }}>
                       <div className="t-xs muted" style={{ marginBottom: 4 }}>Nhận xét</div>

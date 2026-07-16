@@ -25,7 +25,6 @@ import project.lms_rikkei_edu.modules.group.dto.request.UpdateGroupRequest;
 import project.lms_rikkei_edu.modules.group.dto.response.GroupDetailResponse;
 import project.lms_rikkei_edu.modules.group.dto.response.GroupMemberResponse;
 import project.lms_rikkei_edu.modules.group.dto.response.GroupResponse;
-import project.lms_rikkei_edu.modules.group.dto.response.StudentSearchResponse;
 import project.lms_rikkei_edu.modules.group.entity.GroupMemberEntity;
 import project.lms_rikkei_edu.modules.group.entity.StudyGroupEntity;
 import project.lms_rikkei_edu.modules.group.repository.GroupMemberRepository;
@@ -596,24 +595,6 @@ class GroupServiceImplTest {
 
         assertThat(result.getMembers()).hasSize(1);
         assertThat(result.getMembers().getFirst().getStudentId()).isEqualTo(studentId);
-    }
-
-    @Test
-    void searchStudentsByEmail_returnsEmpty_whenEmailBlank() {
-        assertThat(groupService.searchStudentsByEmail("  ")).isEmpty();
-        verify(userRepository, never()).searchStudentsByEmail(any(), any());
-    }
-
-    @Test
-    void searchStudentsByEmail_mapsStudentResults() {
-        UserEntity student = studentUser(studentId, "student@example.com");
-        when(userRepository.searchStudentsByEmail("student", UserRole.STUDENT)).thenReturn(List.of(student));
-
-        List<StudentSearchResponse> result = groupService.searchStudentsByEmail(" student ");
-
-        assertThat(result).hasSize(1);
-        assertThat(result.getFirst().getId()).isEqualTo(studentId);
-        assertThat(result.getFirst().getEmail()).isEqualTo("student@example.com");
     }
 
     private CreateGroupRequest createRequest() {

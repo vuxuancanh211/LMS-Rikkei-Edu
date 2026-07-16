@@ -285,12 +285,6 @@
                       }).join(", ")
                     : "Tất cả"
                 },
-                {
-                  label: "Số lần nộp",
-                  value: isStudent
-                    ? `Đã nộp: ${sub?.submissionNumber || 0} / ${detail.maxSubmissions ?? '?'} lần`
-                    : (detail.maxSubmissions != null ? `${detail.maxSubmissions} lần` : "—")
-                },
                 { label: "Kích thước file", value: detail.maxFileSizeMb != null ? `${detail.maxFileSizeMb} MB` : "—" },
                 { label: "Ngày tạo", value: fmtDate(detail.createdAt) || "—" },
               ];
@@ -352,7 +346,7 @@
                     </span>
                     <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
                       <span style={{ fontSize: 12, color: "#94a3b8" }}>
-                        Lần {sub.submissionNumber} · {fmtDate(sub.submittedAt)}
+                        {fmtDate(sub.submittedAt)}
                       </span>
                       {sub.isLate && <span style={{ fontSize: 11, color:"#dc2626", fontWeight:500 }}>Nộp trễ</span>}
                     </div>

@@ -21,7 +21,6 @@ import project.lms_rikkei_edu.modules.course.entity.Course;
 import project.lms_rikkei_edu.modules.course.repository.CourseRepository;
 import project.lms_rikkei_edu.modules.course.entity.CourseEnrollmentEntity;
 import project.lms_rikkei_edu.modules.course.repository.CourseEnrollmentRepository;
-import project.lms_rikkei_edu.modules.course.service.StudentCourseService;
 import project.lms_rikkei_edu.modules.user.dto.request.AdminUserCreateRequest;
 import project.lms_rikkei_edu.modules.user.entity.UserEntity;
 import project.lms_rikkei_edu.modules.user.enums.UserRole;
@@ -54,7 +53,6 @@ public class CsvImportServiceImpl implements CsvImportService {
     private final CourseEnrollmentRepository courseEnrollmentRepository;
     private final CourseRepository courseRepository;
     private final EmailAsyncService emailAsyncService;
-    private final StudentCourseService studentCourseService;
 
     @Value("${app.csv-import.max-rows:500}")
     private int maxCsvRows;
@@ -384,10 +382,6 @@ public class CsvImportServiceImpl implements CsvImportService {
 
         if (!enrollments.isEmpty()) {
             courseEnrollmentRepository.saveAll(enrollments);
-        }
-        if (users != null && !users.isEmpty()) {
-            List<UUID> studentIds = users.stream().map(UserEntity::getId).toList();
-            studentCourseService.resetProgressForStudents(courseId, studentIds);
         }
     }
 

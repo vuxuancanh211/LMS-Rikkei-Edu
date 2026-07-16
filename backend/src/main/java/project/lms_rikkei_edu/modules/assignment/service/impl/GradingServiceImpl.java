@@ -32,6 +32,7 @@ import project.lms_rikkei_edu.modules.user.entity.UserEntity;
 import project.lms_rikkei_edu.modules.user.repository.UserRepository;
 import project.lms_rikkei_edu.infrastructure.s3.S3Service;
 
+import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.*;
@@ -203,7 +204,6 @@ public class GradingServiceImpl implements GradingService {
                                                                   List<SubmissionFileResponse> files) {
         return InstructorSubmissionResponse.builder()
                 .id(sub != null ? sub.getId() : null)
-                .submissionNumber(sub != null && sub.getSubmissionNumber() != null ? sub.getSubmissionNumber() : 0)
                 .status(entryStatus)
                 .note(sub != null ? sub.getNote() : null)
                 .isLate(sub != null && Boolean.TRUE.equals(sub.getIsLate()))
@@ -219,7 +219,7 @@ public class GradingServiceImpl implements GradingService {
                 .assignmentId(assignment.getId())
                 .assignmentTitle(assignment.getTitle())
                 .assignmentMaxScore(assignment.getMaxScore())
-                .assignmentMaxSubmissions(assignment.getMaxSubmissions())
+                .assignmentPassScore(assignment.getPassingScore())
                 .courseId(assignment.getCourseId())
                 .courseTitle(courseTitle)
                 .groupId(groupId)
@@ -263,6 +263,18 @@ public class GradingServiceImpl implements GradingService {
 
         if (submission.getScorePublishedAt() != null) {
             throw new BusinessException("Không thể sửa điểm đã công bố", HttpStatus.BAD_REQUEST);
+        }
+
+        if (request.getScore() != null) {
+            BigDecimal maxScore = assignment.getMaxScore();
+            BigDecimal absoluteMax = BigDecimal.valueOf(100);
+            BigDecimal limit = maxScore != null && maxScore.compareTo(absoluteMax) < 0 ? maxScore : absoluteMax;
+            if (request.getScore().compareTo(BigDecimal.ZERO) < 0) {
+                throw new BusinessException("Điểm không được nhỏ hơn 0");
+            }
+            if (request.getScore().compareTo(limit) > 0) {
+                throw new BusinessException("Điểm không được vượt quá " + limit);
+            }
         }
 
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
@@ -347,7 +359,6 @@ public class GradingServiceImpl implements GradingService {
 
         return InstructorSubmissionResponse.builder()
                 .id(submission.getId())
-                .submissionNumber(submission.getSubmissionNumber() != null ? submission.getSubmissionNumber() : 1)
                 .status(submission.getStatus())
                 .note(submission.getNote())
                 .isLate(Boolean.TRUE.equals(submission.getIsLate()))
@@ -363,7 +374,7 @@ public class GradingServiceImpl implements GradingService {
                 .assignmentId(assignment.getId())
                 .assignmentTitle(assignment.getTitle())
                 .assignmentMaxScore(assignment.getMaxScore())
-                .assignmentMaxSubmissions(assignment.getMaxSubmissions())
+                .assignmentPassScore(assignment.getPassingScore())
                 .courseId(assignment.getCourseId())
                 .courseTitle(courseTitle)
                 .groupId(!groupIds.isEmpty() ? groupIds.get(0) : null)

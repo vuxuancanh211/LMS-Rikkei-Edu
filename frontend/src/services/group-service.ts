@@ -3,8 +3,6 @@ import type {
   GroupResponse,
   GroupDetailResponse,
   GroupMemberResponse,
-  GroupMemberCsvImportConfirmResponse,
-  GroupMemberCsvImportPreviewResponse,
   StudentSearchItem,
   CreateGroupPayload,
   UpdateGroupPayload,
@@ -60,18 +58,10 @@ export async function deleteGroup(groupId: string) {
   await httpClient.delete(`/instructor/groups/${groupId}`);
 }
 
-export async function searchStudents(email: string) {
-  const response = await httpClient.get<StudentSearchItem[]>(
-    '/instructor/groups/students/search',
-    { params: { email } },
-  );
-  return response.data;
-}
-
-export async function getUnassignedStudents(courseId: string) {
+export async function getUnassignedStudents(courseId?: string) {
   const response = await httpClient.get<StudentSearchItem[]>(
     '/instructor/groups/students/unassigned',
-    { params: { courseId } },
+    { params: { ...(courseId ? { courseId } : {}) } },
   );
   return response.data;
 }
@@ -102,21 +92,4 @@ export async function getStudentGroupDetail(groupId: string) {
   return response.data;
 }
 
-export async function previewGroupMembersCsvImport(groupId: string, file: File) {
-  const formData = new FormData();
-  formData.append('file', file);
-  const response = await httpClient.post<GroupMemberCsvImportPreviewResponse>(
-    `/instructor/groups/${groupId}/members/import-csv/preview`,
-    formData,
-    { headers: { 'Content-Type': 'multipart/form-data' } },
-  );
-  return response.data;
-}
 
-export async function confirmGroupMembersCsvImport(groupId: string, token: string) {
-  const response = await httpClient.post<GroupMemberCsvImportConfirmResponse>(
-    `/instructor/groups/${groupId}/members/import-csv/confirm`,
-    { token },
-  );
-  return response.data;
-}

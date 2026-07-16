@@ -37,18 +37,16 @@ import project.lms_rikkei_edu.modules.notification.enums.NotificationType;
 import project.lms_rikkei_edu.modules.notification.service.NotificationPreferenceService;
 import project.lms_rikkei_edu.modules.notification.service.NotificationService;
 import project.lms_rikkei_edu.modules.user.entity.UserEntity;
-import project.lms_rikkei_edu.modules.user.enums.UserRole;
 import project.lms_rikkei_edu.modules.user.repository.UserRepository;
 
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
+import java.util.Optional;
 import java.util.UUID;
 
 @RequiredArgsConstructor
@@ -273,9 +271,6 @@ public class GroupServiceImpl implements GroupService {
         if (!toCreate.isEmpty()) {
             courseEnrollmentRepository.saveAll(toCreate);
         }
-        if (studentIds != null && !studentIds.isEmpty()) {
-            studentCourseService.resetProgressForStudents(courseId, studentIds);
-        }
     }
 
     private void notifyAddedMembers(StudyGroupEntity group, List<GroupMemberEntity> members, UserPrincipal actor) {
@@ -374,40 +369,17 @@ public class GroupServiceImpl implements GroupService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<StudentSearchResponse> searchStudentsByEmail(String email) {
-        if (email == null || email.isBlank()) {
-            return List.of();
-        }
-        List<UserEntity> students = userRepository
-                .searchStudentsByEmail(email.trim(), UserRole.STUDENT);
-        return students.stream()
-                .map(u -> StudentSearchResponse.builder()
-                        .id(u.getId())
-                        .email(u.getEmail())
-                        .fullName(u.getFullName())
-                        .avatarUrl(u.getAvatarUrl())
-                        .build())
-                .toList();
-    }
-
-    @Override
-    @Transactional(readOnly = true)
     public List<StudentSearchResponse> getUnassignedStudents(UUID courseId) {
-        List<UUID> enrolledIds = courseEnrollmentRepository.findStudentIdsByCourseId(courseId);
-        List<UUID> inGroupIds = groupMemberRepository.findStudentIdsByCourseId(courseId);
-        Set<UUID> inGroupSet = new HashSet<>(inGroupIds);
-        List<UUID> unassignedIds = enrolledIds.stream()
-                .filter(id -> !inGroupSet.contains(id))
-                .toList();
-        if (unassignedIds.isEmpty()) return List.of();
-        List<UserEntity> students = userRepository.findAllById(unassignedIds);
-        return students.stream()
-                .map(u -> StudentSearchResponse.builder()
-                        .id(u.getId())
-                        .email(u.getEmail())
-                        .fullName(u.getFullName())
-                        .phoneNumber(u.getPhoneNumber())
-                        .avatarUrl(u.getAvatarUrl())
+        List<Object[]> rows = courseEnrollmentRepository.findUnassignedStudentsWithCourseInfo(courseId);
+        return rows.stream()
+                .map(r -> StudentSearchResponse.builder()
+                        .id((UUID) r[0])
+                        .email((String) r[1])
+                        .fullName((String) r[2])
+                        .phoneNumber((String) r[3])
+                        .avatarUrl((String) r[4])
+                        .courseId((UUID) r[5])
+                        .courseTitle((String) r[6])
                         .build())
                 .toList();
     }

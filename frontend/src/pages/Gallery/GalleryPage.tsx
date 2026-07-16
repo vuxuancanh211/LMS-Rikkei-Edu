@@ -195,7 +195,7 @@ function registerGalleryPage() {
 
     const resolvedRoute = ALIAS[route] || route;
     const activeKey = resolvedRoute;
-    const Comp = window[SCREENS[role][resolvedRoute]] || window[SCREENS[role].dashboard];
+    const Comp = window[SCREENS[role][route]] || window[SCREENS[role].dashboard];
 
     return (
       <div className="app">

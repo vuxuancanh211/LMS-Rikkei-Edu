@@ -19,8 +19,8 @@ public class StudentAssignmentListResponse {
     private OffsetDateTime deadline;
     private OffsetDateTime startDate;
     private BigDecimal maxScore;
+    private BigDecimal passScore;
     private int attachmentCount;
     private String submissionStatus;
     private BigDecimal score;
-    private Integer maxSubmissions;
 }

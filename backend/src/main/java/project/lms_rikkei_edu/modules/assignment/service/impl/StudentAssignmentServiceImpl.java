@@ -96,10 +96,10 @@ public class StudentAssignmentServiceImpl implements StudentAssignmentService {
                             .deadline(a.getDeadline())
                             .startDate(a.getStartDate())
                             .maxScore(a.getMaxScore())
+                            .passScore(a.getPassingScore())
                             .attachmentCount((int) attachmentCount)
                             .submissionStatus(sub != null ? sub.getStatus() : null)
                             .score(sub != null ? sub.getScore() : null)
-                            .maxSubmissions(a.getMaxSubmissions())
                             .build();
                 })
                 .toList();
@@ -161,9 +161,9 @@ public class StudentAssignmentServiceImpl implements StudentAssignmentService {
                 .allowLateSubmission(assignment.getAllowLateSubmission())
                 .latePenaltyPercent(assignment.getLatePenaltyPercent())
                 .maxScore(assignment.getMaxScore())
+                .passScore(assignment.getPassingScore())
                 .maxFileSizeMb(assignment.getMaxFileSizeMb())
                 .allowedFileTypes(parseAllowedFileTypes(assignment.getAllowedFileTypes()))
-                .maxSubmissions(assignment.getMaxSubmissions())
                 .publishedAt(assignment.getPublishedAt())
                 .createdAt(assignment.getCreatedAt())
                 .updatedAt(assignment.getUpdatedAt())
@@ -202,13 +202,6 @@ public class StudentAssignmentServiceImpl implements StudentAssignmentService {
             isLate = true;
         }
 
-        // Max submissions check
-        long currentCount = assignmentSubmissionRepository.countByAssignmentIdAndStudentId(assignmentId, studentId);
-        int maxSub = assignment.getMaxSubmissions() != null ? assignment.getMaxSubmissions() : 1;
-        if (currentCount >= maxSub) {
-            throw new BusinessException("Bạn đã đạt số lần nộp tối đa (" + maxSub + " lần)");
-        }
-
         // Validate files
         List<String> allowedTypes = parseAllowedFileTypes(assignment.getAllowedFileTypes());
         int maxSizeMb = assignment.getMaxFileSizeMb() != null ? assignment.getMaxFileSizeMb() : 10;
@@ -235,14 +228,12 @@ public class StudentAssignmentServiceImpl implements StudentAssignmentService {
 
         // Create submission
         UUID submissionId = UUID.randomUUID();
-        int submissionNumber = (int) currentCount + 1;
 
         AssignmentSubmissionEntity submission = new AssignmentSubmissionEntity();
         submission.setId(submissionId);
         submission.setAssignmentId(assignmentId);
         submission.setStudentId(studentId);
         submission.setCourseId(courseId);
-        submission.setSubmissionNumber(submissionNumber);
         submission.setStatus(isLate ? "LATE" : "SUBMITTED");
         submission.setNote(note);
         submission.setIsLate(isLate);
@@ -295,11 +286,10 @@ public class StudentAssignmentServiceImpl implements StudentAssignmentService {
                     .build());
         }
 
-        log.info("Student {} submitted assignment {} (submission #{})", studentId, assignmentId, submissionNumber);
+        log.info("Student {} submitted assignment {}", studentId, assignmentId);
 
         return SubmissionResponse.builder()
                 .id(submissionId)
-                .submissionNumber(submissionNumber)
                 .status(isLate ? "LATE" : "SUBMITTED")
                 .note(note)
                 .isLate(isLate)
@@ -321,7 +311,7 @@ public class StudentAssignmentServiceImpl implements StudentAssignmentService {
 
     private SubmissionResponse buildSubmissionResponse(UUID assignmentId, UUID studentId) {
         List<AssignmentSubmissionEntity> subs = assignmentSubmissionRepository
-                .findByAssignmentIdAndStudentIdOrderBySubmissionNumberDesc(assignmentId, studentId);
+                .findByAssignmentIdAndStudentIdOrderByCreatedAtDesc(assignmentId, studentId);
         if (subs.isEmpty()) return null;
 
         AssignmentSubmissionEntity latest = subs.get(0);
@@ -349,7 +339,6 @@ public class StudentAssignmentServiceImpl implements StudentAssignmentService {
 
         return SubmissionResponse.builder()
                 .id(latest.getId())
-                .submissionNumber(latest.getSubmissionNumber())
                 .status(latest.getStatus())
                 .note(latest.getNote())
                 .isLate(Boolean.TRUE.equals(latest.getIsLate()))

@@ -106,8 +106,7 @@ class StudentAssignmentControllerTest {
                         courseId, assignmentId)
                         .file(file))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("SUBMITTED"))
-                .andExpect(jsonPath("$.submissionNumber").value(1));
+                .andExpect(jsonPath("$.status").value("SUBMITTED"));
     }
 
     @Test
@@ -147,7 +146,6 @@ class StudentAssignmentControllerTest {
     private SubmissionResponse submissionResponse() {
         return SubmissionResponse.builder()
                 .id(UUID.randomUUID())
-                .submissionNumber(1)
                 .status("SUBMITTED")
                 .isLate(false)
                 .submittedAt(OffsetDateTime.now())

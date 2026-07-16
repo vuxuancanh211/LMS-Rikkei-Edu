@@ -750,7 +750,6 @@ class AssignmentServiceImplTest {
         req.setLatePenaltyPercent(0);
         req.setMaxScore(BigDecimal.TEN);
         req.setMaxFileSizeMb(10);
-        req.setMaxSubmissions(1);
         return req;
     }
 
@@ -769,7 +768,6 @@ class AssignmentServiceImplTest {
         e.setLatePenaltyPercent(0);
         e.setMaxScore(BigDecimal.TEN);
         e.setMaxFileSizeMb(10);
-        e.setMaxSubmissions(1);
         e.setCreatedAt(OffsetDateTime.now(ZoneOffset.UTC));
         e.setUpdatedAt(OffsetDateTime.now(ZoneOffset.UTC));
         return e;

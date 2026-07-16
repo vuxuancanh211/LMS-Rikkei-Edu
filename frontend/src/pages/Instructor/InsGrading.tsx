@@ -24,6 +24,10 @@
     const [filterCourseId, setFilterCourseId] = useState("");
     const [filterAssignmentId, setFilterAssignmentId] = useState("");
     const [filterGroup, setFilterGroup] = useState("all");
+    const [draftCourseId, setDraftCourseId] = useState("");
+    const [draftAssignmentId, setDraftAssignmentId] = useState("");
+    const [draftGroup, setDraftGroup] = useState("all");
+    const [courseGroupsMap, setCourseGroupsMap] = useState({});
 
     const [submissions, setSubmissions] = useState([]);
     const [loading, setLoading] = useState(false);
@@ -34,12 +38,13 @@
 
     const filterRef = useRef(null);
 
-    const filteredAssignments = allAssignments.filter(a =>
-      !filterCourseId || a.courseId === filterCourseId
-    );
+    const filteredAssignments = allAssignments.filter(a => {
+      if (draftCourseId && a.courseId !== draftCourseId) return false;
+      if (!draftGroup || draftGroup === "all") return a.scope === "ALL_GROUPS";
+      if (a.scope === "ALL_GROUPS") return true;
+      return a.groupNames?.includes(draftGroup);
+    });
     const filteredAssignmentsOptions = filteredAssignments.map(a => ({ v: a.id, label: a.title }));
-
-    const groups = [...new Set(submissions.map(s => s.groupName).filter(Boolean))];
 
     let list = submissions;
     if (tab !== "all") {
@@ -56,14 +61,13 @@
     }
 
     const pg = window.usePaged(list, 10);
+    const releasableInList = list.filter(s => s.status === "graded" && !s.scorePublishedAt);
 
     const totalCount = submissions.length;
     const submittedCount = submissions.filter(s => s.status === "submitted").length;
     const gradedCount = submissions.filter(s => s.status === "graded").length;
     const lateCount = submissions.filter(s => s.isLate).length;
     const notSubmittedCount = submissions.filter(s => s.status === "not_submitted").length;
-    const scores = submissions.filter(s => s.score != null).map(s => s.score);
-    const avgScore = scores.length ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1) : "—";
 
     useEffect(() => {
       api.get("/instructor/assignments").then(res => {
@@ -82,10 +86,20 @@
       if (filterCourseId) params.courseId = filterCourseId;
       if (filterAssignmentId) params.assignmentId = filterAssignmentId;
       api.get("/instructor/submissions", { params })
-        .then(res => { setSubmissions((res.data || []).map(s => ({ ...s, status: s.status?.toLowerCase() }))); setSelected(new Set()); })
+        .then(res => { setSubmissions((res.data || []).map(s => ({ ...s, status: s.status ? s.status.toLowerCase() : "not_submitted" }))); setSelected(new Set()); })
         .catch(() => setSubmissions([]))
         .finally(() => setLoading(false));
     }, [filterCourseId, filterAssignmentId]);
+
+    useEffect(() => {
+      if (!draftCourseId || courseGroupsMap[draftCourseId]) return;
+      api.get("/instructor/submissions", { params: { courseId: draftCourseId, status: "ALL" } })
+        .then(res => {
+          const gs = [...new Set((res.data || []).map(s => s.groupName).filter(Boolean))];
+          setCourseGroupsMap(prev => ({ ...prev, [draftCourseId]: gs }));
+        })
+        .catch(() => {});
+    }, [draftCourseId]);
 
     useEffect(() => {
       const handler = e => { if (filterRef.current && !filterRef.current.contains(e.target)) setShowFilter(false); };
@@ -131,12 +145,11 @@
           <StatCard icon="check_circle" iconBg="#e7f8f0" iconColor="#059669" value={gradedCount} label="Đã chấm" />
           <StatCard icon="warn" iconBg="#fdecec" iconColor="#dc2626" value={lateCount} label="Nộp trễ" />
           <StatCard icon="clock" iconBg="#f1f5f9" iconColor="#64748b" value={notSubmittedCount} label="Chưa nộp" />
-          <StatCard icon="target" iconBg="#eaf1ff" iconColor="#2563eb" value={avgScore} label="Điểm TB" />
         </div>
 
         <div className="toolbar" ref={filterRef}>
           <div className="row gap-8" style={{ position: "relative" }}>
-            <button className="btn btn-soft btn-sm" onClick={() => setShowFilter(!showFilter)}>
+            <button className="btn btn-soft btn-sm" onClick={() => { if (!showFilter) { setDraftCourseId(filterCourseId); setDraftAssignmentId(filterAssignmentId); setDraftGroup(filterGroup); } setShowFilter(!showFilter); }}>
               <Ic n="filter" size={15} /> Lọc
               {(filterCourseId || filterAssignmentId) && <span className="chip chip-primary" style={{ marginLeft: 6, padding: "0 6px", fontSize: 11 }}>!</span>}
             </button>
@@ -149,34 +162,38 @@
               }}>
                 <div>
                   <label className="t-label" style={{ display: "block", marginBottom: 6 }}>Khóa học</label>
-                  <select className="input" value={filterCourseId} onChange={e => { setFilterCourseId(e.target.value); setFilterAssignmentId(""); setFilterGroup("all"); }}
+                  <select className="input" value={draftCourseId} onChange={e => { setDraftCourseId(e.target.value); setDraftAssignmentId(""); setDraftGroup("all"); }}
                     style={{ width: "100%" }}>
                     <option value="">Tất cả khóa học</option>
                     {courses.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="t-label" style={{ display: "block", marginBottom: 6 }}>Bài tập</label>
-                  <select className="input" value={filterAssignmentId} onChange={e => { setFilterAssignmentId(e.target.value); setFilterGroup("all"); }}
+                  <label className="t-label" style={{ display: "block", marginBottom: 6 }}>Nhóm</label>
+                  <select className="input" value={draftGroup} disabled={!draftCourseId} onChange={e => { setDraftGroup(e.target.value); setDraftAssignmentId(""); }}
                     style={{ width: "100%" }}>
-                    <option value="">Tất cả bài tập</option>
-                    {filteredAssignmentsOptions.map(o => <option key={o.v} value={o.v}>{o.label}</option>)}
+                    <option value="all">{draftCourseId ? "Tất cả nhóm" : "Chọn khóa học trước"}</option>
+                    {(courseGroupsMap[draftCourseId] || []).map(g => <option key={g} value={g}>{g}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="t-label" style={{ display: "block", marginBottom: 6 }}>Nhóm</label>
-                  <select className="input" value={filterGroup} onChange={e => setFilterGroup(e.target.value)}
+                  <label className="t-label" style={{ display: "block", marginBottom: 6 }}>Bài tập</label>
+                  <select className="input" value={draftAssignmentId} disabled={!draftCourseId} onChange={e => { setDraftAssignmentId(e.target.value); }}
                     style={{ width: "100%" }}>
-                    <option value="all">Tất cả nhóm</option>
-                    {groups.map(g => <option key={g} value={g}>{g}</option>)}
+                    <option value="">{draftCourseId ? "Tất cả bài tập" : "Chọn khóa học trước"}</option>
+                    {filteredAssignmentsOptions.map(o => <option key={o.v} value={o.v}>{o.label}</option>)}
                   </select>
                 </div>
                 <div className="row gap-8" style={{ justifyContent: "flex-end", marginTop: 4 }}>
                   <button className="btn btn-ghost btn-sm" onClick={() => {
+                    setDraftCourseId(""); setDraftAssignmentId(""); setDraftGroup("all");
                     setFilterCourseId(""); setFilterAssignmentId(""); setFilterGroup("all");
                     setShowFilter(false);
                   }}>Đặt lại</button>
-                  <button className="btn btn-primary btn-sm" onClick={() => setShowFilter(false)}>Áp dụng</button>
+                  <button className="btn btn-primary btn-sm" onClick={() => {
+                    setFilterCourseId(draftCourseId); setFilterAssignmentId(draftAssignmentId); setFilterGroup(draftGroup);
+                    setShowFilter(false);
+                  }}>Áp dụng</button>
                 </div>
               </div>
             )}
@@ -208,84 +225,91 @@
             <div style={{ overflowX: "auto" }}>
               <table className="tbl">
                 <thead>
-                  <tr>
-                    <th style={{ width: 36, textAlign: "center" }}>#</th>
-                    <th style={{ width: 36 }}>
-                      <input type="checkbox" checked={selected.size > 0 && selected.size === list.length}
-                        onChange={e => {
-                          if (e.target.checked) setSelected(new Set(list.filter(s => s.status === "graded" && !s.scorePublishedAt).map(s => s.id)));
-                          else setSelected(new Set());
-                        }} style={{ accentColor: "#2563eb", cursor: "pointer", width: 16, height: 16 }} />
+                  <tr style={{ fontSize: "10.5" }}>
+                    <th style={{ width: 26, textAlign: "center" }}>#</th>
+                    <th style={{ width: 22 }}>
+                      {releasableInList.length > 0 ? (
+                        <input type="checkbox" checked={selected.size > 0 && selected.size === releasableInList.length}
+                          onChange={e => {
+                            if (e.target.checked) setSelected(new Set(list.filter(s => s.status === "graded" && !s.scorePublishedAt).map(s => s.id)));
+                            else setSelected(new Set());
+                          }} style={{ accentColor: "#2563eb", cursor: "pointer", width: 11, height: 11, margin: 0 }} />
+                      ) : null}
                     </th>
-                    <th>Học viên</th>
-                    <th>Khóa học</th>
-                    <th>Nhóm</th>
-                    <th>Bài tập</th>
-                    <th style={{ width: 80 }}>Lần nộp</th>
-                    <th>File nộp</th>
-                    <th style={{ width: 130 }}>Thời gian</th>
-                    <th>Trạng thái</th>
-                    <th style={{ width: 80 }}>Điểm</th>
-                    <th style={{ width: 70 }}>Thao tác</th>
+                    <th style={{ minWidth: 110 }}>Học viên</th>
+                    <th style={{ minWidth: 100, wordBreak: "break-word" }}>Khóa học</th>
+                    <th style={{ minWidth: 100, wordBreak: "break-word" }}>Nhóm</th>
+                    <th style={{ minWidth: 140 }}>Bài tập</th>
+                    <th style={{ minWidth: 100 }}>File nộp</th>
+                    <th style={{ width: 100 }}>Thời gian</th>
+                    <th style={{ width: 70 }}>Trạng thái</th>
+                    <th style={{ width: 60, textAlign: "center" }}>Điểm</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {pg.slice.map((s, i) => (
-                    <tr key={s.id}>
+                    {pg.slice.map((s, i) => (
+                    <tr key={s.studentId + '-' + s.assignmentId}>
                       <td className="t-sm muted" style={{ textAlign: "center" }}>{pg.from + i}</td>
-                      <td>
+                      <td style={{ textAlign: "center", padding: "4px 2px" }}>
                         {s.status === "graded" && !s.scorePublishedAt ? (
                           <input type="checkbox" checked={selected.has(s.id)}
                             onChange={e => {
                               const next = new Set(selected);
                               e.target.checked ? next.add(s.id) : next.delete(s.id);
                               setSelected(next);
-                            }} style={{ accentColor: "#2563eb", cursor: "pointer", width: 16, height: 16 }} />
+                            }} style={{ accentColor: "#2563eb", cursor: "pointer", width: 11, height: 11, margin: 0 }} />
                         ) : null}
                       </td>
-                      <td><div className="row gap-10"><Avatar name={s.studentName} size={34} /><b style={{ fontSize: 13.5 }}>{s.studentName}</b></div></td>
-                      <td style={{ wordBreak: "break-word", whiteSpace: "normal", maxWidth: 160 }}>{s.courseTitle}</td>
-                      <td className="muted" style={{ wordBreak: "break-word", whiteSpace: "normal", maxWidth: 160 }}>{s.groupName}</td>
-                      <td style={{ wordBreak: "break-word", whiteSpace: "normal", maxWidth: 160, cursor: "pointer", color: "var(--accent)" }}
+                      <td style={{ fontSize: 12 }}>{s.studentName}</td>
+                      <td style={{ wordBreak: "break-word", whiteSpace: "normal", fontSize: 12, maxWidth: 140 }}>{s.courseTitle}</td>
+                      <td className="muted" style={{ wordBreak: "break-word", whiteSpace: "normal", fontSize: 12, maxWidth: 140 }}>{s.groupName}</td>
+                      <td style={{ maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "pointer", color: "var(--accent)", fontSize: 12 }}
+                        title={s.assignmentTitle}
                         onClick={() => setViewAssignment({ id: s.assignmentId, courseId: s.courseId })}>
                         {s.assignmentTitle}
                       </td>
-                      <td>{s.submissionNumber}{s.assignmentMaxSubmissions ? "/" + s.assignmentMaxSubmissions : ""}</td>
                       <td>
                         {s.files && s.files.length > 0 ? (
-                          <span className="row gap-6 mono" style={{ fontSize: 12.5, color: "var(--accent)", cursor: "pointer" }}
+                          <span className="row gap-4 mono" style={{ fontSize: 12, color: "var(--accent)", cursor: "pointer", maxWidth: 150, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center" }}
+                            title={s.files.map(f => f.originalFilename).join(", ")}
                             onClick={() => setPreviewFiles({
                               files: s.files.map(f => ({ name: f.originalFilename, url: f.url, mimeType: f.mimeType, size: f.fileSizeBytes })),
                               idx: 0
                             })}>
-                            <Ic n="file" size={14} />{s.files[0].originalFilename}
+                            <Ic n="file" size={12} style={{ flexShrink: 0 }} /><span className="truncate">{s.files[0].originalFilename}</span>
                           </span>
-                        ) : <span className="muted">—</span>}
+                        ) : <span className="muted" style={{ fontSize: 12 }}>—</span>}
                       </td>
                       <td>
-                        <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
-                          <span className="muted t-sm">{fmtTime(s.submittedAt)}</span>
-                          {s.status === "late" && <span className="chip chip-error" style={{ fontSize:11, alignSelf:"flex-start" }}>Nộp trễ</span>}
+                        <div style={{ display:"flex", flexDirection:"column", gap: 2, fontSize: 12 }}>
+                          <span className="muted">{fmtTime(s.submittedAt)}</span>
+                          {s.isLate && <span className="chip chip-error" style={{ fontSize: 10, alignSelf:"flex-start", padding: "1px 5px" }}>Nộp trễ</span>}
                         </div>
                       </td>
-                      <td><Status s={s.status === "late" ? "submitted" : s.status} /></td>
-                      <td style={{ fontWeight: 700 }}>
-                        {s.score != null ? s.score + (s.assignmentMaxScore ? "/" + s.assignmentMaxScore : "") : "—"}
-                        {s.scorePublishedAt && <Ic n="check_circle" size={13} style={{ color: "var(--success)", marginLeft: 4 }} />}
+                      <td style={{ fontSize: 12, whiteSpace: "nowrap", textAlign: "center" }}>
+                        {s.status === "not_submitted" ? <span className="chip" style={{ fontSize: 11, padding: "1px 6px", background: "#f1f5f9", color: "#64748b" }}>Chưa nộp</span>
+                         : s.status === "graded" ? <span className="chip" style={{ fontSize: 11, padding: "1px 6px", background: "#e7f8f0", color: "#059669" }}>Đã chấm</span>
+                         : <span className="chip" style={{ fontSize: 11, padding: "1px 6px", background: "#eaf1ff", color: "#2563eb" }}>Đã nộp</span>}
                       </td>
-                      <td>
-                        {s.status === "not_submitted" ? (
-                          <span className="muted t-sm">—</span>
-                        ) : s.status === "graded" ? (
-                          <button className="btn btn-ghost btn-sm" onClick={() => setGrade(s)}><Ic n="eye" size={14} />Xem</button>
-                        ) : (
-                          <button className="btn btn-primary btn-sm" onClick={() => setGrade(s)}>Chấm</button>
-                        )}
+                      <td style={{ textAlign: "center", verticalAlign: "middle" }}>
+                        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+                          <span style={{ fontWeight: 600, fontSize: 12 }}>
+                            {s.score != null ? s.score + (s.assignmentMaxScore ? "/" + s.assignmentMaxScore : "") : <span className="muted" style={{ fontSize: 12 }}>—</span>}
+                            {s.scorePublishedAt && <Ic n="check_circle" size={10} style={{ color: "var(--success)", marginLeft: 2 }} />}
+                          </span>
+                          {s.status === "not_submitted" ? (
+                            <span className="muted" style={{ fontSize: 12 }}>—</span>
+                          ) : s.status === "graded" ? (
+                            <button className="btn btn-ghost btn-sm" style={{ fontSize: 12, height: 24, padding: "0 6px" }} onClick={() => setGrade(s)}>Xem</button>
+                          ) : (
+                            <button className="btn btn-primary btn-sm" style={{ fontSize: 12, height: 24, padding: "0 6px" }} onClick={() => setGrade(s)}>Chấm</button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
-                  {pg.slice.length === 0 && (
-                    <tr><td colSpan={12} className="t-center muted" style={{ padding: 24 }}>Không có bài nộp nào</td></tr>
+                    {pg.slice.length === 0 && (
+                    <tr><td colSpan={10} className="t-center muted" style={{ padding: 24 }}>Không có bài nộp nào</td></tr>
                   )}
                 </tbody>
               </table>
@@ -293,7 +317,7 @@
           </>)}
         </Section>
         <window.PageBar pg={pg} unit="bài nộp" />
-        <GradeModal sub={grade} onClose={() => setGrade(null)} onGrade={handleGrade} maxScore={grade?.assignmentMaxScore} onPreview={(files, idx) => setPreviewFiles({ files, idx })} published={!!grade?.scorePublishedAt} />
+        <GradeModal sub={grade} onClose={() => setGrade(null)} onGrade={handleGrade} maxScore={grade?.assignmentMaxScore} assignmentPassScore={grade?.assignmentPassScore} onPreview={(files, idx) => setPreviewFiles({ files, idx })} published={!!grade?.scorePublishedAt} />
         {previewFiles && React.createElement(window.FilePreview, {
           files: previewFiles.files,
           initialIdx: previewFiles.idx,
@@ -314,13 +338,14 @@
     );
   }
 
-  function GradeModal({ sub, onClose, onGrade, maxScore, onPreview, published }) {
+  function GradeModal({ sub, onClose, onGrade, maxScore, assignmentPassScore, onPreview, published }) {
     const graded = sub && sub.status === "graded";
     const readonly = published;
     const [score, setScore] = useState("");
     const [fb, setFb] = useState("");
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState("");
+    const [scoreError, setScoreError] = useState("");
 
     React.useEffect(() => {
       if (!sub) return;
@@ -329,13 +354,26 @@
         setFb(sub.feedback || "");
       } else { setScore(""); setFb(""); }
       setError("");
+      setScoreError("");
     }, [sub && sub.id]);
 
     if (!sub) return null;
     const num = parseFloat(score);
     const hasScore = score !== "" && !isNaN(num);
     const max = maxScore || 10;
-    const passed = hasScore && num >= max * 0.5;
+    const passThreshold = assignmentPassScore != null ? Number(assignmentPassScore) : max * 0.5;
+    const passed = hasScore && num >= passThreshold;
+
+    function validateScore(v) {
+      const n = parseFloat(v);
+      if (v === "" || isNaN(n)) return "";
+      if (n < 0) return "Điểm không được nhỏ hơn 0";
+      const limit = Math.min(max, 100);
+      if (n > limit) return "Điểm không được vượt quá " + limit;
+      return "";
+    }
+
+    const scoreErr = validateScore(score);
 
     const handleSave = async () => {
       if (!hasScore) { setError("Vui lòng nhập điểm"); return; }
@@ -380,11 +418,16 @@
 
           <div>
             <label className="t-label" style={{ display: "block", marginBottom: 8 }}>Điểm số (thang {max})</label>
-            <div className="row gap-12">
-              <input className="input" type="number" max={max} min={0} step={0.5} value={score}
-                placeholder={"Nhập điểm 0 – " + max} onChange={e => setScore(e.target.value)} style={{ flex: 1 }} disabled={readonly} />
-              {hasScore && <span className={"chip " + (passed ? "chip-success" : "chip-error")}
-                style={{ flex: "none", fontSize: 13, padding: "8px 14px" }}>{passed ? "Đạt" : "Chưa đạt"}</span>}
+            <div className="row gap-12" style={{ flexDirection: "column", gap: 4 }}>
+              <div className="row gap-12">
+                <input className="input" type="number" max={max} min={0} step={0.5} value={score}
+                  placeholder={"Nhập điểm 0 – " + max}
+                  onChange={e => { setScore(e.target.value); setScoreError(validateScore(e.target.value)); }}
+                  style={{ flex: 1, borderColor: scoreError ? "#dc2626" : undefined }} disabled={readonly} />
+                {hasScore && <span className={"chip " + (passed ? "chip-success" : "chip-error")}
+                  style={{ flex: "none", fontSize: 13, padding: "8px 14px" }}>{passed ? "Đạt" : "Chưa đạt"}</span>}
+              </div>
+              {scoreError && <span style={{ color: "#dc2626", fontSize: 11 }}>{scoreError}</span>}
             </div>
           </div>
 
@@ -398,12 +441,12 @@
         <div className="modal-foot">
           <button className="btn btn-ghost" onClick={onClose}>{readonly ? "Đóng" : "Hủy"}</button>
           {!readonly && !graded && (
-            <button className="btn btn-soft" onClick={handleSave} disabled={submitting}>
+            <button className="btn btn-soft" onClick={handleSave} disabled={submitting || !!scoreError}>
               <Ic n="check" size={16} />Lưu điểm
             </button>
           )}
           {!readonly && graded && (
-            <button className="btn btn-success" onClick={handleSave} disabled={submitting}>
+            <button className="btn btn-success" onClick={handleSave} disabled={submitting || !!scoreError}>
               <Ic n="check" size={16} />Cập nhật điểm
             </button>
           )}

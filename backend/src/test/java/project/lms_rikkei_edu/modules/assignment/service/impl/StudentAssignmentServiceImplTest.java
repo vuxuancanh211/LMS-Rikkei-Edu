@@ -273,7 +273,7 @@ class StudentAssignmentServiceImplTest {
         when(assignmentAttachmentRepository.findByAssignmentIdOrderByOrderIndexAsc(assignmentId))
                 .thenReturn(List.of());
         when(assignmentSubmissionRepository
-                .findByAssignmentIdAndStudentIdOrderBySubmissionNumberDesc(assignmentId, studentId))
+                .findByAssignmentIdAndStudentIdOrderByCreatedAtDesc(assignmentId, studentId))
                 .thenReturn(List.of());
 
         StudentAssignmentDetailResponse result = service.getAssignmentDetail(courseId, assignmentId, studentId);
@@ -311,7 +311,7 @@ class StudentAssignmentServiceImplTest {
         when(s3Service.generatePresignedInlineUrl(anyString(), anyLong()))
                 .thenReturn(presigned);
         when(assignmentSubmissionRepository
-                .findByAssignmentIdAndStudentIdOrderBySubmissionNumberDesc(assignmentId, studentId))
+                .findByAssignmentIdAndStudentIdOrderByCreatedAtDesc(assignmentId, studentId))
                 .thenReturn(List.of());
 
         StudentAssignmentDetailResponse result = service.getAssignmentDetail(courseId, assignmentId, studentId);
@@ -393,14 +393,11 @@ class StudentAssignmentServiceImplTest {
         var assignment = assignmentEntity(AssignmentStatus.PUBLISHED);
         assignment.setDeadline(pastDeadline);
         assignment.setAllowLateSubmission(true);
-        assignment.setMaxSubmissions(3);
         var file = new MockMultipartFile("file", "hw.pdf", "application/pdf", new byte[1024]);
         when(assignmentRepository.findByIdAndCourseId(assignmentId, courseId))
                 .thenReturn(Optional.of(assignment));
         when(groupMemberRepository.findGroupIdsByStudentIdAndCourseId(studentId, courseId))
                 .thenReturn(List.of());
-        when(assignmentSubmissionRepository.countByAssignmentIdAndStudentId(assignmentId, studentId))
-                .thenReturn(0L);
         when(s3Client.putObject(any(Consumer.class), any(RequestBody.class)))
                 .thenReturn(null);
         var presigned = mock(PresignedGetObjectRequest.class);
@@ -413,7 +410,6 @@ class StudentAssignmentServiceImplTest {
 
         assertThat(result.getStatus()).isEqualTo("LATE");
         assertThat(result.isLate()).isTrue();
-        assertThat(result.getSubmissionNumber()).isEqualTo(1);
     }
 
     @Test
@@ -422,14 +418,11 @@ class StudentAssignmentServiceImplTest {
         var assignment = assignmentEntity(AssignmentStatus.PUBLISHED);
         assignment.setDeadline(futureDeadline);
         assignment.setAllowLateSubmission(true);
-        assignment.setMaxSubmissions(3);
         var file = new MockMultipartFile("file", "hw.pdf", "application/pdf", new byte[1024]);
         when(assignmentRepository.findByIdAndCourseId(assignmentId, courseId))
                 .thenReturn(Optional.of(assignment));
         when(groupMemberRepository.findGroupIdsByStudentIdAndCourseId(studentId, courseId))
                 .thenReturn(List.of());
-        when(assignmentSubmissionRepository.countByAssignmentIdAndStudentId(assignmentId, studentId))
-                .thenReturn(0L);
         when(s3Client.putObject(any(Consumer.class), any(RequestBody.class)))
                 .thenReturn(null);
         var presigned = mock(PresignedGetObjectRequest.class);
@@ -442,23 +435,6 @@ class StudentAssignmentServiceImplTest {
 
         assertThat(result.getStatus()).isEqualTo("SUBMITTED");
         assertThat(result.isLate()).isFalse();
-    }
-
-    @Test
-    void submitAssignment_maxSubmissionsExceeded_throws() {
-        enrollStudent();
-        var assignment = assignmentEntity(AssignmentStatus.PUBLISHED);
-        assignment.setMaxSubmissions(2);
-        when(assignmentRepository.findByIdAndCourseId(assignmentId, courseId))
-                .thenReturn(Optional.of(assignment));
-        when(groupMemberRepository.findGroupIdsByStudentIdAndCourseId(studentId, courseId))
-                .thenReturn(List.of());
-        when(assignmentSubmissionRepository.countByAssignmentIdAndStudentId(assignmentId, studentId))
-                .thenReturn(2L);
-
-        assertThatThrownBy(() -> service.submitAssignment(courseId, assignmentId, studentId, null, List.of()))
-                .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("tối đa");
     }
 
     @Test
@@ -485,8 +461,6 @@ class StudentAssignmentServiceImplTest {
                 .thenReturn(Optional.of(assignment));
         when(groupMemberRepository.findGroupIdsByStudentIdAndCourseId(studentId, courseId))
                 .thenReturn(List.of());
-        when(assignmentSubmissionRepository.countByAssignmentIdAndStudentId(assignmentId, studentId))
-                .thenReturn(0L);
 
         assertThatThrownBy(() -> service.submitAssignment(courseId, assignmentId, studentId, null, List.of(file)))
                 .isInstanceOf(BusinessException.class)
@@ -503,8 +477,6 @@ class StudentAssignmentServiceImplTest {
                 .thenReturn(Optional.of(assignment));
         when(groupMemberRepository.findGroupIdsByStudentIdAndCourseId(studentId, courseId))
                 .thenReturn(List.of());
-        when(assignmentSubmissionRepository.countByAssignmentIdAndStudentId(assignmentId, studentId))
-                .thenReturn(0L);
 
         assertThatThrownBy(() -> service.submitAssignment(courseId, assignmentId, studentId, null, List.of(file)))
                 .isInstanceOf(BusinessException.class)
@@ -515,14 +487,11 @@ class StudentAssignmentServiceImplTest {
     void submitAssignment_success_uploadsToS3AndSaves() throws Exception {
         enrollStudent();
         var assignment = assignmentEntity(AssignmentStatus.PUBLISHED);
-        assignment.setMaxSubmissions(3);
         var file = new MockMultipartFile("file", "hw.pdf", "application/pdf", new byte[1024]);
         when(assignmentRepository.findByIdAndCourseId(assignmentId, courseId))
                 .thenReturn(Optional.of(assignment));
         when(groupMemberRepository.findGroupIdsByStudentIdAndCourseId(studentId, courseId))
                 .thenReturn(List.of());
-        when(assignmentSubmissionRepository.countByAssignmentIdAndStudentId(assignmentId, studentId))
-                .thenReturn(1L);
         when(s3Client.putObject(any(Consumer.class), any(RequestBody.class)))
                 .thenReturn(null);
         var presigned = mock(PresignedGetObjectRequest.class);
@@ -533,7 +502,6 @@ class StudentAssignmentServiceImplTest {
         SubmissionResponse result = service.submitAssignment(
                 courseId, assignmentId, studentId, "My note", List.of(file));
 
-        assertThat(result.getSubmissionNumber()).isEqualTo(2);
         assertThat(result.getNote()).isEqualTo("My note");
         assertThat(result.getFiles()).hasSize(1);
         verify(assignmentSubmissionRepository).save(any(AssignmentSubmissionEntity.class));
@@ -567,7 +535,7 @@ class StudentAssignmentServiceImplTest {
         e.setLatePenaltyPercent(10);
         e.setMaxScore(BigDecimal.TEN);
         e.setMaxFileSizeMb(10);
-        e.setMaxSubmissions(3);
+        e.setDeadline(futureDeadline);
         e.setCreatedAt(now);
         e.setUpdatedAt(now);
         return e;

@@ -13,7 +13,6 @@ import java.util.UUID;
 public class SubmissionResponse {
 
     private UUID id;
-    private int submissionNumber;
     private String status;
     private String note;
     private boolean isLate;

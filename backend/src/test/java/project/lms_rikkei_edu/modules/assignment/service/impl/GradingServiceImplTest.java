@@ -204,7 +204,6 @@ class GradingServiceImplTest {
 
         assertThat(result).hasSize(1);
         assertThat(result.get(0).getStatus()).isEqualTo("SUBMITTED");
-        assertThat(result.get(0).getSubmissionNumber()).isEqualTo(1);
         assertThat(result.get(0).isLate()).isFalse();
     }
 
@@ -663,8 +662,7 @@ class GradingServiceImplTest {
         e.setTitle("Test Assignment");
         e.setStatus(status);
         e.setScope(scope);
-        e.setMaxScore(BigDecimal.TEN);
-        e.setMaxSubmissions(3);
+        e.setMaxScore(BigDecimal.valueOf(100));
         e.setDeadline(OffsetDateTime.now(ZoneOffset.UTC).plusHours(24));
         e.setCreatedAt(now);
         e.setUpdatedAt(now);
@@ -677,7 +675,6 @@ class GradingServiceImplTest {
         e.setAssignmentId(assignmentId);
         e.setStudentId(studentId);
         e.setCourseId(courseId);
-        e.setSubmissionNumber(1);
         e.setStatus(status);
         e.setIsLate(false);
         e.setSubmittedAt(now);

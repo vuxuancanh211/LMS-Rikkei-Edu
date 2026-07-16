@@ -36,6 +36,8 @@ import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest;
 
 import java.io.IOException;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.*;
@@ -81,6 +83,24 @@ public class AssignmentServiceImpl implements AssignmentService {
             throw new BusinessException("Late penalty percent phải từ 0-100");
         }
 
+        if (request.getMaxScore() == null || request.getMaxScore().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException("Điểm tối đa phải lớn hơn 0");
+        }
+        if (request.getMaxScore().compareTo(BigDecimal.valueOf(100)) > 0) {
+            throw new BusinessException("Điểm tối đa không được vượt quá 100");
+        }
+
+        BigDecimal passScore = request.getPassingScore();
+        if (passScore == null) {
+            passScore = request.getMaxScore().multiply(BigDecimal.valueOf(0.5)).setScale(2, RoundingMode.HALF_UP);
+        }
+        if (passScore.compareTo(BigDecimal.ZERO) < 0) {
+            throw new BusinessException("Điểm đạt không được nhỏ hơn 0");
+        }
+        if (passScore.compareTo(request.getMaxScore()) > 0) {
+            throw new BusinessException("Điểm đạt không được lớn hơn điểm tối đa");
+        }
+
         UUID assignmentId = UUID.randomUUID();
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
 
@@ -97,9 +117,9 @@ public class AssignmentServiceImpl implements AssignmentService {
         assignment.setAllowLateSubmission(request.getAllowLateSubmission() != null && request.getAllowLateSubmission());
         assignment.setLatePenaltyPercent(request.getLatePenaltyPercent() != null ? request.getLatePenaltyPercent() : 0);
         assignment.setMaxScore(request.getMaxScore());
+        assignment.setPassingScore(passScore);
         assignment.setMaxFileSizeMb(request.getMaxFileSizeMb());
         assignment.setAllowedFileTypes(toJsonArray(request.getAllowedFileTypes()));
-        assignment.setMaxSubmissions(request.getMaxSubmissions() != null ? request.getMaxSubmissions() : 1);
         assignment.setCreatedAt(now);
         assignment.setUpdatedAt(now);
         assignmentRepository.save(assignment);
@@ -142,9 +162,9 @@ public class AssignmentServiceImpl implements AssignmentService {
                             .allowLateSubmission(resp.getAllowLateSubmission())
                             .latePenaltyPercent(resp.getLatePenaltyPercent())
                             .maxScore(resp.getMaxScore())
+                            .passingScore(resp.getPassingScore())
                             .maxFileSizeMb(resp.getMaxFileSizeMb())
                             .allowedFileTypes(resp.getAllowedFileTypes())
-                            .maxSubmissions(resp.getMaxSubmissions())
                             .publishedAt(resp.getPublishedAt())
                             .createdAt(resp.getCreatedAt())
                             .updatedAt(resp.getUpdatedAt())
@@ -212,9 +232,9 @@ public class AssignmentServiceImpl implements AssignmentService {
                             .allowLateSubmission(resp.getAllowLateSubmission())
                             .latePenaltyPercent(resp.getLatePenaltyPercent())
                             .maxScore(resp.getMaxScore())
+                            .passingScore(resp.getPassingScore())
                             .maxFileSizeMb(resp.getMaxFileSizeMb())
                             .allowedFileTypes(resp.getAllowedFileTypes())
-                            .maxSubmissions(resp.getMaxSubmissions())
                             .publishedAt(resp.getPublishedAt())
                             .createdAt(resp.getCreatedAt())
                             .updatedAt(resp.getUpdatedAt())
@@ -280,9 +300,9 @@ public class AssignmentServiceImpl implements AssignmentService {
                 .allowLateSubmission(assignment.getAllowLateSubmission())
                 .latePenaltyPercent(assignment.getLatePenaltyPercent())
                 .maxScore(assignment.getMaxScore())
+                .passingScore(assignment.getPassingScore())
                 .maxFileSizeMb(assignment.getMaxFileSizeMb())
                 .allowedFileTypes(parseAllowedFileTypes(assignment.getAllowedFileTypes()))
-                .maxSubmissions(assignment.getMaxSubmissions())
                 .publishedAt(assignment.getPublishedAt())
                 .createdAt(assignment.getCreatedAt())
                 .updatedAt(assignment.getUpdatedAt())
@@ -506,13 +526,29 @@ public class AssignmentServiceImpl implements AssignmentService {
         if (request.getLatePenaltyPercent() != null) {
             assignment.setLatePenaltyPercent(request.getLatePenaltyPercent());
         }
-        if (request.getMaxScore() != null) assignment.setMaxScore(request.getMaxScore());
+        if (request.getMaxScore() != null) {
+            if (request.getMaxScore().compareTo(BigDecimal.ZERO) <= 0) {
+                throw new BusinessException("Điểm tối đa phải lớn hơn 0");
+            }
+            if (request.getMaxScore().compareTo(BigDecimal.valueOf(100)) > 0) {
+                throw new BusinessException("Điểm tối đa không được vượt quá 100");
+            }
+            assignment.setMaxScore(request.getMaxScore());
+        }
+        if (request.getPassingScore() != null) {
+            BigDecimal effectiveMax = assignment.getMaxScore() != null ? assignment.getMaxScore() : request.getMaxScore();
+            if (request.getPassingScore().compareTo(BigDecimal.ZERO) < 0) {
+                throw new BusinessException("Điểm đạt không được nhỏ hơn 0");
+            }
+            if (effectiveMax != null && request.getPassingScore().compareTo(effectiveMax) > 0) {
+                throw new BusinessException("Điểm đạt không được lớn hơn điểm tối đa");
+            }
+            assignment.setPassingScore(request.getPassingScore());
+        }
         if (request.getMaxFileSizeMb() != null) assignment.setMaxFileSizeMb(request.getMaxFileSizeMb());
         if (request.getAllowedFileTypes() != null) {
             assignment.setAllowedFileTypes(toJsonArray(request.getAllowedFileTypes()));
         }
-        if (request.getMaxSubmissions() != null) assignment.setMaxSubmissions(request.getMaxSubmissions());
-
         updateAssignmentGroups(assignment, request.getScope(), request.getGroupIds());
     }
 
@@ -533,8 +569,14 @@ public class AssignmentServiceImpl implements AssignmentService {
             assignment.setLatePenaltyPercent(request.getLatePenaltyPercent());
             hasChanges = true;
         }
-        if (request.getMaxSubmissions() != null) {
-            assignment.setMaxSubmissions(request.getMaxSubmissions());
+        if (request.getPassingScore() != null) {
+            if (request.getPassingScore().compareTo(BigDecimal.ZERO) < 0) {
+                throw new BusinessException("Điểm đạt không được nhỏ hơn 0");
+            }
+            if (request.getPassingScore().compareTo(assignment.getMaxScore()) > 0) {
+                throw new BusinessException("Điểm đạt không được lớn hơn điểm tối đa");
+            }
+            assignment.setPassingScore(request.getPassingScore());
             hasChanges = true;
         }
 
@@ -557,7 +599,7 @@ public class AssignmentServiceImpl implements AssignmentService {
         }
 
         if (!hasChanges) {
-            throw new BusinessException("Sau khi publish chỉ có thể thay đổi deadline, allow_late_submission, late_penalty_percent, max_submissions, max_file_size_mb, allowed_file_types, scope và group_ids");
+            throw new BusinessException("Sau khi publish chỉ có thể thay đổi deadline, allow_late_submission, late_penalty_percent, passing_score, max_file_size_mb, allowed_file_types, scope và group_ids");
         }
     }
 
