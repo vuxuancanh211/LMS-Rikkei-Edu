@@ -12,6 +12,12 @@ import java.util.*;
 @RequiredArgsConstructor
 public class StudentDashboardServiceImpl implements StudentDashboardService {
 
+    private static final String COL_TITLE = "title";
+    private static final String COL_COURSE_ID = "course_id";
+    private static final String COL_DEADLINE_STR = "deadline_str";
+    private static final String COL_STATUS = "status";
+    private static final String NO_DEADLINE = "Không thời hạn";
+
     private final JdbcTemplate jdbc;
 
     @Override
@@ -92,7 +98,7 @@ public class StudentDashboardServiceImpl implements StudentDashboardService {
                 """,
                 (rs, i) -> StudentDashboardResponse.CourseSummaryDto.builder()
                         .id(rs.getObject("id", UUID.class))
-                        .title(rs.getString("title"))
+                        .title(rs.getString(COL_TITLE))
                         .category(rs.getString("category_name") != null ? rs.getString("category_name") : "Khóa học")
                         .thumbnailUrl(rs.getString("thumbnail_url") != null ? rs.getString("thumbnail_url") : "assets/courses/placeholder.png")
                         .progress(rs.getInt("progress"))
@@ -118,14 +124,14 @@ public class StudentDashboardServiceImpl implements StudentDashboardService {
                 LIMIT 5
                 """,
                 (rs, i) -> {
-                    String title = rs.getString("title");
+                    String title = rs.getString(COL_TITLE);
                     return StudentDashboardResponse.DueAssignmentDto.builder()
                             .id(rs.getObject("id", UUID.class))
-                            .courseId(rs.getObject("course_id", UUID.class))
+                            .courseId(rs.getObject(COL_COURSE_ID, UUID.class))
                             .title(title)
                             .type("file")
-                            .deadline(rs.getString("deadline_str") != null ? rs.getString("deadline_str") : "Không thời hạn")
-                            .status(rs.getString("status"))
+                            .deadline(rs.getString(COL_DEADLINE_STR) != null ? rs.getString(COL_DEADLINE_STR) : NO_DEADLINE)
+                            .status(rs.getString(COL_STATUS))
                             .build();
                 },
                 studentId, studentId
@@ -150,18 +156,18 @@ public class StudentDashboardServiceImpl implements StudentDashboardService {
                 """,
                 (rs, i) -> StudentDashboardResponse.DueAssignmentDto.builder()
                         .id(rs.getObject("id", UUID.class))
-                        .courseId(rs.getObject("course_id", UUID.class))
-                        .title(rs.getString("title"))
+                        .courseId(rs.getObject(COL_COURSE_ID, UUID.class))
+                        .title(rs.getString(COL_TITLE))
                         .type("quiz")
-                        .deadline(rs.getString("deadline_str") != null ? rs.getString("deadline_str") : "Không thời hạn")
-                        .status(rs.getString("status"))
+                        .deadline(rs.getString(COL_DEADLINE_STR) != null ? rs.getString(COL_DEADLINE_STR) : NO_DEADLINE)
+                        .status(rs.getString(COL_STATUS))
                         .build(),
                 studentId, studentId
         ).forEach(list::add);
 
         if (list.size() < 5) {
             jdbc.query("""
-                    SELECT a.id, a.course_id, a.title,
+SELECT a.id, a.course_id, a.title,
                            TO_CHAR(a.deadline, 'DD/MM/YYYY') AS deadline_str,
                            CASE WHEN a.deadline < NOW() THEN 'late' ELSE 'quiz_pending' END AS status
                     FROM assignments a
@@ -176,11 +182,11 @@ public class StudentDashboardServiceImpl implements StudentDashboardService {
                     """,
                     (rs, i) -> StudentDashboardResponse.DueAssignmentDto.builder()
                             .id(rs.getObject("id", UUID.class))
-                            .courseId(rs.getObject("course_id", UUID.class))
-                            .title(rs.getString("title"))
+                            .courseId(rs.getObject(COL_COURSE_ID, UUID.class))
+                            .title(rs.getString(COL_TITLE))
                             .type("quiz")
-                            .deadline(rs.getString("deadline_str") != null ? rs.getString("deadline_str") : "Không thời hạn")
-                            .status(rs.getString("status"))
+                            .deadline(rs.getString(COL_DEADLINE_STR) != null ? rs.getString(COL_DEADLINE_STR) : NO_DEADLINE)
+                            .status(rs.getString(COL_STATUS))
                             .build(),
                     studentId, studentId, 5 - list.size()
             ).forEach(list::add);
@@ -199,7 +205,7 @@ public class StudentDashboardServiceImpl implements StudentDashboardService {
                   AND last_accessed_at >= DATE_TRUNC('week', NOW())
                 GROUP BY EXTRACT(ISODOW FROM last_accessed_at)
                 """,
-                (rs) -> {
+                rs -> {
                     int dow = rs.getInt("dow");
                     double hours = Math.round(rs.getDouble("hours") * 10.0) / 10.0;
                     if (dow >= 1 && dow <= 7) {
@@ -226,7 +232,7 @@ public class StudentDashboardServiceImpl implements StudentDashboardService {
                 LIMIT 5
                 """,
                 (rs, i) -> StudentDashboardResponse.SkillProgressDto.builder()
-                        .title(rs.getString("title"))
+                        .title(rs.getString(COL_TITLE))
                         .progress((int) Math.round(rs.getDouble("progress")))
                         .build(),
                 studentId

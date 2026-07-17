@@ -45,7 +45,7 @@ class StudentDashboardServiceImplTest {
     }
 
     @Test
-    void getStudentDashboard_ShouldReturnFullDataAndCoverAllBranches() throws SQLException {
+    void getStudentDashboard_ShouldReturnFullDataAndCoverAllBranches() {
         when(jdbc.queryForObject(contains("SELECT COALESCE(full_name"), eq(String.class), eq(studentId)))
                 .thenReturn("Nguyễn Văn Student");
         when(jdbc.queryForObject(contains("FROM course_enrollments"), eq(Integer.class), eq(studentId)))
@@ -163,7 +163,7 @@ class StudentDashboardServiceImplTest {
     }
 
     @Test
-    void getDueQuizzes_ShouldReturnQuizData() throws SQLException {
+    void getDueQuizzes_ShouldReturnQuizData() {
         UUID qid1 = UUID.randomUUID();
         UUID qid2 = UUID.randomUUID();
         when(jdbc.query(contains("FROM quizzes q"), any(RowMapper.class), eq(studentId), eq(studentId)))
