@@ -35,6 +35,12 @@ public class CourseProgressEntity {
     @Column(name = "overall_percentage")
     private BigDecimal overallPercentage;
 
+    @Column(name = "completed_assignments_count")
+    private Integer completedAssignmentsCount;
+
+    @Column(name = "total_assignments_count")
+    private Integer totalAssignmentsCount;
+
     @Column(name = "status", length = 20)
     private String status;
 

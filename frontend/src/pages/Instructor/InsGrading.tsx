@@ -128,6 +128,29 @@
       } finally { setReleasing(false); }
     };
 
+    const handleGradeAndPublish = async (sub, data) => {
+      const res = await api.patch("/instructor/submissions/grade", {
+        submissionId: sub.id, score: data.score, feedback: data.feedback
+      });
+      await api.patch("/instructor/submissions/batch/release", {
+        submissionIds: [sub.id]
+      });
+      setSubmissions(prev => prev.map(s =>
+        s.id === sub.id ? { ...s, ...res.data, status: "graded", scorePublishedAt: new Date().toISOString() } : s
+      ));
+      setGrade(null);
+    };
+
+    const handlePublishOne = async (sub) => {
+      await api.patch("/instructor/submissions/batch/release", {
+        submissionIds: [sub.id]
+      });
+      setSubmissions(prev => prev.map(s =>
+        s.id === sub.id ? { ...s, scorePublishedAt: new Date().toISOString() } : s
+      ));
+      setGrade(null);
+    };
+
     const hasSelection = selected.size > 0;
     const selectedForRelease = submissions.filter(s => selected.has(s.id) && s.status === "graded" && !s.scorePublishedAt);
 
@@ -317,7 +340,7 @@
           </>)}
         </Section>
         <window.PageBar pg={pg} unit="bài nộp" />
-        <GradeModal sub={grade} onClose={() => setGrade(null)} onGrade={handleGrade} maxScore={grade?.assignmentMaxScore} assignmentPassScore={grade?.assignmentPassScore} onPreview={(files, idx) => setPreviewFiles({ files, idx })} published={!!grade?.scorePublishedAt} />
+        <GradeModal sub={grade} onClose={() => setGrade(null)} onGrade={handleGrade} onGradeAndPublish={handleGradeAndPublish} onPublish={handlePublishOne} maxScore={grade?.assignmentMaxScore} assignmentPassScore={grade?.assignmentPassScore} onPreview={(files, idx) => setPreviewFiles({ files, idx })} published={!!grade?.scorePublishedAt} />
         {previewFiles && React.createElement(window.FilePreview, {
           files: previewFiles.files,
           initialIdx: previewFiles.idx,
@@ -338,7 +361,7 @@
     );
   }
 
-  function GradeModal({ sub, onClose, onGrade, maxScore, assignmentPassScore, onPreview, published }) {
+  function GradeModal({ sub, onClose, onGrade, onGradeAndPublish, onPublish, maxScore, assignmentPassScore, onPreview, published }) {
     const graded = sub && sub.status === "graded";
     const readonly = published;
     const [score, setScore] = useState("");
@@ -346,6 +369,18 @@
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState("");
     const [scoreError, setScoreError] = useState("");
+
+    const initScore = React.useMemo(() => {
+      if (!sub) return "";
+      if (sub.status === "graded" && sub.score != null) return String(sub.score);
+      return "";
+    }, [sub?.id, sub?.status, sub?.score]);
+    const initFb = React.useMemo(() => {
+      if (!sub) return "";
+      if (sub.status === "graded") return sub.feedback || "";
+      return "";
+    }, [sub?.id, sub?.status, sub?.feedback]);
+    const dirty = score !== initScore || fb !== initFb;
 
     React.useEffect(() => {
       if (!sub) return;
@@ -384,6 +419,28 @@
         await onGrade(sub, { score: num, feedback: fb });
       } catch (e) {
         setError("Lưu điểm thất bại");
+      } finally { setSubmitting(false); }
+    };
+
+    const handleSaveAndPublish = async () => {
+      if (!hasScore) { setError("Vui lòng nhập điểm"); return; }
+      if (num < 0 || num > max) { setError("Điểm phải từ 0 đến " + max); return; }
+      setSubmitting(true);
+      setError("");
+      try {
+        await onGradeAndPublish(sub, { score: num, feedback: fb });
+      } catch (e) {
+        setError("Lưu & công bố thất bại");
+      } finally { setSubmitting(false); }
+    };
+
+    const handlePublish = async () => {
+      setSubmitting(true);
+      setError("");
+      try {
+        await onPublish(sub);
+      } catch (e) {
+        setError("Công bố thất bại");
       } finally { setSubmitting(false); }
     };
 
@@ -441,13 +498,28 @@
         <div className="modal-foot">
           <button className="btn btn-ghost" onClick={onClose}>{readonly ? "Đóng" : "Hủy"}</button>
           {!readonly && !graded && (
-            <button className="btn btn-soft" onClick={handleSave} disabled={submitting || !!scoreError}>
-              <Ic n="check" size={16} />Lưu điểm
-            </button>
+            <>
+              <button className="btn btn-soft" onClick={handleSave} disabled={submitting || !!scoreError}>
+                <Ic n="check" size={16} />Lưu điểm
+              </button>
+              <button className="btn btn-success" onClick={handleSaveAndPublish} disabled={submitting || !!scoreError}>
+                <Ic n="check" size={16} />Lưu & Công bố
+              </button>
+            </>
           )}
-          {!readonly && graded && (
-            <button className="btn btn-success" onClick={handleSave} disabled={submitting || !!scoreError}>
-              <Ic n="check" size={16} />Cập nhật điểm
+          {!readonly && graded && dirty && (
+            <>
+              <button className="btn btn-soft" onClick={handleSave} disabled={submitting || !!scoreError}>
+                <Ic n="check" size={16} />Cập nhật điểm
+              </button>
+              <button className="btn btn-success" onClick={handleSaveAndPublish} disabled={submitting || !!scoreError}>
+                <Ic n="check" size={16} />Cập nhật & Công bố
+              </button>
+            </>
+          )}
+          {!readonly && graded && !dirty && (
+            <button className="btn btn-success" onClick={handlePublish} disabled={submitting}>
+              <Ic n="check" size={16} />Công bố điểm
             </button>
           )}
         </div>

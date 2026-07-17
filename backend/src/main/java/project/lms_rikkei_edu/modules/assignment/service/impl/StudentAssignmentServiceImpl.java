@@ -32,6 +32,7 @@ import project.lms_rikkei_edu.modules.assignment.repository.SubmissionFileReposi
 import project.lms_rikkei_edu.modules.assignment.service.StudentAssignmentService;
 import project.lms_rikkei_edu.modules.course.repository.CourseEnrollmentRepository;
 import project.lms_rikkei_edu.modules.course.repository.CourseRepository;
+import project.lms_rikkei_edu.modules.course.entity.Course;
 import project.lms_rikkei_edu.modules.group.repository.GroupMemberRepository;
 import project.lms_rikkei_edu.infrastructure.s3.S3Service;
 import software.amazon.awssdk.core.sync.RequestBody;
@@ -123,7 +124,7 @@ public class StudentAssignmentServiceImpl implements StudentAssignmentService {
         }
 
         String courseTitle = courseRepository.findById(courseId)
-                .map(c -> c.getTitle())
+                .map(Course::getTitle)
                 .orElse(null);
 
         List<AssignmentAttachmentResponse> attachments = assignmentAttachmentRepository
@@ -178,38 +179,84 @@ public class StudentAssignmentServiceImpl implements StudentAssignmentService {
     public SubmissionResponse submitAssignment(UUID courseId, UUID assignmentId, UUID studentId,
                                                 String note, List<MultipartFile> files) {
         validateEnrollment(courseId, studentId);
+        AssignmentEntity assignment = resolveAssignment(courseId, assignmentId, studentId);
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
 
+        if (assignment.getStartDate() != null && now.isBefore(assignment.getStartDate())) {
+            throw new BusinessException("Bài tập chưa đến thời gian cho phép nộp");
+        }
+
+        // Nếu đã có bài nộp cũ và đã công bố điểm → không cho nộp lại
+        List<AssignmentSubmissionEntity> existingList = assignmentSubmissionRepository
+                .findByAssignmentIdAndStudentIdOrderByCreatedAtDesc(assignmentId, studentId);
+        if (!existingList.isEmpty()) {
+            for (AssignmentSubmissionEntity existing : existingList) {
+                if (existing.getScorePublishedAt() != null) {
+                    throw new BusinessException("Không thể nộp lại bài tập đã được công bố điểm");
+                }
+            }
+            // Xoá tất cả file cũ trên S3 và DB
+            for (AssignmentSubmissionEntity oldSub : existingList) {
+                List<SubmissionFileEntity> oldFiles = submissionFileRepository
+                        .findBySubmissionIdOrderByOrderIndexAsc(oldSub.getId());
+                for (SubmissionFileEntity f : oldFiles) {
+                    if (f.getS3Key() != null) {
+                        s3Service.deleteObject(f.getS3Key());
+                    }
+                    submissionFileRepository.delete(f);
+                }
+                assignmentSubmissionRepository.delete(oldSub);
+            }
+        }
+
+        boolean isLate = checkLateSubmission(assignment, now);
+
+        List<String> allowedTypes = parseAllowedFileTypes(assignment.getAllowedFileTypes());
+        int maxSizeMb = assignment.getMaxFileSizeMb() != null ? assignment.getMaxFileSizeMb() : 10;
+        validateSubmissionFiles(files, allowedTypes, maxSizeMb);
+
+        UUID submissionId = UUID.randomUUID();
+        createAndSaveSubmission(submissionId, assignmentId, studentId, courseId, note, isLate, now);
+        List<SubmissionFileResponse> fileResponses = uploadFiles(courseId, assignmentId, submissionId, files, now);
+
+        log.info("Student {} submitted assignment {}", studentId, assignmentId);
+        return SubmissionResponse.builder()
+                .id(submissionId)
+                .status(isLate ? "LATE" : "SUBMITTED")
+                .note(note)
+                .isLate(isLate)
+                .submittedAt(now)
+                .files(fileResponses)
+                .build();
+    }
+
+    private AssignmentEntity resolveAssignment(UUID courseId, UUID assignmentId, UUID studentId) {
         AssignmentEntity assignment = assignmentRepository.findByIdAndCourseId(assignmentId, courseId)
                 .orElseThrow(AssignmentNotFoundException::new);
-
         if (assignment.getStatus() != AssignmentStatus.PUBLISHED) {
             throw new BusinessException("Bài tập chưa được xuất bản hoặc đã đóng");
         }
-
         List<UUID> studentGroupIds = groupMemberRepository.findGroupIdsByStudentIdAndCourseId(studentId, courseId);
         if (!canAccess(assignment, Set.copyOf(studentGroupIds))) {
             throw new BusinessException("Bạn không có quyền truy cập bài tập này", HttpStatus.FORBIDDEN);
         }
+        return assignment;
+    }
 
-        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
-
-        // Deadline check
-        boolean isLate = false;
+    private boolean checkLateSubmission(AssignmentEntity assignment, OffsetDateTime now) {
         if (assignment.getDeadline() != null && now.isAfter(assignment.getDeadline())) {
             if (!Boolean.TRUE.equals(assignment.getAllowLateSubmission())) {
                 throw new BusinessException("Đã quá hạn nộp bài");
             }
-            isLate = true;
+            return true;
         }
+        return false;
+    }
 
-        // Validate files
-        List<String> allowedTypes = parseAllowedFileTypes(assignment.getAllowedFileTypes());
-        int maxSizeMb = assignment.getMaxFileSizeMb() != null ? assignment.getMaxFileSizeMb() : 10;
-
+    private void validateSubmissionFiles(List<MultipartFile> files, List<String> allowedTypes, int maxSizeMb) {
         if (files == null || files.isEmpty()) {
             throw new BusinessException("Vui lòng chọn ít nhất 1 file để nộp");
         }
-
         for (MultipartFile file : files) {
             if (file == null || file.isEmpty()) {
                 throw new BusinessException("File không được để trống");
@@ -225,10 +272,10 @@ public class StudentAssignmentServiceImpl implements StudentAssignmentService {
                 throw new BusinessException("File " + file.getOriginalFilename() + " vượt quá kích thước tối đa (" + maxSizeMb + " MB)");
             }
         }
+    }
 
-        // Create submission
-        UUID submissionId = UUID.randomUUID();
-
+    private AssignmentSubmissionEntity createAndSaveSubmission(UUID submissionId, UUID assignmentId, UUID studentId,
+                                                                UUID courseId, String note, boolean isLate, OffsetDateTime now) {
         AssignmentSubmissionEntity submission = new AssignmentSubmissionEntity();
         submission.setId(submissionId);
         submission.setAssignmentId(assignmentId);
@@ -240,8 +287,11 @@ public class StudentAssignmentServiceImpl implements StudentAssignmentService {
         submission.setSubmittedAt(now);
         submission.setCreatedAt(now);
         assignmentSubmissionRepository.save(submission);
+        return submission;
+    }
 
-        // Upload files & save records
+    private List<SubmissionFileResponse> uploadFiles(UUID courseId, UUID assignmentId, UUID submissionId,
+                                                      List<MultipartFile> files, OffsetDateTime now) {
         List<SubmissionFileResponse> fileResponses = new ArrayList<>();
         for (int i = 0; i < files.size(); i++) {
             MultipartFile file = files.get(i);
@@ -285,17 +335,7 @@ public class StudentAssignmentServiceImpl implements StudentAssignmentService {
                     .url(presigned.url().toString())
                     .build());
         }
-
-        log.info("Student {} submitted assignment {}", studentId, assignmentId);
-
-        return SubmissionResponse.builder()
-                .id(submissionId)
-                .status(isLate ? "LATE" : "SUBMITTED")
-                .note(note)
-                .isLate(isLate)
-                .submittedAt(now)
-                .files(fileResponses)
-                .build();
+        return fileResponses;
     }
 
     private boolean canAccess(AssignmentEntity assignment, Set<UUID> studentGroupIds) {
@@ -344,6 +384,7 @@ public class StudentAssignmentServiceImpl implements StudentAssignmentService {
                 .isLate(Boolean.TRUE.equals(latest.getIsLate()))
                 .score(latest.getScore())
                 .feedback(latest.getFeedback())
+                .scorePublishedAt(latest.getScorePublishedAt())
                 .submittedAt(latest.getSubmittedAt())
                 .files(files)
                 .build();

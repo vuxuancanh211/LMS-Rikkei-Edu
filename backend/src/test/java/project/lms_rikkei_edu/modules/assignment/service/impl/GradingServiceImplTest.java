@@ -3,7 +3,6 @@ package project.lms_rikkei_edu.modules.assignment.service.impl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import project.lms_rikkei_edu.common.exception.BusinessException;
@@ -25,6 +24,7 @@ import project.lms_rikkei_edu.modules.assignment.repository.SubmissionFileReposi
 import project.lms_rikkei_edu.modules.course.entity.Course;
 import project.lms_rikkei_edu.modules.course.repository.CourseEnrollmentRepository;
 import project.lms_rikkei_edu.modules.course.repository.CourseRepository;
+import project.lms_rikkei_edu.modules.course.service.StudentCourseService;
 import project.lms_rikkei_edu.modules.group.entity.GroupMemberEntity;
 import project.lms_rikkei_edu.modules.group.entity.StudyGroupEntity;
 import project.lms_rikkei_edu.modules.group.repository.GroupMemberRepository;
@@ -67,6 +67,7 @@ class GradingServiceImplTest {
     @Mock private CourseRepository courseRepository;
     @Mock private CourseEnrollmentRepository courseEnrollmentRepository;
     @Mock private S3Service s3Service;
+    @Mock private StudentCourseService studentCourseService;
 
     private GradingServiceImpl service;
 
@@ -85,7 +86,7 @@ class GradingServiceImplTest {
                 submissionFileRepository, assignmentGroupRepository,
                 userRepository, groupMemberRepository,
                 studyGroupRepository, courseRepository,
-                courseEnrollmentRepository, s3Service);
+                courseEnrollmentRepository, s3Service, studentCourseService);
     }
 
     // ── getSubmissions ─────────────────────────────────────────────────────

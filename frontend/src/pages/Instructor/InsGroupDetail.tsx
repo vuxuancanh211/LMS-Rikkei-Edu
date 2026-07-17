@@ -66,11 +66,9 @@
           <div className="row gap-10">
           </div>
         </div>
-        <div className="grid grid-stats" style={{ marginBottom: 22, gridTemplateColumns: "repeat(4,1fr)" }}>
+        <div className="grid grid-stats" style={{ marginBottom: 22, gridTemplateColumns: "repeat(2,1fr)" }}>
           <StatCard icon="users" iconBg="#eaf1ff" iconColor="#2563eb" value={String(group?.memberCount || 0)} label="Thành viên" />
           <StatCard icon="trending" iconBg="#e7f8f0" iconColor="#059669" value="—" label="Tiến độ TB" />
-          <StatCard icon="check_circle" iconBg="#f3edff" iconColor="#7c3aed" value="—" label="Đã nộp bài" />
-          <StatCard icon="warn" iconBg="#fef5e6" iconColor="#d97706" value="—" label="Chưa nộp / trễ" />
         </div>
         <div className="toolbar"><Search placeholder="Tìm học viên..." value={q} onChange={setQ} /></div>
         <Section pad={false}>

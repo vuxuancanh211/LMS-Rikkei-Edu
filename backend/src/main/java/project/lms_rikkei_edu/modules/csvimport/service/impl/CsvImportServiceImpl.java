@@ -30,8 +30,6 @@ import project.lms_rikkei_edu.modules.user.service.UserService;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
-import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -44,6 +42,16 @@ import java.util.UUID;
 public class CsvImportServiceImpl implements CsvImportService {
 
     private static final long CSV_PREVIEW_TTL_MINUTES = 30;
+
+    private static final String STATUS_VALID = "VALID";
+    private static final String STATUS_EXISTING_USER = "EXISTING_USER";
+    private static final String STATUS_NAME_MISMATCH = "NAME_MISMATCH";
+    private static final String STATUS_DUPLICATE_IN_FILE = "DUPLICATE_IN_FILE";
+    private static final String STATUS_DUPLICATE_IN_DB = "DUPLICATE_IN_DB";
+    private static final String STATUS_FORMAT_ERROR = "FORMAT_ERROR";
+    private static final String STATUS_ALREADY_ENROLLED = "ALREADY_ENROLLED";
+    private static final String STATUS_IMPORTED = "IMPORTED";
+    private static final String STATUS_IMPORT_FAILED = "IMPORT_FAILED";
 
     private final UserService userService;
     private final RedisService redisService;
@@ -82,29 +90,7 @@ public class CsvImportServiceImpl implements CsvImportService {
         List<String> newUserEmails = new ArrayList<>();
         List<String> existingUserEmails = new ArrayList<>();
 
-        for (CsvImportRowResult row : previewData.getRows()) {
-            switch (row.getStatus()) {
-                case "VALID" -> {
-                    AdminUserCreateRequest createRequest = new AdminUserCreateRequest();
-                    createRequest.setFullName(row.getFullName());
-                    createRequest.setEmail(row.getEmail());
-                    createRequest.setRole(previewData.getDefaultRole());
-                    createRequest.setPhoneNumber(row.getPhoneNumber().isEmpty() ? null : row.getPhoneNumber());
-                    batchRequests.add(createRequest);
-                    newUserEmails.add(row.getEmail());
-                    results.add(buildImportedRowResult(row));
-                }
-                case "EXISTING_USER" -> {
-                    existingUserEmails.add(row.getEmail());
-                    results.add(buildImportedRowResult(row));
-                }
-                case "NAME_MISMATCH" -> {
-                    existingUserEmails.add(row.getEmail());
-                    results.add(buildImportedRowResult(row));
-                }
-                default -> results.add(row);
-            }
-        }
+        processConfirmRows(previewData, results, batchRequests, newUserEmails, existingUserEmails);
 
         String courseTitle = null;
         if (courseId != null) {
@@ -122,12 +108,7 @@ public class CsvImportServiceImpl implements CsvImportService {
                 successCount = batchRequests.size();
             } catch (Exception e) {
                 failCount = batchRequests.size();
-                for (CsvImportRowResult row : results) {
-                    if ("IMPORTED".equals(row.getStatus())) {
-                        row.setStatus("IMPORT_FAILED");
-                        row.setErrors(List.of(e.getMessage() != null ? e.getMessage() : "Lỗi không xác định"));
-                    }
-                }
+                handleBatchCreateFailure(results, e);
             }
         }
 
@@ -136,15 +117,12 @@ public class CsvImportServiceImpl implements CsvImportService {
             allEnrollEmails.addAll(newUserEmails);
             allEnrollEmails.addAll(existingUserEmails);
             if (!allEnrollEmails.isEmpty()) {
-                enrollUsers(adminId, courseId, allEnrollEmails);
+                enrollUsers(courseId, allEnrollEmails);
             }
         }
 
         if (courseTitle != null && !existingUserEmails.isEmpty()) {
-            List<UserEntity> existingUsers = userRepository.findByEmailIgnoreCaseInAndDeletedAtIsNull(existingUserEmails);
-            for (UserEntity user : existingUsers) {
-                emailAsyncService.sendEnrolledToCourseMailAsync(user.getEmail(), user.getFullName(), courseTitle);
-            }
+            sendEnrollmentEmails(courseTitle, existingUserEmails);
         }
 
         return CsvImportConfirmResponse.builder()
@@ -153,6 +131,50 @@ public class CsvImportServiceImpl implements CsvImportService {
                 .failCount(failCount)
                 .results(results)
                 .build();
+    }
+
+    private void processConfirmRows(RedisPreviewData previewData, List<CsvImportRowResult> results,
+                                     List<AdminUserCreateRequest> batchRequests,
+                                     List<String> newUserEmails, List<String> existingUserEmails) {
+        for (CsvImportRowResult row : previewData.getRows()) {
+            switch (row.getStatus()) {
+                case STATUS_VALID -> {
+                    AdminUserCreateRequest createRequest = new AdminUserCreateRequest();
+                    createRequest.setFullName(row.getFullName());
+                    createRequest.setEmail(row.getEmail());
+                    createRequest.setRole(previewData.getDefaultRole());
+                    createRequest.setPhoneNumber(row.getPhoneNumber().isEmpty() ? null : row.getPhoneNumber());
+                    batchRequests.add(createRequest);
+                    newUserEmails.add(row.getEmail());
+                    results.add(buildImportedRowResult(row));
+                }
+                case STATUS_EXISTING_USER -> {
+                    existingUserEmails.add(row.getEmail());
+                    results.add(buildImportedRowResult(row));
+                }
+                case STATUS_NAME_MISMATCH -> {
+                    existingUserEmails.add(row.getEmail());
+                    results.add(buildImportedRowResult(row));
+                }
+                default -> results.add(row);
+            }
+        }
+    }
+
+    private void handleBatchCreateFailure(List<CsvImportRowResult> results, Exception e) {
+        for (CsvImportRowResult row : results) {
+            if (STATUS_IMPORTED.equals(row.getStatus())) {
+                row.setStatus(STATUS_IMPORT_FAILED);
+                row.setErrors(List.of(e.getMessage() != null ? e.getMessage() : "Lỗi không xác định"));
+            }
+        }
+    }
+
+    private void sendEnrollmentEmails(String courseTitle, List<String> existingUserEmails) {
+        List<UserEntity> existingUsers = userRepository.findByEmailIgnoreCaseInAndDeletedAtIsNull(existingUserEmails);
+        for (UserEntity user : existingUsers) {
+            emailAsyncService.sendEnrolledToCourseMailAsync(user.getEmail(), user.getFullName(), courseTitle);
+        }
     }
 
     // ── Preview helpers ──────────────────────────────────────────────────────
@@ -216,13 +238,14 @@ public class CsvImportServiceImpl implements CsvImportService {
             results.add(result);
 
             switch (result.getStatus()) {
-                case "VALID" -> validCount++;
-                case "EXISTING_USER" -> existingUserCount++;
-                case "FORMAT_ERROR" -> formatErrorCount++;
-                case "DUPLICATE_IN_FILE" -> duplicateInFileCount++;
-                case "DUPLICATE_IN_DB" -> duplicateInDbCount++;
-                case "ALREADY_ENROLLED" -> alreadyEnrolledCount++;
-                case "NAME_MISMATCH" -> nameMismatchCount++;
+                case STATUS_VALID -> validCount++;
+                case STATUS_EXISTING_USER -> existingUserCount++;
+                case STATUS_FORMAT_ERROR -> formatErrorCount++;
+                case STATUS_DUPLICATE_IN_FILE -> duplicateInFileCount++;
+                case STATUS_DUPLICATE_IN_DB -> duplicateInDbCount++;
+                case STATUS_ALREADY_ENROLLED -> alreadyEnrolledCount++;
+                case STATUS_NAME_MISMATCH -> nameMismatchCount++;
+                default -> {}
             }
         }
 
@@ -257,52 +280,56 @@ public class CsvImportServiceImpl implements CsvImportService {
 
         List<String> errors = validateRequest(createRequest);
         if (!errors.isEmpty()) {
-            return buildRowResult(rowData.rowNumber, rowData.fullName, rowData.email, rowData.phone, "FORMAT_ERROR", errors);
+            return buildRowResult(rowData.rowNumber, rowData.fullName, rowData.email, rowData.phone, STATUS_FORMAT_ERROR, errors);
         }
 
         if (emailsInFile.contains(rowData.email)) {
             errors.add("Email bị trùng trong file (dòng " + (findRowByEmail(rawRows, rowData.email, rowData.rowNumber - 1) + 1) + ")");
-            return buildRowResult(rowData.rowNumber, rowData.fullName, rowData.email, rowData.phone, "DUPLICATE_IN_FILE", errors);
+            return buildRowResult(rowData.rowNumber, rowData.fullName, rowData.email, rowData.phone, STATUS_DUPLICATE_IN_FILE, errors);
         }
         emailsInFile.add(rowData.email);
 
         if (!rowData.phone.isEmpty()) {
             if (phonesInFile.contains(rowData.phone)) {
                 errors.add("Số điện thoại bị trùng trong file");
-                return buildRowResult(rowData.rowNumber, rowData.fullName, rowData.email, rowData.phone, "DUPLICATE_IN_FILE", errors);
+                return buildRowResult(rowData.rowNumber, rowData.fullName, rowData.email, rowData.phone, STATUS_DUPLICATE_IN_FILE, errors);
             }
             phonesInFile.add(rowData.phone);
         }
 
-        if (userService.existsByEmail(rowData.email)) {
-            if (courseId != null) {
-                UserEntity existingUser = userRepository.findByEmailIgnoreCaseAndDeletedAtIsNull(rowData.email).orElse(null);
-                if (existingUser != null) {
-                    if (courseEnrollmentRepository.existsByCourseIdAndStudentId(courseId, existingUser.getId())) {
-                        errors.add("Email [" + rowData.email + "] đã tham gia khoá học này");
-                        return buildRowResult(rowData.rowNumber, rowData.fullName, rowData.email, rowData.phone,
-                                "ALREADY_ENROLLED", errors);
-                    }
-                    if (!rowData.fullName.equalsIgnoreCase(existingUser.getFullName())) {
-                        errors.add("Tên trong file (" + rowData.fullName + ") khác với tên thật ("
-                                + existingUser.getFullName() + ")");
-                        return buildRowResult(rowData.rowNumber, rowData.fullName, rowData.email, rowData.phone,
-                                "NAME_MISMATCH", errors);
-                    }
-                }
-                return buildRowResult(rowData.rowNumber, rowData.fullName, rowData.email, rowData.phone,
-                        "EXISTING_USER", List.of("Email đã tồn tại, sẽ thêm vào khoá học"));
-            }
-            errors.add("Email đã tồn tại trong hệ thống");
-            return buildRowResult(rowData.rowNumber, rowData.fullName, rowData.email, rowData.phone, "DUPLICATE_IN_DB", errors);
-        }
+        CsvImportRowResult existingResult = checkExistingUserInDb(rowData, courseId, errors);
+        if (existingResult != null) return existingResult;
 
         if (!rowData.phone.isEmpty() && userService.existsByPhoneNumber(rowData.phone)) {
             errors.add("Số điện thoại đã tồn tại trong hệ thống");
-            return buildRowResult(rowData.rowNumber, rowData.fullName, rowData.email, rowData.phone, "DUPLICATE_IN_DB", errors);
+            return buildRowResult(rowData.rowNumber, rowData.fullName, rowData.email, rowData.phone, STATUS_DUPLICATE_IN_DB, errors);
         }
 
-        return buildRowResult(rowData.rowNumber, rowData.fullName, rowData.email, rowData.phone, "VALID", errors);
+        return buildRowResult(rowData.rowNumber, rowData.fullName, rowData.email, rowData.phone, STATUS_VALID, errors);
+    }
+
+    private CsvImportRowResult checkExistingUserInDb(CsvRowData rowData, UUID courseId, List<String> errors) {
+        if (!userService.existsByEmail(rowData.email)) return null;
+        if (courseId != null) {
+            UserEntity existingUser = userRepository.findByEmailIgnoreCaseAndDeletedAtIsNull(rowData.email).orElse(null);
+            if (existingUser != null) {
+                if (courseEnrollmentRepository.existsByCourseIdAndStudentId(courseId, existingUser.getId())) {
+                    errors.add("Email [" + rowData.email + "] đã tham gia khoá học này");
+                    return buildRowResult(rowData.rowNumber, rowData.fullName, rowData.email, rowData.phone,
+                            STATUS_ALREADY_ENROLLED, errors);
+                }
+                if (!rowData.fullName.equalsIgnoreCase(existingUser.getFullName())) {
+                    errors.add("Tên trong file (" + rowData.fullName + ") khác với tên thật ("
+                            + existingUser.getFullName() + ")");
+                    return buildRowResult(rowData.rowNumber, rowData.fullName, rowData.email, rowData.phone,
+                            STATUS_NAME_MISMATCH, errors);
+                }
+            }
+            return buildRowResult(rowData.rowNumber, rowData.fullName, rowData.email, rowData.phone,
+                    STATUS_EXISTING_USER, List.of("Email đã tồn tại, sẽ thêm vào khoá học"));
+        }
+        errors.add("Email đã tồn tại trong hệ thống");
+        return buildRowResult(rowData.rowNumber, rowData.fullName, rowData.email, rowData.phone, STATUS_DUPLICATE_IN_DB, errors);
     }
 
     private static AdminUserCreateRequest buildCreateRequest(CsvRowData rowData, String defaultRole) {
@@ -365,9 +392,8 @@ public class CsvImportServiceImpl implements CsvImportService {
         }
     }
 
-    private void enrollUsers(UUID adminId, UUID courseId, List<String> emails) {
+    private void enrollUsers(UUID courseId, List<String> emails) {
         List<UserEntity> users = userRepository.findByEmailIgnoreCaseInAndDeletedAtIsNull(emails);
-        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
 
         List<CourseEnrollmentEntity> enrollments = new ArrayList<>();
         for (UserEntity user : users) {
@@ -391,19 +417,8 @@ public class CsvImportServiceImpl implements CsvImportService {
                 .fullName(row.getFullName())
                 .email(row.getEmail())
                 .phoneNumber(row.getPhoneNumber())
-                .status("IMPORTED")
+                .status(STATUS_IMPORTED)
                 .errors(List.of())
-                .build();
-    }
-
-    private CsvImportRowResult buildFailedRowResult(CsvImportRowResult row, String errorMessage) {
-        return CsvImportRowResult.builder()
-                .rowNumber(row.getRowNumber())
-                .fullName(row.getFullName())
-                .email(row.getEmail())
-                .phoneNumber(row.getPhoneNumber())
-                .status("IMPORT_FAILED")
-                .errors(List.of(errorMessage != null ? errorMessage : "Lỗi không xác định"))
                 .build();
     }
 

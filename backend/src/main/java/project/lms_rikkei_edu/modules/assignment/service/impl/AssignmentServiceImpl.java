@@ -28,7 +28,9 @@ import project.lms_rikkei_edu.modules.assignment.service.AssignmentService;
 import project.lms_rikkei_edu.infrastructure.s3.S3Service;
 import project.lms_rikkei_edu.modules.course.entity.Course;
 import project.lms_rikkei_edu.modules.course.enums.CourseStatus;
+import project.lms_rikkei_edu.modules.course.repository.CourseEnrollmentRepository;
 import project.lms_rikkei_edu.modules.course.repository.CourseRepository;
+import project.lms_rikkei_edu.modules.course.service.StudentCourseService;
 import project.lms_rikkei_edu.modules.group.entity.StudyGroupEntity;
 import project.lms_rikkei_edu.modules.group.repository.StudyGroupRepository;
 import software.amazon.awssdk.core.sync.RequestBody;
@@ -57,6 +59,8 @@ public class AssignmentServiceImpl implements AssignmentService {
     private final S3Client s3Client;
     private final S3Service s3Service;
     private final ObjectMapper objectMapper;
+    private final CourseEnrollmentRepository courseEnrollmentRepository;
+    private final StudentCourseService studentCourseService;
 
     @Value("${app.s3.bucket}")
     private String bucket;
@@ -70,36 +74,13 @@ public class AssignmentServiceImpl implements AssignmentService {
         validateCourseOwnership(courseId, instructorId);
         validateCoursePublished(courseId);
 
-        if (request.getScope() == AssignmentScope.SPECIFIC_GROUPS
-                && (request.getGroupIds() == null || request.getGroupIds().isEmpty())) {
-            throw new BusinessException("Phải chọn ít nhất 1 nhóm khi scope=SPECIFIC_GROUPS");
-        }
-
+        validateAssignmentScope(request);
         validateDates(request.getStartDate(), request.getDeadline());
-
-        if (Boolean.TRUE.equals(request.getAllowLateSubmission())
-                && request.getLatePenaltyPercent() != null
-                && (request.getLatePenaltyPercent() < 0 || request.getLatePenaltyPercent() > 100)) {
-            throw new BusinessException("Late penalty percent phải từ 0-100");
-        }
-
-        if (request.getMaxScore() == null || request.getMaxScore().compareTo(BigDecimal.ZERO) <= 0) {
-            throw new BusinessException("Điểm tối đa phải lớn hơn 0");
-        }
-        if (request.getMaxScore().compareTo(BigDecimal.valueOf(100)) > 0) {
-            throw new BusinessException("Điểm tối đa không được vượt quá 100");
-        }
-
-        BigDecimal passScore = request.getPassingScore();
-        if (passScore == null) {
-            passScore = request.getMaxScore().multiply(BigDecimal.valueOf(0.5)).setScale(2, RoundingMode.HALF_UP);
-        }
-        if (passScore.compareTo(BigDecimal.ZERO) < 0) {
-            throw new BusinessException("Điểm đạt không được nhỏ hơn 0");
-        }
-        if (passScore.compareTo(request.getMaxScore()) > 0) {
-            throw new BusinessException("Điểm đạt không được lớn hơn điểm tối đa");
-        }
+        validateLateSubmission(request);
+        BigDecimal maxScore = request.getMaxScore();
+        validateMaxScore(maxScore);
+        BigDecimal passScore = resolvePassingScore(request.getPassingScore(), maxScore);
+        validatePassingScore(passScore, maxScore);
 
         UUID assignmentId = UUID.randomUUID();
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
@@ -382,6 +363,12 @@ public class AssignmentServiceImpl implements AssignmentService {
         assignment.setUpdatedAt(now);
         assignmentRepository.save(assignment);
 
+        // Recalculate course progress for all enrolled students — totalAssignmentsCount thay đổi
+        List<UUID> studentIds = courseEnrollmentRepository.findStudentIdsByCourseId(courseId);
+        for (UUID studentId : studentIds) {
+            studentCourseService.recalculateCourseProgress(studentId, courseId);
+        }
+
         log.info("Published assignment {} for course {}", assignmentId, courseId);
         return assignmentMapper.toResponse(assignment);
     }
@@ -409,7 +396,6 @@ public class AssignmentServiceImpl implements AssignmentService {
     public AssignmentAttachmentResponse uploadAttachment(UUID courseId, UUID assignmentId, UUID instructorId,
                                                           MultipartFile file) {
         validateCourseOwnership(courseId, instructorId);
-        AssignmentEntity assignment = findAssignment(courseId, assignmentId);
 
         if (file == null || file.isEmpty()) {
             throw new BusinessException("File không được để trống");
@@ -460,7 +446,6 @@ public class AssignmentServiceImpl implements AssignmentService {
     @Transactional
     public void deleteAttachment(UUID courseId, UUID assignmentId, UUID attachmentId, UUID instructorId) {
         validateCourseOwnership(courseId, instructorId);
-        AssignmentEntity assignment = findAssignment(courseId, assignmentId);
 
         AssignmentAttachmentEntity attachment = assignmentAttachmentRepository.findById(attachmentId)
                 .orElseThrow(() -> new BusinessException("Không tìm thấy file đính kèm"));
@@ -509,23 +494,78 @@ public class AssignmentServiceImpl implements AssignmentService {
                 .orElseThrow(AssignmentNotFoundException::new);
     }
 
+    private void validateAssignmentScope(CreateAssignmentRequest request) {
+        if (request.getScope() == AssignmentScope.SPECIFIC_GROUPS
+                && (request.getGroupIds() == null || request.getGroupIds().isEmpty())) {
+            throw new BusinessException("Phải chọn ít nhất 1 nhóm khi scope=SPECIFIC_GROUPS");
+        }
+    }
+
+    private void validateLateSubmission(CreateAssignmentRequest request) {
+        if (Boolean.TRUE.equals(request.getAllowLateSubmission())
+                && request.getLatePenaltyPercent() != null
+                && (request.getLatePenaltyPercent() < 0 || request.getLatePenaltyPercent() > 100)) {
+            throw new BusinessException("Late penalty percent phải từ 0-100");
+        }
+    }
+
+    private void validateMaxScore(BigDecimal maxScore) {
+        if (maxScore == null || maxScore.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException("Điểm tối đa phải lớn hơn 0");
+        }
+        if (maxScore.compareTo(BigDecimal.valueOf(100)) > 0) {
+            throw new BusinessException("Điểm tối đa không được vượt quá 100");
+        }
+    }
+
+    private BigDecimal resolvePassingScore(BigDecimal passingScore, BigDecimal maxScore) {
+        if (passingScore != null) return passingScore;
+        return maxScore.multiply(BigDecimal.valueOf(0.5)).setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private void validatePassingScore(BigDecimal passScore, BigDecimal maxScore) {
+        if (passScore.compareTo(BigDecimal.ZERO) < 0) {
+            throw new BusinessException("Điểm đạt không được nhỏ hơn 0");
+        }
+        if (passScore.compareTo(maxScore) > 0) {
+            throw new BusinessException("Điểm đạt không được lớn hơn điểm tối đa");
+        }
+    }
+
     private void updateDraftFields(AssignmentEntity assignment, UpdateAssignmentRequest request) {
+        updateDraftCoreFields(assignment, request);
+        updateDraftDateFields(assignment, request);
+        updateDraftLateSubmissionFields(assignment, request);
+        updateDraftMaxScoreFields(assignment, request);
+        updateDraftPassingScoreFields(assignment, request);
+        updateDraftFileConstraints(assignment, request);
+        updateAssignmentGroups(assignment, request.getScope(), request.getGroupIds());
+    }
+
+    private void updateDraftCoreFields(AssignmentEntity assignment, UpdateAssignmentRequest request) {
         if (request.getTitle() != null) assignment.setTitle(request.getTitle().trim());
         if (request.getDescription() != null) assignment.setDescription(request.getDescription());
         if (request.getScope() != null) assignment.setScope(request.getScope());
+    }
 
+    private void updateDraftDateFields(AssignmentEntity assignment, UpdateAssignmentRequest request) {
         OffsetDateTime effectiveStartDate = request.getStartDate() != null ? request.getStartDate() : assignment.getStartDate();
         OffsetDateTime effectiveDeadline = request.getDeadline() != null ? request.getDeadline() : assignment.getDeadline();
         validateDates(effectiveStartDate, effectiveDeadline);
-
         if (request.getStartDate() != null) assignment.setStartDate(request.getStartDate());
         if (request.getDeadline() != null) assignment.setDeadline(request.getDeadline());
+    }
+
+    private void updateDraftLateSubmissionFields(AssignmentEntity assignment, UpdateAssignmentRequest request) {
         if (request.getAllowLateSubmission() != null) {
             assignment.setAllowLateSubmission(request.getAllowLateSubmission());
         }
         if (request.getLatePenaltyPercent() != null) {
             assignment.setLatePenaltyPercent(request.getLatePenaltyPercent());
         }
+    }
+
+    private void updateDraftMaxScoreFields(AssignmentEntity assignment, UpdateAssignmentRequest request) {
         if (request.getMaxScore() != null) {
             if (request.getMaxScore().compareTo(BigDecimal.ZERO) <= 0) {
                 throw new BusinessException("Điểm tối đa phải lớn hơn 0");
@@ -535,6 +575,9 @@ public class AssignmentServiceImpl implements AssignmentService {
             }
             assignment.setMaxScore(request.getMaxScore());
         }
+    }
+
+    private void updateDraftPassingScoreFields(AssignmentEntity assignment, UpdateAssignmentRequest request) {
         if (request.getPassingScore() != null) {
             BigDecimal effectiveMax = assignment.getMaxScore() != null ? assignment.getMaxScore() : request.getMaxScore();
             if (request.getPassingScore().compareTo(BigDecimal.ZERO) < 0) {
@@ -545,11 +588,13 @@ public class AssignmentServiceImpl implements AssignmentService {
             }
             assignment.setPassingScore(request.getPassingScore());
         }
+    }
+
+    private void updateDraftFileConstraints(AssignmentEntity assignment, UpdateAssignmentRequest request) {
         if (request.getMaxFileSizeMb() != null) assignment.setMaxFileSizeMb(request.getMaxFileSizeMb());
         if (request.getAllowedFileTypes() != null) {
             assignment.setAllowedFileTypes(toJsonArray(request.getAllowedFileTypes()));
         }
-        updateAssignmentGroups(assignment, request.getScope(), request.getGroupIds());
     }
 
     private void updatePublishedFields(AssignmentEntity assignment, UpdateAssignmentRequest request) {
@@ -570,16 +615,9 @@ public class AssignmentServiceImpl implements AssignmentService {
             hasChanges = true;
         }
         if (request.getPassingScore() != null) {
-            if (request.getPassingScore().compareTo(BigDecimal.ZERO) < 0) {
-                throw new BusinessException("Điểm đạt không được nhỏ hơn 0");
-            }
-            if (request.getPassingScore().compareTo(assignment.getMaxScore()) > 0) {
-                throw new BusinessException("Điểm đạt không được lớn hơn điểm tối đa");
-            }
-            assignment.setPassingScore(request.getPassingScore());
+            updatePublishedPassingScore(assignment, request);
             hasChanges = true;
         }
-
         if (request.getMaxFileSizeMb() != null) {
             assignment.setMaxFileSizeMb(request.getMaxFileSizeMb());
             hasChanges = true;
@@ -588,37 +626,24 @@ public class AssignmentServiceImpl implements AssignmentService {
             assignment.setAllowedFileTypes(toJsonArray(request.getAllowedFileTypes()));
             hasChanges = true;
         }
-
         if (request.getScope() != null) {
             assignment.setScope(request.getScope());
-            hasChanges = true;
-        }
-        if (request.getScope() != null) {
             updateAssignmentGroups(assignment, request.getScope(), request.getGroupIds());
             hasChanges = true;
         }
-
-        if (request.getMaxFileSizeMb() != null) {
-            assignment.setMaxFileSizeMb(request.getMaxFileSizeMb());
-            hasChanges = true;
-        }
-        if (request.getAllowedFileTypes() != null) {
-            assignment.setAllowedFileTypes(toJsonArray(request.getAllowedFileTypes()));
-            hasChanges = true;
-        }
-
-        if (request.getScope() != null) {
-            assignment.setScope(request.getScope());
-            hasChanges = true;
-        }
-        if (request.getScope() != null) {
-            updateAssignmentGroups(assignment, request.getScope(), request.getGroupIds());
-            hasChanges = true;
-        }
-
         if (!hasChanges) {
             throw new BusinessException("Sau khi publish chỉ có thể thay đổi deadline, allow_late_submission, late_penalty_percent, passing_score, max_file_size_mb, allowed_file_types, scope và group_ids");
         }
+    }
+
+    private void updatePublishedPassingScore(AssignmentEntity assignment, UpdateAssignmentRequest request) {
+        if (request.getPassingScore().compareTo(BigDecimal.ZERO) < 0) {
+            throw new BusinessException("Điểm đạt không được nhỏ hơn 0");
+        }
+        if (request.getPassingScore().compareTo(assignment.getMaxScore()) > 0) {
+            throw new BusinessException("Điểm đạt không được lớn hơn điểm tối đa");
+        }
+        assignment.setPassingScore(request.getPassingScore());
     }
 
     private void validateDates(OffsetDateTime startDate, OffsetDateTime deadline) {

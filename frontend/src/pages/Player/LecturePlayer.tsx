@@ -1672,7 +1672,7 @@
               <div style={{ marginBottom: 16 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#94a3b8", marginBottom: 4 }}>
                   <span>Tiến độ</span>
-                  <span>{progressPct}% ({completedCount}/{totalLessons})</span>
+                  <span>{progressPct}% ({completedCount + (course?.completedAssignments ?? 0)}/{totalLessons + (course?.totalAssignments ?? 0)})</span>
                 </div>
                 <div style={{ height: 4, borderRadius: 999, background: "rgba(255,255,255,.1)", overflow: "hidden" }}>
                   <div style={{ width: `${progressPct}%`, height: "100%", background: "#10b981", borderRadius: 999, transition: "width .3s" }} />

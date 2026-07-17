@@ -19,5 +19,6 @@ public class SubmissionResponse {
     private BigDecimal score;
     private String feedback;
     private OffsetDateTime submittedAt;
+    private OffsetDateTime scorePublishedAt;
     private List<SubmissionFileResponse> files;
 }

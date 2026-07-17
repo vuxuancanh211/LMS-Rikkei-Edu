@@ -38,6 +38,10 @@ public class CourseDetailResponse {
     private Instant createdAt;
     private Instant updatedAt;
 
+    // ── Student progress fields ──
+    private int completedAssignments;
+    private int totalAssignments;
+
     // ── Hybrid draft fields ──
     private boolean hasPendingDraft;
     private String draftTitle;

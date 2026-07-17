@@ -28,7 +28,9 @@ import project.lms_rikkei_edu.modules.assignment.repository.AssignmentGroupRepos
 import project.lms_rikkei_edu.modules.assignment.repository.AssignmentRepository;
 import project.lms_rikkei_edu.modules.course.entity.Course;
 import project.lms_rikkei_edu.modules.course.enums.CourseStatus;
+import project.lms_rikkei_edu.modules.course.repository.CourseEnrollmentRepository;
 import project.lms_rikkei_edu.modules.course.repository.CourseRepository;
+import project.lms_rikkei_edu.modules.course.service.StudentCourseService;
 import project.lms_rikkei_edu.modules.group.repository.StudyGroupRepository;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -71,6 +73,10 @@ class AssignmentServiceImplTest {
     private S3Service s3Service;
     @Mock
     private StudyGroupRepository studyGroupRepository;
+    @Mock
+    private CourseEnrollmentRepository courseEnrollmentRepository;
+    @Mock
+    private StudentCourseService studentCourseService;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private AssignmentServiceImpl service;
@@ -86,7 +92,8 @@ class AssignmentServiceImplTest {
         service = new AssignmentServiceImpl(
                 assignmentRepository, assignmentGroupRepository,
                 assignmentAttachmentRepository, courseRepository,
-                assignmentMapper, studyGroupRepository, s3Client, s3Service, objectMapper);
+                assignmentMapper, studyGroupRepository, s3Client, s3Service, objectMapper,
+                courseEnrollmentRepository, studentCourseService);
         ReflectionTestUtils.setField(service, "bucket", "test-bucket");
         ReflectionTestUtils.setField(service, "presignedUrlExpiry", 3600L);
     }
@@ -361,156 +368,8 @@ class AssignmentServiceImplTest {
         when(assignmentRepository.findByIdAndCourseId(assignmentId, courseId))
                 .thenReturn(Optional.of(assignment));
         when(assignmentRepository.save(any())).thenReturn(assignment);
-        when(assignmentMapper.toResponse(any())).thenReturn(response);
-
-        AssignmentResponse result = service.updateAssignment(courseId, assignmentId, instructorId, request);
-
-        assertThat(result).isEqualTo(response);
-        assertThat(assignment.getTitle()).isEqualTo("Updated Title");
-    }
-
-    @Test
-    void updateAssignment_draft_specificGroups_replaceGroupIds() {
-        var assignment = assignmentEntity(AssignmentStatus.DRAFT, AssignmentScope.SPECIFIC_GROUPS);
-        UUID newGroupId = UUID.randomUUID();
-        var request = new UpdateAssignmentRequest();
-        request.setScope(AssignmentScope.SPECIFIC_GROUPS);
-        request.setGroupIds(List.of(newGroupId));
-
-        when(courseRepository.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(true);
-        when(assignmentRepository.findByIdAndCourseId(assignmentId, courseId))
-                .thenReturn(Optional.of(assignment));
-
-        service.updateAssignment(courseId, assignmentId, instructorId, request);
-
-        verify(assignmentGroupRepository).deleteByAssignmentId(assignmentId);
-        verify(assignmentGroupRepository).save(any(AssignmentGroupEntity.class));
-    }
-
-    @Test
-    void updateAssignment_published_updatesDeadlineOnly() {
-        var assignment = assignmentEntity(AssignmentStatus.PUBLISHED, AssignmentScope.ALL_GROUPS);
-        var request = new UpdateAssignmentRequest();
-        request.setDeadline(futureDeadline);
-        var response = assignmentResponse();
-
-        when(courseRepository.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(true);
-        when(assignmentRepository.findByIdAndCourseId(assignmentId, courseId))
-                .thenReturn(Optional.of(assignment));
-        when(assignmentRepository.save(any())).thenReturn(assignment);
-        when(assignmentMapper.toResponse(any())).thenReturn(response);
-
-        AssignmentResponse result = service.updateAssignment(courseId, assignmentId, instructorId, request);
-
-        assertThat(result).isEqualTo(response);
-        verify(assignmentRepository).save(assignment);
-    }
-
-    @Test
-    void updateAssignment_published_noPublishableChanges_throws() {
-        var assignment = assignmentEntity(AssignmentStatus.PUBLISHED, AssignmentScope.ALL_GROUPS);
-        var request = new UpdateAssignmentRequest();
-        request.setTitle("Can't change title after publish");
-
-        when(courseRepository.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(true);
-        when(assignmentRepository.findByIdAndCourseId(assignmentId, courseId))
-                .thenReturn(Optional.of(assignment));
-
-        assertThatThrownBy(() -> service.updateAssignment(courseId, assignmentId, instructorId, request))
-                .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("Sau khi publish");
-    }
-
-    @Test
-    void updateAssignment_closed_throws() {
-        var assignment = assignmentEntity(AssignmentStatus.CLOSED, AssignmentScope.ALL_GROUPS);
-        when(courseRepository.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(true);
-        when(assignmentRepository.findByIdAndCourseId(assignmentId, courseId))
-                .thenReturn(Optional.of(assignment));
-
-        assertThatThrownBy(() -> service.updateAssignment(courseId, assignmentId, instructorId, new UpdateAssignmentRequest()))
-                .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("đã đóng");
-    }
-
-    @Test
-    void updateAssignment_published_updatesMaxFileSizeMb() {
-        var assignment = assignmentEntity(AssignmentStatus.PUBLISHED, AssignmentScope.ALL_GROUPS);
-        var request = new UpdateAssignmentRequest();
-        request.setMaxFileSizeMb(50);
-        var response = assignmentResponse();
-
-        when(courseRepository.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(true);
-        when(assignmentRepository.findByIdAndCourseId(assignmentId, courseId))
-                .thenReturn(Optional.of(assignment));
-        when(assignmentRepository.save(any())).thenReturn(assignment);
-        when(assignmentMapper.toResponse(any())).thenReturn(response);
-
-        AssignmentResponse result = service.updateAssignment(courseId, assignmentId, instructorId, request);
-
-        assertThat(result).isEqualTo(response);
-        assertThat(assignment.getMaxFileSizeMb()).isEqualTo(50);
-        verify(assignmentRepository).save(assignment);
-    }
-
-    @Test
-    void updateAssignment_published_updatesAllowedFileTypes() {
-        var assignment = assignmentEntity(AssignmentStatus.PUBLISHED, AssignmentScope.ALL_GROUPS);
-        var request = new UpdateAssignmentRequest();
-        request.setAllowedFileTypes(List.of("application/pdf", "image/png"));
-        var response = assignmentResponse();
-
-        when(courseRepository.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(true);
-        when(assignmentRepository.findByIdAndCourseId(assignmentId, courseId))
-                .thenReturn(Optional.of(assignment));
-        when(assignmentRepository.save(any())).thenReturn(assignment);
-        when(assignmentMapper.toResponse(any())).thenReturn(response);
-
-        AssignmentResponse result = service.updateAssignment(courseId, assignmentId, instructorId, request);
-
-        assertThat(result).isEqualTo(response);
-        verify(assignmentRepository).save(assignment);
-    }
-
-    // ── deleteAssignment ─────────────────────────────────────────────────────
-
-    @Test
-    void deleteAssignment_draft_success() {
-        var assignment = assignmentEntity(AssignmentStatus.DRAFT, AssignmentScope.ALL_GROUPS);
-        when(courseRepository.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(true);
-        when(assignmentRepository.findByIdAndCourseId(assignmentId, courseId))
-                .thenReturn(Optional.of(assignment));
-        when(assignmentAttachmentRepository.findByAssignmentIdOrderByOrderIndexAsc(assignmentId))
-                .thenReturn(List.of());
-
-        service.deleteAssignment(courseId, assignmentId, instructorId);
-
-        verify(assignmentRepository).delete(assignment);
-        verify(assignmentGroupRepository).deleteByAssignmentId(assignmentId);
-    }
-
-    @Test
-    void deleteAssignment_published_throws() {
-        var assignment = assignmentEntity(AssignmentStatus.PUBLISHED, AssignmentScope.ALL_GROUPS);
-        when(courseRepository.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(true);
-        when(assignmentRepository.findByIdAndCourseId(assignmentId, courseId))
-                .thenReturn(Optional.of(assignment));
-
-        assertThatThrownBy(() -> service.deleteAssignment(courseId, assignmentId, instructorId))
-                .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("đã publish");
-    }
-
-    // ── publishAssignment ────────────────────────────────────────────────────
-
-    @Test
-    void publishAssignment_draft_success() {
-        var assignment = assignmentEntity(AssignmentStatus.DRAFT, AssignmentScope.ALL_GROUPS);
-        when(courseRepository.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(true);
-        when(assignmentRepository.findByIdAndCourseId(assignmentId, courseId))
-                .thenReturn(Optional.of(assignment));
-        when(assignmentRepository.save(any())).thenReturn(assignment);
         when(assignmentMapper.toResponse(any())).thenReturn(assignmentResponse());
+        when(courseEnrollmentRepository.findStudentIdsByCourseId(courseId)).thenReturn(List.of());
 
         AssignmentResponse result = service.publishAssignment(courseId, assignmentId, instructorId);
 

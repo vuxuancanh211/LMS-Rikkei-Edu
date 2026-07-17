@@ -13,6 +13,10 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
 import project.lms_rikkei_edu.common.exception.BusinessException;
 import project.lms_rikkei_edu.infrastructure.s3.S3Service;
+import project.lms_rikkei_edu.modules.assignment.repository.AssignmentGroupRepository;
+import project.lms_rikkei_edu.modules.assignment.repository.AssignmentRepository;
+import project.lms_rikkei_edu.modules.assignment.repository.AssignmentSubmissionRepository;
+import project.lms_rikkei_edu.modules.group.repository.GroupMemberRepository;
 import project.lms_rikkei_edu.modules.course.dto.request.UpdateProgressRequest;
 import project.lms_rikkei_edu.modules.course.dto.response.*;
 import project.lms_rikkei_edu.modules.course.entity.*;
@@ -55,6 +59,10 @@ class StudentCourseServiceImplTest {
     @Mock private project.lms_rikkei_edu.modules.quiz.repository.QuizAttemptRepository quizAttemptRepository;
     @Mock private project.lms_rikkei_edu.modules.quiz.repository.QuizAttemptAnswerRepository quizAttemptAnswerRepository;
     @Mock private project.lms_rikkei_edu.modules.quiz.repository.ProctoringViolationLogRepository proctoringViolationLogRepository;
+    @Mock private AssignmentRepository assignmentRepository;
+    @Mock private AssignmentSubmissionRepository assignmentSubmissionRepository;
+    @Mock private AssignmentGroupRepository assignmentGroupRepository;
+    @Mock private GroupMemberRepository groupMemberRepository;
 
     @InjectMocks private StudentCourseServiceImpl studentCourseService;
 

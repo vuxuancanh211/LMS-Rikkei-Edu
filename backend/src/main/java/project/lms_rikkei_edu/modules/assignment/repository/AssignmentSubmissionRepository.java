@@ -26,4 +26,7 @@ public interface AssignmentSubmissionRepository extends JpaRepository<Assignment
     @Modifying
     @Query("UPDATE AssignmentSubmissionEntity s SET s.scorePublishedAt = :now WHERE s.id IN :ids")
     int batchPublishScores(@Param("ids") List<UUID> ids, @Param("now") OffsetDateTime now);
+
+    @Query("SELECT s FROM AssignmentSubmissionEntity s WHERE s.studentId = :studentId AND s.assignmentId IN :assignmentIds")
+    List<AssignmentSubmissionEntity> findByStudentIdAndAssignmentIdIn(@Param("studentId") UUID studentId, @Param("assignmentIds") List<UUID> assignmentIds);
 }

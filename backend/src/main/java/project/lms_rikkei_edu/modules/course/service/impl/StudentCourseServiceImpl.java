@@ -10,6 +10,12 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import project.lms_rikkei_edu.common.exception.BusinessException;
 import project.lms_rikkei_edu.infrastructure.s3.S3Service;
+import project.lms_rikkei_edu.modules.assignment.entity.AssignmentEntity;
+import project.lms_rikkei_edu.modules.assignment.entity.AssignmentSubmissionEntity;
+import project.lms_rikkei_edu.modules.assignment.enums.AssignmentScope;
+import project.lms_rikkei_edu.modules.assignment.repository.AssignmentGroupRepository;
+import project.lms_rikkei_edu.modules.assignment.repository.AssignmentRepository;
+import project.lms_rikkei_edu.modules.assignment.repository.AssignmentSubmissionRepository;
 import project.lms_rikkei_edu.modules.course.dto.request.UpdateProgressRequest;
 import project.lms_rikkei_edu.modules.course.dto.response.ChapterResponse;
 import project.lms_rikkei_edu.modules.course.dto.response.CourseDetailResponse;
@@ -33,6 +39,7 @@ import project.lms_rikkei_edu.modules.course.repository.CourseRepository;
 import project.lms_rikkei_edu.modules.course.repository.LessonProgressRepository;
 import project.lms_rikkei_edu.modules.course.repository.LessonRepository;
 import project.lms_rikkei_edu.modules.course.service.StudentCourseService;
+import project.lms_rikkei_edu.modules.group.repository.GroupMemberRepository;
 import project.lms_rikkei_edu.modules.quiz.entity.QuizAttemptEntity;
 import project.lms_rikkei_edu.modules.quiz.repository.ProctoringViolationLogRepository;
 import project.lms_rikkei_edu.modules.quiz.repository.QuizAttemptAnswerRepository;
@@ -67,6 +74,10 @@ public class StudentCourseServiceImpl implements StudentCourseService {
     private final QuizAttemptRepository quizAttemptRepository;
     private final QuizAttemptAnswerRepository quizAttemptAnswerRepository;
     private final ProctoringViolationLogRepository proctoringViolationLogRepository;
+    private final AssignmentRepository assignmentRepository;
+    private final AssignmentSubmissionRepository assignmentSubmissionRepository;
+    private final AssignmentGroupRepository assignmentGroupRepository;
+    private final GroupMemberRepository groupMemberRepository;
 
 
 
@@ -195,6 +206,13 @@ public class StudentCourseServiceImpl implements StudentCourseService {
         filterToLiveContentOnly(response);
 
         attachLessonProgress(studentId, courseId, response);
+
+        courseProgressRepository.findByStudentIdAndCourseId(studentId, courseId)
+                .ifPresent(prog -> {
+                    response.setCompletedAssignments(prog.getCompletedAssignmentsCount());
+                    response.setTotalAssignments(prog.getTotalAssignmentsCount());
+                });
+
         return response;
     }
 
@@ -402,6 +420,18 @@ public class StudentCourseServiceImpl implements StudentCourseService {
 
     @Override
     @Transactional
+    public void recalculateCourseProgress(UUID studentId, UUID courseId) {
+        updateCourseProgress(studentId, courseId);
+    }
+
+    @Override
+    @Transactional
+    public void updateAssignmentProgress(UUID studentId, UUID courseId) {
+        updateCourseProgress(studentId, courseId);
+    }
+
+    @Override
+    @Transactional
     public void resetProgressForStudents(UUID courseId, List<UUID> studentIds) {
         deleteProgressData(courseId, studentIds);
     }
@@ -543,13 +573,21 @@ public class StudentCourseServiceImpl implements StudentCourseService {
         List<LessonProgressEntity> allProgress = lessonProgressRepository
                 .findByStudentIdAndCourseId(studentId, courseId);
 
-        long completedCount = allProgress.stream()
+        long completedLessons = allProgress.stream()
                 .filter(p -> STATUS_COMPLETED.equals(p.getStatus()))
                 .count();
 
+        // ── Assignment progress ──────────────────────────────────────────────
+        int[] assignmentStats = getAssignmentProgressStats(studentId, courseId);
+        int totalAssignments = assignmentStats[0];
+        int completedAssignments = assignmentStats[1];
+
+        int totalItems = totalLessons + totalAssignments;
+        int completedItems = (int) completedLessons + completedAssignments;
+
         double avgPercentage = 0;
-        if (totalLessons > 0) {
-            avgPercentage = (completedCount * 100.0) / totalLessons;
+        if (totalItems > 0) {
+            avgPercentage = (completedItems * 100.0) / totalItems;
         }
 
         CourseProgressEntity courseProgress = courseProgressRepository
@@ -561,23 +599,72 @@ public class StudentCourseServiceImpl implements StudentCourseService {
                     newProg.setCourseId(courseId);
                     newProg.setTotalLessonsCount(totalLessons);
                     newProg.setCompletedLessonsCount(0);
+                    newProg.setTotalAssignmentsCount(totalAssignments);
+                    newProg.setCompletedAssignmentsCount(0);
                     newProg.setOverallPercentage(BigDecimal.ZERO);
                     newProg.setStatus(STATUS_IN_PROGRESS);
                     return newProg;
                 });
 
-        courseProgress.setCompletedLessonsCount((int) completedCount);
+        courseProgress.setCompletedLessonsCount((int) completedLessons);
         courseProgress.setTotalLessonsCount(totalLessons);
+        courseProgress.setCompletedAssignmentsCount(completedAssignments);
+        courseProgress.setTotalAssignmentsCount(totalAssignments);
         courseProgress.setOverallPercentage(BigDecimal.valueOf(Math.round(avgPercentage)));
         courseProgress.setUpdatedAt(Instant.now());
 
-        if (completedCount >= totalLessons && totalLessons > 0) {
+        if (completedItems >= totalItems && totalItems > 0) {
             courseProgress.setStatus(STATUS_COMPLETED);
         } else {
             courseProgress.setStatus(STATUS_IN_PROGRESS);
         }
 
         courseProgressRepository.save(courseProgress);
+    }
+
+    /**
+     * Tính toán số assignment đã hoàn thành và tổng số assignment cho 1 học viên.
+     * @return int[] – [totalAssignments, completedAssignments]
+     */
+    private int[] getAssignmentProgressStats(UUID studentId, UUID courseId) {
+        List<AssignmentEntity> assignments = assignmentRepository.findPublishedByCourseId(courseId);
+        if (assignments.isEmpty()) return new int[]{0, 0};
+
+        List<UUID> studentGroupIds = groupMemberRepository.findGroupIdsByStudentIdAndCourseId(studentId, courseId);
+
+        List<UUID> applicableAssignmentIds = new ArrayList<>();
+        for (AssignmentEntity a : assignments) {
+            if (a.getScope() == AssignmentScope.ALL_GROUPS) {
+                applicableAssignmentIds.add(a.getId());
+            } else {
+                List<UUID> assignedGroupIds = assignmentGroupRepository.findByAssignmentId(a.getId())
+                        .stream()
+                        .map(ag -> ag.getGroupId())
+                        .toList();
+                if (assignedGroupIds.stream().anyMatch(studentGroupIds::contains)) {
+                    applicableAssignmentIds.add(a.getId());
+                }
+            }
+        }
+
+        if (applicableAssignmentIds.isEmpty()) return new int[]{0, 0};
+
+        List<AssignmentSubmissionEntity> submissions = assignmentSubmissionRepository
+                .findByStudentIdAndAssignmentIdIn(studentId, applicableAssignmentIds);
+
+        Map<UUID, BigDecimal> passScoreMap = assignments.stream()
+                .collect(Collectors.toMap(AssignmentEntity::getId, AssignmentEntity::getPassingScore));
+
+        int completed = 0;
+        for (AssignmentSubmissionEntity s : submissions) {
+            if (s.getScorePublishedAt() == null) continue;
+            BigDecimal passScore = passScoreMap.get(s.getAssignmentId());
+            if (passScore == null || (s.getScore() != null && s.getScore().compareTo(passScore) >= 0)) {
+                completed++;
+            }
+        }
+
+        return new int[]{applicableAssignmentIds.size(), completed};
     }
 
     private int getCourseLessonCount(UUID courseId) {

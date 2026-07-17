@@ -1,10 +1,7 @@
 package project.lms_rikkei_edu.modules.assignment.controller;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -12,7 +9,6 @@ import project.lms_rikkei_edu.common.exception.GlobalExceptionHandler;
 import project.lms_rikkei_edu.common.security.CurrentUserProvider;
 import project.lms_rikkei_edu.modules.assignment.dto.response.StudentAssignmentDetailResponse;
 import project.lms_rikkei_edu.modules.assignment.dto.response.StudentAssignmentListResponse;
-import project.lms_rikkei_edu.modules.assignment.dto.response.SubmissionFileResponse;
 import project.lms_rikkei_edu.modules.assignment.dto.response.SubmissionResponse;
 import project.lms_rikkei_edu.modules.assignment.enums.AssignmentStatus;
 import project.lms_rikkei_edu.modules.assignment.service.StudentAssignmentService;
@@ -37,7 +33,6 @@ class StudentAssignmentControllerTest {
     private StudentAssignmentService studentAssignmentService;
     private CurrentUserProvider currentUserProvider;
     private MockMvc mockMvc;
-    private ObjectMapper objectMapper;
 
     private final UUID courseId = UUID.randomUUID();
     private final UUID assignmentId = UUID.randomUUID();
@@ -51,7 +46,6 @@ class StudentAssignmentControllerTest {
                 .standaloneSetup(new StudentAssignmentController(studentAssignmentService, currentUserProvider))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
-        objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
     }
 
     @Test

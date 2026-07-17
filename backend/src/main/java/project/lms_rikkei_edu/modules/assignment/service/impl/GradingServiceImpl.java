@@ -25,6 +25,7 @@ import project.lms_rikkei_edu.modules.assignment.service.GradingService;
 import project.lms_rikkei_edu.modules.course.entity.Course;
 import project.lms_rikkei_edu.modules.course.repository.CourseEnrollmentRepository;
 import project.lms_rikkei_edu.modules.course.repository.CourseRepository;
+import project.lms_rikkei_edu.modules.course.service.StudentCourseService;
 import project.lms_rikkei_edu.modules.group.entity.StudyGroupEntity;
 import project.lms_rikkei_edu.modules.group.repository.GroupMemberRepository;
 import project.lms_rikkei_edu.modules.group.repository.StudyGroupRepository;
@@ -53,6 +54,7 @@ public class GradingServiceImpl implements GradingService {
     private final CourseRepository courseRepository;
     private final CourseEnrollmentRepository courseEnrollmentRepository;
     private final S3Service s3Service;
+    private final StudentCourseService studentCourseService;
 
     @Override
     @Transactional(readOnly = true)
@@ -130,7 +132,29 @@ public class GradingServiceImpl implements GradingService {
 
             List<SubmissionFileResponse> files = buildFileResponses(sub, fileMap);
 
-            result.add(buildInstructorResponse(studentId, sub, user, assignment, courseTitle, groupId, groupName, entryStatus, files));
+            result.add(InstructorSubmissionResponse.builder()
+                    .id(sub != null ? sub.getId() : null)
+                    .status(entryStatus)
+                    .note(sub != null ? sub.getNote() : null)
+                    .isLate(sub != null && Boolean.TRUE.equals(sub.getIsLate()))
+                    .score(sub != null ? sub.getScore() : null)
+                    .feedback(sub != null ? sub.getFeedback() : null)
+                    .submittedAt(sub != null ? sub.getSubmittedAt() : null)
+                    .gradedAt(sub != null ? sub.getGradedAt() : null)
+                    .scorePublishedAt(sub != null ? sub.getScorePublishedAt() : null)
+                    .files(files)
+                    .studentId(studentId)
+                    .studentName(user != null ? user.getFullName() : null)
+                    .studentEmail(user != null ? user.getEmail() : null)
+                    .assignmentId(assignment.getId())
+                    .assignmentTitle(assignment.getTitle())
+                    .assignmentMaxScore(assignment.getMaxScore())
+                    .assignmentPassScore(assignment.getPassingScore())
+                    .courseId(assignment.getCourseId())
+                    .courseTitle(courseTitle)
+                    .groupId(groupId)
+                    .groupName(groupName)
+                    .build());
         }
 
         return result;
@@ -198,35 +222,6 @@ public class GradingServiceImpl implements GradingService {
                 .toList();
     }
 
-    private InstructorSubmissionResponse buildInstructorResponse(UUID studentId, AssignmentSubmissionEntity sub, UserEntity user,
-                                                                  AssignmentEntity assignment, String courseTitle,
-                                                                  UUID groupId, String groupName, String entryStatus,
-                                                                  List<SubmissionFileResponse> files) {
-        return InstructorSubmissionResponse.builder()
-                .id(sub != null ? sub.getId() : null)
-                .status(entryStatus)
-                .note(sub != null ? sub.getNote() : null)
-                .isLate(sub != null && Boolean.TRUE.equals(sub.getIsLate()))
-                .score(sub != null ? sub.getScore() : null)
-                .feedback(sub != null ? sub.getFeedback() : null)
-                .submittedAt(sub != null ? sub.getSubmittedAt() : null)
-                .gradedAt(sub != null ? sub.getGradedAt() : null)
-                .scorePublishedAt(sub != null ? sub.getScorePublishedAt() : null)
-                .files(files)
-                .studentId(studentId)
-                .studentName(user != null ? user.getFullName() : null)
-                .studentEmail(user != null ? user.getEmail() : null)
-                .assignmentId(assignment.getId())
-                .assignmentTitle(assignment.getTitle())
-                .assignmentMaxScore(assignment.getMaxScore())
-                .assignmentPassScore(assignment.getPassingScore())
-                .courseId(assignment.getCourseId())
-                .courseTitle(courseTitle)
-                .groupId(groupId)
-                .groupName(groupName)
-                .build();
-    }
-
     private Set<UUID> getExpectedStudentIds(AssignmentEntity assignment, UUID courseId) {
         if (assignment.getScope() == AssignmentScope.ALL_GROUPS) {
             return new HashSet<>(courseEnrollmentRepository.findStudentIdsByCourseId(courseId));
@@ -287,7 +282,7 @@ public class GradingServiceImpl implements GradingService {
 
         log.info("Instructor {} graded submission {} with score {}", instructorId, submission.getId(), request.getScore());
 
-        return getSingleResponse(submission, assignment, instructorId);
+        return getSingleResponse(submission, assignment);
     }
 
     @Override
@@ -295,6 +290,17 @@ public class GradingServiceImpl implements GradingService {
     public void batchReleaseScores(BatchReleaseRequest request, UUID instructorId) {
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
         int updated = assignmentSubmissionRepository.batchPublishScores(request.getSubmissionIds(), now);
+
+        if (updated > 0) {
+            List<AssignmentSubmissionEntity> submissions = assignmentSubmissionRepository.findAllById(request.getSubmissionIds());
+            Set<String> processed = new HashSet<>();
+            for (AssignmentSubmissionEntity s : submissions) {
+                String key = s.getStudentId() + ":" + s.getCourseId();
+                if (processed.add(key)) {
+                    studentCourseService.updateAssignmentProgress(s.getStudentId(), s.getCourseId());
+                }
+            }
+        }
 
         log.info("Instructor {} published scores for {} submissions", instructorId, updated);
     }
@@ -319,8 +325,7 @@ public class GradingServiceImpl implements GradingService {
     }
 
     private InstructorSubmissionResponse getSingleResponse(AssignmentSubmissionEntity submission,
-                                                           AssignmentEntity assignment,
-                                                           UUID instructorId) {
+                                                           AssignmentEntity assignment) {
         UUID courseId = assignment.getCourseId();
         UUID studentId = submission.getStudentId();
 

@@ -4,11 +4,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.multipart.MultipartFile;
 import project.lms_rikkei_edu.common.exception.BusinessException;
 import project.lms_rikkei_edu.infrastructure.s3.S3Service;
 import project.lms_rikkei_edu.modules.assignment.dto.response.AssignmentAttachmentResponse;
@@ -31,7 +31,6 @@ import project.lms_rikkei_edu.modules.assignment.repository.SubmissionFileReposi
 import project.lms_rikkei_edu.modules.course.entity.Course;
 import project.lms_rikkei_edu.modules.course.repository.CourseEnrollmentRepository;
 import project.lms_rikkei_edu.modules.course.repository.CourseRepository;
-import project.lms_rikkei_edu.modules.group.entity.GroupMemberEntity;
 import project.lms_rikkei_edu.modules.group.repository.GroupMemberRepository;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -462,7 +461,8 @@ class StudentAssignmentServiceImplTest {
         when(groupMemberRepository.findGroupIdsByStudentIdAndCourseId(studentId, courseId))
                 .thenReturn(List.of());
 
-        assertThatThrownBy(() -> service.submitAssignment(courseId, assignmentId, studentId, null, List.of(file)))
+        var files = List.<MultipartFile>of(file);
+        assertThatThrownBy(() -> service.submitAssignment(courseId, assignmentId, studentId, null, files))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("không được hỗ trợ");
     }
@@ -478,7 +478,8 @@ class StudentAssignmentServiceImplTest {
         when(groupMemberRepository.findGroupIdsByStudentIdAndCourseId(studentId, courseId))
                 .thenReturn(List.of());
 
-        assertThatThrownBy(() -> service.submitAssignment(courseId, assignmentId, studentId, null, List.of(file)))
+        var files = List.<MultipartFile>of(file);
+        assertThatThrownBy(() -> service.submitAssignment(courseId, assignmentId, studentId, null, files))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("vượt quá kích thước");
     }

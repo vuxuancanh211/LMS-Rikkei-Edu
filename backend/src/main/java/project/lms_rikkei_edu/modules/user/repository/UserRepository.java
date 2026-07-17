@@ -3,7 +3,6 @@ package project.lms_rikkei_edu.modules.user.repository;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
 import project.lms_rikkei_edu.modules.user.entity.UserEntity;
 import project.lms_rikkei_edu.modules.user.enums.UserRole;
 
