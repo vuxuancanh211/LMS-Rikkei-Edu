@@ -981,8 +981,52 @@
       return resUrls[res.id]?.url || null;
     }
 
-    /* ── Progress: Video time tracking ───────────────────── */
+    /* ── Progress: Video time tracking (Anti-seek / Adaptive Throttled Sync / Beacon Flush) ── */
     const videoThrottleRef = useRef(0);
+    const lastTimeUpdateRef = useRef({ time: 0, wallClock: 0 });
+    const realWatchSecondsRef = useRef<Record<string, number>>({});
+    const lastSyncedDocSecRef = useRef<Record<string, number>>({});
+
+    const flushPendingProgress = useCallback((forceBeacon = false) => {
+      if (!activeL?.id || !courseId) return;
+      const docSec = Math.round(realWatchSecondsRef.current[activeL.id] || cumDocSecRef.current[activeL.id] || 0);
+      if (docSec <= (lastSyncedDocSecRef.current[activeL.id] || 0) && !forceBeacon) return;
+
+      const pct = maxWatchedPctRef.current[activeL.id] || 0;
+      const pos = Math.floor(lastTimeUpdateRef.current.time || 0);
+      const isComp = progRef.current[activeL.id] === "COMPLETED";
+
+      const payloadStr = JSON.stringify({
+        watchedPercentage: pct,
+        lastPlaybackPosition: pos,
+        documentViewSeconds: docSec,
+        completed: isComp
+      });
+
+      lastSyncedDocSecRef.current[activeL.id] = docSec;
+      if (forceBeacon && typeof navigator !== 'undefined' && navigator.sendBeacon) {
+        const url = `/api/v1/student/courses/${courseId}/lessons/${activeL.id}/progress`;
+        const blob = new Blob([payloadStr], { type: 'application/json' });
+        navigator.sendBeacon(url, blob);
+      } else {
+        updateProgress(pct, pos, docSec, isComp);
+      }
+    }, [activeL?.id, courseId, updateProgress]);
+
+    useEffect(() => {
+      const handleExit = () => flushPendingProgress(true);
+      const handleVisibility = () => {
+        if (document.visibilityState === 'hidden') flushPendingProgress(true);
+      };
+      window.addEventListener('beforeunload', handleExit);
+      document.addEventListener('visibilitychange', handleVisibility);
+      return () => {
+        window.removeEventListener('beforeunload', handleExit);
+        document.removeEventListener('visibilitychange', handleVisibility);
+        flushPendingProgress(true);
+      };
+    }, [flushPendingProgress]);
+
     const handleVideoTimeUpdate = useCallback((e: any) => {
       const video = e.target;
       if (!video || !activeL?.id || !videoUrl) return;
@@ -992,6 +1036,21 @@
       const dur = isFiniteDur 
         ? rawDur 
         : ((activeVideoRes?.fileSizeBytes && activeVideoRes.fileSizeBytes > 0 ? 60 : activeL.durationSeconds && activeL.durationSeconds > 0 ? activeL.durationSeconds : 60));
+
+      const now = Date.now();
+      if (realWatchSecondsRef.current[activeL.id] == null) {
+        realWatchSecondsRef.current[activeL.id] = cumDocSecRef.current[activeL.id] || 0;
+      }
+      const prev = lastTimeUpdateRef.current;
+      if (prev.time > 0 && prev.wallClock > 0 && !video.seeking) {
+        const deltaVideo = cur - prev.time;
+        const deltaWall = (now - prev.wallClock) / 1000;
+        if (deltaVideo > 0 && deltaVideo <= 2.0 && deltaWall > 0 && deltaWall <= 3.0) {
+          realWatchSecondsRef.current[activeL.id] = (realWatchSecondsRef.current[activeL.id] || 0) + deltaVideo;
+        }
+      }
+      lastTimeUpdateRef.current = { time: cur, wallClock: now };
+      const currentDocSec = Math.round(realWatchSecondsRef.current[activeL.id] || 0);
 
       const pct = dur > 0 ? Math.min(100, Math.round((cur / dur) * 100)) : 100;
       if (activeVideoRes?.id) {
@@ -1006,8 +1065,16 @@
       );
       const effectivePct = activeVideoRes?.id ? (resourceWatchedPctRef.current[activeVideoRes.id] || 0) : maxWatchedPctRef.current[activeL.id];
       const curProg = progRef.current[activeL.id];
-      const now = Date.now();
       const isEndedOrNearEnd = e.type === "ended" || effectivePct >= 90 || (isFiniteDur && rawDur - cur <= 3) || (!isFiniteDur && cur >= dur * 0.9);
+
+      try {
+        sessionStorage.setItem(`lp_buf_${courseId}_${activeL.id}`, JSON.stringify({
+          docSec: currentDocSec,
+          pos: Math.floor(cur),
+          pct: effectivePct,
+          updatedAt: now
+        }));
+      } catch { /* ignore */ }
 
       if (isEndedOrNearEnd) {
         if (activeVideoRes?.id) {
@@ -1018,22 +1085,25 @@
         checkLessonCompletion(activeVideoRes?.id, true);
         if (now - videoThrottleRef.current >= 15000) {
           videoThrottleRef.current = now;
-          updateProgress(100, Math.floor(cur), cumDocSecRef.current[activeL.id] || 0, progRef.current[activeL.id] === "COMPLETED");
+          lastSyncedDocSecRef.current[activeL.id] = currentDocSec;
+          updateProgress(100, Math.floor(cur), currentDocSec || cumDocSecRef.current[activeL.id] || 0, progRef.current[activeL.id] === "COMPLETED");
         }
       } else if (effectivePct >= 1 || cur >= 1) {
         if (curProg !== "IN_PROGRESS" && curProg !== "COMPLETED") {
           progRef.current[activeL.id] = "IN_PROGRESS";
         }
         checkLessonCompletion(activeVideoRes?.id, false);
-        if (now - videoThrottleRef.current >= 30000) {
+        if (now - videoThrottleRef.current >= 45000) {
           videoThrottleRef.current = now;
-          updateProgress(effectivePct, Math.floor(cur), cumDocSecRef.current[activeL.id] || 0, false);
+          lastSyncedDocSecRef.current[activeL.id] = currentDocSec;
+          updateProgress(effectivePct, Math.floor(cur), currentDocSec || cumDocSecRef.current[activeL.id] || 0, false);
         }
-      } else if (now - videoThrottleRef.current >= 30000) {
+      } else if (now - videoThrottleRef.current >= 45000) {
         videoThrottleRef.current = now;
-        updateProgress(effectivePct, Math.floor(cur), cumDocSecRef.current[activeL.id] || 0, false);
+        lastSyncedDocSecRef.current[activeL.id] = currentDocSec;
+        updateProgress(effectivePct, Math.floor(cur), currentDocSec || cumDocSecRef.current[activeL.id] || 0, false);
       }
-    }, [activeL?.id, activeL?.durationSeconds, updateProgress, activeVideoIdx, videoUrl, docResources.length, activeVideoRes?.id, checkLessonCompletion]);
+    }, [activeL?.id, activeL?.durationSeconds, updateProgress, activeVideoIdx, videoUrl, docResources.length, activeVideoRes?.id, checkLessonCompletion, courseId]);
 
     /* Reset progress ref when lesson changes (run first) */
     useEffect(() => {

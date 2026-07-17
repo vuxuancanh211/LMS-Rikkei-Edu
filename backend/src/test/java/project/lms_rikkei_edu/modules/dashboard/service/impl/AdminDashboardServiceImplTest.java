@@ -106,6 +106,42 @@ class AdminDashboardServiceImplTest {
 
         doAnswer(invocation -> {
             RowCallbackHandler handler = invocation.getArgument(1);
+            when(rs.getString("ym")).thenReturn(currentYm, "1999-01");
+            when(rs.getInt("cnt")).thenReturn(25, 3);
+            handler.processRow(rs);
+            handler.processRow(rs);
+            return null;
+        }).when(jdbc).query(contains("FROM users\n                WHERE created_at >= DATE_TRUNC('month'"), any(RowCallbackHandler.class));
+
+        doAnswer(invocation -> {
+            RowCallbackHandler handler = invocation.getArgument(1);
+            when(rs.getString("dstr")).thenReturn(currentDateStr, "1999-01-01");
+            when(rs.getInt("cnt")).thenReturn(5, 1);
+            handler.processRow(rs);
+            handler.processRow(rs);
+            return null;
+        }).when(jdbc).query(contains("FROM users\n                WHERE created_at >= NOW() - INTERVAL '7 days'"), any(RowCallbackHandler.class));
+
+        doAnswer(invocation -> {
+            RowCallbackHandler handler = invocation.getArgument(1);
+            when(rs.getString("ym")).thenReturn(currentYm, "1999-01");
+            when(rs.getInt("cnt")).thenReturn(40, 8);
+            handler.processRow(rs);
+            handler.processRow(rs);
+            return null;
+        }).when(jdbc).query(contains("FROM course_enrollments\n                WHERE enrolled_at >= DATE_TRUNC('month'"), any(RowCallbackHandler.class));
+
+        doAnswer(invocation -> {
+            RowCallbackHandler handler = invocation.getArgument(1);
+            when(rs.getString("dstr")).thenReturn(currentDateStr, "1999-01-01");
+            when(rs.getInt("cnt")).thenReturn(12, 2);
+            handler.processRow(rs);
+            handler.processRow(rs);
+            return null;
+        }).when(jdbc).query(contains("FROM course_enrollments\n                WHERE enrolled_at >= NOW() - INTERVAL '7 days'"), any(RowCallbackHandler.class));
+
+        doAnswer(invocation -> {
+            RowCallbackHandler handler = invocation.getArgument(1);
             Timestamp nowTs = Timestamp.from(Instant.now());
             when(rs.getString("id")).thenReturn(UUID.randomUUID().toString());
             when(rs.getString("full_name")).thenReturn("Admin Who");
@@ -141,6 +177,10 @@ class AdminDashboardServiceImplTest {
         assertEquals(79.8, response.getAverageCompletionRate());
         assertEquals(2, response.getPendingApprovals().size());
         assertTrue(response.getRecentActivities().size() <= 6);
+        assertNotNull(response.getNewUsersData());
+        assertNotNull(response.getWeeklyUsersData());
+        assertNotNull(response.getEnrollmentsData());
+        assertNotNull(response.getWeeklyEnrollmentsData());
     }
 
     @Test
@@ -157,5 +197,70 @@ class AdminDashboardServiceImplTest {
         assertEquals(0, response.getTotalInstructorsCount());
         assertEquals(0, response.getActiveCoursesCount());
         assertEquals(0.0, response.getAverageCompletionRate());
+    }
+
+    @Test
+    void getStats_ShouldReturnStats() {
+        when(jdbc.queryForObject(contains("role = 'STUDENT'"), eq(Integer.class))).thenReturn(10);
+        when(jdbc.queryForObject(contains("role = 'INSTRUCTOR'"), eq(Integer.class))).thenReturn(5);
+        when(jdbc.queryForObject(contains("status IN ('PUBLISHED', 'APPROVED')"), eq(Integer.class))).thenReturn(8);
+        when(jdbc.queryForObject(contains("AVG(overall_percentage)"), eq(Double.class))).thenReturn(82.5);
+
+        project.lms_rikkei_edu.modules.dashboard.dto.response.AdminDashboardStatsResponse res = adminDashboardService.getStats();
+        assertNotNull(res);
+        assertEquals(10, res.getTotalStudentsCount());
+        assertEquals(5, res.getTotalInstructorsCount());
+        assertEquals(8, res.getActiveCoursesCount());
+        assertEquals(82.5, res.getAverageCompletionRate());
+    }
+
+    @Test
+    void getTrafficChart_ShouldReturnTrafficData() {
+        doNothing().when(jdbc).query(anyString(), any(RowCallbackHandler.class));
+        project.lms_rikkei_edu.modules.dashboard.dto.response.AdminDashboardTrafficResponse res = adminDashboardService.getTrafficChart();
+        assertNotNull(res);
+        assertNotNull(res.getTrafficLabels());
+        assertNotNull(res.getTrafficData());
+    }
+
+    @Test
+    void getCoursesChart_ShouldReturnCoursesChartData() {
+        doNothing().when(jdbc).query(anyString(), any(RowCallbackHandler.class));
+        project.lms_rikkei_edu.modules.dashboard.dto.response.AdminDashboardCoursesChartResponse res = adminDashboardService.getCoursesChart();
+        assertNotNull(res);
+        assertNotNull(res.getNewCoursesLabels());
+        assertNotNull(res.getNewCoursesData());
+    }
+
+    @Test
+    void getUsersChart_ShouldReturnUsersChartData() {
+        doNothing().when(jdbc).query(anyString(), any(RowCallbackHandler.class));
+        project.lms_rikkei_edu.modules.dashboard.dto.response.AdminDashboardUsersChartResponse res = adminDashboardService.getUsersChart();
+        assertNotNull(res);
+        assertNotNull(res.getNewUsersLabels());
+        assertNotNull(res.getNewUsersData());
+    }
+
+    @Test
+    void getEnrollmentsChart_ShouldReturnEnrollmentsChartData() {
+        doNothing().when(jdbc).query(anyString(), any(RowCallbackHandler.class));
+        project.lms_rikkei_edu.modules.dashboard.dto.response.AdminDashboardEnrollmentsChartResponse res = adminDashboardService.getEnrollmentsChart();
+        assertNotNull(res);
+        assertNotNull(res.getEnrollmentsLabels());
+        assertNotNull(res.getEnrollmentsData());
+    }
+
+    @Test
+    void getPendingApprovals_ShouldReturnList() {
+        when(jdbc.query(anyString(), any(RowMapper.class))).thenReturn(Collections.emptyList());
+        java.util.List<PendingApprovalDto> res = adminDashboardService.getPendingApprovals();
+        assertNotNull(res);
+    }
+
+    @Test
+    void getRecentActivities_ShouldReturnList() {
+        doNothing().when(jdbc).query(anyString(), any(RowCallbackHandler.class));
+        java.util.List<project.lms_rikkei_edu.modules.dashboard.dto.response.SystemActivityDto> res = adminDashboardService.getRecentActivities();
+        assertNotNull(res);
     }
 }

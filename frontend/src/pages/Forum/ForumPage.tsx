@@ -662,6 +662,7 @@ function ForumPage({ demo, postId }: { demo?: string; postId?: string }) {
   const [courses, setCourses] = useState<ForumCourse[]>([]);
   const [detail, setDetail] = useState<ForumPostDetail | null>(null);
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
+  const [urlPostId, setUrlPostId] = useState(() => postId || new URLSearchParams(window.location.search).get('postId'));
   const [q, setQ] = useState('');
   const [filterTopic, setFilterTopic] = useState('');
   const [courseId, setCourseId] = useState('');
@@ -731,11 +732,15 @@ function ForumPage({ demo, postId }: { demo?: string; postId?: string }) {
   }, []);
 
   useEffect(() => {
-    const pid = postId || new URLSearchParams(window.location.search).get('postId');
+    setUrlPostId(postId || new URLSearchParams(window.location.search).get('postId'));
+  }, [postId]);
+
+  useEffect(() => {
+    const pid = urlPostId;
     if (pid && pid !== selectedPostId) {
       openDetail(pid);
     }
-  }, [postId, selectedPostId]);
+  }, [urlPostId, selectedPostId]);
 
   useEffect(() => {
     loadPosts();
@@ -761,11 +766,20 @@ function ForumPage({ demo, postId }: { demo?: string; postId?: string }) {
 
   const openDetail = (postId: string) => {
     setSelectedPostId(postId);
+    setUrlPostId(postId);
     loadDetail(postId);
+    try {
+      const url = new URL(window.location.href);
+      if (url.searchParams.get('postId') !== postId) {
+        url.searchParams.set('postId', postId);
+        window.history.pushState({}, '', url);
+      }
+    } catch { /* ignore */ }
   };
 
   const closeDetail = async (refreshList?: boolean) => {
     setSelectedPostId(null);
+    setUrlPostId(null);
     setDetail(null);
     try {
       const url = new URL(window.location.href);
