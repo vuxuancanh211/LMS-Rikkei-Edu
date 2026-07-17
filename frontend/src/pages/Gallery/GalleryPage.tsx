@@ -54,7 +54,6 @@ function registerGalleryPage() {
       { k: "groups", l: "Quản lý Nhóm", ic: "layers" },
       { k: "assess", l: "Bài tập & Quiz", ic: "clipboard" },
       { k: "grading", l: "Chấm điểm", ic: "edit" },
-      { k: "students", l: "Học viên", ic: "users" },
       { k: "forum", l: "Diễn đàn", ic: "message" },
       { k: "chat", l: "Chat nhóm", ic: "chat" },
       { k: "aiDocs", l: "Tài liệu AI", ic: "sparkles" },
@@ -67,16 +66,14 @@ function registerGalleryPage() {
       { k: "approval", l: "Phê duyệt", ic: "check_circle" },
       { k: "certificates", l: "Chứng chỉ", ic: "award" },
       { k: "forum", l: "Quản lý Forum", ic: "message" },
-      // { k: "reports", l: "Báo cáo", ic: "chart" },
-      { k: "logs", l: "Nhật ký hệ thống", ic: "file" },
       { k: "aiDocs", l: "Quản lý Tài liệu AI", ic: "sparkles" },
       { k: "settings", l: "Cài đặt", ic: "settings" },
     ],
   };
   const SCREENS = {
     student: { dashboard: "StuDashboard", courses: "StuCourses", courseDetail: "StuCourseDetail", groups: "StuGroups", groupDetail: "StuGroupDetail", tasks: "StuTasks", forum: "ForumPage", chat: "ChatScreen", certs: "StuCerts", settings: "Settings", notifications: "NotificationsPage" },
-    instructor: { dashboard: "InsDashboard", courses: "InsCourses", courseDetail: "InsCourseDetail", groups: "InsGroups", groupDetail: "InsGroupDetail", assess: "InsAssess", grading: "InsGrading", students: "InsStudents", forum: "ForumPage", chat: "ChatScreen", aiDocs: "InsAiDocs", settings: "Settings", notifications: "NotificationsPage" },
-    admin: { dashboard: "AdminDashboard", users: "AdminUsers", courses: "AdminCourses", approval: "AdminApproval", certificates: "AdminCertificates", forum: "AdminForum", forumBrowse: "ForumPage", reports: "AdminReports", logs: "AdminLogs", aiDocs: "AdminAiDocs", settings: "Settings", notifications: "NotificationsPage" },
+    instructor: { dashboard: "InsDashboard", courses: "InsCourses", courseDetail: "InsCourseDetail", groups: "InsGroups", groupDetail: "InsGroupDetail", assess: "InsAssess", grading: "InsGrading", forum: "ForumPage", chat: "ChatScreen", aiDocs: "InsAiDocs", settings: "Settings", notifications: "NotificationsPage" },
+    admin: { dashboard: "AdminDashboard", users: "AdminUsers", courses: "AdminCourses", approval: "AdminApproval", certificates: "AdminCertificates", forum: "AdminForum", forumBrowse: "ForumPage", aiDocs: "AdminAiDocs", settings: "Settings", notifications: "NotificationsPage" },
   };
   const FULLBARE = { player: "LecturePlayer", quiz: "QuizPlayer", result: "QuizResult", preview: "PreviewPlayer", dryRun: "QuizDryRunPlayer" };
   const ROLES = [["student", "Học viên"], ["instructor", "Giảng viên"], ["admin", "Quản trị"]];
@@ -396,7 +393,6 @@ function registerGalleryPage() {
       { kind: "screen", role: "instructor", route: "groupDetail", ic: "users", label: "Chi tiết Nhóm", desc: "Danh sách học viên + tiến độ" },
       { kind: "screen", role: "instructor", route: "assess", ic: "clipboard", label: "Bài tập & Trắc nghiệm", desc: "3 tab: bài tập / đề / ngân hàng" },
       { kind: "screen", role: "instructor", route: "grading", ic: "edit", label: "Chấm điểm", desc: "Bảng bài nộp + chấm" },
-      { kind: "screen", role: "instructor", route: "students", ic: "users", label: "Học viên của tôi", desc: "Danh sách học viên" },
     ]},
     { group: "Quản trị", color: "#0f172a", items: [
       { kind: "screen", role: "admin", route: "dashboard", ic: "grid", label: "Tổng quan hệ thống", desc: "Thống kê + biểu đồ" },
@@ -404,8 +400,6 @@ function registerGalleryPage() {
       { kind: "screen", role: "admin", route: "courses", ic: "book", label: "Quản lý Khóa học", desc: "Toàn bộ khóa học" },
       { kind: "screen", role: "admin", route: "approval", ic: "check_circle", label: "Phê duyệt Khóa học", desc: "Kiểm duyệt nội dung" },
       { kind: "screen", role: "admin", route: "forum", ic: "message", label: "Quản lý Forum", desc: "Bài viết & báo cáo" },
-      { kind: "screen", role: "admin", route: "reports", ic: "chart", label: "Báo cáo & Thống kê", desc: "Doanh thu · hiệu suất" },
-      { kind: "screen", role: "admin", route: "logs", ic: "file", label: "Nhật ký hệ thống", desc: "Activity log" },
     ]},
     { group: "Dùng chung · GV & HV", color: "#10b981", items: [
       { kind: "screen", role: "student", route: "forum", ic: "message", label: "Diễn đàn thảo luận", desc: "Danh sách chủ đề" },
