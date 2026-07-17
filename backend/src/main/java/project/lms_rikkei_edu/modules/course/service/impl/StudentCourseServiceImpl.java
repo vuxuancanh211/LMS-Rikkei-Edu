@@ -52,6 +52,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -640,7 +641,11 @@ public class StudentCourseServiceImpl implements StudentCourseService {
                 .findByStudentIdAndAssignmentIdIn(studentId, applicableAssignmentIds);
 
         Map<UUID, BigDecimal> passScoreMap = assignments.stream()
-                .collect(Collectors.toMap(AssignmentEntity::getId, AssignmentEntity::getPassingScore));
+                .collect(Collectors.toMap(
+                        AssignmentEntity::getId,
+                        AssignmentEntity::getPassingScore,
+                        (a, b) -> a,
+                        HashMap::new));
 
         int completed = 0;
         for (AssignmentSubmissionEntity s : submissions) {

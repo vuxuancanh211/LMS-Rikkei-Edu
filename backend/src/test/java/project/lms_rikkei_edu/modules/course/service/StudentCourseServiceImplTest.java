@@ -13,6 +13,10 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
 import project.lms_rikkei_edu.common.exception.BusinessException;
 import project.lms_rikkei_edu.infrastructure.s3.S3Service;
+import project.lms_rikkei_edu.modules.assignment.entity.AssignmentEntity;
+import project.lms_rikkei_edu.modules.assignment.entity.AssignmentGroupEntity;
+import project.lms_rikkei_edu.modules.assignment.entity.AssignmentSubmissionEntity;
+import project.lms_rikkei_edu.modules.assignment.enums.AssignmentScope;
 import project.lms_rikkei_edu.modules.assignment.repository.AssignmentGroupRepository;
 import project.lms_rikkei_edu.modules.assignment.repository.AssignmentRepository;
 import project.lms_rikkei_edu.modules.assignment.repository.AssignmentSubmissionRepository;
@@ -33,6 +37,7 @@ import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequ
 import java.math.BigDecimal;
 import java.net.URI;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.*;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -959,5 +964,196 @@ class StudentCourseServiceImplTest {
         verify(quizAttemptRepository, never()).findByCourseIdAndStudentIdIn(any(), any());
         verify(lessonProgressRepository, never()).deleteByCourseIdAndStudentIdIn(any(), anyList());
     }
+
+    // ── new tests for assignment progress ──
+
+    @Test
+    void getCourseDetail_withProgress_setsAssignmentCounts() {
+        Course course = new Course();
+        course.setId(courseId);
+        course.setStatus(CourseStatus.PUBLISHED);
+        when(courseRepository.findByIdWithCategory(courseId)).thenReturn(Optional.of(course));
+        when(courseEnrollmentRepository.existsByCourseIdAndStudentId(courseId, studentId)).thenReturn(true);
+        when(lessonProgressRepository.findByStudentIdAndCourseId(studentId, courseId)).thenReturn(Collections.emptyList());
+
+        CourseDetailResponse detailResp = CourseDetailResponse.builder()
+                .id(courseId)
+                .build();
+        when(courseMapper.toDetailResponse(course)).thenReturn(detailResp);
+
+        CourseProgressEntity prog = new CourseProgressEntity();
+        prog.setCompletedAssignmentsCount(3);
+        prog.setTotalAssignmentsCount(5);
+        when(courseProgressRepository.findByStudentIdAndCourseId(studentId, courseId)).thenReturn(Optional.of(prog));
+
+        CourseDetailResponse result = studentCourseService.getCourseDetail(studentId, courseId);
+
+        assertThat(result.getCompletedAssignments()).isEqualTo(3);
+        assertThat(result.getTotalAssignments()).isEqualTo(5);
+    }
+
+    @Test
+    void recalculateCourseProgress_delegatesToUpdateCourseProgress() {
+        when(assignmentRepository.findPublishedByCourseId(courseId)).thenReturn(Collections.emptyList());
+        Course course = new Course();
+        course.setId(courseId);
+        course.setChapters(Collections.emptyList());
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(course));
+        when(lessonProgressRepository.findByStudentIdAndCourseId(studentId, courseId)).thenReturn(Collections.emptyList());
+        when(courseProgressRepository.findByStudentIdAndCourseId(studentId, courseId)).thenReturn(Optional.empty());
+
+        studentCourseService.recalculateCourseProgress(studentId, courseId);
+
+        verify(courseProgressRepository).save(argThat(cp ->
+            cp.getTotalAssignmentsCount() == 0 &&
+            cp.getCompletedAssignmentsCount() == 0
+        ));
+    }
+
+    @Test
+    void updateAssignmentProgress_delegatesToUpdateCourseProgress() {
+        when(assignmentRepository.findPublishedByCourseId(courseId)).thenReturn(Collections.emptyList());
+        Course course = new Course();
+        course.setId(courseId);
+        course.setChapters(Collections.emptyList());
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(course));
+        when(lessonProgressRepository.findByStudentIdAndCourseId(studentId, courseId)).thenReturn(Collections.emptyList());
+        when(courseProgressRepository.findByStudentIdAndCourseId(studentId, courseId)).thenReturn(Optional.empty());
+
+        studentCourseService.updateAssignmentProgress(studentId, courseId);
+
+        verify(courseProgressRepository).save(argThat(cp ->
+            cp.getTotalAssignmentsCount() == 0 &&
+            cp.getCompletedAssignmentsCount() == 0
+        ));
+    }
+
+    @Test
+    void updateCourseProgress_assignmentStats_allGroupsScope_countsCompleted() {
+        UUID assignmentId = UUID.randomUUID();
+        AssignmentEntity assignment = new AssignmentEntity();
+        assignment.setId(assignmentId);
+        assignment.setScope(AssignmentScope.ALL_GROUPS);
+        assignment.setPassingScore(BigDecimal.valueOf(5));
+        when(assignmentRepository.findPublishedByCourseId(courseId)).thenReturn(List.of(assignment));
+        UUID groupId = UUID.randomUUID();
+        when(groupMemberRepository.findGroupIdsByStudentIdAndCourseId(studentId, courseId)).thenReturn(List.of(groupId));
+
+        AssignmentSubmissionEntity submission = new AssignmentSubmissionEntity();
+        submission.setAssignmentId(assignmentId);
+        submission.setScore(BigDecimal.valueOf(7));
+        submission.setScorePublishedAt(OffsetDateTime.now());
+        when(assignmentSubmissionRepository.findByStudentIdAndAssignmentIdIn(eq(studentId), anyList())).thenReturn(List.of(submission));
+
+        Course course = new Course();
+        course.setId(courseId);
+        course.setChapters(Collections.emptyList());
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(course));
+        when(lessonProgressRepository.findByStudentIdAndCourseId(studentId, courseId)).thenReturn(Collections.emptyList());
+        when(courseProgressRepository.findByStudentIdAndCourseId(studentId, courseId)).thenReturn(Optional.empty());
+
+        studentCourseService.recalculateCourseProgress(studentId, courseId);
+
+        verify(courseProgressRepository).save(argThat(cp ->
+            cp.getTotalAssignmentsCount() == 1 &&
+            cp.getCompletedAssignmentsCount() == 1
+        ));
+    }
+
+    @Test
+    void updateCourseProgress_assignmentStats_specificGroupsScope_filtersByGroup() {
+        UUID matchingId = UUID.randomUUID();
+        UUID nonMatchingId = UUID.randomUUID();
+        UUID studentGroupId = UUID.randomUUID();
+
+        AssignmentEntity matchingAssignment = new AssignmentEntity();
+        matchingAssignment.setId(matchingId);
+        matchingAssignment.setScope(AssignmentScope.SPECIFIC_GROUPS);
+        matchingAssignment.setPassingScore(BigDecimal.valueOf(5));
+
+        AssignmentEntity nonMatchingAssignment = new AssignmentEntity();
+        nonMatchingAssignment.setId(nonMatchingId);
+        nonMatchingAssignment.setScope(AssignmentScope.SPECIFIC_GROUPS);
+        nonMatchingAssignment.setPassingScore(BigDecimal.valueOf(5));
+
+        when(assignmentRepository.findPublishedByCourseId(courseId)).thenReturn(List.of(matchingAssignment, nonMatchingAssignment));
+        when(groupMemberRepository.findGroupIdsByStudentIdAndCourseId(studentId, courseId)).thenReturn(List.of(studentGroupId));
+
+        AssignmentGroupEntity ag1 = new AssignmentGroupEntity();
+        ag1.setAssignmentId(matchingId);
+        ag1.setGroupId(studentGroupId);
+        AssignmentGroupEntity ag2 = new AssignmentGroupEntity();
+        ag2.setAssignmentId(nonMatchingId);
+        ag2.setGroupId(UUID.randomUUID());
+        when(assignmentGroupRepository.findByAssignmentId(matchingId)).thenReturn(List.of(ag1));
+        when(assignmentGroupRepository.findByAssignmentId(nonMatchingId)).thenReturn(List.of(ag2));
+
+        AssignmentSubmissionEntity submission = new AssignmentSubmissionEntity();
+        submission.setAssignmentId(matchingId);
+        submission.setScore(BigDecimal.valueOf(7));
+        submission.setScorePublishedAt(OffsetDateTime.now());
+        when(assignmentSubmissionRepository.findByStudentIdAndAssignmentIdIn(eq(studentId), anyList())).thenReturn(List.of(submission));
+
+        Course course = new Course();
+        course.setId(courseId);
+        course.setChapters(Collections.emptyList());
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(course));
+        when(lessonProgressRepository.findByStudentIdAndCourseId(studentId, courseId)).thenReturn(Collections.emptyList());
+        when(courseProgressRepository.findByStudentIdAndCourseId(studentId, courseId)).thenReturn(Optional.empty());
+
+        studentCourseService.recalculateCourseProgress(studentId, courseId);
+
+        verify(courseProgressRepository).save(argThat(cp ->
+            cp.getTotalAssignmentsCount() == 1 &&
+            cp.getCompletedAssignmentsCount() == 1
+        ));
+    }
+
+    @Test
+    void updateCourseProgress_assignmentStats_countsOnlyScorePublished() {
+        UUID idPublished = UUID.randomUUID();
+        UUID idNotPublished = UUID.randomUUID();
+
+        AssignmentEntity a1 = new AssignmentEntity();
+        a1.setId(idPublished);
+        a1.setScope(AssignmentScope.ALL_GROUPS);
+        a1.setPassingScore(BigDecimal.valueOf(4));
+
+        AssignmentEntity a2 = new AssignmentEntity();
+        a2.setId(idNotPublished);
+        a2.setScope(AssignmentScope.ALL_GROUPS);
+        a2.setPassingScore(BigDecimal.valueOf(5));
+
+        when(assignmentRepository.findPublishedByCourseId(courseId)).thenReturn(List.of(a1, a2));
+        when(groupMemberRepository.findGroupIdsByStudentIdAndCourseId(studentId, courseId)).thenReturn(Collections.emptyList());
+
+        AssignmentSubmissionEntity s1 = new AssignmentSubmissionEntity();
+        s1.setAssignmentId(idPublished);
+        s1.setScorePublishedAt(OffsetDateTime.now());
+        s1.setScore(BigDecimal.valueOf(5));
+
+        AssignmentSubmissionEntity s2 = new AssignmentSubmissionEntity();
+        s2.setAssignmentId(idNotPublished);
+        s2.setScorePublishedAt(null);
+        s2.setScore(BigDecimal.valueOf(7));
+
+        when(assignmentSubmissionRepository.findByStudentIdAndAssignmentIdIn(eq(studentId), anyList())).thenReturn(List.of(s1, s2));
+
+        Course course = new Course();
+        course.setId(courseId);
+        course.setChapters(Collections.emptyList());
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(course));
+        when(lessonProgressRepository.findByStudentIdAndCourseId(studentId, courseId)).thenReturn(Collections.emptyList());
+        when(courseProgressRepository.findByStudentIdAndCourseId(studentId, courseId)).thenReturn(Optional.empty());
+
+        studentCourseService.recalculateCourseProgress(studentId, courseId);
+
+        verify(courseProgressRepository).save(argThat(cp ->
+            cp.getTotalAssignmentsCount() == 2 &&
+            cp.getCompletedAssignmentsCount() == 1
+        ));
+    }
+
+    // ── end new tests ──
 }
 

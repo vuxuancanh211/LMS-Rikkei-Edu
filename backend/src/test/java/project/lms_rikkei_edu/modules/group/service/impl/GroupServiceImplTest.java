@@ -27,6 +27,7 @@ import project.lms_rikkei_edu.modules.group.dto.request.UpdateGroupRequest;
 import project.lms_rikkei_edu.modules.group.dto.response.GroupDetailResponse;
 import project.lms_rikkei_edu.modules.group.dto.response.GroupMemberResponse;
 import project.lms_rikkei_edu.modules.group.dto.response.GroupResponse;
+import project.lms_rikkei_edu.modules.group.dto.response.StudentSearchResponse;
 import project.lms_rikkei_edu.modules.group.entity.GroupMemberEntity;
 import project.lms_rikkei_edu.modules.group.entity.StudyGroupEntity;
 import project.lms_rikkei_edu.modules.group.repository.GroupMemberRepository;
@@ -658,6 +659,63 @@ class GroupServiceImplTest {
 
         assertThat(result.getMembers()).hasSize(1);
         assertThat(result.getMembers().getFirst().getStudentId()).isEqualTo(studentId);
+    }
+
+    @Test
+    void getUnassignedStudents_returnsMappedResponses() {
+        UUID otherStudentId = UUID.randomUUID();
+        Object[] row1 = new Object[]{studentId, "student1@example.com", "Student One", "0123456789", "avatar1.jpg", courseId, "React Basics"};
+        Object[] row2 = new Object[]{otherStudentId, "student2@example.com", "Student Two", "0987654321", "avatar2.jpg", courseId, "React Basics"};
+        when(courseEnrollmentRepository.findUnassignedStudentsWithCourseInfo(courseId)).thenReturn(List.of(row1, row2));
+
+        List<StudentSearchResponse> result = groupService.getUnassignedStudents(courseId);
+
+        assertThat(result).hasSize(2);
+        assertThat(result.get(0).getId()).isEqualTo(studentId);
+        assertThat(result.get(0).getEmail()).isEqualTo("student1@example.com");
+        assertThat(result.get(0).getFullName()).isEqualTo("Student One");
+        assertThat(result.get(0).getPhoneNumber()).isEqualTo("0123456789");
+        assertThat(result.get(0).getAvatarUrl()).isEqualTo("avatar1.jpg");
+        assertThat(result.get(0).getCourseId()).isEqualTo(courseId);
+        assertThat(result.get(0).getCourseTitle()).isEqualTo("React Basics");
+        assertThat(result.get(1).getId()).isEqualTo(otherStudentId);
+    }
+
+    @Test
+    void getUnassignedStudents_returnsEmpty_whenNoUnassignedStudents() {
+        when(courseEnrollmentRepository.findUnassignedStudentsWithCourseInfo(courseId)).thenReturn(List.of());
+
+        List<StudentSearchResponse> result = groupService.getUnassignedStudents(courseId);
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    void addMembers_withSomeAlreadyEnrolled_skipsEnrollment() {
+        UUID enrolledStudentId = UUID.randomUUID();
+        UUID newStudentId = UUID.randomUUID();
+        UserEntity enrolledStudent = studentUser(enrolledStudentId, "enrolled@example.com");
+        UserEntity newStudent = studentUser(newStudentId, "new@example.com");
+        StudyGroupEntity group = groupEntity(groupId, courseEntity(instructorId), instructorUser());
+        group.setMaxCapacity(5);
+        AddGroupMembersRequest request = new AddGroupMembersRequest();
+        request.setEmails(List.of("enrolled@example.com", "new@example.com"));
+
+        when(currentUserProvider.getCurrentUser()).thenReturn(Optional.of(principal(instructorId, UserRole.INSTRUCTOR)));
+        when(studyGroupRepository.findByIdAndInstructorId(groupId, instructorId)).thenReturn(Optional.of(group));
+        when(userRepository.findByEmailIgnoreCaseInAndDeletedAtIsNull(anyList())).thenReturn(List.of(enrolledStudent, newStudent));
+        when(groupMemberRepository.countByGroupId(groupId)).thenReturn(0L);
+        when(groupMemberRepository.findExistingStudentIds(eq(groupId), anyList())).thenReturn(List.of());
+        when(courseEnrollmentRepository.findEnrolledStudentIds(courseId, List.of(enrolledStudentId, newStudentId)))
+                .thenReturn(List.of(enrolledStudentId));
+        when(chatRoomService.getOrCreateRoomForGroup(group, group.getInstructor())).thenReturn(chatRoomEntity(group));
+        when(notificationPreferenceService.isInAppEnabled(any(), eq(NotificationType.GROUP_MEMBER_ADDED.name())))
+                .thenReturn(true);
+
+        List<GroupMemberResponse> result = groupService.addMembers(groupId, request);
+
+        assertThat(result).hasSize(2);
+        verify(courseEnrollmentRepository).saveAll(anyList());
     }
 
     private CreateGroupRequest createRequest() {

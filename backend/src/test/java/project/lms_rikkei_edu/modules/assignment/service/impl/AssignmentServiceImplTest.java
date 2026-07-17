@@ -598,6 +598,325 @@ class AssignmentServiceImplTest {
                 .hasMessageContaining("không thuộc bài tập");
     }
 
+    // ── new tests ────────────────────────────────────────────────────
+
+    @Test
+    void createAssignment_maxScoreNull_throws() {
+        var request = createRequest(AssignmentScope.ALL_GROUPS);
+        request.setMaxScore(null);
+        when(courseRepository.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(true);
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(publishedCourse()));
+
+        assertThatThrownBy(() -> service.createAssignment(courseId, instructorId, request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Điểm tối đa phải lớn hơn 0");
+    }
+
+    @Test
+    void createAssignment_maxScoreZero_throws() {
+        var request = createRequest(AssignmentScope.ALL_GROUPS);
+        request.setMaxScore(BigDecimal.ZERO);
+        when(courseRepository.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(true);
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(publishedCourse()));
+
+        assertThatThrownBy(() -> service.createAssignment(courseId, instructorId, request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Điểm tối đa phải lớn hơn 0");
+    }
+
+    @Test
+    void createAssignment_maxScoreExceeds100_throws() {
+        var request = createRequest(AssignmentScope.ALL_GROUPS);
+        request.setMaxScore(BigDecimal.valueOf(101));
+        when(courseRepository.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(true);
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(publishedCourse()));
+
+        assertThatThrownBy(() -> service.createAssignment(courseId, instructorId, request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Điểm tối đa không được vượt quá 100");
+    }
+
+    @Test
+    void createAssignment_passingScoreNull_defaultsToHalfMaxScore() {
+        var request = createRequest(AssignmentScope.ALL_GROUPS);
+        request.setPassingScore(null);
+        request.setMaxScore(BigDecimal.valueOf(100));
+        var assignment = assignmentEntity(AssignmentStatus.DRAFT, AssignmentScope.ALL_GROUPS);
+        var response = assignmentResponse();
+
+        when(courseRepository.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(true);
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(publishedCourse()));
+        when(assignmentRepository.save(any())).thenReturn(assignment);
+        when(assignmentMapper.toResponse(any())).thenReturn(response);
+
+        service.createAssignment(courseId, instructorId, request);
+
+        var captor = ArgumentCaptor.forClass(AssignmentEntity.class);
+        verify(assignmentRepository).save(captor.capture());
+        assertThat(captor.getValue().getPassingScore()).isEqualByComparingTo(BigDecimal.valueOf(50));
+    }
+
+    @Test
+    void createAssignment_passingScoreNegative_throws() {
+        var request = createRequest(AssignmentScope.ALL_GROUPS);
+        request.setPassingScore(BigDecimal.valueOf(-1));
+        when(courseRepository.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(true);
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(publishedCourse()));
+
+        assertThatThrownBy(() -> service.createAssignment(courseId, instructorId, request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Điểm đạt không được nhỏ hơn 0");
+    }
+
+    @Test
+    void createAssignment_passingScoreExceedsMaxScore_throws() {
+        var request = createRequest(AssignmentScope.ALL_GROUPS);
+        request.setPassingScore(BigDecimal.valueOf(20));
+        request.setMaxScore(BigDecimal.TEN);
+        when(courseRepository.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(true);
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(publishedCourse()));
+
+        assertThatThrownBy(() -> service.createAssignment(courseId, instructorId, request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Điểm đạt không được lớn hơn điểm tối đa");
+    }
+
+    @Test
+    void updateAssignment_draft_maxScoreZero_throws() {
+        var assignment = assignmentEntity(AssignmentStatus.DRAFT, AssignmentScope.ALL_GROUPS);
+        var request = new UpdateAssignmentRequest();
+        request.setMaxScore(BigDecimal.ZERO);
+
+        when(courseRepository.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(true);
+        when(assignmentRepository.findByIdAndCourseId(assignmentId, courseId))
+                .thenReturn(Optional.of(assignment));
+
+        assertThatThrownBy(() -> service.updateAssignment(courseId, assignmentId, instructorId, request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Điểm tối đa phải lớn hơn 0");
+    }
+
+    @Test
+    void updateAssignment_draft_maxScoreExceeds100_throws() {
+        var assignment = assignmentEntity(AssignmentStatus.DRAFT, AssignmentScope.ALL_GROUPS);
+        var request = new UpdateAssignmentRequest();
+        request.setMaxScore(BigDecimal.valueOf(101));
+
+        when(courseRepository.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(true);
+        when(assignmentRepository.findByIdAndCourseId(assignmentId, courseId))
+                .thenReturn(Optional.of(assignment));
+
+        assertThatThrownBy(() -> service.updateAssignment(courseId, assignmentId, instructorId, request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Điểm tối đa không được vượt quá 100");
+    }
+
+    @Test
+    void updateAssignment_draft_passingScoreNegative_throws() {
+        var assignment = assignmentEntity(AssignmentStatus.DRAFT, AssignmentScope.ALL_GROUPS);
+        var request = new UpdateAssignmentRequest();
+        request.setPassingScore(BigDecimal.valueOf(-1));
+
+        when(courseRepository.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(true);
+        when(assignmentRepository.findByIdAndCourseId(assignmentId, courseId))
+                .thenReturn(Optional.of(assignment));
+
+        assertThatThrownBy(() -> service.updateAssignment(courseId, assignmentId, instructorId, request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Điểm đạt không được nhỏ hơn 0");
+    }
+
+    @Test
+    void updateAssignment_draft_passingScoreExceedsMaxScore_throws() {
+        var assignment = assignmentEntity(AssignmentStatus.DRAFT, AssignmentScope.ALL_GROUPS);
+        var request = new UpdateAssignmentRequest();
+        request.setPassingScore(BigDecimal.valueOf(20));
+
+        when(courseRepository.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(true);
+        when(assignmentRepository.findByIdAndCourseId(assignmentId, courseId))
+                .thenReturn(Optional.of(assignment));
+
+        assertThatThrownBy(() -> service.updateAssignment(courseId, assignmentId, instructorId, request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Điểm đạt không được lớn hơn điểm tối đa");
+    }
+
+    @Test
+    void updateAssignment_published_passingScoreNegative_throws() {
+        var assignment = assignmentEntity(AssignmentStatus.PUBLISHED, AssignmentScope.ALL_GROUPS);
+        var request = new UpdateAssignmentRequest();
+        request.setPassingScore(BigDecimal.valueOf(-1));
+
+        when(courseRepository.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(true);
+        when(assignmentRepository.findByIdAndCourseId(assignmentId, courseId))
+                .thenReturn(Optional.of(assignment));
+
+        assertThatThrownBy(() -> service.updateAssignment(courseId, assignmentId, instructorId, request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Điểm đạt không được nhỏ hơn 0");
+    }
+
+    @Test
+    void updateAssignment_published_passingScoreExceedsMaxScore_throws() {
+        var assignment = assignmentEntity(AssignmentStatus.PUBLISHED, AssignmentScope.ALL_GROUPS);
+        var request = new UpdateAssignmentRequest();
+        request.setPassingScore(BigDecimal.valueOf(20));
+
+        when(courseRepository.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(true);
+        when(assignmentRepository.findByIdAndCourseId(assignmentId, courseId))
+                .thenReturn(Optional.of(assignment));
+
+        assertThatThrownBy(() -> service.updateAssignment(courseId, assignmentId, instructorId, request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Điểm đạt không được lớn hơn điểm tối đa");
+    }
+
+    @Test
+    void publishAssignment_recalculatesProgressForEnrolledStudents() {
+        var assignment = assignmentEntity(AssignmentStatus.DRAFT, AssignmentScope.ALL_GROUPS);
+        var studentId1 = UUID.randomUUID();
+        var studentId2 = UUID.randomUUID();
+
+        when(courseRepository.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(true);
+        when(assignmentRepository.findByIdAndCourseId(assignmentId, courseId))
+                .thenReturn(Optional.of(assignment));
+        when(assignmentRepository.save(any())).thenReturn(assignment);
+        when(assignmentMapper.toResponse(any())).thenReturn(assignmentResponse());
+        when(courseEnrollmentRepository.findStudentIdsByCourseId(courseId))
+                .thenReturn(List.of(studentId1, studentId2));
+
+        service.publishAssignment(courseId, assignmentId, instructorId);
+
+        verify(courseEnrollmentRepository).findStudentIdsByCourseId(courseId);
+        verify(studentCourseService).recalculateCourseProgress(studentId1, courseId);
+        verify(studentCourseService).recalculateCourseProgress(studentId2, courseId);
+    }
+
+    @Test
+    void updateAssignment_draft_success() {
+        var assignment = assignmentEntity(AssignmentStatus.DRAFT, AssignmentScope.ALL_GROUPS);
+        var request = new UpdateAssignmentRequest();
+        request.setTitle("Updated Title");
+        request.setDescription("Updated Desc");
+        request.setStartDate(futureStartDate);
+        request.setDeadline(futureDeadline);
+        request.setAllowLateSubmission(true);
+        request.setLatePenaltyPercent(10);
+        request.setMaxScore(BigDecimal.TEN);
+        request.setPassingScore(BigDecimal.valueOf(5));
+        request.setMaxFileSizeMb(20);
+        request.setAllowedFileTypes(List.of("image/png", "application/pdf"));
+        request.setScope(AssignmentScope.SPECIFIC_GROUPS);
+        UUID groupId = UUID.randomUUID();
+        request.setGroupIds(List.of(groupId));
+
+        when(courseRepository.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(true);
+        when(assignmentRepository.findByIdAndCourseId(assignmentId, courseId))
+                .thenReturn(Optional.of(assignment));
+        when(assignmentRepository.save(any())).thenReturn(assignment);
+        when(assignmentMapper.toResponse(any())).thenReturn(assignmentResponse());
+        when(assignmentGroupRepository.findByAssignmentId(assignmentId)).thenReturn(List.of());
+
+        AssignmentResponse result = service.updateAssignment(courseId, assignmentId, instructorId, request);
+
+        assertThat(result).isNotNull();
+        assertThat(assignment.getTitle()).isEqualTo("Updated Title");
+        assertThat(assignment.getDescription()).isEqualTo("Updated Desc");
+        assertThat(assignment.getMaxScore()).isEqualByComparingTo(BigDecimal.TEN);
+        assertThat(assignment.getPassingScore()).isEqualByComparingTo(BigDecimal.valueOf(5));
+        assertThat(assignment.getMaxFileSizeMb()).isEqualTo(20);
+        assertThat(assignment.getAllowLateSubmission()).isTrue();
+        assertThat(assignment.getLatePenaltyPercent()).isEqualTo(10);
+        assertThat(assignment.getScope()).isEqualTo(AssignmentScope.SPECIFIC_GROUPS);
+        verify(assignmentRepository).save(any());
+        verify(assignmentMapper).toResponse(any());
+    }
+
+    @Test
+    void updateAssignment_published_success() {
+        var assignment = assignmentEntity(AssignmentStatus.PUBLISHED, AssignmentScope.ALL_GROUPS);
+        var request = new UpdateAssignmentRequest();
+        request.setDeadline(futureDeadline);
+        request.setAllowLateSubmission(true);
+        request.setLatePenaltyPercent(20);
+        request.setPassingScore(BigDecimal.valueOf(7));
+        request.setMaxFileSizeMb(15);
+
+        when(courseRepository.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(true);
+        when(assignmentRepository.findByIdAndCourseId(assignmentId, courseId))
+                .thenReturn(Optional.of(assignment));
+        when(assignmentRepository.save(any())).thenReturn(assignment);
+        when(assignmentMapper.toResponse(any())).thenReturn(assignmentResponse());
+
+        AssignmentResponse result = service.updateAssignment(courseId, assignmentId, instructorId, request);
+
+        assertThat(result).isNotNull();
+        assertThat(assignment.getDeadline()).isEqualTo(futureDeadline);
+        assertThat(assignment.getAllowLateSubmission()).isTrue();
+        assertThat(assignment.getLatePenaltyPercent()).isEqualTo(20);
+        assertThat(assignment.getPassingScore()).isEqualByComparingTo(BigDecimal.valueOf(7));
+        assertThat(assignment.getMaxFileSizeMb()).isEqualTo(15);
+        verify(assignmentRepository).save(any());
+        verify(assignmentMapper).toResponse(any());
+    }
+
+    @Test
+    void updateAssignment_published_noChanges_throws() {
+        var assignment = assignmentEntity(AssignmentStatus.PUBLISHED, AssignmentScope.ALL_GROUPS);
+        var request = new UpdateAssignmentRequest();
+        request.setTitle("Title Only");
+
+        when(courseRepository.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(true);
+        when(assignmentRepository.findByIdAndCourseId(assignmentId, courseId))
+                .thenReturn(Optional.of(assignment));
+
+        assertThatThrownBy(() -> service.updateAssignment(courseId, assignmentId, instructorId, request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Sau khi publish");
+    }
+
+    @Test
+    void createAssignment_passingScoreProvided_usesExplicitValue() {
+        var request = createRequest(AssignmentScope.ALL_GROUPS);
+        request.setPassingScore(BigDecimal.valueOf(7));
+        var assignment = assignmentEntity(AssignmentStatus.DRAFT, AssignmentScope.ALL_GROUPS);
+        var response = assignmentResponse();
+
+        when(courseRepository.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(true);
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(publishedCourse()));
+        when(assignmentRepository.save(any())).thenReturn(assignment);
+        when(assignmentMapper.toResponse(any())).thenReturn(response);
+
+        service.createAssignment(courseId, instructorId, request);
+
+        var captor = ArgumentCaptor.forClass(AssignmentEntity.class);
+        verify(assignmentRepository).save(captor.capture());
+        assertThat(captor.getValue().getPassingScore()).isEqualByComparingTo(BigDecimal.valueOf(7));
+    }
+
+    @Test
+    void updateAssignment_draft_passingScoreValidatesAgainstRequestMaxScore() {
+        var assignment = assignmentEntity(AssignmentStatus.DRAFT, AssignmentScope.ALL_GROUPS);
+        assignment.setMaxScore(null);
+        var request = new UpdateAssignmentRequest();
+        request.setMaxScore(BigDecimal.valueOf(100));
+        request.setPassingScore(BigDecimal.valueOf(50));
+
+        when(courseRepository.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(true);
+        when(assignmentRepository.findByIdAndCourseId(assignmentId, courseId))
+                .thenReturn(Optional.of(assignment));
+        when(assignmentRepository.save(any())).thenReturn(assignment);
+        when(assignmentMapper.toResponse(any())).thenReturn(assignmentResponse());
+
+        AssignmentResponse result = service.updateAssignment(courseId, assignmentId, instructorId, request);
+
+        assertThat(result).isNotNull();
+        assertThat(assignment.getPassingScore()).isEqualByComparingTo(BigDecimal.valueOf(50));
+        assertThat(assignment.getMaxScore()).isEqualByComparingTo(BigDecimal.valueOf(100));
+    }
+
+    // ── end new tests ────────────────────────────────────────────────
+
     // ── helper methods ───────────────────────────────────────────────────────
 
     private CreateAssignmentRequest createRequest(AssignmentScope scope) {
