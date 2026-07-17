@@ -5,6 +5,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import project.lms_rikkei_edu.modules.dashboard.dto.response.*;
 import project.lms_rikkei_edu.modules.dashboard.service.AdminDashboardService;
+import project.lms_rikkei_edu.modules.dashboard.util.DashboardChartUtils;
 
 import java.time.Instant;
 import java.time.ZoneId;
@@ -28,13 +29,22 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
 
     @Override
     public AdminDashboardStatsResponse getStats() {
-        Integer totalStudentsCount = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM users WHERE role = 'STUDENT'", Integer.class);
-        if (totalStudentsCount == null) totalStudentsCount = 0;
-
-        Integer totalInstructorsCount = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM users WHERE role = 'INSTRUCTOR'", Integer.class);
-        if (totalInstructorsCount == null) totalInstructorsCount = 0;
+        Map<String, Integer> userCounts = jdbc.query("""
+                SELECT
+                    COUNT(CASE WHEN role = 'STUDENT' THEN 1 END) AS students,
+                    COUNT(CASE WHEN role = 'INSTRUCTOR' THEN 1 END) AS instructors
+                FROM users
+                """, rs -> {
+            if (rs.next()) {
+                return Map.of(
+                        "students", rs.getInt("students"),
+                        "instructors", rs.getInt("instructors")
+                );
+            }
+            return Map.of("students", 0, "instructors", 0);
+        });
+        int totalStudentsCount = userCounts != null ? userCounts.getOrDefault("students", 0) : 0;
+        int totalInstructorsCount = userCounts != null ? userCounts.getOrDefault("instructors", 0) : 0;
 
         Integer activeCoursesCount = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM courses WHERE status IN ('PUBLISHED', 'APPROVED')", Integer.class);
@@ -52,26 +62,11 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
                 .build();
     }
 
-    private static final String[] EN_MONTHS = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
-    private static final String[] EN_DAYS = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
-
     @Override
     public AdminDashboardTrafficResponse getTrafficChart() {
         List<Double> trafficData = new ArrayList<>(Collections.nCopies(6, 0.0));
-        List<String> trafficLabels = new ArrayList<>();
-        Map<String, Integer> ymToIndex = new HashMap<>();
-
-        Calendar cal = Calendar.getInstance();
-        for (int i = 5; i >= 0; i--) {
-            Calendar c = (Calendar) cal.clone();
-            c.add(Calendar.MONTH, -i);
-            int month = c.get(Calendar.MONTH);
-            int year = c.get(Calendar.YEAR);
-            String label = EN_MONTHS[month];
-            String ym = String.format("%04d-%02d", year, month + 1);
-            trafficLabels.add(label);
-            ymToIndex.put(ym, 5 - i);
-        }
+        List<String> trafficLabels = DashboardChartUtils.getMonthlyLabels(6);
+        Map<String, Integer> ymToIndex = DashboardChartUtils.getYearMonthToIndexMap(6);
 
         jdbc.query("""
                 SELECT TO_CHAR(COALESCE(last_accessed_at, first_accessed_at), 'YYYY-MM') AS ym, COUNT(*) AS cnt
@@ -88,19 +83,8 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
         });
 
         List<Double> weeklyTrafficData = new ArrayList<>(Collections.nCopies(7, 0.0));
-        List<String> weeklyTrafficLabels = new ArrayList<>();
-        Map<String, Integer> dateToIndex = new HashMap<>();
-
-        Calendar cal7 = Calendar.getInstance();
-        for (int i = 6; i >= 0; i--) {
-            Calendar c = (Calendar) cal7.clone();
-            c.add(Calendar.DAY_OF_YEAR, -i);
-            int dayOfWeek = c.get(Calendar.DAY_OF_WEEK);
-            String label = EN_DAYS[dayOfWeek - 1];
-            String dateStr = String.format("%04d-%02d-%02d", c.get(Calendar.YEAR), c.get(Calendar.MONTH) + 1, c.get(Calendar.DAY_OF_MONTH));
-            weeklyTrafficLabels.add(label);
-            dateToIndex.put(dateStr, 6 - i);
-        }
+        List<String> weeklyTrafficLabels = DashboardChartUtils.getWeeklyLabels(7);
+        Map<String, Integer> dateToIndex = DashboardChartUtils.getDateToIndexMap(7);
 
         jdbc.query("""
                 SELECT TO_CHAR(COALESCE(last_accessed_at, first_accessed_at), 'YYYY-MM-DD') AS dstr, COUNT(*) AS cnt
@@ -127,20 +111,8 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
     @Override
     public AdminDashboardCoursesChartResponse getCoursesChart() {
         List<Integer> newCoursesData = new ArrayList<>(Collections.nCopies(6, 0));
-        List<String> newCoursesLabels = new ArrayList<>();
-        Map<String, Integer> ymToIndex = new HashMap<>();
-
-        Calendar cal = Calendar.getInstance();
-        for (int i = 5; i >= 0; i--) {
-            Calendar c = (Calendar) cal.clone();
-            c.add(Calendar.MONTH, -i);
-            int month = c.get(Calendar.MONTH);
-            int year = c.get(Calendar.YEAR);
-            String label = EN_MONTHS[month];
-            String ym = String.format("%04d-%02d", year, month + 1);
-            newCoursesLabels.add(label);
-            ymToIndex.put(ym, 5 - i);
-        }
+        List<String> newCoursesLabels = DashboardChartUtils.getMonthlyLabels(6);
+        Map<String, Integer> ymToIndex = DashboardChartUtils.getYearMonthToIndexMap(6);
 
         jdbc.query("""
                 SELECT TO_CHAR(created_at, 'YYYY-MM') AS ym, COUNT(*) AS cnt
@@ -157,19 +129,8 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
         });
 
         List<Integer> weeklyCoursesData = new ArrayList<>(Collections.nCopies(7, 0));
-        List<String> weeklyCoursesLabels = new ArrayList<>();
-        Map<String, Integer> dateToIndex = new HashMap<>();
-
-        Calendar cal7 = Calendar.getInstance();
-        for (int i = 6; i >= 0; i--) {
-            Calendar c = (Calendar) cal7.clone();
-            c.add(Calendar.DAY_OF_YEAR, -i);
-            int dayOfWeek = c.get(Calendar.DAY_OF_WEEK);
-            String label = EN_DAYS[dayOfWeek - 1];
-            String dateStr = String.format("%04d-%02d-%02d", c.get(Calendar.YEAR), c.get(Calendar.MONTH) + 1, c.get(Calendar.DAY_OF_MONTH));
-            weeklyCoursesLabels.add(label);
-            dateToIndex.put(dateStr, 6 - i);
-        }
+        List<String> weeklyCoursesLabels = DashboardChartUtils.getWeeklyLabels(7);
+        Map<String, Integer> dateToIndex = DashboardChartUtils.getDateToIndexMap(7);
 
         jdbc.query("""
                 SELECT TO_CHAR(created_at, 'YYYY-MM-DD') AS dstr, COUNT(*) AS cnt
@@ -196,20 +157,8 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
     @Override
     public AdminDashboardUsersChartResponse getUsersChart() {
         List<Integer> newUsersData = new ArrayList<>(Collections.nCopies(6, 0));
-        List<String> newUsersLabels = new ArrayList<>();
-        Map<String, Integer> ymToIndex = new HashMap<>();
-
-        Calendar cal = Calendar.getInstance();
-        for (int i = 5; i >= 0; i--) {
-            Calendar c = (Calendar) cal.clone();
-            c.add(Calendar.MONTH, -i);
-            int month = c.get(Calendar.MONTH);
-            int year = c.get(Calendar.YEAR);
-            String label = EN_MONTHS[month];
-            String ym = String.format("%04d-%02d", year, month + 1);
-            newUsersLabels.add(label);
-            ymToIndex.put(ym, 5 - i);
-        }
+        List<String> newUsersLabels = DashboardChartUtils.getMonthlyLabels(6);
+        Map<String, Integer> ymToIndex = DashboardChartUtils.getYearMonthToIndexMap(6);
 
         jdbc.query("""
                 SELECT TO_CHAR(created_at, 'YYYY-MM') AS ym, COUNT(*) AS cnt
@@ -226,19 +175,8 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
         });
 
         List<Integer> weeklyUsersData = new ArrayList<>(Collections.nCopies(7, 0));
-        List<String> weeklyUsersLabels = new ArrayList<>();
-        Map<String, Integer> dateToIndex = new HashMap<>();
-
-        Calendar cal7 = Calendar.getInstance();
-        for (int i = 6; i >= 0; i--) {
-            Calendar c = (Calendar) cal7.clone();
-            c.add(Calendar.DAY_OF_YEAR, -i);
-            int dayOfWeek = c.get(Calendar.DAY_OF_WEEK);
-            String label = EN_DAYS[dayOfWeek - 1];
-            String dateStr = String.format("%04d-%02d-%02d", c.get(Calendar.YEAR), c.get(Calendar.MONTH) + 1, c.get(Calendar.DAY_OF_MONTH));
-            weeklyUsersLabels.add(label);
-            dateToIndex.put(dateStr, 6 - i);
-        }
+        List<String> weeklyUsersLabels = DashboardChartUtils.getWeeklyLabels(7);
+        Map<String, Integer> dateToIndex = DashboardChartUtils.getDateToIndexMap(7);
 
         jdbc.query("""
                 SELECT TO_CHAR(created_at, 'YYYY-MM-DD') AS dstr, COUNT(*) AS cnt
@@ -265,20 +203,8 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
     @Override
     public AdminDashboardEnrollmentsChartResponse getEnrollmentsChart() {
         List<Integer> enrollmentsData = new ArrayList<>(Collections.nCopies(6, 0));
-        List<String> enrollmentsLabels = new ArrayList<>();
-        Map<String, Integer> ymToIndex = new HashMap<>();
-
-        Calendar cal = Calendar.getInstance();
-        for (int i = 5; i >= 0; i--) {
-            Calendar c = (Calendar) cal.clone();
-            c.add(Calendar.MONTH, -i);
-            int month = c.get(Calendar.MONTH);
-            int year = c.get(Calendar.YEAR);
-            String label = EN_MONTHS[month];
-            String ym = String.format("%04d-%02d", year, month + 1);
-            enrollmentsLabels.add(label);
-            ymToIndex.put(ym, 5 - i);
-        }
+        List<String> enrollmentsLabels = DashboardChartUtils.getMonthlyLabels(6);
+        Map<String, Integer> ymToIndex = DashboardChartUtils.getYearMonthToIndexMap(6);
 
         jdbc.query("""
                 SELECT TO_CHAR(enrolled_at, 'YYYY-MM') AS ym, COUNT(*) AS cnt
@@ -295,19 +221,8 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
         });
 
         List<Integer> weeklyEnrollmentsData = new ArrayList<>(Collections.nCopies(7, 0));
-        List<String> weeklyEnrollmentsLabels = new ArrayList<>();
-        Map<String, Integer> dateToIndex = new HashMap<>();
-
-        Calendar cal7 = Calendar.getInstance();
-        for (int i = 6; i >= 0; i--) {
-            Calendar c = (Calendar) cal7.clone();
-            c.add(Calendar.DAY_OF_YEAR, -i);
-            int dayOfWeek = c.get(Calendar.DAY_OF_WEEK);
-            String label = EN_DAYS[dayOfWeek - 1];
-            String dateStr = String.format("%04d-%02d-%02d", c.get(Calendar.YEAR), c.get(Calendar.MONTH) + 1, c.get(Calendar.DAY_OF_MONTH));
-            weeklyEnrollmentsLabels.add(label);
-            dateToIndex.put(dateStr, 6 - i);
-        }
+        List<String> weeklyEnrollmentsLabels = DashboardChartUtils.getWeeklyLabels(7);
+        Map<String, Integer> dateToIndex = DashboardChartUtils.getDateToIndexMap(7);
 
         jdbc.query("""
                 SELECT TO_CHAR(enrolled_at, 'YYYY-MM-DD') AS dstr, COUNT(*) AS cnt
@@ -353,51 +268,6 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
     }
 
     @Override
-    public List<SystemActivityDto> getRecentActivities() {
-        final List<SystemActivityDto> activityList = new ArrayList<>();
-        jdbc.query("""
-                SELECT c.id, u.full_name, c.title, COALESCE(c.updated_at, c.created_at) AS act_time, c.status
-                FROM courses c JOIN users u ON u.id = c.instructor_id
-                ORDER BY COALESCE(c.updated_at, c.created_at) DESC LIMIT 3
-                """, (rs) -> {
-            String status = rs.getString("status");
-            String act = "PENDING".equals(status) ? "đã gửi phê duyệt khóa học: " + rs.getString("title")
-                    : "APPROVED".equals(status) || "PUBLISHED".equals(status) ? "đã xuất bản khóa học: " + rs.getString("title")
-                    : "đã cập nhật khóa học: " + rs.getString("title");
-            String type = "PENDING".equals(status) ? "submit" : "PUBLISHED".equals(status) ? "publish" : "add";
-            Instant time = rs.getTimestamp("act_time") != null ? rs.getTimestamp("act_time").toInstant() : Instant.now();
-            activityList.add(SystemActivityDto.builder()
-                    .id(UUID.fromString(rs.getString("id")))
-                    .who(rs.getString("full_name"))
-                    .act(act)
-                    .time(DATE_FORMATTER.format(time))
-                    .type(type)
-                    .build());
-        });
-
-        jdbc.query("""
-                SELECT s.id, u.full_name, a.title, s.submitted_at, s.status
-                FROM assignment_submissions s
-                JOIN assignments a ON a.id = s.assignment_id
-                JOIN users u ON u.id = s.student_id
-                ORDER BY s.submitted_at DESC LIMIT 3
-                """, (rs) -> {
-            Instant time = rs.getTimestamp("submitted_at") != null ? rs.getTimestamp("submitted_at").toInstant() : Instant.now();
-            activityList.add(SystemActivityDto.builder()
-                    .id(UUID.fromString(rs.getString("id")))
-                    .who(rs.getString("full_name"))
-                    .act("đã nộp bài tập: " + rs.getString("title"))
-                    .time(DATE_FORMATTER.format(time))
-                    .type("submit")
-                    .build());
-        });
-
-        return activityList.stream()
-                .limit(6)
-                .collect(Collectors.toList());
-    }
-
-    @Override
     public AdminDashboardResponse getDashboard() {
         AdminDashboardStatsResponse stats = getStats();
         AdminDashboardTrafficResponse traffic = getTrafficChart();
@@ -405,7 +275,6 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
         AdminDashboardUsersChartResponse users = getUsersChart();
         AdminDashboardEnrollmentsChartResponse enrollments = getEnrollmentsChart();
         List<PendingApprovalDto> pendingApprovals = getPendingApprovals();
-        List<SystemActivityDto> recentActivities = getRecentActivities();
 
         return AdminDashboardResponse.builder()
                 .totalStudentsCount(stats.getTotalStudentsCount())
@@ -429,7 +298,6 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
                 .weeklyEnrollmentsData(enrollments.getWeeklyEnrollmentsData())
                 .weeklyEnrollmentsLabels(enrollments.getWeeklyEnrollmentsLabels())
                 .pendingApprovals(pendingApprovals)
-                .recentActivities(recentActivities)
                 .build();
     }
 }

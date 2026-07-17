@@ -11,5 +11,4 @@ public interface AdminDashboardService {
     AdminDashboardUsersChartResponse getUsersChart();
     AdminDashboardEnrollmentsChartResponse getEnrollmentsChart();
     List<PendingApprovalDto> getPendingApprovals();
-    List<SystemActivityDto> getRecentActivities();
 }

@@ -50,8 +50,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.UUID;
 import java.util.Collections;
+import java.util.UUID;
+import java.util.stream.Collectors;
 
 @RequiredArgsConstructor
 @Service
@@ -78,7 +79,16 @@ public class GroupServiceImpl implements GroupService {
         UserPrincipal currentUser = requireCurrentUser();
         Specification<StudyGroupEntity> spec = groupSearchSpec(currentUser.getId(), courseId, keyword);
         Page<StudyGroupEntity> groupPage = studyGroupRepository.findAll(spec, pageable);
-        return groupPage.map(this::toGroupResponse);
+        if (groupPage.isEmpty()) {
+            return groupPage.map(g -> null);
+        }
+        List<UUID> groupIds = groupPage.getContent().stream().map(StudyGroupEntity::getId).toList();
+        Map<UUID, Long> memberCountMap = groupMemberRepository.countByGroupIds(groupIds).stream()
+                .collect(Collectors.toMap(
+                        row -> (UUID) row[0],
+                        row -> ((Number) row[1]).longValue()
+                ));
+        return groupPage.map(group -> toGroupResponse(group, memberCountMap.getOrDefault(group.getId(), 0L).intValue()));
     }
 
     @Override
@@ -350,9 +360,18 @@ public class GroupServiceImpl implements GroupService {
     @Transactional(readOnly = true)
     public List<GroupResponse> getStudentGroups() {
         UserPrincipal currentUser = requireCurrentUser();
-        return studyGroupRepository.findByStudentId(currentUser.getId())
-                .stream()
-                .map(this::toGroupResponse)
+        List<StudyGroupEntity> groups = studyGroupRepository.findByStudentId(currentUser.getId());
+        if (groups.isEmpty()) {
+            return List.of();
+        }
+        List<UUID> groupIds = groups.stream().map(StudyGroupEntity::getId).toList();
+        Map<UUID, Long> memberCountMap = groupMemberRepository.countByGroupIds(groupIds).stream()
+                .collect(Collectors.toMap(
+                        row -> (UUID) row[0],
+                        row -> ((Number) row[1]).longValue()
+                ));
+        return groups.stream()
+                .map(group -> toGroupResponse(group, memberCountMap.getOrDefault(group.getId(), 0L).intValue()))
                 .toList();
     }
 
@@ -368,7 +387,7 @@ public class GroupServiceImpl implements GroupService {
         }
 
         List<GroupMemberEntity> members = groupMemberRepository.findByGroupIdWithStudent(groupId);
-        return toGroupDetailResponse(group, members);
+        return toGroupDetailResponse(group, members, true);
     }
 
     @Override
@@ -467,6 +486,10 @@ public class GroupServiceImpl implements GroupService {
     }
 
     private GroupResponse toGroupResponse(StudyGroupEntity group) {
+        return toGroupResponse(group, (int) groupMemberRepository.countByGroupId(group.getId()));
+    }
+
+    private GroupResponse toGroupResponse(StudyGroupEntity group, int memberCount) {
         return GroupResponse.builder()
                 .id(group.getId())
                 .courseId(group.getCourse().getId())
@@ -474,7 +497,7 @@ public class GroupServiceImpl implements GroupService {
                 .name(group.getName())
                 .description(group.getDescription())
                 .maxCapacity(group.getMaxCapacity())
-                .memberCount((int) groupMemberRepository.countByGroupId(group.getId()))
+                .memberCount(memberCount)
                 .startDate(group.getStartDate())
                 .endDate(group.getEndDate())
                 .status(computeGroupStatus(group))
@@ -483,6 +506,10 @@ public class GroupServiceImpl implements GroupService {
     }
 
     private GroupDetailResponse toGroupDetailResponse(StudyGroupEntity group, List<GroupMemberEntity> members) {
+        return toGroupDetailResponse(group, members, false);
+    }
+
+    private GroupDetailResponse toGroupDetailResponse(StudyGroupEntity group, List<GroupMemberEntity> members, boolean isStudent) {
         return GroupDetailResponse.builder()
                 .id(group.getId())
                 .courseId(group.getCourse().getId())
@@ -495,16 +522,20 @@ public class GroupServiceImpl implements GroupService {
                 .endDate(group.getEndDate())
                 .status(computeGroupStatus(group))
                 .createdAt(group.getCreatedAt())
-                .members(members.stream().map(this::toMemberResponse).toList())
+                .members(members.stream().map(m -> toMemberResponse(m, isStudent)).toList())
                 .build();
     }
 
     private GroupMemberResponse toMemberResponse(GroupMemberEntity member) {
+        return toMemberResponse(member, false);
+    }
+
+    private GroupMemberResponse toMemberResponse(GroupMemberEntity member, boolean isStudent) {
         return GroupMemberResponse.builder()
                 .id(member.getId())
                 .studentId(member.getStudent().getId())
                 .studentName(member.getStudent().getFullName())
-                .studentEmail(member.getStudent().getEmail())
+                .studentEmail(isStudent ? null : member.getStudent().getEmail())
                 .avatarUrl(member.getStudent().getAvatarUrl())
                 .joinedAt(member.getJoinedAt())
                 .build();

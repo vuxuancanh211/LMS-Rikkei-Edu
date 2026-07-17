@@ -37,20 +37,24 @@ public class StudentDashboardServiceImpl implements StudentDashboardService {
         );
         if (studentName == null) studentName = "Học viên";
 
-        Integer activeCourses = jdbc.queryForObject("""
-                SELECT COUNT(*)
+        Map<String, Integer> courseProgressCounts = jdbc.query("""
+                SELECT
+                    COUNT(CASE WHEN cp.status IS NULL OR cp.status != 'COMPLETED' THEN 1 END) AS active_cnt,
+                    COUNT(CASE WHEN cp.overall_percentage >= 70 AND cp.status != 'COMPLETED' THEN 1 END) AS near_cnt
                 FROM course_enrollments ce
                 LEFT JOIN course_progress cp ON cp.course_id = ce.course_id AND cp.student_id = ce.student_id
-                WHERE ce.student_id = ? AND (cp.status IS NULL OR cp.status != 'COMPLETED')
-                """, Integer.class, studentId);
-        if (activeCourses == null) activeCourses = 0;
-
-        Integer nearCompletion = jdbc.queryForObject("""
-                SELECT COUNT(*)
-                FROM course_progress cp
-                WHERE cp.student_id = ? AND cp.overall_percentage >= 70 AND cp.status != 'COMPLETED'
-                """, Integer.class, studentId);
-        if (nearCompletion == null) nearCompletion = 0;
+                WHERE ce.student_id = ?
+                """, rs -> {
+            if (rs.next()) {
+                return Map.of(
+                        "active", rs.getInt("active_cnt"),
+                        "near", rs.getInt("near_cnt")
+                );
+            }
+            return Map.of("active", 0, "near", 0);
+        }, studentId);
+        int activeCourses = courseProgressCounts != null ? courseProgressCounts.getOrDefault("active", 0) : 0;
+        int nearCompletion = courseProgressCounts != null ? courseProgressCounts.getOrDefault("near", 0) : 0;
 
         Integer certificates = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM certificates WHERE student_id = ?",

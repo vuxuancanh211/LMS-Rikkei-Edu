@@ -58,7 +58,15 @@ import { getAdminCertificates, revokeCertificate } from '../../services';
     useEffect(() => { loadCertificates(); }, [page, debouncedQ, status]);
 
     useEffect(() => {
-      const timer = setTimeout(() => { setDebouncedQ(q); setPage(1); }, 350);
+      const timer = setTimeout(() => {
+        setDebouncedQ(prev => {
+          if (prev !== q) {
+            setPage(1);
+            return q;
+          }
+          return prev;
+        });
+      }, 350);
       return () => clearTimeout(timer);
     }, [q]);
 
@@ -92,7 +100,12 @@ import { getAdminCertificates, revokeCertificate } from '../../services';
       setSubmitting(true);
       try {
         const updated = await revokeCertificate(selected.id, reason.trim());
-        setData(prev => ({ ...prev, items: prev.items.map(item => item.id === updated.id ? updated : item) }));
+        setData(prev => ({
+          ...prev,
+          items: (prev.items || []).map(item =>
+            item && item.id === (updated?.id || selected.id) ? (updated || item) : item
+          ),
+        }));
         setSelected(null);
         setReason('');
         showToast('Đã thu hồi chứng chỉ');

@@ -237,15 +237,14 @@ public class GradingServiceImpl implements GradingService {
                 .map(AssignmentGroupEntity::getGroupId)
                 .toList();
 
-        Set<UUID> studentIds = new HashSet<>();
-        for (UUID gid : assignedGroupIds) {
-            List<UUID> members = groupMemberRepository.findByGroupIdWithStudent(gid)
-                    .stream()
-                    .map(m -> m.getStudent().getId())
-                    .toList();
-            studentIds.addAll(members);
+        if (assignedGroupIds.isEmpty()) {
+            return Collections.emptySet();
         }
-        return studentIds;
+
+        return groupMemberRepository.findByGroupIdInWithStudent(assignedGroupIds)
+                .stream()
+                .map(m -> m.getStudent().getId())
+                .collect(Collectors.toSet());
     }
 
     @Override
