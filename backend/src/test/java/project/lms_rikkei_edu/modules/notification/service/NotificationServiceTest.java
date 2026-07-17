@@ -1,5 +1,7 @@
 package project.lms_rikkei_edu.modules.notification.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -9,6 +11,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
+import project.lms_rikkei_edu.infrastructure.redis.RedisService;
 import project.lms_rikkei_edu.infrastructure.sse.SseEmitterRegistry;
 import project.lms_rikkei_edu.modules.notification.dto.response.NotificationResponse;
 import project.lms_rikkei_edu.modules.notification.entity.NotificationEntity;
@@ -32,12 +35,15 @@ class NotificationServiceTest {
     private NotificationRepository notificationRepository;
     @Mock
     private SseEmitterRegistry sseEmitterRegistry;
+    @Mock
+    private RedisService redisService;
 
     private NotificationService notificationService;
 
     @BeforeEach
     void setUp() {
-        notificationService = new NotificationService(notificationRepository, sseEmitterRegistry);
+        ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
+        notificationService = new NotificationService(notificationRepository, sseEmitterRegistry, redisService, objectMapper);
     }
 
     @Test
@@ -51,6 +57,7 @@ class NotificationServiceTest {
             entity.setCreatedAt(OffsetDateTime.now());
             return entity;
         });
+        stubNotificationBroadcastQueries(recipientId);
 
         NotificationResponse saved = notificationService.createNotification(
                 recipientId,
@@ -103,6 +110,7 @@ class NotificationServiceTest {
     void delegatesMarkReadOperationsToRepository() {
         UUID recipientId = UUID.randomUUID();
         UUID notificationId = UUID.randomUUID();
+        stubNotificationBroadcastQueries(recipientId);
 
         notificationService.markAsRead(notificationId, recipientId);
         notificationService.markAllAsRead(recipientId);
@@ -145,6 +153,7 @@ class NotificationServiceTest {
             entity.setCreatedAt(OffsetDateTime.now());
             return entity;
         });
+        stubNotificationBroadcastQueries(recipientId);
 
         NotificationResponse result = notificationService.createNotification(
                 recipientId, "FORUM_REPLY", "Test", "Body",
@@ -153,5 +162,12 @@ class NotificationServiceTest {
 
         assertThat(result.getTitle()).isEqualTo("Test");
         verify(notificationRepository).save(any(NotificationEntity.class));
+    }
+
+    private void stubNotificationBroadcastQueries(UUID recipientId) {
+        when(redisService.get(any())).thenReturn(Optional.empty());
+        when(notificationRepository.countByRecipientIdAndReadFalse(recipientId)).thenReturn(0L);
+        when(notificationRepository.findByRecipientIdOrderByCreatedAtDesc(eq(recipientId), any()))
+                .thenReturn(new PageImpl<>(List.of()));
     }
 }

@@ -68,6 +68,9 @@ public class NotificationController {
     public SseEmitter connect() {
         UUID userId = currentUserProvider.getCurrentUserId()
                 .orElseThrow(() -> new AuthenticationCredentialsNotFoundException("User is not authenticated"));
-        return sseEmitterRegistry.register(userId);
+        SseEmitter emitter = sseEmitterRegistry.register(userId);
+        notificationService.sendUnreadCount(userId);
+        notificationService.sendLatestNotifications(userId, 5);
+        return emitter;
     }
 }
