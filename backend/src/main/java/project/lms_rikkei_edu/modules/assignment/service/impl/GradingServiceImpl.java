@@ -121,29 +121,31 @@ public class GradingServiceImpl implements GradingService {
                 continue;
             }
 
+            UserEntity user = userMap.get(studentId);
+            List<UUID> groupIds = studentGroupMap.getOrDefault(studentId, Collections.emptyList());
+            UUID groupId = null;
+            String groupName = null;
+            if (!groupIds.isEmpty()) {
+                groupId = groupIds.get(0);
+                groupName = groupNameMap.get(groupId);
+            }
+            List<SubmissionFileResponse> files = buildFileResponses(sub, fileMap);
+
             result.add(buildStudentSubmissionResponse(
-                    studentId, sub, entryStatus, userMap.get(studentId),
-                    studentGroupMap.getOrDefault(studentId, Collections.emptyList()),
-                    groupNameMap, fileMap, assignment, courseTitle));
+                    studentId, sub, user, groupId, groupName, files, assignment));
         }
 
         return result;
     }
 
     private InstructorSubmissionResponse buildStudentSubmissionResponse(
-            UUID studentId, AssignmentSubmissionEntity sub, String entryStatus,
-            UserEntity user, List<UUID> groupIds,
-            Map<UUID, String> groupNameMap,
-            Map<UUID, List<SubmissionFileEntity>> fileMap,
-            AssignmentEntity assignment, String courseTitle) {
-        String groupName = null;
-        UUID groupId = null;
-        if (!groupIds.isEmpty()) {
-            groupId = groupIds.get(0);
-            groupName = groupNameMap.get(groupId);
-        }
-
-        List<SubmissionFileResponse> files = buildFileResponses(sub, fileMap);
+            UUID studentId, AssignmentSubmissionEntity sub,
+            UserEntity user, UUID groupId, String groupName,
+            List<SubmissionFileResponse> files,
+            AssignmentEntity assignment) {
+        String entryStatus = sub != null ? sub.getStatus() : "not_submitted";
+        String courseTitle = courseRepository.findById(assignment.getCourseId())
+                .map(Course::getTitle).orElse(null);
 
         return InstructorSubmissionResponse.builder()
                 .id(sub != null ? sub.getId() : null)

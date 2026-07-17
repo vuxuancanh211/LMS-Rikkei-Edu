@@ -57,6 +57,8 @@ public class GroupServiceImpl implements GroupService {
 
     private static final String GROUP_REFERENCE_TYPE = "GROUP";
     private static final String COURSE_TITLE_SEPARATOR = "\" của khóa học \"";
+    private static final String COURSE_NOT_FOUND = "Course not found";
+    private static final String CANNOT_CREATE_GROUP_FOR_OTHER_COURSES = "You can only create groups for your own courses";
 
     private final StudyGroupRepository studyGroupRepository;
     private final GroupMemberRepository groupMemberRepository;
@@ -95,11 +97,11 @@ public class GroupServiceImpl implements GroupService {
         UserPrincipal currentUser = requireCurrentUser();
 
         Course course = courseRepository.findById(request.getCourseId())
-                .orElseThrow(() -> new BusinessException("Course not found", HttpStatus.NOT_FOUND));
+                .orElseThrow(() -> new BusinessException(COURSE_NOT_FOUND, HttpStatus.NOT_FOUND));
 
         if (!course.getInstructorId().equals(currentUser.getId())
                 && currentUser.getRole().name().equals("INSTRUCTOR")) {
-            throw new BusinessException("You can only create groups for your own courses", HttpStatus.FORBIDDEN);
+            throw new BusinessException(CANNOT_CREATE_GROUP_FOR_OTHER_COURSES, HttpStatus.FORBIDDEN);
         }
 
         LocalDate today = LocalDate.now(ZoneId.systemDefault());
