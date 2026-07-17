@@ -196,7 +196,7 @@
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
-            <Sn title="Bài tập sắp đến hạn" action={<span className="link" onClick={() => nav("tasks")}>Tất cả</span>} pad={false} style={{ height: 444, display: "flex", flexDirection: "column" }} bodyStyle={{ flex: 1, overflowY: "auto" }}>
+            <Sn title="Bài tập sắp đến hạn" action={<span className="link" onClick={() => nav("tasks", { tab: "assign" })}>Tất cả</span>} pad={false} style={{ height: 444, display: "flex", flexDirection: "column" }} bodyStyle={{ flex: 1, overflowY: "auto" }}>
               {dueState.error ? (
                 <div style={{ padding: 12 }}><SectionRetryBox onRetry={loadDue} text="Lỗi khi tải bài tập sắp đến hạn" /></div>
               ) : (
@@ -210,7 +210,7 @@
                   {!dueState.loading && due.slice(0, 5).map(a => {
                     const st = a.status === "pending" ? "assignment_pending" : a.status;
                     return (
-                      <div key={a.id} className="row gap-12" style={{ padding: 12, borderRadius: 11, cursor: "pointer", flex: "none" }} onClick={() => nav("tasks")}>
+                      <div key={a.id} className="row gap-12" style={{ padding: 12, borderRadius: 11, cursor: "pointer", flex: "none" }} onClick={() => nav("tasks", { tab: "assign", courseId: a.courseId })}>
                         <div className="stat-ic" style={{ width: 40, height: 40, borderRadius: 11, background: a.status === "late" ? "var(--chip-error-bg)" : "var(--chip-warning-bg)", color: a.status === "late" ? "var(--error)" : "var(--warning)" }}>
                           <Ic n={a.type === "quiz" ? "clipboard" : "file"} size={19} />
                         </div>
@@ -225,7 +225,7 @@
                 </div>
               )}
             </Sn>
-            <Sn title="Quiz sắp đến hạn" action={<span className="link" onClick={() => nav("quizzes")}>Tất cả</span>} pad={false} style={{ height: 444, display: "flex", flexDirection: "column" }} bodyStyle={{ flex: 1, overflowY: "auto" }}>
+            <Sn title="Quiz sắp đến hạn" action={<span className="link" onClick={() => nav("tasks", { tab: "quiz" })}>Tất cả</span>} pad={false} style={{ height: 444, display: "flex", flexDirection: "column" }} bodyStyle={{ flex: 1, overflowY: "auto" }}>
               {quizzesState.error ? (
                 <div style={{ padding: 12 }}><SectionRetryBox onRetry={loadQuizzes} text="Lỗi khi tải danh sách quiz" /></div>
               ) : (
@@ -239,7 +239,7 @@
                   {!quizzesState.loading && quizzes.slice(0, 5).map(q => {
                     const st = q.status === "pending" ? "quiz_pending" : q.status;
                     return (
-                      <div key={q.id} className="row gap-12" style={{ padding: 12, borderRadius: 11, cursor: "pointer", flex: "none" }} onClick={() => nav("quizzes")}>
+                      <div key={q.id} className="row gap-12" style={{ padding: 12, borderRadius: 11, cursor: "pointer", flex: "none" }} onClick={() => nav("tasks", { tab: "quiz", courseId: q.courseId })}>
                         <div className="stat-ic" style={{ width: 40, height: 40, borderRadius: 11, background: q.status === "late" ? "var(--chip-error-bg)" : "var(--chip-warning-bg)", color: q.status === "late" ? "var(--error)" : "var(--warning)" }}>
                           <Ic n="clipboard" size={19} />
                         </div>

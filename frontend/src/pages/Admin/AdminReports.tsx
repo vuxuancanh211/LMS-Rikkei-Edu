@@ -33,8 +33,8 @@
           <StatCard icon="trending" iconBg="#fef5e6" iconColor="#d97706" value="4.7/5" label="Đánh giá TB giảng viên" />
         </div>
         <div className="grid grid-2" style={{ marginBottom: 22 }}>
-          <Section title="Doanh thu theo tháng" sub="8 tháng gần nhất (triệu đồng)"><BarChart data={D.charts.revenue} labels={["Th1","Th2","Th3","Th4","Th5","Th6","Th7","Th8"]} color="#10b981" height={250} /></Section>
-          <Section title="Tỷ lệ hoàn thành khóa học" sub="Xu hướng 6 tháng"><LineChart data={D.charts.completion} labels={D.charts.courseLabels} color="#2563eb" height={250} /></Section>
+          <Section title="Doanh thu theo tháng" sub="8 tháng gần nhất (triệu đồng)"><BarChart data={D.charts.revenue} labels={["Th1","Th2","Th3","Th4","Th5","Th6","Th7","Th8"]} color="#10b981" height={250} unit="tr.đ" /></Section>
+          <Section title="Tỷ lệ hoàn thành khóa học" sub="Xu hướng 6 tháng"><LineChart data={D.charts.completion} labels={D.charts.courseLabels} color="#2563eb" height={250} unit="%" /></Section>
         </div>
         <Section title="Hiệu suất giảng viên" sub="Top giảng viên theo số học viên & đánh giá" pad={false}
           action={<div style={{ width: 240 }}><Search placeholder="Tìm giảng viên..." value={q} onChange={setQ} /></div>}>
