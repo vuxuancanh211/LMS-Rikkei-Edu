@@ -12,6 +12,8 @@ import org.springframework.transaction.annotation.Transactional;
 import project.lms_rikkei_edu.common.constants.RedisKeyConstants;
 import project.lms_rikkei_edu.infrastructure.redis.RedisService;
 import project.lms_rikkei_edu.infrastructure.sse.SseEmitterRegistry;
+import project.lms_rikkei_edu.modules.notification.dto.response.NotificationListItemResponse;
+import project.lms_rikkei_edu.modules.notification.dto.response.NotificationPageResponse;
 import project.lms_rikkei_edu.modules.notification.dto.response.NotificationResponse;
 import project.lms_rikkei_edu.modules.notification.entity.NotificationEntity;
 import project.lms_rikkei_edu.modules.notification.repository.NotificationRepository;
@@ -37,6 +39,11 @@ public class NotificationService {
     public Page<NotificationResponse> getNotifications(UUID recipientId, Pageable pageable) {
         return notificationRepository.findByRecipientIdOrderByCreatedAtDesc(recipientId, pageable)
                 .map(this::toResponse);
+    }
+
+    @Transactional(readOnly = true)
+    public NotificationPageResponse<NotificationListItemResponse> getNotificationList(UUID recipientId, Pageable pageable) {
+        return NotificationPageResponse.from(notificationRepository.findListItemsByRecipientId(recipientId, pageable));
     }
 
     @Transactional(readOnly = true)
@@ -125,12 +132,12 @@ public class NotificationService {
         ));
     }
 
-    private List<NotificationResponse> getCachedLatestNotifications(UUID recipientId, int size) {
+    private List<?> getCachedLatestNotifications(UUID recipientId, int size) {
         String key = latestNotificationsCacheKey(recipientId, size);
         try {
             Object cached = redisService.get(key).orElse(null);
             if (cached instanceof String json) {
-                List<NotificationResponse> latest = objectMapper.readValue(json, new TypeReference<>() {});
+                List<Map<String, Object>> latest = objectMapper.readValue(json, new TypeReference<>() {});
                 log.info("Latest notifications cache hit: key={}", key);
                 return latest;
             }

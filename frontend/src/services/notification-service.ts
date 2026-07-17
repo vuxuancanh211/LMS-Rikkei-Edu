@@ -3,25 +3,22 @@ import { httpClient } from '../lib';
 
 export type NotificationItem = {
   id: string;
-  recipientId: string;
   type: string;
   title: string;
   body?: string | null;
   referenceType?: string | null;
   referenceId?: string | null;
-  actorId?: string | null;
-  actorName?: string | null;
-  priority: string;
   read: boolean;
   createdAt: string;
 };
 
 export type NotificationPageResponse<T> = {
   content: T[];
-  number: number;
+  page: number;
   size: number;
   totalElements: number;
   totalPages: number;
+  last: boolean;
 };
 
 export type NotificationPreference = {
