@@ -105,7 +105,7 @@ class QuizServiceTest {
 
         assertThatThrownBy(() -> quizService.updateMetadata(courseId, quizId, buildMetadataRequest(QuizType.STATIC)))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("DRAFT");
+                .hasMessageContaining("Nháp");
     }
 
     // ── Delete ────────────────────────────────────────────────────────────────

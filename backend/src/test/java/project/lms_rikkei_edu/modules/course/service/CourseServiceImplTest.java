@@ -29,6 +29,7 @@ import project.lms_rikkei_edu.modules.course.service.impl.CourseListCacheGateway
 import project.lms_rikkei_edu.modules.course.service.impl.CourseServiceImpl;
 import project.lms_rikkei_edu.modules.course.service.impl.CourseVersionReferenceChecker;
 import project.lms_rikkei_edu.modules.quiz.repository.QuizRepository;
+import project.lms_rikkei_edu.modules.quiz.repository.BankQuestionRepository;
 import project.lms_rikkei_edu.modules.quiz.service.QuizService;
 
 import java.time.Instant;
@@ -60,6 +61,7 @@ class CourseServiceImplTest {
     @Mock S3Service s3Service;
     @Mock QuizService quizService;
     @Mock QuizRepository quizRepository;
+    @Mock BankQuestionRepository bankQuestionRepository;
     @Mock StudentCourseService studentCourseService;
     @Mock CourseVersionReferenceChecker courseVersionReferenceChecker;
 
@@ -75,7 +77,7 @@ class CourseServiceImplTest {
                 lessonResourceRepository, categoryRepository,
                 approvalLogRepository, courseVersionRepository,
                 courseMapper, objectMapper, chapterMapper, lessonMapper,
-                entityManager, s3Service, quizService, quizRepository, studentCourseService,
+                entityManager, s3Service, quizService, quizRepository, bankQuestionRepository, studentCourseService,
                 new CourseListCacheGateway(courseRepository, courseMapper),
                 courseVersionReferenceChecker
         );
@@ -786,6 +788,63 @@ class CourseServiceImplTest {
 
             assertThatThrownBy(() -> courseService.deleteChapter(INSTRUCTOR_ID, COURSE_ID, chapterId))
                     .isInstanceOf(ChapterNotFoundException.class);
+        }
+    }
+
+    @Nested
+    class ListCoursesCompact {
+
+        @Test
+        void returnsCompactListMappedFromCache() {
+            Course course = draftCourse();
+            when(courseRepository.findAllByInstructorId(eq(INSTRUCTOR_ID), any()))
+                    .thenReturn(new PageImpl<>(List.of(course)));
+            CourseResponse response = CourseResponse.builder()
+                    .id(COURSE_ID).title("Test Course").status(CourseStatus.DRAFT)
+                    .level(CourseLevel.BEGINNER).build();
+            when(courseMapper.toResponse(course)).thenReturn(response);
+
+            List<CourseCompactResponse> result = courseService.listCoursesCompact(INSTRUCTOR_ID);
+
+            assertThat(result).hasSize(1);
+            assertThat(result.get(0).getId()).isEqualTo(COURSE_ID);
+            assertThat(result.get(0).getTitle()).isEqualTo("Test Course");
+        }
+
+        @Test
+        void returnsEmptyList_whenNoCourses() {
+            when(courseRepository.findAllByInstructorId(eq(INSTRUCTOR_ID), any()))
+                    .thenReturn(new PageImpl<>(List.of()));
+
+            List<CourseCompactResponse> result = courseService.listCoursesCompact(INSTRUCTOR_ID);
+
+            assertThat(result).isEmpty();
+        }
+    }
+
+    @Nested
+    class GetAssessStats {
+
+        @Test
+        void returnsQuizAndBankQuestionCounts() {
+            Course course = draftCourse();
+            when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.of(course));
+            when(quizRepository.countByCourseId(COURSE_ID)).thenReturn(3L);
+            when(bankQuestionRepository.countByCourseId(COURSE_ID)).thenReturn(42L);
+
+            AssessStatsResponse result = courseService.getAssessStats(INSTRUCTOR_ID, COURSE_ID);
+
+            assertThat(result.getQuizCount()).isEqualTo(3L);
+            assertThat(result.getBankQuestionCount()).isEqualTo(42L);
+        }
+
+        @Test
+        void throwsCourseNotOwnedException_whenInstructorDoesNotOwnCourse() {
+            Course course = draftCourse();
+            when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.of(course));
+
+            assertThatThrownBy(() -> courseService.getAssessStats(UUID.randomUUID(), COURSE_ID))
+                    .isInstanceOf(CourseNotOwnedException.class);
         }
     }
 }
