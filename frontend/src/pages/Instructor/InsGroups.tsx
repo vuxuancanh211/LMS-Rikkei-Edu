@@ -59,8 +59,8 @@
     }, [editTarget]);
 
     useEffect(() => {
-      getMyCourses()
-        .then(res => setCourses(res.content || []))
+      getMyCourseOptions()
+        .then(list => setCourses(list || []))
         .catch(() => setCourses([]))
         .finally(() => setCoursesLoading(false));
     }, []);

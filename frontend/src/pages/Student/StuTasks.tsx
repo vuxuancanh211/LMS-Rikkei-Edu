@@ -11,7 +11,7 @@
   const { getStudentCourseProgress, getMyAttempts } = window.__quizService;
 
   const QUIZ_STATUS_CHIP = { DRAFT: 'neutral', PUBLISHED: 'success', ARCHIVED: 'muted' };
-  const QUIZ_TYPE_LABEL  = { STATIC: 'Cố định', SHUFFLED_POOL: 'Xáo câu', RANDOM_DRAW: 'Ngẫu nhiên' };
+  const QUIZ_TYPE_LABEL  = { STATIC: 'Tự chọn câu', RANDOM_DRAW: 'Ngẫu nhiên' };
 
   /* ─── Tab: Trắc nghiệm (API thực) ──────────────────────── */
   function QuizTab({ nav, courses, initialCourseId, onQuizStatsUpdate }) {
@@ -20,16 +20,18 @@
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [q, setQ] = useState('');
+    const [filterStatus, setFilterStatus] = useState('ALL');
     const [historyQuiz, setHistoryQuiz] = useState(null); // { quizId, quizTitle } — quiz đang xem lịch sử làm bài
+    const [confirmQuiz, setConfirmQuiz] = useState(null); // { ...StudentQuizProgressEntry } — quiz chuẩn bị làm
 
     // Courses tải bất đồng bộ ở component cha (StuTasks) — chọn khóa đầu tiên ngay khi danh sách
     // thực về, vì lúc mount courses vẫn còn rỗng. Ưu tiên courseId trên URL (initialCourseId) nếu
     // nó thuộc danh sách khóa đã đăng ký — để F5 lại trang vẫn giữ đúng khóa học đang xem thay vì
     // luôn nhảy về khóa đầu tiên.
     useEffect(() => {
-      if (courseId || courses.length === 0) return;
-      const fromUrl = initialCourseId && courses.some(c => c.id === initialCourseId);
-      setCourseId(fromUrl ? initialCourseId : courses[0].id);
+      if (courses.length === 0) return;
+      const fromUrl = initialCourseId && (initialCourseId === 'ALL' || courses.some(c => c.id === initialCourseId));
+      if (courseId == null) setCourseId(fromUrl ? initialCourseId : 'ALL');
     }, [courses, courseId, initialCourseId]);
 
     // Đồng bộ courseId đang chọn lên URL (?courseId=...) — để F5 hoặc chia sẻ link vẫn mở đúng
@@ -41,11 +43,29 @@
     };
 
     const fetchProgress = useCallback(async () => {
-      if (!courseId) return;
+      if (!courseId || courses.length === 0) return;
       setLoading(true);
       setError('');
       try {
-        const data = await getStudentCourseProgress(courseId);
+        let data = [];
+        if (courseId === 'ALL') {
+          const promises = courses.map(async c => {
+            try {
+              const res = await getStudentCourseProgress(c.id);
+              return res.map(q => ({ ...q, courseId: c.id, courseTitle: c.title }));
+            } catch (e) {
+              return [];
+            }
+          });
+          const results = await Promise.all(promises);
+          data = results.flat();
+        } else {
+          data = await getStudentCourseProgress(courseId);
+          const currentCourse = courses.find(c => c.id === courseId);
+          if (currentCourse) {
+            data = data.map(q => ({ ...q, courseId: currentCourse.id, courseTitle: currentCourse.title }));
+          }
+        }
         setQuizList(data);
         const done = data.filter(x => x.attemptsUsed > 0).length;
         const passed = data.filter(x => x.passed).length;
@@ -57,23 +77,42 @@
       } finally {
         setLoading(false);
       }
-    }, [courseId]);
+    }, [courseId, courses]);
 
     useEffect(() => { fetchProgress(); }, [fetchProgress]);
 
-    const filtered = quizList.filter(x =>
-      !q || x.quizTitle.toLowerCase().includes(q.toLowerCase())
-    );
+    const filtered = quizList.filter(x => {
+      const matchSearch = !q || x.quizTitle.toLowerCase().includes(q.toLowerCase());
+      if (!matchSearch) return false;
+      if (filterStatus === 'PASSED') return x.passed;
+      if (filterStatus === 'FAILED') return x.attemptsUsed > 0 && !x.passed;
+      if (filterStatus === 'NOT_STARTED') return x.attemptsUsed === 0;
+      return true;
+    });
+
+    // Đặt 20 bài/trang vì 20 chia hết cho 5, 4, 2, 1 (tránh bị khuyết dòng trên màn hình lớn 5 cột)
+    const pg = window.usePaged(filtered, 20);
 
     return (
       <div>
         {/* Course + search bar */}
         <div className="toolbar" style={{ marginBottom: 0 }}>
           <Sl
-            value={courseId || ''}
+            value={courseId || 'ALL'}
             onChange={selectCourse}
-            options={courses.map(c => ({ v: c.id, label: c.title }))}
-            style={{ width: 260, flex: 'none' }}
+            options={[{ v: 'ALL', label: 'Tất cả khóa học' }, ...courses.map(c => ({ v: c.id, label: c.title }))]}
+            style={{ minWidth: 200, flex: '1 1 auto' }}
+          />
+          <Sl
+            value={filterStatus}
+            onChange={setFilterStatus}
+            options={[
+              { v: 'ALL', label: 'Tất cả trạng thái' },
+              { v: 'PASSED', label: 'Đạt' },
+              { v: 'FAILED', label: 'Chưa đạt' },
+              { v: 'NOT_STARTED', label: 'Chưa làm' }
+            ]}
+            style={{ minWidth: 160, flex: '1 1 auto', marginLeft: 12 }}
           />
           <div className="grow" />
           <Se placeholder="Tìm quiz..." value={q} onChange={setQ} style={{ width: 220, flex: 'none' }} />
@@ -102,7 +141,7 @@
           </Sn>
         ) : (
           <div className="grid grid-cards" style={{ marginTop: 16 }}>
-            {filtered.map(quiz => {
+            {pg.slice.map(quiz => {
               const locked = quiz.quizStatus !== 'PUBLISHED';
               const notStarted = quiz.attemptsUsed === 0;
               const scorePct = quiz.bestScorePercentage != null ? Number(quiz.bestScorePercentage) : null;
@@ -118,6 +157,9 @@
                       <div className="truncate" style={{ fontWeight: 700, fontSize: 15 }} title={quiz.quizTitle}>
                         {quiz.quizTitle}
                       </div>
+                      {courseId === 'ALL' && quiz.courseTitle && (
+                        <div className="t-xs muted truncate" style={{ marginTop: 4, fontWeight: 500, color: 'var(--text-2)' }}>Khóa: {quiz.courseTitle}</div>
+                      )}
                       <div className="row gap-6 wrap" style={{ marginTop: 6 }}>
                         <span className="chip chip-neutral" style={{ fontSize: 11 }}>
                           {QUIZ_TYPE_LABEL[quiz.quizType] || quiz.quizType}
@@ -156,7 +198,7 @@
                       <button
                         className="btn btn-ghost btn-sm"
                         title="Xem lịch sử làm bài"
-                        onClick={() => setHistoryQuiz({ quizId: quiz.quizId, quizTitle: quiz.quizTitle })}
+                        onClick={() => setHistoryQuiz({ quizId: quiz.quizId, quizTitle: quiz.quizTitle, courseId: quiz.courseId })}
                       >
                         <Ic n="clock" size={14} />Lịch sử
                       </button>
@@ -167,7 +209,7 @@
                     ) : quiz.canRetry ? (
                       <button
                         className="btn btn-primary btn-sm"
-                        onClick={() => nav('quiz', { courseId, quizId: quiz.quizId, from: 'tasks' })}
+                        onClick={() => setConfirmQuiz(quiz)}
                       >
                         <Ic n="play" size={14} />
                         {notStarted ? 'Làm bài' : 'Làm lại'}
@@ -176,7 +218,7 @@
                       <button className="btn btn-ghost btn-sm" disabled>
                         {quiz.maxAttempts != null && quiz.attemptsUsed >= quiz.maxAttempts
                           ? 'Hết lượt'
-                          : 'Chờ cooldown'}
+                          : quiz.nextRetryAt ? `Chờ đến ${new Date(quiz.nextRetryAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}` : 'Chờ cooldown'}
                       </button>
                     )}
                   </div>
@@ -186,12 +228,48 @@
           </div>
         )}
 
+        <window.PageBar pg={pg} unit="bài" />
+
         <AttemptHistoryModal
           quiz={historyQuiz}
-          courseId={courseId}
+          courseId={historyQuiz?.courseId || courseId}
           onClose={() => setHistoryQuiz(null)}
-          onViewResult={attemptId => nav('result', { attemptId, courseId, quizId: historyQuiz.quizId })}
+          onViewResult={attemptId => nav('result', { attemptId, courseId: historyQuiz?.courseId || courseId, quizId: historyQuiz.quizId })}
         />
+
+        {confirmQuiz && (
+          <Md open={true} onClose={() => setConfirmQuiz(null)} max={450}>
+            <MH title={confirmQuiz.attemptsUsed === 0 ? "Bắt đầu làm bài" : "Xác nhận làm lại bài"} 
+                sub={confirmQuiz.quizTitle} icon="play" iconBg="#eaf1ff" iconColor="#2563eb" onClose={() => setConfirmQuiz(null)} />
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div style={{ background: 'var(--surface-2)', padding: 16, borderRadius: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <span className="t-sm muted">Điểm cao nhất hiện tại:</span>
+                  <span style={{ fontWeight: 600, color: confirmQuiz.passed ? 'var(--success)' : 'var(--text)' }}>
+                    {confirmQuiz.bestScorePercentage != null ? Number(confirmQuiz.bestScorePercentage).toFixed(1) + '%' : 'Chưa có'}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <span className="t-sm muted">Điểm cần để đạt (Pass):</span>
+                  <span style={{ fontWeight: 600 }}>{confirmQuiz.passScore != null ? Number(confirmQuiz.passScore).toFixed(1) + '%' : '0%'}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span className="t-sm muted">Số lần đã làm:</span>
+                  <span style={{ fontWeight: 600 }}>{confirmQuiz.attemptsUsed} / {confirmQuiz.maxAttempts != null ? confirmQuiz.maxAttempts : 'Không giới hạn'}</span>
+                </div>
+              </div>
+              <div className="t-sm" style={{ color: 'var(--text-2)' }}>
+                Bạn có chắc chắn muốn {confirmQuiz.attemptsUsed === 0 ? "bắt đầu" : "làm lại"} bài trắc nghiệm này không?
+              </div>
+            </div>
+            <div className="modal-foot">
+              <button className="btn btn-ghost" onClick={() => setConfirmQuiz(null)}>Hủy</button>
+              <button className="btn btn-primary" onClick={() => nav('quiz', { courseId: confirmQuiz.courseId || courseId, quizId: confirmQuiz.quizId, from: 'tasks' })}>
+                {confirmQuiz.attemptsUsed === 0 ? 'Bắt đầu làm bài' : 'Làm lại ngay'}
+              </button>
+            </div>
+          </Md>
+        )}
       </div>
     );
   }
@@ -242,7 +320,6 @@
                     <th>Lần</th>
                     <th>Ngày nộp</th>
                     <th>Điểm</th>
-                    <th>Đúng/Sai/Bỏ qua</th>
                     <th>Thời gian</th>
                     <th>Kết quả</th>
                     <th></th>
@@ -259,9 +336,6 @@
                               {Number(a.scorePercentage).toFixed(1)}%
                             </span>
                           : <span className="muted">—</span>}
-                      </td>
-                      <td className="muted t-sm">
-                        {a.correctCount}/{a.incorrectCount}/{a.unansweredCount}
                       </td>
                       <td className="muted">{fmtTime(a.timeSpentSeconds)}</td>
                       <td>
@@ -353,7 +427,7 @@
             value={courseId || ''}
             onChange={selectCourse}
             options={courses.map(c => ({ v: c.id, label: c.title }))}
-            style={{ width: 260, flex: 'none' }}
+            style={{ minWidth: 200, flex: '1 1 auto' }}
           />
           <div className="grow" />
           <Se placeholder="Tìm bài tập..." value={q} onChange={setQ} style={{ width: 220, flex: 'none' }} />
@@ -455,7 +529,10 @@
 
   /* ─── Main StuTasks ─────────────────────────────────────── */
   function StuTasks({ nav, courseId }) {
-    const [tab, setTab] = useState('quiz');
+    const [tab, setTab] = useState(() => {
+      const m = window.location.search.match(/[?&]tab=(quiz|assign)/);
+      return m ? m[1] : 'quiz';
+    });
     const [courses, setCourses] = useState([]);
     const [assignStats, setAssignStats] = useState({ pending: 0, graded: 0, late: 0 });
     const [quizStats, setQuizStats] = useState({ done: 0, passed: 0, avg: '—' });
@@ -498,7 +575,10 @@
               { v: 'assign', label: 'Bài tập tự luận' },
             ]}
             value={tab}
-            onChange={setTab}
+            onChange={(v) => {
+              setTab(v);
+              nav('tasks', { tab: v, ...(courseId ? { courseId } : {}) });
+            }}
           />
         </div>
 

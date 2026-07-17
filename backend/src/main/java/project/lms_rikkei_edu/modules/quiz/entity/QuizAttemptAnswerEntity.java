@@ -22,7 +22,7 @@ public class QuizAttemptAnswerEntity {
     @Column(name = "attempt_id", nullable = false)
     private UUID attemptId;
 
-    // quiz_questions.id cho quiz STATIC/SHUFFLED_POOL (bản clone bất biến);
+    // quiz_questions.id cho quiz STATIC (bản clone bất biến);
     // bank_questions.id cho quiz RANDOM_DRAW (câu hỏi rút thẳng từ ngân hàng, không clone) —
     // không có FK ràng buộc vì cột này tham chiếu 1 trong 2 bảng tùy loại quiz.
     @Column(name = "question_id", nullable = false)

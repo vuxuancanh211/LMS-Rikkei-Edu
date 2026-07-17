@@ -31,7 +31,7 @@ public interface QuizService {
     // Xóa câu hỏi khỏi quiz (chỉ khi DRAFT)
     void removeQuestion(UUID courseId, UUID quizId, UUID questionId);
 
-    // Sắp xếp lại thứ tự câu hỏi trong quiz thủ công (STATIC/SHUFFLED_POOL, chỉ khi DRAFT) —
+    // Sắp xếp lại thứ tự câu hỏi trong quiz thủ công (STATIC, chỉ khi DRAFT) —
     // questionIds phải khớp chính xác tập câu hỏi hiện có, chỉ đổi thứ tự.
     QuizDetailResponse reorderQuestions(UUID courseId, UUID quizId, List<UUID> questionIds);
 

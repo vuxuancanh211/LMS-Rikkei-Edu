@@ -56,6 +56,7 @@ public class StudentDashboardResponse {
         private String type;
         private String deadline;
         private String status;
+        private UUID courseId;
     }
 
     @Data

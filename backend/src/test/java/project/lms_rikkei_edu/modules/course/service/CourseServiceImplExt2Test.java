@@ -21,6 +21,7 @@ import project.lms_rikkei_edu.modules.course.service.impl.CourseListCacheGateway
 import project.lms_rikkei_edu.modules.course.service.impl.CourseServiceImpl;
 import project.lms_rikkei_edu.modules.course.service.impl.CourseVersionReferenceChecker;
 import project.lms_rikkei_edu.modules.quiz.repository.QuizRepository;
+import project.lms_rikkei_edu.modules.quiz.repository.BankQuestionRepository;
 import project.lms_rikkei_edu.modules.quiz.service.QuizService;
 
 import java.util.ArrayList;
@@ -52,6 +53,7 @@ class CourseServiceImplExt2Test {
     @Mock S3Service s3Service;
     @Mock QuizService quizService;
     @Mock QuizRepository quizRepository;
+    @Mock BankQuestionRepository bankQuestionRepository;
     @Mock StudentCourseService studentCourseService;
     @Mock CourseVersionReferenceChecker courseVersionReferenceChecker;
 
@@ -67,7 +69,7 @@ class CourseServiceImplExt2Test {
                 lessonResourceRepository, categoryRepository,
                 approvalLogRepository, courseVersionRepository,
                 courseMapper, objectMapper, chapterMapper, lessonMapper,
-                entityManager, s3Service, quizService, quizRepository, studentCourseService,
+                entityManager, s3Service, quizService, quizRepository, bankQuestionRepository, studentCourseService,
                 new CourseListCacheGateway(courseRepository, courseMapper),
                 courseVersionReferenceChecker
         );

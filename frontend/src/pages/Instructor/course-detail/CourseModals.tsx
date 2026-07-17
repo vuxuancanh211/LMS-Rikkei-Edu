@@ -190,9 +190,8 @@
           <div>
             <label className="t-label" style={{ display: "block", marginBottom: 5 }}>Loại quiz</label>
             <Select value={value.quizType} onChange={(v: string) => set("quizType", v)} options={[
-              { v: "STATIC", label: "Cố định" },
-              { v: "SHUFFLED_POOL", label: "Xáo câu" },
-              { v: "RANDOM_DRAW", label: "Ngẫu nhiên (bank)" },
+              { v: "STATIC", label: "Tự chọn câu hỏi" },
+              { v: "RANDOM_DRAW", label: "Ngẫu nhiên (từ ngân hàng)" },
             ]} />
           </div>
           <div>
