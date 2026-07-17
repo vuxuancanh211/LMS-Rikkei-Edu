@@ -48,7 +48,7 @@ public class NotificationService {
 
     @Transactional(readOnly = true)
     public long getUnreadCount(UUID recipientId) {
-        return notificationRepository.countByRecipientIdAndReadFalse(recipientId);
+        return countUnread(recipientId);
     }
 
     @Transactional
@@ -122,7 +122,7 @@ public class NotificationService {
 
     public void sendUnreadCount(UUID recipientId) {
         sseEmitterRegistry.sendToUser(recipientId, "UNREAD_COUNT", Map.of(
-                "count", getUnreadCount(recipientId)
+                "count", countUnread(recipientId)
         ));
     }
 
@@ -150,7 +150,11 @@ public class NotificationService {
         }
 
         log.info("Latest notifications cache miss: key={}", key);
-        List<NotificationResponse> latest = getNotifications(recipientId, PageRequest.of(0, size)).getContent();
+        List<NotificationResponse> latest = notificationRepository.findByRecipientIdOrderByCreatedAtDesc(
+                        recipientId,
+                        PageRequest.of(0, size)
+                ).map(this::toResponse)
+                .getContent();
         try {
             redisService.set(key, objectMapper.writeValueAsString(latest), LATEST_NOTIFICATIONS_CACHE_TTL_SECONDS);
             log.info("Latest notifications cache set: key={}, ttlSeconds={}", key, LATEST_NOTIFICATIONS_CACHE_TTL_SECONDS);
@@ -173,6 +177,10 @@ public class NotificationService {
 
     private String latestNotificationsCacheKey(UUID recipientId, int size) {
         return RedisKeyConstants.NOTIFICATIONS_LATEST + recipientId + ":size:" + size;
+    }
+
+    private long countUnread(UUID recipientId) {
+        return notificationRepository.countByRecipientIdAndReadFalse(recipientId);
     }
 
     public NotificationResponse toResponse(NotificationEntity entity) {
