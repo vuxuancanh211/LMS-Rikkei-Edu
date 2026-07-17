@@ -446,7 +446,10 @@
 
   /* ─── Main StuTasks ─────────────────────────────────────── */
   function StuTasks({ nav, courseId }) {
-    const [tab, setTab] = useState('quiz');
+    const [tab, setTab] = useState(() => {
+      const m = window.location.search.match(/[?&]tab=(quiz|assign)/);
+      return m ? m[1] : 'quiz';
+    });
     const [courses, setCourses] = useState([]);
     const [assignStats, setAssignStats] = useState({ pending: 0, graded: 0, late: 0 });
     const [quizStats, setQuizStats] = useState({ done: 0, passed: 0, avg: '—' });
@@ -489,7 +492,10 @@
               { v: 'assign', label: 'Bài tập tự luận' },
             ]}
             value={tab}
-            onChange={setTab}
+            onChange={(v) => {
+              setTab(v);
+              nav('tasks', { tab: v, ...(courseId ? { courseId } : {}) });
+            }}
           />
         </div>
 
