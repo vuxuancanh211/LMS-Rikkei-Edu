@@ -252,6 +252,9 @@ function Empty({ icon, title, text, action }) {
    CHARTS (inline SVG, data viz)
    ============================================================ */
 function calculateYAxis(data = [], unit = "") {
+function LineChart({ data = [], labels = [], color = "#2563eb", height = 240, unit = "", yUnit = "" }) {
+  const u = (unit || yUnit || "").replace(/^\(|\)$/g, "").trim();
+  const w = 640, h = height, pad = u ? 64 : 44, padB = 28;
   const rawMax = Math.max(...data, 0);
   const u = (unit || "").replace(/^\(|\)$/g, "").trim();
   const isPercent = u === "%" || u.toLowerCase() === "phần trăm";
