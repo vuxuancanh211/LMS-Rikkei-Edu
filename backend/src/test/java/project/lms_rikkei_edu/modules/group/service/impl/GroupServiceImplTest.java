@@ -8,6 +8,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.HttpStatus;
 import project.lms_rikkei_edu.common.exception.BusinessException;
 import project.lms_rikkei_edu.common.security.CurrentUserProvider;
@@ -38,8 +40,10 @@ import project.lms_rikkei_edu.modules.user.enums.UserRole;
 import project.lms_rikkei_edu.modules.user.enums.UserStatus;
 import project.lms_rikkei_edu.modules.user.repository.UserRepository;
 
+import jakarta.persistence.criteria.*;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -48,7 +52,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -109,7 +115,7 @@ class GroupServiceImplTest {
     void getGroups_returnsPagedGroupsForCurrentInstructor() {
         StudyGroupEntity group = groupEntity(groupId, courseEntity(instructorId), instructorUser());
         when(currentUserProvider.getCurrentUser()).thenReturn(Optional.of(principal(instructorId, UserRole.INSTRUCTOR)));
-        when(studyGroupRepository.findByFilters(eq(instructorId), eq(courseId), eq("React"), any()))
+        when(studyGroupRepository.findAll(any(Specification.class), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(group), PageRequest.of(0, 10), 1));
         when(groupMemberRepository.countByGroupId(groupId)).thenReturn(2L);
 
@@ -118,6 +124,62 @@ class GroupServiceImplTest {
         assertThat(result.getContent()).hasSize(1);
         assertThat(result.getContent().getFirst().getName()).isEqualTo("Group A");
         assertThat(result.getContent().getFirst().getMemberCount()).isEqualTo(2);
+    }
+
+    @Test
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    void getGroups_specificationBranchesCovered() {
+        when(currentUserProvider.getCurrentUser()).thenReturn(Optional.of(principal(instructorId, UserRole.INSTRUCTOR)));
+        ArgumentCaptor<Specification<StudyGroupEntity>> captor = ArgumentCaptor.forClass(Specification.class);
+        when(studyGroupRepository.findAll(captor.capture(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(Collections.emptyList(), PageRequest.of(0, 10), 0));
+
+        // 1. Call getGroups with courseId and keyword "Java React"
+        groupService.getGroups(courseId, "Java React", PageRequest.of(0, 10));
+        Specification<StudyGroupEntity> spec1 = captor.getValue();
+
+        Root<StudyGroupEntity> root = org.mockito.Mockito.mock(Root.class);
+        CriteriaQuery query = org.mockito.Mockito.mock(CriteriaQuery.class);
+        CriteriaBuilder cb = org.mockito.Mockito.mock(CriteriaBuilder.class);
+        Join join = org.mockito.Mockito.mock(Join.class);
+        Path path = org.mockito.Mockito.mock(Path.class);
+        Predicate pred = org.mockito.Mockito.mock(Predicate.class);
+
+        lenient().when(query.getResultType()).thenReturn((Class) StudyGroupEntity.class);
+        lenient().when(root.join(anyString(), any(JoinType.class))).thenReturn(join);
+        lenient().when(root.get(anyString())).thenReturn(path);
+        lenient().when(join.get(anyString())).thenReturn(path);
+        lenient().when(cb.equal(any(Expression.class), any())).thenReturn(pred);
+        lenient().when(cb.equal(any(), any())).thenReturn(pred);
+        lenient().when(cb.and(any(Predicate.class), any(Predicate.class))).thenReturn(pred);
+        lenient().when(cb.and(any(Predicate[].class))).thenReturn(pred);
+        lenient().when(cb.and(any(), any())).thenReturn(pred);
+        lenient().when(cb.lower(any())).thenReturn(path);
+        lenient().when(cb.like(any(), anyString())).thenReturn(pred);
+        lenient().when(cb.disjunction()).thenReturn(pred);
+        lenient().when(cb.or(any(Predicate.class), any(Predicate.class), any(Predicate.class))).thenReturn(pred);
+        lenient().when(cb.or(any(Predicate[].class))).thenReturn(pred);
+        lenient().when(cb.or(any(), any(), any())).thenReturn(pred);
+
+        spec1.toPredicate(root, query, cb);
+        verify(query).distinct(true);
+
+        // 2. Call getGroups with null courseId and blank keyword (Count query using Long.class)
+        groupService.getGroups(null, "   ", PageRequest.of(0, 10));
+        Specification<StudyGroupEntity> spec2 = captor.getValue();
+        lenient().when(query.getResultType()).thenReturn((Class) Long.class);
+        spec2.toPredicate(root, query, cb);
+
+        // 3. Call getGroups with null courseId and null keyword (Count query using long.class)
+        groupService.getGroups(null, null, PageRequest.of(0, 10));
+        Specification<StudyGroupEntity> spec3 = captor.getValue();
+        lenient().when(query.getResultType()).thenReturn((Class) long.class);
+        spec3.toPredicate(root, query, cb);
+
+        // 4. Call getGroups with special chars only keyword
+        groupService.getGroups(courseId, "!@#$", PageRequest.of(0, 10));
+        Specification<StudyGroupEntity> spec4 = captor.getValue();
+        spec4.toPredicate(root, query, cb);
     }
 
     @Test

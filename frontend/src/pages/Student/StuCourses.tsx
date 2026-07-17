@@ -3,11 +3,21 @@
    RIKKEI EDU — StuCourses
    ============================================================ */
 (function () {
-const { useState: uS, useEffect } = React;
-const Ic = window.Icon;
-const api = window.httpClient;
-const D = window.DATA;
-const { Avatar:Av, Status:St, Progress:Pg, StatCard:SC, CourseCard:CC, Search:Se, Tabs:Tb, Select:Sl, Section:Sn, Pager:Pgr, Modal:Md, ModalHead:MH, Empty:Em, LineChart:LC, BarChart:BC, Donut:Dn } = window;
+  const { useState: uS, useEffect } = React;
+  const Ic = window.Icon;
+  const api = window.httpClient;
+  const { Avatar:Av, Status:St, Progress:Pg, StatCard:SC, CourseCard:CC, Search:Se, Tabs:Tb, Select:Sl, Section:Sn, Pager:Pgr, Modal:Md, ModalHead:MH, Empty:Em, LineChart:LC, BarChart:BC, Donut:Dn } = window;
+
+function hasSearchText(value) {
+  return /[\p{L}\p{N}]/u.test(String(value || ''));
+}
+
+function courseMatchesSearch(c, q) {
+  const keywords = (q || "").toLowerCase().match(/[\p{L}\p{N}]+/gu) || [];
+  if (keywords.length === 0) return true;
+  const haystack = String(c.title || '').toLowerCase();
+  return keywords.some(keyword => haystack.includes(keyword));
+}
 
 /* ---------------- My Courses (card grid) ---------------- */
 function StuCourses({ nav }) {
@@ -28,13 +38,17 @@ function StuCourses({ nav }) {
     ...c,
     thumb: c.thumbnailUrl || "assets/courses/placeholder.png",
     cat: c.category,
+    progress: c.progressPercentage || 0,
+    lessons: c.completedLessons + "/" + c.totalLessons,
+    instructor: c.instructorName,
+    sStatus: (c.progressPercentage || 0) >= 100 ? "done" : (c.progressPercentage || 0) > 0 ? "learning" : "new",
   }));
 
   let list = mapped;
   if (tab === "learning") list = mapped.filter(c => c.sStatus === "learning");
   else if (tab === "done") list = mapped.filter(c => c.sStatus === "done");
   else if (tab === "new") list = mapped.filter(c => c.sStatus === "new");
-  if (q) list = list.filter(c => c.title.toLowerCase().includes(q.toLowerCase()));
+  list = list.filter(c => courseMatchesSearch(c, q));
 
   if (sort === "Tiến độ cao nhất") list = [...list].sort((a, b) => b.progress - a.progress);
   else if (sort === "Tên A-Z") list = [...list].sort((a, b) => a.title.localeCompare(b.title));
@@ -46,7 +60,7 @@ function StuCourses({ nav }) {
       <div className="toolbar">
         <Tb items={[{v:"all",label:"Tất cả",count:mapped.length},{v:"learning",label:"Đang học",count:mapped.filter(c=>c.sStatus==="learning").length},{v:"done",label:"Hoàn thành",count:mapped.filter(c=>c.sStatus==="done").length},{v:"new",label:"Chưa bắt đầu",count:mapped.filter(c=>c.sStatus==="new").length}]} value={tab} onChange={setTab} />
         <div className="grow" />
-        <Se placeholder="Tìm tên khóa học..." value={q} onChange={setQ} style={{ maxWidth: 280, flex: "none", width: 280 }} />
+        <Se placeholder="Tìm tên khóa học..." value={q} onChange={(value) => { if (!value || hasSearchText(value)) setQ(value); }} style={{ maxWidth: 280, flex: "none", width: 280 }} />
         <Sl value={sort} onChange={setSort} options={["Mới nhất","Tiến độ cao nhất","Tên A-Z"]} style={{ width: 160 }} />
       </div>
       {loading ? (
