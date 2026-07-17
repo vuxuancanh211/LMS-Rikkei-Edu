@@ -104,10 +104,10 @@ export async function previewBankImport(courseId: string, file: File) {
   return res.data;
 }
 
-export async function confirmBankImport(courseId: string, token: string) {
+export async function confirmBankImport(courseId: string, token: string, selectedRows: number[] = []) {
   const res = await httpClient.post<BankQuestionImportConfirmResponse>(
     `/courses/${courseId}/bank-questions/import/confirm`,
-    { token },
+    { token, selectedRows },
   );
   return res.data;
 }

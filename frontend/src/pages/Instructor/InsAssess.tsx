@@ -255,6 +255,9 @@ import { createPortal } from 'react-dom';
     const [importFile, setImportFile] = useState(null);
     const [importPreview, setImportPreview] = useState(null);
     const [importStep, setImportStep] = useState('pick'); // pick | preview | done
+    const [importDragOver, setImportDragOver] = useState(false);
+    const [selectedRows, setSelectedRows] = useState([]);
+    const [importFilterTab, setImportFilterTab] = useState('ALL'); // ALL | NEW | DUPLICATE | ERROR
 
     // Bài tập tự luận (assignment) — CRUD qua CreateAssignmentModal dùng chung với phía học viên
     // (modules/assignment phía BE), gọi thẳng qua httpClient vì module này chưa có service riêng
@@ -673,6 +676,8 @@ import { createPortal } from 'react-dom';
       try {
         const preview = await previewBankImport(activeCourseId, importFile);
         setImportPreview(preview);
+        setSelectedRows(preview.rows.filter(r => r.status !== 'ERROR').map(r => r.rowNumber));
+        setImportFilterTab('ALL');
         setImportStep('preview');
       } catch (err) {
         showToast(extractError(err), 'error');
@@ -684,19 +689,20 @@ import { createPortal } from 'react-dom';
     const handleImportConfirm = useCallback(async () => {
       setSubmitting(true);
       try {
-        const result = await confirmBankImport(activeCourseId, importPreview.token);
-        showToast(`Import thành công ${result.successCount} câu hỏi`);
+        const result = await confirmBankImport(activeCourseId, importPreview.token, selectedRows);
+        showToast(`Import thành công ${result.totalImported} câu hỏi`);
         setImportOpen(false);
         setImportStep('pick');
         setImportFile(null);
         setImportPreview(null);
+        setSelectedRows([]);
         fetchBank();
       } catch (err) {
         showToast(extractError(err), 'error');
       } finally {
         setSubmitting(false);
       }
-    }, [activeCourseId, importPreview, fetchBank, showToast]);
+    }, [activeCourseId, importPreview, selectedRows, fetchBank, showToast]);
 
     // Phân trang phía client cho bài tập tự luận — danh sách tải 1 lần/khóa học (không phân trang
     // server như quiz/bank vì BE trả về nguyên mảng), lọc theo ô tìm kiếm dùng chung `q`.
@@ -758,11 +764,11 @@ import { createPortal } from 'react-dom';
             )}
             {tab === 'bank' && (
               <>
-                <button className="btn btn-ghost" onClick={() => exportBankQuestions(activeCourseId, 'xlsx')}>
-                  <Ic n="download" size={16} />Xuất Excel
+                <button className="btn btn-ghost" onClick={() => exportBankQuestions(activeCourseId, 'csv')}>
+                  <Ic n="download" size={16} />Xuất file
                 </button>
-                <button className="btn btn-ghost" onClick={() => { setImportStep('pick'); setImportFile(null); setImportPreview(null); setImportOpen(true); }}>
-                  <Ic n="upload" size={16} />Import CSV
+                <button className="btn btn-ghost" onClick={() => { setImportStep('pick'); setImportFile(null); setImportPreview(null); setSelectedRows([]); setImportOpen(true); }}>
+                  <Ic n="upload" size={16} />Import CSV/Excel
                 </button>
                 <button className="btn btn-ghost" style={{ color: 'var(--accent)', borderColor: 'var(--accent)' }}
                   onClick={() => setAiOpen(true)}>
@@ -1395,51 +1401,153 @@ import { createPortal } from 'react-dom';
 
         {/* ═══ Modal: Import CSV ═══ */}
         <Modal open={importOpen} onClose={() => setImportOpen(false)} max={560}>
-          <ModalHead title="Import câu hỏi từ CSV" sub="File CSV theo mẫu chuẩn của hệ thống" icon="upload" iconBg="#f0fdf4" iconColor="#059669" onClose={() => setImportOpen(false)} />
+          <ModalHead title="Import câu hỏi từ CSV/Excel" sub="File CSV hoặc Excel theo mẫu chuẩn của hệ thống" icon="upload" iconBg="#f0fdf4" iconColor="#059669" onClose={() => setImportOpen(false)} />
           <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {importStep === 'pick' && (
               <>
                 <div
-                  style={{ border: '2px dashed var(--border-strong)', borderRadius: 12, padding: 28, textAlign: 'center', cursor: 'pointer', color: 'var(--text-2)' }}
+                  style={{
+                    border: `2px dashed ${importDragOver ? 'var(--accent)' : 'var(--border-strong)'}`,
+                    borderRadius: 12, padding: 28, textAlign: 'center', cursor: 'pointer', color: 'var(--text-2)',
+                    background: importDragOver ? 'var(--surface-2)' : 'transparent',
+                  }}
                   onClick={() => document.getElementById('bank-csv-input').click()}
+                  onDragOver={e => { e.preventDefault(); setImportDragOver(true); }}
+                  onDragLeave={() => setImportDragOver(false)}
+                  onDrop={e => {
+                    e.preventDefault();
+                    setImportDragOver(false);
+                    const f = e.dataTransfer.files?.[0];
+                    if (f) setImportFile(f);
+                  }}
                 >
                   <Ic n="upload" size={28} style={{ marginBottom: 8 }} />
                   <div style={{ fontWeight: 600, marginBottom: 4 }}>
-                    {importFile ? importFile.name : 'Nhấn để chọn file CSV'}
+                    {importFile ? importFile.name : 'Kéo thả hoặc nhấn để chọn file CSV/Excel'}
                   </div>
-                  <div className="t-sm muted">Định dạng: questionText, questionType, difficulty, optionA, optionB, optionC, optionD, correctOptions</div>
-                  <input id="bank-csv-input" type="file" accept=".csv" style={{ display: 'none' }}
+                  <div className="t-sm muted">Định dạng: question_text, question_type (SINGLE_CHOICE/MULTIPLE_CHOICE), difficulty (EASY/MEDIUM/HARD), subject_tag, option_a, option_b, option_c, option_d, correct_answers (vd: A hoặc A,C)</div>
+                  <input id="bank-csv-input" type="file" accept=".csv,.xlsx,.xls" style={{ display: 'none' }}
                     onChange={e => setImportFile(e.target.files[0])} />
                 </div>
               </>
             )}
-            {importStep === 'preview' && importPreview && (
-              <div>
-                <div className="grid grid-2" style={{ gap: 10, marginBottom: 14 }}>
-                  {[
-                    { l: 'Tổng dòng', v: importPreview.totalRows },
-                    { l: 'Hợp lệ', v: importPreview.validCount, c: 'success' },
-                    { l: 'Lỗi định dạng', v: importPreview.formatErrorCount, c: 'error' },
-                    { l: 'Trùng lặp', v: importPreview.duplicateInFileCount + importPreview.duplicateInDbCount, c: 'warning' },
-                  ].map((s, i) => (
-                    <div key={i} style={{ padding: '10px 14px', borderRadius: 10, background: 'var(--surface-2)', textAlign: 'center' }}>
-                      <div style={{ fontSize: 22, fontWeight: 800, color: s.c ? `var(--${s.c})` : 'var(--text)' }}>{s.v}</div>
-                      <div className="t-sm muted">{s.l}</div>
-                    </div>
-                  ))}
+            {importStep === 'preview' && importPreview && (() => {
+              const IMPORT_DIFF_LBL = { EASY: 'Dễ', MEDIUM: 'Trung bình', HARD: 'Khó' };
+              const IMPORT_TYPE_LBL = { SINGLE_CHOICE: 'Một đáp án', MULTIPLE_CHOICE: 'Nhiều đáp án' };
+              const TAGS = [
+                { key: 'ALL', label: 'Tất cả', count: importPreview.totalRows },
+                { key: 'NEW', label: 'Hợp lệ', count: importPreview.newCount, c: 'success' },
+                { key: 'DUPLICATE', label: 'Trùng lặp', count: importPreview.duplicateCount, c: 'warning' },
+                { key: 'ERROR', label: 'Lỗi', count: importPreview.errorCount, c: 'error' },
+              ];
+              const visibleRows = importPreview.rows.filter(r => importFilterTab === 'ALL' || r.status === importFilterTab);
+              const selectableVisible = visibleRows.filter(r => r.status !== 'ERROR');
+              const allVisibleSelected = selectableVisible.length > 0 && selectableVisible.every(r => selectedRows.includes(r.rowNumber));
+              return (
+                <div>
+                  <div className="grid grid-2" style={{ gap: 10, marginBottom: 14 }}>
+                    {TAGS.map(t => (
+                      <button
+                        key={t.key}
+                        type="button"
+                        onClick={() => setImportFilterTab(t.key)}
+                        style={{
+                          padding: '10px 14px', borderRadius: 10, textAlign: 'center', cursor: 'pointer',
+                          border: importFilterTab === t.key ? '2px solid var(--accent)' : '2px solid transparent',
+                          background: 'var(--surface-2)',
+                        }}
+                      >
+                        <div style={{ fontSize: 22, fontWeight: 800, color: t.c ? `var(--${t.c})` : 'var(--text)' }}>{t.count}</div>
+                        <div className="t-sm muted">{t.label}</div>
+                      </button>
+                    ))}
+                  </div>
+
+                  {selectableVisible.length > 0 && (
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 4px 10px', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={allVisibleSelected}
+                        onChange={e => {
+                          const ids = selectableVisible.map(r => r.rowNumber);
+                          setSelectedRows(prev => e.target.checked
+                            ? Array.from(new Set([...prev, ...ids]))
+                            : prev.filter(n => !ids.includes(n)));
+                        }}
+                      />
+                      <span className="t-sm" style={{ fontWeight: 600 }}>Chọn tất cả ({selectableVisible.length})</span>
+                    </label>
+                  )}
+
+                  <div style={{ maxHeight: 420, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 10 }}>
+                    {visibleRows.map((r, i) => {
+                      const isSelected = selectedRows.includes(r.rowNumber);
+                      return (
+                        <div key={i} style={{
+                          borderBottom: i < visibleRows.length - 1 ? '1px solid var(--border)' : 'none',
+                          padding: '14px 16px',
+                          background: r.status === 'ERROR' ? 'transparent' : r.status === 'DUPLICATE' ? 'rgba(245,158,11,.04)' : isSelected ? 'rgba(37,99,235,.03)' : 'transparent',
+                          opacity: r.status === 'ERROR' ? 0.75 : 1,
+                        }}>
+                          <div className="row gap-12" style={{ alignItems: 'flex-start' }}>
+                            {r.status !== 'ERROR' && (
+                              <input type="checkbox" style={{ marginTop: 3, flex: 'none', accentColor: 'var(--accent)', width: 16, height: 16 }}
+                                checked={isSelected}
+                                onChange={e => setSelectedRows(prev => e.target.checked
+                                  ? [...prev, r.rowNumber]
+                                  : prev.filter(n => n !== r.rowNumber))} />
+                            )}
+                            <div className="grow" style={{ minWidth: 0 }}>
+                              <div className="row gap-8" style={{ marginBottom: 6, flexWrap: 'wrap' }}>
+                                <span style={{ fontWeight: 600, fontSize: 13 }}>Dòng {r.rowNumber}</span>
+                                {r.difficulty && (
+                                  <span className={`chip chip-${r.difficulty === 'EASY' ? 'success' : r.difficulty === 'MEDIUM' ? 'warning' : 'error'}`} style={{ fontSize: 10 }}>
+                                    {IMPORT_DIFF_LBL[r.difficulty] || r.difficulty}
+                                  </span>
+                                )}
+                                {r.questionType && (
+                                  <span className="chip chip-neutral" style={{ fontSize: 10 }}>{IMPORT_TYPE_LBL[r.questionType] || r.questionType}</span>
+                                )}
+                                {r.status === 'DUPLICATE' && (
+                                  <span className="chip chip-warning" style={{ fontSize: 10 }}><Ic n="warn" size={10} />Đã tồn tại</span>
+                                )}
+                                {r.status === 'ERROR' && (
+                                  <span className="chip chip-error" style={{ fontSize: 10 }}><Ic n="warn" size={10} />Lỗi</span>
+                                )}
+                              </div>
+                              <div style={{ fontSize: 13.5, fontWeight: 500, marginBottom: r.options?.length ? 10 : 0, lineHeight: 1.6 }}>
+                                {r.questionText || <span className="muted">(thiếu nội dung câu hỏi)</span>}
+                              </div>
+                              {r.status === 'ERROR' ? (
+                                <div className="t-sm" style={{ color: 'var(--error)' }}>{r.errors.join(', ')}</div>
+                              ) : (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                                  {r.options?.map((o, j) => (
+                                    <div key={j} style={{
+                                      padding: '6px 10px', borderRadius: 8, fontSize: 12.5,
+                                      background: o.correct ? 'var(--chip-success-bg)' : 'var(--surface-2)',
+                                      color: o.correct ? 'var(--success)' : 'var(--text)',
+                                      display: 'flex', gap: 8, alignItems: 'flex-start',
+                                    }}>
+                                      <span style={{ flex: 'none', fontWeight: 700 }}>{String.fromCharCode(65 + j)}.</span>
+                                      <span className="grow">{o.text}</span>
+                                      {o.correct && <Ic n="check" size={13} style={{ flex: 'none', marginTop: 1 }} />}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-                <div style={{ maxHeight: 200, overflowY: 'auto', fontSize: 12 }}>
-                  {importPreview.rows.filter(r => r.status !== 'VALID').slice(0, 20).map((r, i) => (
-                    <div key={i} style={{ padding: '6px 10px', borderRadius: 7, marginBottom: 4, background: 'var(--chip-error-bg)', color: 'var(--chip-error-fg)' }}>
-                      Dòng {r.rowNumber}: {r.errors.join(', ')}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+              );
+            })()}
           </div>
           <div className="modal-foot">
-            <button className="btn btn-ghost" onClick={() => setImportOpen(false)}>Hủy</button>
+            <button className="btn btn-ghost" onClick={() => { setImportOpen(false); setSelectedRows([]); }}>Hủy</button>
             {importStep === 'pick' && (
               <button className="btn btn-primary" onClick={handleImportPreview} disabled={!importFile || submitting}>
                 {submitting ? 'Đang xử lý...' : 'Kiểm tra file'}
@@ -1447,9 +1555,10 @@ import { createPortal } from 'react-dom';
             )}
             {importStep === 'preview' && (
               <>
-                <button className="btn btn-ghost" onClick={() => setImportStep('pick')}>Chọn lại</button>
-                <button className="btn btn-success" onClick={handleImportConfirm} disabled={submitting || importPreview?.validCount === 0}>
-                  {submitting ? 'Đang import...' : `Import ${importPreview?.validCount || 0} câu hợp lệ`}
+                <button className="btn btn-ghost" onClick={() => { setImportStep('pick'); setSelectedRows([]); }}>Chọn lại</button>
+                <button className="btn btn-success" onClick={handleImportConfirm}
+                  disabled={submitting || selectedRows.length === 0}>
+                  {submitting ? 'Đang import...' : `Import ${selectedRows.length} câu`}
                 </button>
               </>
             )}
