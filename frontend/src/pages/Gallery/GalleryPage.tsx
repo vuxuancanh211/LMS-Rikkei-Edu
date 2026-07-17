@@ -6,8 +6,7 @@
    Trong mỗi màn vẫn điều hướng & mở popup được; "← Thư viện" để quay lại.
    ============================================================ */
 import {
-  getNotifications,
-  getUnreadCount,
+  markAllAsRead,
   markAsRead,
   connectNotificationSSE,
 } from '../../services/notification-service';
@@ -117,36 +116,15 @@ function registerGalleryPage() {
     const [umenu, setUmenu] = useState(false);
     const [notificationList, setNotificationList] = useState([]);
     const [unreadCount, setUnreadCount] = useState(0);
-    const [notifLoading, setNotifLoading] = useState(false);
     const [switchingAccount, setSwitchingAccount] = useState(null);
     const [switchAlert, setSwitchAlert] = useState(null); // { title, message }
     const loginSuccess = useAuthStore((state) => state.loginSuccess);
-
-    const loadNotifications = async (showLoading = true) => {
-      if (showLoading) setNotifLoading(true);
-      try {
-        const data = await getNotifications(0, 20);
-        setNotificationList(data.content || []);
-        const count = await getUnreadCount();
-        setUnreadCount(count);
-      } catch {
-        // Notification failures should not block the shell layout.
-      } finally {
-        if (showLoading) setNotifLoading(false);
-      }
-    };
-
-    useEffect(() => {
-      if (!authUser && !window.useAuthStore?.getState()?.accessToken) return;
-      loadNotifications();
-    }, [authUser]);
 
     useEffect(() => {
       if (!authUser && !window.useAuthStore?.getState()?.accessToken) return;
       const disconnect = connectNotificationSSE((notif) => {
         setNotificationList(prev => [notif, ...prev]);
-        setUnreadCount(prev => prev + 1);
-      }, undefined, () => loadNotifications(false));
+      }, undefined, undefined, setUnreadCount, setNotificationList);
       return disconnect;
     }, [authUser]);
 
@@ -293,9 +271,8 @@ function registerGalleryPage() {
                 <div className="card" style={{ position: "absolute", right: 0, top: 52, width: 360, maxWidth: "90vw", padding: 0, boxShadow: "var(--sh-lg)", zIndex: 60, animation: "popIn .18s" }}>
                   <div className="between" style={{ padding: "14px 18px", borderBottom: "1px solid var(--border)" }}><b>Thông báo</b><div className="row gap-8">{unreadCount > 0 && <span className="link" onClick={handleMarkAllAsRead}>Đánh dấu đã đọc</span>}</div></div>
                   <div style={{ maxHeight: 340, overflowY: "auto" }}>
-                    {notifLoading && <div className="t-sm muted" style={{ padding: "24px 18px", textAlign: "center" }}>Đang tải...</div>}
-                    {!notifLoading && notificationList.length === 0 && <div className="t-sm muted" style={{ padding: "24px 18px", textAlign: "center" }}>Chưa có thông báo nào.</div>}
-                    {!notifLoading && notificationList.slice(0, 5).map((n) => {
+                    {notificationList.length === 0 && <div className="t-sm muted" style={{ padding: "24px 18px", textAlign: "center" }}>Chưa có thông báo nào.</div>}
+                    {notificationList.slice(0, 5).map((n) => {
                       const meta = notifMeta(n.type);
                       return (
                         <div key={n.id} className="row gap-12" style={{ padding: "13px 16px", background: n.read ? "#fff" : "var(--accent-soft)", borderBottom: "1px solid var(--border)", cursor: "pointer" }} onClick={() => {

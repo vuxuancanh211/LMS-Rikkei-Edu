@@ -39,6 +39,8 @@ public interface BankQuestionService {
     List<BankQuestionSearchHit> search(UUID courseId, String q, QuestionStatus status,
                                        QuestionDifficulty difficulty, String subjectTag);
 
+    List<String> getTags(UUID courseId);
+
     BankQuestionImportPreviewResponse importPreview(UUID courseId, MultipartFile file);
 
     BankQuestionImportConfirmResponse importConfirm(UUID courseId, UUID instructorId,

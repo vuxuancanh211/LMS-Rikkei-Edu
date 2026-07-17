@@ -3,25 +3,22 @@ import { httpClient } from '../lib';
 
 export type NotificationItem = {
   id: string;
-  recipientId: string;
   type: string;
   title: string;
   body?: string | null;
   referenceType?: string | null;
   referenceId?: string | null;
-  actorId?: string | null;
-  actorName?: string | null;
-  priority: string;
   read: boolean;
   createdAt: string;
 };
 
 export type NotificationPageResponse<T> = {
   content: T[];
-  number: number;
+  page: number;
   size: number;
   totalElements: number;
   totalPages: number;
+  last: boolean;
 };
 
 export type NotificationPreference = {
@@ -69,20 +66,32 @@ export async function updateNotificationPreference(
   return response.data;
 }
 
+type SSESubscriber = {
+  onEvent: (eventName: string, data: unknown) => void;
+  onError?: () => void;
+  onReconnect?: () => void;
+};
+
+const sseSubscribers = new Set<SSESubscriber>();
+let sseDelayMs = 3000;
+let sseAborted = false;
+let sseReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+let sseController: AbortController | null = null;
+let sseReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let sseHasConnected = false;
+let sseRunning = false;
+
 export function connectSSE(
   onEvent: (eventName: string, data: unknown) => void,
   onError?: () => void,
   onReconnect?: () => void,
 ): () => void {
   const baseURL = httpClient.defaults.baseURL || '';
-
   const url = `${baseURL}/notifications/sse`;
-  let currentDelayMs = 3000;
-  let aborted = false;
-  let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
-  let controller: AbortController | null = null;
-  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  let hasConnected = false;
+
+  const subscriber: SSESubscriber = { onEvent, onError, onReconnect };
+  sseSubscribers.add(subscriber);
+  sseAborted = false;
 
   function parseEvent(part: string) {
     let eventName = 'message';
@@ -100,51 +109,66 @@ export function connectSSE(
     }
 
     if (dataLines.length === 0) {
-      onEvent(eventName, null);
+      notifySubscribers(eventName, null);
       return;
     }
 
     try {
-      onEvent(eventName, JSON.parse(dataLines.join('\n')));
+      notifySubscribers(eventName, JSON.parse(dataLines.join('\n')));
     } catch {
-      onEvent(eventName, dataLines.join('\n'));
+      notifySubscribers(eventName, dataLines.join('\n'));
     }
   }
 
+  function notifySubscribers(eventName: string, data: unknown) {
+    [...sseSubscribers].forEach((item) => item.onEvent(eventName, data));
+  }
+
+  function notifyError() {
+    [...sseSubscribers].forEach((item) => item.onError?.());
+  }
+
+  function notifyReconnect() {
+    [...sseSubscribers].forEach((item) => item.onReconnect?.());
+  }
+
   function scheduleReconnect() {
-    if (aborted || reconnectTimer) return;
-    reconnectTimer = setTimeout(() => {
-      reconnectTimer = null;
+    if (sseAborted || sseSubscribers.size === 0 || sseReconnectTimer) return;
+    sseReconnectTimer = setTimeout(() => {
+      sseReconnectTimer = null;
       connect();
-    }, currentDelayMs);
+    }, sseDelayMs);
   }
 
   async function connect() {
+    if (sseRunning || sseSubscribers.size === 0) return;
+
     const { accessToken, tokenType } = useAuthStore.getState();
     if (!accessToken) return;
 
+    sseRunning = true;
     try {
-      controller = new AbortController();
+      sseController = new AbortController();
       const response = await fetch(url, {
         headers: { 'Authorization': `${tokenType || 'Bearer'} ${accessToken}` },
-        signal: controller.signal,
+        signal: sseController.signal,
       });
       if (!response.ok || !response.body) {
-        currentDelayMs = Math.min(currentDelayMs * 1.5, 30000);
-        if (!aborted && onError) onError();
+        sseDelayMs = Math.min(sseDelayMs * 1.5, 30000);
+        if (!sseAborted) notifyError();
         return;
       }
 
-      reader = response.body.getReader();
-      if (hasConnected && onReconnect) onReconnect();
-      hasConnected = true;
-      currentDelayMs = 3000;
+      sseReader = response.body.getReader();
+      if (sseHasConnected) notifyReconnect();
+      sseHasConnected = true;
+      sseDelayMs = 3000;
       const decoder = new TextDecoder();
       let buffer = '';
 
       while (true) {
-        const { done, value } = await reader.read();
-        if (done || aborted) break;
+        const { done, value } = await sseReader.read();
+        if (done || sseAborted) break;
         buffer += decoder.decode(value, { stream: true });
 
         const parts = buffer.split('\n\n');
@@ -155,11 +179,12 @@ export function connectSSE(
         }
       }
     } catch {
-      currentDelayMs = Math.min(currentDelayMs * 1.5, 30000);
-      if (!aborted && onError) onError();
+      sseDelayMs = Math.min(sseDelayMs * 1.5, 30000);
+      if (!sseAborted) notifyError();
     } finally {
-      reader = null;
-      controller = null;
+      sseRunning = false;
+      sseReader = null;
+      sseController = null;
       scheduleReconnect();
     }
   }
@@ -167,13 +192,21 @@ export function connectSSE(
   connect();
 
   return () => {
-    aborted = true;
-    if (reconnectTimer) clearTimeout(reconnectTimer);
-    if (controller) controller.abort();
-    if (reader) {
-      reader.cancel().catch(() => {
-        // Ignore expected AbortError when React unmounts the SSE stream.
-      });
+    sseSubscribers.delete(subscriber);
+    if (sseSubscribers.size === 0) {
+      sseAborted = true;
+      sseHasConnected = false;
+      sseDelayMs = 3000;
+      if (sseReconnectTimer) {
+        clearTimeout(sseReconnectTimer);
+        sseReconnectTimer = null;
+      }
+      if (sseController) sseController.abort();
+      if (sseReader) {
+        sseReader.cancel().catch(() => {
+          // Ignore expected AbortError when React unmounts the SSE stream.
+        });
+      }
     }
   };
 }
@@ -182,12 +215,24 @@ export function connectNotificationSSE(
   onNotification: (notif: NotificationItem) => void,
   onError?: () => void,
   onReconnect?: () => void,
+  onUnreadCount?: (count: number) => void,
+  onLatestNotifications?: (notifications: NotificationItem[]) => void,
 ): () => void {
   return connectSSE((eventName, data) => {
     if (eventName === 'ACCOUNT_LOCKED') {
       if (typeof window !== 'undefined' && (window as any).__triggerAccountLockedModal) {
         (window as any).__triggerAccountLockedModal(data);
       }
+      return;
+    }
+    if (eventName === 'UNREAD_COUNT' && data && typeof data === 'object') {
+      const count = (data as { count?: unknown }).count;
+      if (typeof count === 'number') onUnreadCount?.(count);
+      return;
+    }
+    if (eventName === 'LATEST_NOTIFICATIONS' && data && typeof data === 'object') {
+      const notifications = (data as { notifications?: unknown }).notifications;
+      if (Array.isArray(notifications)) onLatestNotifications?.(notifications as NotificationItem[]);
       return;
     }
     if (eventName !== 'NOTIFICATION' || !data || typeof data !== 'object') return;

@@ -236,7 +236,7 @@ public class QuizAttemptServiceImpl implements QuizAttemptService {
         if (quiz.getQuizType() == QuizType.RANDOM_DRAW) {
             return drawRandom(quiz, courseId);
         }
-        // STATIC / SHUFFLED_POOL: dùng câu hỏi đã được cấu hình sẵn
+        // STATIC: dùng câu hỏi đã được cấu hình sẵn
         return questionRepository.findByQuizIdOrderByOrderIndex(quiz.getId());
     }
 

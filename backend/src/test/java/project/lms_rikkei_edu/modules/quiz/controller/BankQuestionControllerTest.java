@@ -98,6 +98,18 @@ class BankQuestionControllerTest {
     }
 
     @Test
+    void getTags_returnsTagList() throws Exception {
+        when(bankQuestionService.getTags(courseId)).thenReturn(List.of("Math", "Physics"));
+
+        mockMvc.perform(get("/api/courses/{courseId}/bank-questions/tags", courseId).param("courseId", courseId.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0]").value("Math"))
+                .andExpect(jsonPath("$[1]").value("Physics"));
+
+        verify(ownershipGuard).requireOwnership(courseId);
+    }
+
+    @Test
     void getById_returnsQuestion() throws Exception {
         when(bankQuestionService.getById(courseId, questionId))
                 .thenReturn(BankQuestionResponse.builder().id(questionId).build());
@@ -118,6 +130,16 @@ class BankQuestionControllerTest {
                         .content(objectMapper.writeValueAsString(buildRequest())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(questionId.toString()));
+    }
+
+    @Test
+    void create_currentUserMissing_returnsBadRequest() throws Exception {
+        when(currentUserProvider.getCurrentUserId()).thenReturn(Optional.empty());
+
+        mockMvc.perform(post("/api/courses/{courseId}/bank-questions", courseId)
+                        .contentType(APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(buildRequest())))
+                .andExpect(status().isBadRequest());
     }
 
     @Test
@@ -173,6 +195,19 @@ class BankQuestionControllerTest {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalImported").value(3));
+    }
+
+    @Test
+    void importConfirm_currentUserMissing_returnsBadRequest() throws Exception {
+        when(currentUserProvider.getCurrentUserId()).thenReturn(Optional.empty());
+
+        BankQuestionImportConfirmRequest request = new BankQuestionImportConfirmRequest();
+        request.setToken("tok");
+
+        mockMvc.perform(post("/api/courses/{courseId}/bank-questions/import/confirm", courseId)
+                        .contentType(APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest());
     }
 
     @Test
