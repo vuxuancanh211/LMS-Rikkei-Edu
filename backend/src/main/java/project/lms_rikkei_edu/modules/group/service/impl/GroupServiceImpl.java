@@ -3,6 +3,7 @@ package project.lms_rikkei_edu.modules.group.service.impl;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
 import org.springframework.stereotype.Service;
@@ -50,6 +51,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.Collections;
 
 @RequiredArgsConstructor
 @Service
@@ -74,11 +76,8 @@ public class GroupServiceImpl implements GroupService {
     @Transactional(readOnly = true)
     public Page<GroupResponse> getGroups(UUID courseId, String keyword, Pageable pageable) {
         UserPrincipal currentUser = requireCurrentUser();
-        String normalizedKeyword = keyword != null && !keyword.isBlank() ? keyword.trim() : null;
-
-        Page<StudyGroupEntity> groupPage = studyGroupRepository.findByFilters(
-                currentUser.getId(), courseId, normalizedKeyword, pageable);
-
+        Specification<StudyGroupEntity> spec = groupSearchSpec(currentUser.getId(), courseId, keyword);
+        Page<StudyGroupEntity> groupPage = studyGroupRepository.findAll(spec, pageable);
         return groupPage.map(this::toGroupResponse);
     }
 
@@ -509,5 +508,48 @@ public class GroupServiceImpl implements GroupService {
                 .avatarUrl(member.getStudent().getAvatarUrl())
                 .joinedAt(member.getJoinedAt())
                 .build();
+    }
+
+    private Specification<StudyGroupEntity> groupSearchSpec(UUID instructorId, UUID courseId, String keyword) {
+        return (root, query, criteriaBuilder) -> {
+            if (query.getResultType() != Long.class && query.getResultType() != long.class) {
+                root.fetch("course", jakarta.persistence.criteria.JoinType.LEFT);
+                root.fetch("instructor", jakarta.persistence.criteria.JoinType.LEFT);
+                query.distinct(true);
+            }
+
+            var predicate = criteriaBuilder.equal(root.join("instructor", jakarta.persistence.criteria.JoinType.LEFT).get("id"), instructorId);
+
+            if (courseId != null) {
+                var coursePredicate = criteriaBuilder.equal(root.join("course", jakarta.persistence.criteria.JoinType.LEFT).get("id"), courseId);
+                predicate = criteriaBuilder.and(predicate, coursePredicate);
+            }
+
+            List<String> keywords = extractSearchKeywords(keyword);
+            if (!keywords.isEmpty()) {
+                var groupName = criteriaBuilder.lower(root.get("name"));
+                var courseTitle = criteriaBuilder.lower(root.join("course", jakarta.persistence.criteria.JoinType.LEFT).get("title"));
+                var keywordPredicate = criteriaBuilder.disjunction();
+                for (String kw : keywords) {
+                    keywordPredicate = criteriaBuilder.or(keywordPredicate,
+                            criteriaBuilder.like(groupName, "%" + kw + "%"),
+                            criteriaBuilder.like(courseTitle, "%" + kw + "%"));
+                }
+                predicate = criteriaBuilder.and(predicate, keywordPredicate);
+            }
+
+            return predicate;
+        };
+    }
+
+    private List<String> extractSearchKeywords(String search) {
+        if (search == null || search.isBlank()) {
+            return Collections.emptyList();
+        }
+        return java.util.regex.Pattern.compile("[\\p{L}\\p{N}]+")
+                .matcher(search.toLowerCase(java.util.Locale.ROOT))
+                .results()
+                .map(java.util.regex.MatchResult::group)
+                .toList();
     }
 }

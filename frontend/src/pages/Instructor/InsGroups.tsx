@@ -6,6 +6,10 @@
   const { getGroups, createGroup, updateGroup, deleteGroup, getUnassignedStudents } = window.__groupService;
   const { getMyCourseOptions } = window.__courseService;
 
+  function hasSearchText(value) {
+    return /[\p{L}\p{N}]/u.test(String(value || ''));
+  }
+
   function InsGroups({ nav }) {
     const [add, setAdd] = useState(false);
     const [q, setQ] = useState("");
@@ -235,7 +239,7 @@
         {activeTab === "groups" ? (
           <>
             <div className="toolbar">
-              <Search placeholder="Tìm nhóm theo tên..." value={q} onChange={setQ} />
+              <Search placeholder="Tìm nhóm theo tên..." value={q} onChange={(value) => { if (!value || hasSearchText(value)) setQ(value); }} />
               <Select value={courseFilter} onChange={setCourseFilter} options={[{ v: "all", label: "Tất cả khóa học" }, ...courseOpts]} style={{ width: 200, flex: "none" }} />
             </div>
             {error && !add && <div className="alert alert-danger" style={{ padding: "10px 14px", borderRadius: 8, background: "#fef2f2", color: "#b91c1c", fontSize: 14, marginBottom: 16 }}>{error}</div>}

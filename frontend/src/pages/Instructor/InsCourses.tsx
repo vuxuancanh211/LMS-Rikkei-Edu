@@ -8,6 +8,10 @@
   const { Modal, ModalHead, Empty, Search, Select, StatCard, Pager, RichTextEditor } = window;
   const api = window.httpClient;
 
+  function hasSearchText(value) {
+    return /[\p{L}\p{N}]/u.test(String(value || ''));
+  }
+
   const LEVELS = [
     { label: "Cơ bản",    value: "BEGINNER"     },
     { label: "Trung cấp", value: "INTERMEDIATE" },
@@ -335,7 +339,7 @@
         <window.CreateCourseModal open={create} onClose={() => setCreate(false)} onCreated={(slug) => nav("courseDetail", { slug })} />
 
         <div className="toolbar">
-          <Search placeholder="Tìm khóa học..." value={q} onChange={setQ} />
+          <Search placeholder="Tìm khóa học..." value={q} onChange={(value) => { if (!value || hasSearchText(value)) setQ(value); }} />
           <Select value={filter} onChange={setFilter}
             options={[
               { v: "all",   label: "Tất cả trạng thái" },

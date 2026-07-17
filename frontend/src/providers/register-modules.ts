@@ -43,7 +43,6 @@ import '../pages/Student/StuGroups';
 import '../pages/Student/StuGroupDetail';
 import '../pages/Instructor/InsAssess';
 import '../pages/Instructor/InsGrading';
-import '../pages/Instructor/InsStudents';
 
 import '../pages/Admin/AdminDashboard';
 import '../pages/Admin/CsvImportWizard';
@@ -52,8 +51,6 @@ import '../pages/Admin/AdminCourses';
 import '../pages/Admin/AdminApproval';
 import '../pages/Admin/AdminCertificates';
 import '../pages/Admin/AdminForum';
-import '../pages/Admin/AdminReports';
-import '../pages/Admin/AdminLogs';
 import '../pages/Admin/AdminAiDocs';
 
 import '../pages/Auth/LoginPage';
