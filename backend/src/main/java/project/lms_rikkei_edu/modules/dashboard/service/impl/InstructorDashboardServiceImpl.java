@@ -21,7 +21,7 @@ public class InstructorDashboardServiceImpl implements InstructorDashboardServic
 
     @Override
     public InstructorDashboardStatsResponse getStats(UUID instructorId) {
-        Map<String, Integer> courseCounts = jdbc.query("""
+        Map<String, Integer> courseCounts = java.util.Optional.ofNullable(jdbc.query("""
                 SELECT
                     COUNT(CASE WHEN status IN ('PUBLISHED', 'ACTIVE') THEN 1 END) AS active_cnt,
                     COUNT(CASE WHEN status = 'PENDING_APPROVAL' THEN 1 END) AS pending_cnt
@@ -35,9 +35,9 @@ public class InstructorDashboardServiceImpl implements InstructorDashboardServic
                 );
             }
             return Map.of("active", 0, "pending", 0);
-        }, instructorId);
-        int activeCoursesCount = courseCounts != null ? courseCounts.getOrDefault("active", 0) : 0;
-        int pendingCoursesCount = courseCounts != null ? courseCounts.getOrDefault("pending", 0) : 0;
+        }, instructorId)).orElseGet(Map::of);
+        int activeCoursesCount = courseCounts.getOrDefault("active", 0);
+        int pendingCoursesCount = courseCounts.getOrDefault("pending", 0);
 
         Integer totalStudentsCount = jdbc.queryForObject("""
                 SELECT COUNT(DISTINCT ce.student_id)

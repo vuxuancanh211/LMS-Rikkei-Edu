@@ -37,7 +37,7 @@ public class StudentDashboardServiceImpl implements StudentDashboardService {
         );
         if (studentName == null) studentName = "Học viên";
 
-        Map<String, Integer> courseProgressCounts = jdbc.query("""
+        Map<String, Integer> courseProgressCounts = java.util.Optional.ofNullable(jdbc.query("""
                 SELECT
                     COUNT(CASE WHEN cp.status IS NULL OR cp.status != 'COMPLETED' THEN 1 END) AS active_cnt,
                     COUNT(CASE WHEN cp.overall_percentage >= 70 AND cp.status != 'COMPLETED' THEN 1 END) AS near_cnt
@@ -52,9 +52,9 @@ public class StudentDashboardServiceImpl implements StudentDashboardService {
                 );
             }
             return Map.of("active", 0, "near", 0);
-        }, studentId);
-        int activeCourses = courseProgressCounts != null ? courseProgressCounts.getOrDefault("active", 0) : 0;
-        int nearCompletion = courseProgressCounts != null ? courseProgressCounts.getOrDefault("near", 0) : 0;
+        }, studentId)).orElseGet(Map::of);
+        int activeCourses = courseProgressCounts.getOrDefault("active", 0);
+        int nearCompletion = courseProgressCounts.getOrDefault("near", 0);
 
         Integer certificates = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM certificates WHERE student_id = ?",

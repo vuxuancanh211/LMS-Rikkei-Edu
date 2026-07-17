@@ -29,7 +29,7 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
 
     @Override
     public AdminDashboardStatsResponse getStats() {
-        Map<String, Integer> userCounts = jdbc.query("""
+        Map<String, Integer> userCounts = java.util.Optional.ofNullable(jdbc.query("""
                 SELECT
                     COUNT(CASE WHEN role = 'STUDENT' THEN 1 END) AS students,
                     COUNT(CASE WHEN role = 'INSTRUCTOR' THEN 1 END) AS instructors
@@ -42,9 +42,9 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
                 );
             }
             return Map.of("students", 0, "instructors", 0);
-        });
-        int totalStudentsCount = userCounts != null ? userCounts.getOrDefault("students", 0) : 0;
-        int totalInstructorsCount = userCounts != null ? userCounts.getOrDefault("instructors", 0) : 0;
+        })).orElseGet(Map::of);
+        int totalStudentsCount = userCounts.getOrDefault("students", 0);
+        int totalInstructorsCount = userCounts.getOrDefault("instructors", 0);
 
         Integer activeCoursesCount = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM courses WHERE status IN ('PUBLISHED', 'APPROVED')", Integer.class);

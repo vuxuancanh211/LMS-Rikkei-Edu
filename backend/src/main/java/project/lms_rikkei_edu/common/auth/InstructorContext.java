@@ -26,8 +26,11 @@ public class InstructorContext {
     }
 
     public UUID getCurrentInstructorId(HttpServletRequest request) {
-        if (currentUserProvider != null && currentUserProvider.getCurrentUserId().isPresent()) {
-            return currentUserProvider.getCurrentUserId().get();
+        if (currentUserProvider != null) {
+            UUID id = currentUserProvider.getCurrentUserId().orElse(null);
+            if (id != null) {
+                return id;
+            }
         }
         String userId = request != null ? request.getHeader(USER_ID_HEADER) : null;
         if (userId == null || userId.isBlank()) {
