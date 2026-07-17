@@ -365,7 +365,6 @@ class AssignmentServiceImplTest {
         var request = new UpdateAssignmentRequest();
         request.setTitle("Updated Title");
         request.setDescription("Updated Desc");
-        var response = assignmentResponse();
 
         when(courseRepository.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(true);
         when(assignmentRepository.findByIdAndCourseId(assignmentId, courseId))

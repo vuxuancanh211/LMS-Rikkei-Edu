@@ -121,43 +121,53 @@ public class GradingServiceImpl implements GradingService {
                 continue;
             }
 
-            UserEntity user = userMap.get(studentId);
-            List<UUID> groupIds = studentGroupMap.getOrDefault(studentId, Collections.emptyList());
-            String groupName = null;
-            UUID groupId = null;
-            if (!groupIds.isEmpty()) {
-                groupId = groupIds.get(0);
-                groupName = groupNameMap.get(groupId);
-            }
-
-            List<SubmissionFileResponse> files = buildFileResponses(sub, fileMap);
-
-            result.add(InstructorSubmissionResponse.builder()
-                    .id(sub != null ? sub.getId() : null)
-                    .status(entryStatus)
-                    .note(sub != null ? sub.getNote() : null)
-                    .isLate(sub != null && Boolean.TRUE.equals(sub.getIsLate()))
-                    .score(sub != null ? sub.getScore() : null)
-                    .feedback(sub != null ? sub.getFeedback() : null)
-                    .submittedAt(sub != null ? sub.getSubmittedAt() : null)
-                    .gradedAt(sub != null ? sub.getGradedAt() : null)
-                    .scorePublishedAt(sub != null ? sub.getScorePublishedAt() : null)
-                    .files(files)
-                    .studentId(studentId)
-                    .studentName(user != null ? user.getFullName() : null)
-                    .studentEmail(user != null ? user.getEmail() : null)
-                    .assignmentId(assignment.getId())
-                    .assignmentTitle(assignment.getTitle())
-                    .assignmentMaxScore(assignment.getMaxScore())
-                    .assignmentPassScore(assignment.getPassingScore())
-                    .courseId(assignment.getCourseId())
-                    .courseTitle(courseTitle)
-                    .groupId(groupId)
-                    .groupName(groupName)
-                    .build());
+            result.add(buildStudentSubmissionResponse(
+                    studentId, sub, entryStatus, userMap.get(studentId),
+                    studentGroupMap.getOrDefault(studentId, Collections.emptyList()),
+                    groupNameMap, fileMap, assignment, courseTitle));
         }
 
         return result;
+    }
+
+    private InstructorSubmissionResponse buildStudentSubmissionResponse(
+            UUID studentId, AssignmentSubmissionEntity sub, String entryStatus,
+            UserEntity user, List<UUID> groupIds,
+            Map<UUID, String> groupNameMap,
+            Map<UUID, List<SubmissionFileEntity>> fileMap,
+            AssignmentEntity assignment, String courseTitle) {
+        String groupName = null;
+        UUID groupId = null;
+        if (!groupIds.isEmpty()) {
+            groupId = groupIds.get(0);
+            groupName = groupNameMap.get(groupId);
+        }
+
+        List<SubmissionFileResponse> files = buildFileResponses(sub, fileMap);
+
+        return InstructorSubmissionResponse.builder()
+                .id(sub != null ? sub.getId() : null)
+                .status(entryStatus)
+                .note(sub != null ? sub.getNote() : null)
+                .isLate(sub != null && Boolean.TRUE.equals(sub.getIsLate()))
+                .score(sub != null ? sub.getScore() : null)
+                .feedback(sub != null ? sub.getFeedback() : null)
+                .submittedAt(sub != null ? sub.getSubmittedAt() : null)
+                .gradedAt(sub != null ? sub.getGradedAt() : null)
+                .scorePublishedAt(sub != null ? sub.getScorePublishedAt() : null)
+                .files(files)
+                .studentId(studentId)
+                .studentName(user != null ? user.getFullName() : null)
+                .studentEmail(user != null ? user.getEmail() : null)
+                .assignmentId(assignment.getId())
+                .assignmentTitle(assignment.getTitle())
+                .assignmentMaxScore(assignment.getMaxScore())
+                .assignmentPassScore(assignment.getPassingScore())
+                .courseId(assignment.getCourseId())
+                .courseTitle(courseTitle)
+                .groupId(groupId)
+                .groupName(groupName)
+                .build();
     }
 
     private Map<UUID, AssignmentSubmissionEntity> buildSubmissionMap(List<AssignmentSubmissionEntity> submissions) {

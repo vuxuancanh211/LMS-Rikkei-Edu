@@ -186,28 +186,7 @@ public class StudentAssignmentServiceImpl implements StudentAssignmentService {
             throw new BusinessException("Bài tập chưa đến thời gian cho phép nộp");
         }
 
-        // Nếu đã có bài nộp cũ và đã công bố điểm → không cho nộp lại
-        List<AssignmentSubmissionEntity> existingList = assignmentSubmissionRepository
-                .findByAssignmentIdAndStudentIdOrderByCreatedAtDesc(assignmentId, studentId);
-        if (!existingList.isEmpty()) {
-            for (AssignmentSubmissionEntity existing : existingList) {
-                if (existing.getScorePublishedAt() != null) {
-                    throw new BusinessException("Không thể nộp lại bài tập đã được công bố điểm");
-                }
-            }
-            // Xoá tất cả file cũ trên S3 và DB
-            for (AssignmentSubmissionEntity oldSub : existingList) {
-                List<SubmissionFileEntity> oldFiles = submissionFileRepository
-                        .findBySubmissionIdOrderByOrderIndexAsc(oldSub.getId());
-                for (SubmissionFileEntity f : oldFiles) {
-                    if (f.getS3Key() != null) {
-                        s3Service.deleteObject(f.getS3Key());
-                    }
-                    submissionFileRepository.delete(f);
-                }
-                assignmentSubmissionRepository.delete(oldSub);
-            }
-        }
+        cleanupPreviousSubmissions(assignmentId, studentId);
 
         boolean isLate = checkLateSubmission(assignment, now);
 
@@ -228,6 +207,33 @@ public class StudentAssignmentServiceImpl implements StudentAssignmentService {
                 .submittedAt(now)
                 .files(fileResponses)
                 .build();
+    }
+
+    private void cleanupPreviousSubmissions(UUID assignmentId, UUID studentId) {
+        List<AssignmentSubmissionEntity> existingList = assignmentSubmissionRepository
+                .findByAssignmentIdAndStudentIdOrderByCreatedAtDesc(assignmentId, studentId);
+        if (existingList.isEmpty()) return;
+
+        for (AssignmentSubmissionEntity existing : existingList) {
+            if (existing.getScorePublishedAt() != null) {
+                throw new BusinessException("Không thể nộp lại bài tập đã được công bố điểm");
+            }
+        }
+        for (AssignmentSubmissionEntity oldSub : existingList) {
+            deleteSubmissionAndFiles(oldSub);
+        }
+    }
+
+    private void deleteSubmissionAndFiles(AssignmentSubmissionEntity oldSub) {
+        List<SubmissionFileEntity> oldFiles = submissionFileRepository
+                .findBySubmissionIdOrderByOrderIndexAsc(oldSub.getId());
+        for (SubmissionFileEntity f : oldFiles) {
+            if (f.getS3Key() != null) {
+                s3Service.deleteObject(f.getS3Key());
+            }
+            submissionFileRepository.delete(f);
+        }
+        assignmentSubmissionRepository.delete(oldSub);
     }
 
     private AssignmentEntity resolveAssignment(UUID courseId, UUID assignmentId, UUID studentId) {

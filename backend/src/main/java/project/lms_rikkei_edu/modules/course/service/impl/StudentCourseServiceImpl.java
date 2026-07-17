@@ -632,20 +632,7 @@ public class StudentCourseServiceImpl implements StudentCourseService {
 
         List<UUID> studentGroupIds = groupMemberRepository.findGroupIdsByStudentIdAndCourseId(studentId, courseId);
 
-        List<UUID> applicableAssignmentIds = new ArrayList<>();
-        for (AssignmentEntity a : assignments) {
-            if (a.getScope() == AssignmentScope.ALL_GROUPS) {
-                applicableAssignmentIds.add(a.getId());
-            } else {
-                List<UUID> assignedGroupIds = assignmentGroupRepository.findByAssignmentId(a.getId())
-                        .stream()
-                        .map(ag -> ag.getGroupId())
-                        .toList();
-                if (assignedGroupIds.stream().anyMatch(studentGroupIds::contains)) {
-                    applicableAssignmentIds.add(a.getId());
-                }
-            }
-        }
+        List<UUID> applicableAssignmentIds = filterApplicableAssignments(assignments, studentGroupIds);
 
         if (applicableAssignmentIds.isEmpty()) return new int[]{0, 0};
 
@@ -665,6 +652,24 @@ public class StudentCourseServiceImpl implements StudentCourseService {
         }
 
         return new int[]{applicableAssignmentIds.size(), completed};
+    }
+
+    private List<UUID> filterApplicableAssignments(List<AssignmentEntity> assignments, List<UUID> studentGroupIds) {
+        List<UUID> applicableAssignmentIds = new ArrayList<>();
+        for (AssignmentEntity a : assignments) {
+            if (a.getScope() == AssignmentScope.ALL_GROUPS) {
+                applicableAssignmentIds.add(a.getId());
+            } else {
+                List<UUID> assignedGroupIds = assignmentGroupRepository.findByAssignmentId(a.getId())
+                        .stream()
+                        .map(ag -> ag.getGroupId())
+                        .toList();
+                if (assignedGroupIds.stream().anyMatch(studentGroupIds::contains)) {
+                    applicableAssignmentIds.add(a.getId());
+                }
+            }
+        }
+        return applicableAssignmentIds;
     }
 
     private int getCourseLessonCount(UUID courseId) {

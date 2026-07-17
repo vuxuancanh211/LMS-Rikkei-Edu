@@ -628,7 +628,7 @@ class StudentCourseServiceImplTest {
         StudentCourseResponse resp = result.get(0);
         assertThat(resp.getCategory()).isEqualTo("Backend");
         assertThat(resp.getLevel()).isEqualTo("BEGINNER");
-        assertThat(resp.getProgress()).isEqualTo(0);
+        assertThat(resp.getProgress()).isZero();
         assertThat(resp.getSStatus()).isEqualTo("learning");
     }
 
