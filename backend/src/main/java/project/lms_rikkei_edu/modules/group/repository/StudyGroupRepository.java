@@ -7,12 +7,13 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import project.lms_rikkei_edu.modules.group.entity.StudyGroupEntity;
 
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-public interface StudyGroupRepository extends JpaRepository<StudyGroupEntity, UUID> {
+public interface StudyGroupRepository extends JpaRepository<StudyGroupEntity, UUID>, JpaSpecificationExecutor<StudyGroupEntity> {
 
     @Query(value = """
             SELECT sg FROM StudyGroupEntity sg
