@@ -39,6 +39,7 @@ import project.lms_rikkei_edu.modules.quiz.dto.response.QuizSummaryResponse;
 import project.lms_rikkei_edu.modules.quiz.entity.QuizEntity;
 import project.lms_rikkei_edu.modules.quiz.enums.QuizStatus;
 import project.lms_rikkei_edu.modules.quiz.repository.QuizRepository;
+import project.lms_rikkei_edu.modules.quiz.repository.BankQuestionRepository;
 import project.lms_rikkei_edu.modules.quiz.service.QuizService;
 
 import java.text.Normalizer;
@@ -71,6 +72,7 @@ public class CourseServiceImpl implements CourseService {
     private final S3Service s3Service;
     private final QuizService quizService;
     private final QuizRepository quizRepository;
+    private final BankQuestionRepository bankQuestionRepository;
     private final StudentCourseService studentCourseService;
     private final CourseListCacheGateway courseListCacheGateway;
     private final CourseVersionReferenceChecker courseVersionReferenceChecker;
@@ -146,6 +148,25 @@ public class CourseServiceImpl implements CourseService {
         CourseListCacheGateway.Entry entry = courseListCacheGateway.find(instructorId, pageable, keyword);
         return new PageImpl<>(entry.getContent(), pageable, entry.getTotalElements());
     }
+
+    @Override
+    public List<CourseCompactResponse> listCoursesCompact(UUID instructorId) {
+        // Tái sử dụng lại cache gateway với size 1000 để lấy gọn
+        CourseListCacheGateway.Entry entry = courseListCacheGateway.find(instructorId, org.springframework.data.domain.PageRequest.of(0, 1000), null);
+        return entry.getContent().stream()
+                .map(c -> new CourseCompactResponse(c.getId(), c.getTitle()))
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public AssessStatsResponse getAssessStats(UUID instructorId, UUID courseId) {
+        // Có thể check quyền sở hữu
+        loadOwnedCourse(instructorId, courseId);
+        long quizCount = quizRepository.countByCourseId(courseId);
+        long bankCount = bankQuestionRepository.countByCourseId(courseId);
+        return new AssessStatsResponse(quizCount, bankCount);
+    }
+
 
     @Override
     @CacheEvict(value = "course-detail", key = "#courseId + '_' + #instructorId")

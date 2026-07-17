@@ -19,6 +19,10 @@ public interface CourseService {
 
     Page<CourseResponse> listCourses(UUID instructorId, Pageable pageable, String keyword);
 
+    List<CourseCompactResponse> listCoursesCompact(UUID instructorId);
+
+    AssessStatsResponse getAssessStats(UUID instructorId, UUID courseId);
+
     CourseResponse updateCourse(UUID instructorId, UUID courseId, UpdateCourseRequest request);
 
     void deleteCourse(UUID instructorId, UUID courseId);

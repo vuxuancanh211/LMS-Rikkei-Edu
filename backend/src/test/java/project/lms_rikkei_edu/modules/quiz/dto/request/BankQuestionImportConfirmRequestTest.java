@@ -13,16 +13,16 @@ class BankQuestionImportConfirmRequestTest {
         BankQuestionImportConfirmRequest req = new BankQuestionImportConfirmRequest();
 
         req.setToken("preview-token");
-        req.setSelectedDuplicateRows(List.of(2, 5));
+        req.setSelectedRows(List.of(2, 5));
 
         assertThat(req.getToken()).isEqualTo("preview-token");
-        assertThat(req.getSelectedDuplicateRows()).containsExactly(2, 5);
+        assertThat(req.getSelectedRows()).containsExactly(2, 5);
     }
 
     @Test
-    void selectedDuplicateRows_defaultsToNull() {
+    void selectedRows_defaultsToNull() {
         BankQuestionImportConfirmRequest req = new BankQuestionImportConfirmRequest();
 
-        assertThat(req.getSelectedDuplicateRows()).isNull();
+        assertThat(req.getSelectedRows()).isNull();
     }
 }

@@ -118,13 +118,13 @@
     const distData = dist.data || {};
     const subList = sub.data || [];
 
-    const { monthlyData, monthlyLabels, distList } = useMemo(() => {
+    const { monthlyData, monthlyLabels, distList, totalDistCount } = useMemo(() => {
       const md = (chartData.monthlyCompletionRates && chartData.monthlyCompletionRates.length > 0)
         ? chartData.monthlyCompletionRates : [0, 0, 0, 0, 0, 0];
       const ml = (chartData.monthlyLabels && chartData.monthlyLabels.length > 0)
         ? chartData.monthlyLabels : getDynamicMonthLabels(6);
-      const dl = (distData.courseDistributions || []).slice(0, 5);
-      return { monthlyData: md, monthlyLabels: ml, distList: dl };
+      const all = distData.courseDistributions || [];
+      return { monthlyData: md, monthlyLabels: ml, distList: all.slice(0, 5), totalDistCount: all.length };
     }, [chartData, distData]);
 
     const avgRate = distData.averageCompletionRate ?? statsData.averageCompletionRate ?? 0;
@@ -170,9 +170,14 @@
                   {(!distList || distList.length === 0) ? (
                     <div className="t-sm muted" style={{ textAlign: "center", padding: 12 }}>Chưa có phân bố học viên.</div>
                   ) : (
-                    distList.slice(0, 5).map((r, i) => (
-                      <div key={i} className="between"><span className="row gap-8"><span style={{ width: 9, height: 9, borderRadius: 999, background: r.color || "#2563eb" }} /><span className="t-sm truncate" style={{ maxWidth: 160 }}>{r.title}</span></span><b className="t-sm">{r.studentCount}</b></div>
-                    ))
+                    <>
+                      {distList.map((r, i) => (
+                        <div key={i} className="between"><span className="row gap-8"><span style={{ width: 9, height: 9, borderRadius: 999, background: r.color || "#2563eb" }} /><span className="t-sm truncate" style={{ maxWidth: 180 }} title={r.title}>{r.title}</span></span><b className="t-sm">{r.studentCount}</b></div>
+                      ))}
+                      {totalDistCount > 5 && (
+                        <div className="t-sm muted" style={{ textAlign: "center", paddingTop: 2 }}>+ {totalDistCount - 5} khóa học khác</div>
+                      )}
+                    </>
                   )}
                 </div>
               </>

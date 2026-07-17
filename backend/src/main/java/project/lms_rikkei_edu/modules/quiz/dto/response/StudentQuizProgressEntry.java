@@ -21,4 +21,6 @@ public class StudentQuizProgressEntry {
     private BigDecimal bestScore;
     private BigDecimal bestScorePercentage;
     private boolean canRetry; // còn lượt và cooldown đã qua
+    private BigDecimal passScore;
+    private java.time.OffsetDateTime nextRetryAt;
 }

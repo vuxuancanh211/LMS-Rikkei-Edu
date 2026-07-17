@@ -27,6 +27,7 @@ import project.lms_rikkei_edu.modules.quiz.enums.QuestionType;
 import project.lms_rikkei_edu.modules.quiz.repository.AiQuestionGenerationJobRepository;
 import project.lms_rikkei_edu.modules.quiz.service.impl.AiQuestionGeneratorServiceImpl;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -64,7 +65,7 @@ class AiQuestionGeneratorServiceTest {
         props = new OpenAiProperties();
         objectMapper = new ObjectMapper();
         service = new AiQuestionGeneratorServiceImpl(
-                llmService, embeddingService, vectorSearch, props, objectMapper, jdbc, jobRepo);
+                llmService, embeddingService, vectorSearch, props, objectMapper, jdbc, jobRepo, Runnable::run);
         when(jobRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
     }
 
@@ -183,7 +184,7 @@ class AiQuestionGeneratorServiceTest {
             service.generateAsync(jobId, courseId, buildRequest(1));
 
             assertThat(job.getStep()).isEqualTo(GenerationStep.FAILED);
-            assertThat(job.getErrorMessage()).contains("Không thể kết nối dịch vụ AI");
+            assertThat(job.getErrorMessage()).contains("không sinh được câu hỏi hợp lệ");
         }
 
         @Test
@@ -216,15 +217,32 @@ class AiQuestionGeneratorServiceTest {
         void countAboveBatchSize_makesMultipleLlmCalls() {
             AiQuestionGenerationJob job = buildJob();
             when(jobRepo.findById(jobId)).thenReturn(Optional.of(job));
-            // 7 câu = batch 1 (5 câu) + batch 2 (2 câu). Mỗi lần gọi trả về 1 câu khác nhau
-            // để tránh bị loại trùng theo text trong generateAllQuestions.
+            // 7 câu = batch 1 (5 câu) + batch 2 (2 câu). Mỗi lần gọi phải trả đủ số câu hợp lệ
+            // yêu cầu của batch đó (mỗi câu cần >=2 option để pass isValidOptionSet) để không
+            // kích hoạt retry — questionText khác nhau để tránh bị loại trùng theo text.
+            String batch1Json = """
+                    {"questions":[
+                        {"questionText":"Q1?","options":[{"text":"A","correct":true,"explanation":"e"},{"text":"B","correct":false,"explanation":"e"}]},
+                        {"questionText":"Q2?","options":[{"text":"A","correct":true,"explanation":"e"},{"text":"B","correct":false,"explanation":"e"}]},
+                        {"questionText":"Q3?","options":[{"text":"A","correct":true,"explanation":"e"},{"text":"B","correct":false,"explanation":"e"}]},
+                        {"questionText":"Q4?","options":[{"text":"A","correct":true,"explanation":"e"},{"text":"B","correct":false,"explanation":"e"}]},
+                        {"questionText":"Q5?","options":[{"text":"A","correct":true,"explanation":"e"},{"text":"B","correct":false,"explanation":"e"}]}
+                    ]}""";
+            String batch2Json = """
+                    {"questions":[
+                        {"questionText":"Q6?","options":[{"text":"A","correct":true,"explanation":"e"},{"text":"B","correct":false,"explanation":"e"}]},
+                        {"questionText":"Q7?","options":[{"text":"A","correct":true,"explanation":"e"},{"text":"B","correct":false,"explanation":"e"}]}
+                    ]}""";
             when(llmService.completeForJson(anyString(), anyString()))
-                    .thenReturn("""
-                            {"questions":[{"questionText":"Q1?","options":[{"text":"A","correct":true,"explanation":"e"}]}]}""")
-                    .thenReturn("""
-                            {"questions":[{"questionText":"Q2?","options":[{"text":"A","correct":true,"explanation":"e"}]}]}""");
+                    .thenReturn(batch1Json)
+                    .thenReturn(batch2Json);
             when(embeddingService.embedBatch(anyList()))
-                    .thenReturn(List.of(new float[]{0.1f}, new float[]{0.2f}));
+                    .thenAnswer(inv -> {
+                        List<?> texts = inv.getArgument(0);
+                        List<float[]> embeddings = new ArrayList<>();
+                        for (int i = 0; i < texts.size(); i++) embeddings.add(new float[]{i + 1f});
+                        return embeddings;
+                    });
             when(jdbc.queryForList(anyString(), anyString(), any(UUID.class), anyString(), anyDouble(), anyString())).thenReturn(List.of());
 
             service.generateAsync(jobId, courseId, buildRequest(7));
@@ -324,7 +342,14 @@ class AiQuestionGeneratorServiceTest {
         void multipleChoiceType_usesMultipleChoicePromptGuide() {
             AiQuestionGenerationJob job = buildJob();
             when(jobRepo.findById(jobId)).thenReturn(Optional.of(job));
-            when(llmService.completeForJson(anyString(), anyString())).thenReturn(ONE_QUESTION_JSON);
+            // MULTIPLE_CHOICE cần >=2 đáp án đúng để pass isValidOptionSet — ONE_QUESTION_JSON
+            // chỉ có 1 đáp án đúng nên không dùng được ở đây.
+            String multipleChoiceJson = """
+                    {"questions":[{"questionText":"What is 1+1?","options":[\
+                    {"text":"2","correct":true,"explanation":"correct"},\
+                    {"text":"4","correct":true,"explanation":"correct"},\
+                    {"text":"3","correct":false,"explanation":"wrong"}]}]}""";
+            when(llmService.completeForJson(anyString(), anyString())).thenReturn(multipleChoiceJson);
             when(embeddingService.embedBatch(anyList())).thenReturn(List.of(new float[]{0.1f}));
             when(jdbc.queryForList(anyString(), anyString(), any(UUID.class), anyString(), anyDouble(), anyString())).thenReturn(List.of());
 

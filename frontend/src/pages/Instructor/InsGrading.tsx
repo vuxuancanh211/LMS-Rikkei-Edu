@@ -69,9 +69,9 @@
       api.get("/instructor/assignments").then(res => {
         setAllAssignments(res.data || []);
       });
-      if (window.__courseService?.getMyCourses) {
-        window.__courseService.getMyCourses()
-          .then(res => setCourses(res.content || []))
+      if (window.__courseService?.getMyCourseOptions) {
+        window.__courseService.getMyCourseOptions()
+          .then(list => setCourses(list || []))
           .catch(() => {});
       }
     }, []);

@@ -174,23 +174,32 @@ public class BankQuestionServiceImpl implements BankQuestionService {
      * Embed lỗi → pha 2 rỗng, kết quả degrade về text-only (không 500).
      */
     @Override
+    public List<String> getTags(UUID courseId) {
+        return bankQuestionRepository.findDistinctTagsByCourseId(courseId);
+    }
+
+    @Override
     public List<BankQuestionSearchHit> search(UUID courseId, String q, QuestionStatus status,
                                               QuestionDifficulty difficulty, String subjectTag) {
         String query = q == null ? "" : q.trim();
         if (query.isEmpty()) return List.of();
 
-        String lowered = query.toLowerCase();
-        List<BankQuestionResponse> textHits = list(courseId, status, difficulty, subjectTag).stream()
-                .filter(r -> r.getQuestionText().toLowerCase().contains(lowered))
-                .toList();
-
-        Set<UUID> textHitIds = textHits.stream().map(BankQuestionResponse::getId)
-                .collect(java.util.stream.Collectors.toSet());
-
         // Mirror mặc định của list(): có difficulty/subjectTag mà status null → ngầm hiểu ACTIVE,
         // để 2 pha text/semantic lọc nhất quán với nhau
         QuestionStatus effectiveStatus = status != null ? status
                 : (difficulty != null || subjectTag != null ? QuestionStatus.ACTIVE : null);
+
+        String statusStr = effectiveStatus != null ? effectiveStatus.name() : null;
+        String diffStr = difficulty != null ? difficulty.name() : null;
+
+        List<BankQuestionResponse> textHits = bankQuestionRepository
+                .searchAndFilter(courseId, query, statusStr, diffStr, subjectTag)
+                .stream()
+                .map(this::toResponse)
+                .toList();
+
+        Set<UUID> textHitIds = textHits.stream().map(BankQuestionResponse::getId)
+                .collect(java.util.stream.Collectors.toSet());
 
         List<SemanticHit> semanticHits = embeddingService.searchSimilar(
                 courseId, query, effectiveStatus, difficulty, subjectTag, textHitIds,
@@ -244,6 +253,7 @@ public class BankQuestionServiceImpl implements BankQuestionService {
                     .questionType(row.questionType())
                     .difficulty(row.difficulty())
                     .subjectTag(row.subjectTag())
+                    .options(toOptionDtos(row.options()))
                     .status(status)
                     .errors(errors)
                     .build());
@@ -267,18 +277,15 @@ public class BankQuestionServiceImpl implements BankQuestionService {
         List<BankQuestionImportRowResult> preview = loadPreviewFromRedis(request.getToken());
         redisService.delete(REDIS_IMPORT_PREFIX + request.getToken());
 
-        Set<Integer> selectedDuplicates = new HashSet<>(
-                request.getSelectedDuplicateRows() != null ? request.getSelectedDuplicateRows() : List.of());
+        Set<Integer> selectedRows = new HashSet<>(
+                request.getSelectedRows() != null ? request.getSelectedRows() : List.of());
 
         int imported = 0, skipped = 0;
         List<IdText> toEmbed = new ArrayList<>();
         for (BankQuestionImportRowResult row : preview) {
-            if ("ERROR".equals(row.getStatus())) { skipped++; continue; }
-            if ("DUPLICATE".equals(row.getStatus()) && !selectedDuplicates.contains(row.getRowNumber())) {
+            if ("ERROR".equals(row.getStatus()) || !selectedRows.contains(row.getRowNumber())) {
                 skipped++; continue;
             }
-            // Import — dùng raw data từ redis preview
-            // Tìm lại ImportRow từ preview (chỉ có parsed data đã lưu)
             BankQuestionEntity saved = persistImportRow(courseId, instructorId, row);
             toEmbed.add(new IdText(saved.getId(), saved.getQuestionText()));
             imported++;
@@ -454,12 +461,15 @@ public class BankQuestionServiceImpl implements BankQuestionService {
         return options;
     }
 
+    private static final Set<QuestionType> IMPORTABLE_TYPES = EnumSet.of(
+            QuestionType.SINGLE_CHOICE, QuestionType.MULTIPLE_CHOICE);
+
     private List<String> validateImportRow(ImportRow row) {
         List<String> errors = new ArrayList<>();
         if (row.questionText() == null || row.questionText().isBlank())
             errors.add("Thiếu nội dung câu hỏi");
-        if (row.questionType() == null)
-            errors.add("Loại câu hỏi không hợp lệ (SINGLE_CHOICE/MULTIPLE_CHOICE/TRUE_FALSE)");
+        if (row.questionType() == null || !IMPORTABLE_TYPES.contains(row.questionType()))
+            errors.add("Loại câu hỏi không hợp lệ (chỉ hỗ trợ SINGLE_CHOICE/MULTIPLE_CHOICE)");
         if (row.difficulty() == null)
             errors.add("Độ khó không hợp lệ (EASY/MEDIUM/HARD)");
         if (row.options().size() < 2)
@@ -467,12 +477,25 @@ public class BankQuestionServiceImpl implements BankQuestionService {
         else {
             long correctCount = row.options().stream().filter(OptionImportRow::isCorrect).count();
             if (correctCount == 0) errors.add("Phải có ít nhất 1 đáp án đúng trong correct_answers");
+            if (row.questionType() == QuestionType.SINGLE_CHOICE && correctCount != 1)
+                errors.add("SINGLE_CHOICE phải có đúng 1 đáp án đúng");
+            if (row.questionType() == QuestionType.MULTIPLE_CHOICE && correctCount < 2)
+                errors.add("MULTIPLE_CHOICE phải có ít nhất 2 đáp án đúng");
         }
         return errors;
     }
 
+    private List<BankQuestionImportRowResult.ImportOptionDto> toOptionDtos(List<OptionImportRow> options) {
+        return options.stream()
+                .map(o -> BankQuestionImportRowResult.ImportOptionDto.builder()
+                        .text(o.text())
+                        .correct(o.isCorrect())
+                        .orderIndex(o.orderIndex())
+                        .build())
+                .toList();
+    }
+
     private BankQuestionEntity persistImportRow(UUID courseId, UUID instructorId, BankQuestionImportRowResult row) {
-        // Lấy lại raw data từ preview response fields
         BankQuestionEntity q = new BankQuestionEntity();
         q.setCourseId(courseId);
         q.setCreatedBy(instructorId);
@@ -481,8 +504,19 @@ public class BankQuestionServiceImpl implements BankQuestionService {
         q.setDifficulty(row.getDifficulty());
         q.setSubjectTag(row.getSubjectTag());
         bankQuestionRepository.save(q);
-        // Options không lưu trong preview response — cần lưu thêm vào Redis
-        // Handled trong savePreviewToRedis bằng RedisImportRow có đầy đủ options
+
+        List<BankQuestionImportRowResult.ImportOptionDto> options = row.getOptions();
+        if (options != null) {
+            for (int i = 0; i < options.size(); i++) {
+                BankQuestionImportRowResult.ImportOptionDto opt = options.get(i);
+                BankOptionEntity entity = new BankOptionEntity();
+                entity.setBankQuestionId(q.getId());
+                entity.setOptionText(opt.getText());
+                entity.setIsCorrect(opt.isCorrect());
+                entity.setOrderIndex(opt.getOrderIndex());
+                bankOptionRepository.save(entity);
+            }
+        }
         return q;
     }
 
@@ -528,12 +562,12 @@ public class BankQuestionServiceImpl implements BankQuestionService {
                     csvEscape(q.getQuestionText()),
                     q.getQuestionType().name(),
                     q.getDifficulty().name(),
-                    q.getSubjectTag() != null ? q.getSubjectTag() : "",
+                    csvEscape(q.getSubjectTag() != null ? q.getSubjectTag() : ""),
                     optTexts[0] != null ? optTexts[0] : "",
                     optTexts[1] != null ? optTexts[1] : "",
                     optTexts[2] != null ? optTexts[2] : "",
                     optTexts[3] != null ? optTexts[3] : "",
-                    String.join(",", corrects),
+                    csvEscape(String.join(",", corrects)),
                     ""
             )).append("\n");
         }
