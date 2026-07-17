@@ -68,8 +68,6 @@ public class StudentCourseServiceImpl implements StudentCourseService {
     private final QuizAttemptAnswerRepository quizAttemptAnswerRepository;
     private final ProctoringViolationLogRepository proctoringViolationLogRepository;
 
-
-
     @Value("${app.s3.presigned-url-expiry:3600}")
     private long presignedUrlExpiry;
 
@@ -195,7 +193,17 @@ public class StudentCourseServiceImpl implements StudentCourseService {
         filterToLiveContentOnly(response);
 
         attachLessonProgress(studentId, courseId, response);
+        attachCourseStats(response, courseId, course.getInstructorId());
         return response;
+    }
+
+    private void attachCourseStats(CourseDetailResponse response, UUID courseId, UUID instructorId) {
+        response.setStudentCount((int) courseEnrollmentRepository.countByCourseId(courseId));
+        userRepository.findById(instructorId).ifPresent(u -> {
+            response.setInstructorName(u.getFullName());
+            response.setInstructorBio(u.getBio());
+        });
+        response.setInstructorCourseCount((int) courseRepository.countByInstructorIdAndStatus(instructorId, CourseStatus.PUBLISHED));
     }
 
     @Override

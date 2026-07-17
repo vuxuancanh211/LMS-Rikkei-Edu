@@ -76,6 +76,8 @@ public class CourseServiceImpl implements CourseService {
     private final StudentCourseService studentCourseService;
     private final CourseListCacheGateway courseListCacheGateway;
     private final CourseVersionReferenceChecker courseVersionReferenceChecker;
+    private final CourseEnrollmentRepository courseEnrollmentRepository;
+    private final project.lms_rikkei_edu.modules.user.repository.UserRepository userRepository;
 
     /* Self-proxy để getCourseDetailBySlug() gọi lại getCourseDetail() QUA proxy Spring AOP —
        gọi trực tiếp (this.getCourseDetail(...)) sẽ bỏ qua @Cacheable vì Spring cache dựa trên
@@ -96,12 +98,13 @@ public class CourseServiceImpl implements CourseService {
                 .instructorId(instructorId)
                 .title(request.getTitle())
                 .slug(slug)
-                .description(request.getDescription())
+                .description(project.lms_rikkei_edu.modules.course.util.CourseDescriptionSanitizer.sanitize(request.getDescription()))
                 .level(request.getLevel())
                 .thumbnailUrl(request.getThumbnailUrl())
                 .chatEnabled(request.getChatEnabled() != null ? request.getChatEnabled() : false)
                 .category(category)
                 .status(CourseStatus.DRAFT)
+                .learningOutcomes(request.getLearningOutcomes() != null ? cleanStringList(request.getLearningOutcomes()) : new ArrayList<>())
                 .build();
 
         return courseMapper.toResponse(courseRepository.save(course));
@@ -115,7 +118,30 @@ public class CourseServiceImpl implements CourseService {
                 .orElseThrow(() -> new CourseNotFoundException(courseId));
         assertOwner(course, instructorId);
         hydrateChaptersLessonsResources(course);
-        return courseMapper.toDetailResponse(course);
+        CourseDetailResponse response = courseMapper.toDetailResponse(course);
+        attachCourseStats(response, courseId);
+        attachInstructorInfo(response, instructorId);
+        return response;
+    }
+
+    /** Số học viên — dùng cho panel xem trước ở tab "Thông tin" (không cần theo học viên cụ thể). */
+    private void attachCourseStats(CourseDetailResponse response, UUID courseId) {
+        response.setStudentCount((int) courseEnrollmentRepository.countByCourseId(courseId));
+    }
+
+    private void attachInstructorInfo(CourseDetailResponse response, UUID instructorId) {
+        userRepository.findById(instructorId).ifPresent(u -> {
+            response.setInstructorName(u.getFullName());
+            response.setInstructorBio(u.getBio());
+        });
+        response.setInstructorCourseCount((int) courseRepository.countByInstructorIdAndStatus(instructorId, CourseStatus.PUBLISHED));
+    }
+
+    private List<String> cleanStringList(List<String> raw) {
+        return raw.stream()
+                .filter(s -> s != null && !s.isBlank())
+                .map(String::trim)
+                .toList();
     }
 
     @Override
@@ -181,11 +207,14 @@ public class CourseServiceImpl implements CourseService {
             course.setTitle(request.getTitle());
             course.setSlug(generateUniqueSlug(request.getTitle(), courseId));
         }
-        if (request.getDescription() != null) course.setDescription(request.getDescription());
+        if (request.getDescription() != null)
+            course.setDescription(project.lms_rikkei_edu.modules.course.util.CourseDescriptionSanitizer.sanitize(request.getDescription()));
         if (request.getLevel() != null) course.setLevel(request.getLevel());
         if (request.getCategoryId() != null) course.setCategory(resolveCategory(request.getCategoryId()));
         if (request.getThumbnailUrl() != null) course.setThumbnailUrl(request.getThumbnailUrl());
         if (request.getChatEnabled() != null) course.setChatEnabled(request.getChatEnabled());
+        if (request.getLearningOutcomes() != null) course.setLearningOutcomes(cleanStringList(request.getLearningOutcomes()));
+        if (request.getRequirements() != null) course.setRequirements(cleanStringList(request.getRequirements()));
 
         return courseMapper.toResponse(courseRepository.save(course));
     }

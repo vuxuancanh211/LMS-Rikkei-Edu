@@ -10,6 +10,7 @@ const roleRoutes = {
   student: {
     dashboard: '/student/dashboard',
     courses: '/student/courses',
+    courseDetail: '/student/courses/detail',
     tasks: '/student/tasks',
     forum: '/student/forum',
     chat: '/student/chat',
@@ -162,7 +163,10 @@ function RoutedShell({ role, route }: { role: keyof typeof roleRoutes; route: st
           navigate(`/student/certs/${encodeURIComponent(params.certificateId)}`);
           return;
         }
-        if (nextRole === 'student' && (nextRoute === 'courseDetail' || nextRoute === 'player' || (nextRoute === 'courses' && params.courseId))) {
+        // "courseDetail" giờ có trang tổng quan riêng (StuCourseDetail, xem route bên dưới) —
+        // chỉ "player" (và "courses" kèm courseId, dùng cho deep-link "học tiếp") mới vào thẳng
+        // player, không còn ép "courseDetail" nhảy qua player nữa.
+        if (nextRole === 'student' && (nextRoute === 'player' || (nextRoute === 'courses' && params.courseId))) {
           if (params.courseId) {
             navigate(`/player/lecture?courseId=${encodeURIComponent(params.courseId)}`);
             return;
@@ -175,7 +179,8 @@ function RoutedShell({ role, route }: { role: keyof typeof roleRoutes; route: st
           return;
         }
         if (nextRole === 'instructor' && nextRoute === 'courseDetail' && extra?.slug) {
-          navigate(`/instructor/courses/${encodeURIComponent(extra.slug)}`);
+          const previewSearch = extra.autoPreview ? '?autoPreview=1' : '';
+          navigate(`/instructor/courses/${encodeURIComponent(extra.slug)}${previewSearch}`);
           return;
         }
         const path = roleRoutes[nextRole]?.[nextRoute as keyof (typeof roleRoutes)[typeof nextRole]];
@@ -315,6 +320,7 @@ export const router = createBrowserRouter([
   { path: '/settings', element: <RequireAuth><SettingsRoute /></RequireAuth> },
   { path: '/student/dashboard', element: <RequireAuth><RoutedShell role="student" route="dashboard" /></RequireAuth> },
   { path: '/student/courses', element: <RequireAuth><RoutedShell role="student" route="courses" /></RequireAuth> },
+  { path: '/student/courses/detail', element: <RequireAuth><RoutedShell role="student" route="courseDetail" /></RequireAuth> },
   { path: '/student/tasks', element: <RequireAuth><RoutedShell role="student" route="tasks" /></RequireAuth> },
   { path: '/student/forum', element: <RequireAuth><RoutedShell role="student" route="forum" /></RequireAuth> },
   { path: '/student/chat', element: <RequireAuth><RoutedShell role="student" route="chat" /></RequireAuth> },

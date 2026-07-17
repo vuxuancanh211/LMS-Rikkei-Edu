@@ -19,6 +19,8 @@ public interface CourseEnrollmentRepository extends JpaRepository<CourseEnrollme
 
     boolean existsByCourseIdAndStudentId(UUID courseId, UUID studentId);
 
+    long countByCourseId(UUID courseId);
+
     @Query("SELECT ce.courseId FROM CourseEnrollmentEntity ce WHERE ce.studentId = :studentId")
     List<UUID> findCourseIdsByStudentId(@Param("studentId") UUID studentId);
 

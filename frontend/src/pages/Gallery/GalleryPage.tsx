@@ -203,7 +203,10 @@ function registerGalleryPage() {
           if (SCREENS[role][detailKey]) aliasKey = detailKey;
         }
       }
-      if (role === 'student' && (aliasKey === 'courseDetail' || (aliasKey === 'courses' && p.courseId))) {
+      // Học viên bấm vào 1 khóa từ danh sách ("courses" + courseId, VD deep-link từ thông báo)
+      // vẫn vào thẳng player — nhưng "courseDetail" giờ có trang tổng quan riêng (StuCourseDetail)
+      // nên KHÔNG còn bị ép thẳng vào player nữa (trước đây trang tổng quan chưa tồn tại).
+      if (role === 'student' && aliasKey === 'courses' && p.courseId) {
         aliasKey = 'player';
       }
       if (FULLBARE[aliasKey]) { if (onBare) { onBare(aliasKey, p); return; } setBack(SCREENS[role][route] ? route : "dashboard"); setRoute(aliasKey); setRouteParams(p); setDrawer(false); const m = document.querySelector(".main"); if (m) m.scrollTop = 0; return; }
@@ -367,7 +370,7 @@ function registerGalleryPage() {
               )}
             </div>
           </header>
-          <main style={{ flex: 1 }}>{useMemo(() => <Comp nav={go} persona={persona} demo={demo} groupId={routeParams?.groupId} courseId={routeParams?.courseId} slug={routeParams?.slug} quizId={routeParams?.quizId} postId={routeParams?.postId || routeParams?.id} />, [route, role, routeParams?.groupId, routeParams?.courseId, routeParams?.slug, routeParams?.quizId, routeParams?.postId, routeParams?.id, persona, demo, go])}</main>
+          <main style={{ flex: 1 }}>{useMemo(() => <Comp nav={go} persona={persona} demo={demo} groupId={routeParams?.groupId} courseId={routeParams?.courseId} slug={routeParams?.slug} quizId={routeParams?.quizId} postId={routeParams?.postId || routeParams?.id} autoPreview={routeParams?.autoPreview} />, [route, role, routeParams?.groupId, routeParams?.courseId, routeParams?.slug, routeParams?.quizId, routeParams?.postId, routeParams?.id, routeParams?.autoPreview, persona, demo, go])}</main>
         </div>
         {(role === "student" || role === "instructor") && <window.AIChatbot />}
         <window.AlertModal open={!!switchAlert} onClose={() => setSwitchAlert(null)} title={switchAlert?.title} message={switchAlert?.message} type="error" />
