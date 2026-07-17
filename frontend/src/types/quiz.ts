@@ -10,7 +10,7 @@ export type SpringPage<T> = {
 
 // ─── Enums ────────────────────────────────────────────────────────────────────
 
-export type QuizType = 'STATIC' | 'SHUFFLED_POOL' | 'RANDOM_DRAW';
+export type QuizType = 'STATIC' | 'RANDOM_DRAW';
 export type QuizStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
 export type AttemptStatus = 'IN_PROGRESS' | 'SUBMITTED' | 'GRADED' | 'EXPIRED';
 export type QuestionType = 'SINGLE_CHOICE' | 'MULTIPLE_CHOICE';
@@ -63,28 +63,35 @@ export type BankQuestionSearchHit = {
   similarity?: number | null;
 };
 
+export type BankQuestionImportOption = {
+  text: string;
+  correct: boolean;
+  orderIndex: number;
+};
+
 export type BankQuestionImportRowResult = {
   rowNumber: number;
   questionText: string;
-  status: 'VALID' | 'FORMAT_ERROR' | 'DUPLICATE_IN_FILE' | 'DUPLICATE_IN_DB' | 'IMPORTED' | 'IMPORT_FAILED';
+  questionType: QuestionType | null;
+  difficulty: QuestionDifficulty | null;
+  subjectTag: string | null;
+  options: BankQuestionImportOption[];
+  status: 'NEW' | 'DUPLICATE' | 'ERROR';
   errors: string[];
 };
 
 export type BankQuestionImportPreviewResponse = {
   token: string;
   totalRows: number;
-  validCount: number;
-  formatErrorCount: number;
-  duplicateInFileCount: number;
-  duplicateInDbCount: number;
+  newCount: number;
+  duplicateCount: number;
+  errorCount: number;
   rows: BankQuestionImportRowResult[];
 };
 
 export type BankQuestionImportConfirmResponse = {
-  totalProcessed: number;
-  successCount: number;
-  failCount: number;
-  results: BankQuestionImportRowResult[];
+  totalImported: number;
+  skippedCount: number;
 };
 
 export type BankQuestionListParams = {

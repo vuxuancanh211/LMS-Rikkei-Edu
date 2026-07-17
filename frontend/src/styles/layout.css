@@ -263,6 +263,10 @@
   .page-head p { font-size: 14px; }
   .modal-foot { flex-direction: column-reverse; }
   .modal-foot .btn { width: 100%; }
+  
+  .pagebar { flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 16px !important; }
+  .pagebar .pager { flex-wrap: wrap; justify-content: center; gap: 4px; }
+  .pagebar .pager button { margin: 2px 0; }
 }
 .forum-content {
   color: var(--text);

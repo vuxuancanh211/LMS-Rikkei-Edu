@@ -168,6 +168,40 @@ class CourseControllerTest {
         }
     }
 
+    // ── GET /api/instructor/courses/compact ────────────────────────────────────
+
+    @Nested
+    class ListCoursesCompact {
+
+        @Test
+        void returnsCompactList() throws Exception {
+            CourseCompactResponse c1 = new CourseCompactResponse(courseId, "Course 1");
+            when(courseService.listCoursesCompact(instructorId)).thenReturn(List.of(c1));
+
+            mockMvc.perform(get("/api/instructor/courses/compact"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$[0].id").value(courseId.toString()))
+                    .andExpect(jsonPath("$[0].title").value("Course 1"));
+        }
+    }
+
+    // ── GET /api/instructor/courses/{courseId}/assess-stats ────────────────────
+
+    @Nested
+    class GetAssessStats {
+
+        @Test
+        void returnsStats() throws Exception {
+            when(courseService.getAssessStats(instructorId, courseId))
+                    .thenReturn(new AssessStatsResponse(3, 42));
+
+            mockMvc.perform(get("/api/instructor/courses/{courseId}/assess-stats", courseId))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.quizCount").value(3))
+                    .andExpect(jsonPath("$.bankQuestionCount").value(42));
+        }
+    }
+
     // ── GET /api/instructor/courses/by-slug/{slug} ────────────────────────────
 
     @Nested
