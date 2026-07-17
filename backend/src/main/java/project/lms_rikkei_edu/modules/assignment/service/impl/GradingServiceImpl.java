@@ -107,8 +107,6 @@ public class GradingServiceImpl implements GradingService {
         Map<UUID, List<UUID>> studentGroupMap = buildStudentGroupMap(expectedStudentIds, courseId);
         Map<UUID, String> groupNameMap = fetchGroupNameMap(studentGroupMap);
 
-        String courseTitle = courseRepository.findById(courseId).map(Course::getTitle).orElse(null);
-
         boolean filterByStatus = statusFilter != null && !statusFilter.isBlank() && !"ALL".equalsIgnoreCase(statusFilter);
         String filterStatus = filterByStatus ? statusFilter.toUpperCase() : null;
 

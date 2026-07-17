@@ -59,6 +59,7 @@ public class GroupServiceImpl implements GroupService {
     private static final String COURSE_TITLE_SEPARATOR = "\" của khóa học \"";
     private static final String COURSE_NOT_FOUND = "Course not found";
     private static final String CANNOT_CREATE_GROUP_FOR_OTHER_COURSES = "You can only create groups for your own courses";
+    private static final String COURSE_FIELD = "course";
 
     private final StudyGroupRepository studyGroupRepository;
     private final GroupMemberRepository groupMemberRepository;
@@ -487,7 +488,7 @@ public class GroupServiceImpl implements GroupService {
     private Specification<StudyGroupEntity> groupSearchSpec(UUID instructorId, UUID courseId, String keyword) {
         return (root, query, criteriaBuilder) -> {
             if (query.getResultType() != Long.class && query.getResultType() != long.class) {
-                root.fetch("course", jakarta.persistence.criteria.JoinType.LEFT);
+                root.fetch(COURSE_FIELD, jakarta.persistence.criteria.JoinType.LEFT);
                 root.fetch("instructor", jakarta.persistence.criteria.JoinType.LEFT);
                 query.distinct(true);
             }
@@ -495,14 +496,14 @@ public class GroupServiceImpl implements GroupService {
             var predicate = criteriaBuilder.equal(root.join("instructor", jakarta.persistence.criteria.JoinType.LEFT).get("id"), instructorId);
 
             if (courseId != null) {
-                var coursePredicate = criteriaBuilder.equal(root.join("course", jakarta.persistence.criteria.JoinType.LEFT).get("id"), courseId);
+                var coursePredicate = criteriaBuilder.equal(root.join(COURSE_FIELD, jakarta.persistence.criteria.JoinType.LEFT).get("id"), courseId);
                 predicate = criteriaBuilder.and(predicate, coursePredicate);
             }
 
             List<String> keywords = extractSearchKeywords(keyword);
             if (!keywords.isEmpty()) {
                 var groupName = criteriaBuilder.lower(root.get("name"));
-                var courseTitle = criteriaBuilder.lower(root.join("course", jakarta.persistence.criteria.JoinType.LEFT).get("title"));
+                var courseTitle = criteriaBuilder.lower(root.join(COURSE_FIELD, jakarta.persistence.criteria.JoinType.LEFT).get("title"));
                 var keywordPredicate = criteriaBuilder.disjunction();
                 for (String kw : keywords) {
                     keywordPredicate = criteriaBuilder.or(keywordPredicate,

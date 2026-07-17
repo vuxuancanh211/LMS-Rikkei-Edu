@@ -54,6 +54,7 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -137,12 +138,12 @@ class GroupServiceImplTest {
         groupService.getGroups(courseId, "Java React", PageRequest.of(0, 10));
         Specification<StudyGroupEntity> spec1 = captor.getValue();
 
-        Root<StudyGroupEntity> root = org.mockito.Mockito.mock(Root.class);
-        CriteriaQuery query = org.mockito.Mockito.mock(CriteriaQuery.class);
-        CriteriaBuilder cb = org.mockito.Mockito.mock(CriteriaBuilder.class);
-        Join join = org.mockito.Mockito.mock(Join.class);
-        Path path = org.mockito.Mockito.mock(Path.class);
-        Predicate pred = org.mockito.Mockito.mock(Predicate.class);
+        Root<StudyGroupEntity> root = mock(Root.class);
+        CriteriaQuery query = mock(CriteriaQuery.class);
+        CriteriaBuilder cb = mock(CriteriaBuilder.class);
+        Join join = mock(Join.class);
+        Path path = mock(Path.class);
+        Predicate pred = mock(Predicate.class);
 
         lenient().when(query.getResultType()).thenReturn((Class) StudyGroupEntity.class);
         lenient().when(root.join(anyString(), any(JoinType.class))).thenReturn(join);

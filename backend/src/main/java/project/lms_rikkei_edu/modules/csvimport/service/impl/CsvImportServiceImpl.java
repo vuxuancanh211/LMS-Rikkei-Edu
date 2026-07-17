@@ -245,7 +245,9 @@ public class CsvImportServiceImpl implements CsvImportService {
                 case STATUS_DUPLICATE_IN_DB -> duplicateInDbCount++;
                 case STATUS_ALREADY_ENROLLED -> alreadyEnrolledCount++;
                 case STATUS_NAME_MISMATCH -> nameMismatchCount++;
-                default -> {} // unknown status already tracked in results, no counting needed
+                default -> {
+                    // unknown status already tracked in results, no counting needed
+                }
             }
         }
 
