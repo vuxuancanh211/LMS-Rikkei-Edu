@@ -67,6 +67,16 @@ public class CourseController {
         return ResponseEntity.ok(courseService.listCourses(currentUserId(), pageable, keyword));
     }
 
+    @GetMapping("/compact")
+    public ResponseEntity<List<CourseCompactResponse>> listCoursesCompact() {
+        return ResponseEntity.ok(courseService.listCoursesCompact(currentUserId()));
+    }
+
+    @GetMapping("/{courseId}/assess-stats")
+    public ResponseEntity<AssessStatsResponse> getAssessStats(@PathVariable UUID courseId) {
+        return ResponseEntity.ok(courseService.getAssessStats(currentUserId(), courseId));
+    }
+
     @GetMapping("/by-slug/{slug}")
     public ResponseEntity<CourseDetailResponse> getCourseDetailBySlug(
             @PathVariable String slug) {

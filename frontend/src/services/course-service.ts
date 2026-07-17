@@ -63,3 +63,10 @@ export async function getMyCourses() {
   );
   return response.data;
 }
+
+export async function getMyCourseOptions() {
+  const response = await httpClient.get<{ id: string; title: string }[]>(
+    '/instructor/courses/compact'
+  );
+  return response.data;
+}

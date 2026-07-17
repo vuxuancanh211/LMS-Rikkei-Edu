@@ -1,7 +1,6 @@
 package project.lms_rikkei_edu.modules.notification.controller;
 
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.MediaType;
@@ -16,7 +15,8 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import project.lms_rikkei_edu.common.security.CurrentUserProvider;
 import project.lms_rikkei_edu.infrastructure.sse.SseEmitterRegistry;
-import project.lms_rikkei_edu.modules.notification.dto.response.NotificationResponse;
+import project.lms_rikkei_edu.modules.notification.dto.response.NotificationListItemResponse;
+import project.lms_rikkei_edu.modules.notification.dto.response.NotificationPageResponse;
 import project.lms_rikkei_edu.modules.notification.service.NotificationService;
 
 import java.util.Map;
@@ -33,12 +33,12 @@ public class NotificationController {
     private final CurrentUserProvider currentUserProvider;
 
     @GetMapping
-    public ResponseEntity<Page<NotificationResponse>> getNotifications(
+    public ResponseEntity<NotificationPageResponse<NotificationListItemResponse>> getNotifications(
             @PageableDefault(size = 20) Pageable pageable
     ) {
         UUID userId = currentUserProvider.getCurrentUserId()
                 .orElseThrow(() -> new AuthenticationCredentialsNotFoundException("User is not authenticated"));
-        return ResponseEntity.ok(notificationService.getNotifications(userId, pageable));
+        return ResponseEntity.ok(notificationService.getNotificationList(userId, pageable));
     }
 
     @GetMapping("/unread-count")
@@ -68,6 +68,9 @@ public class NotificationController {
     public SseEmitter connect() {
         UUID userId = currentUserProvider.getCurrentUserId()
                 .orElseThrow(() -> new AuthenticationCredentialsNotFoundException("User is not authenticated"));
-        return sseEmitterRegistry.register(userId);
+        SseEmitter emitter = sseEmitterRegistry.register(userId);
+        notificationService.sendUnreadCount(userId);
+        notificationService.sendLatestNotifications(userId, 5);
+        return emitter;
     }
 }

@@ -5,6 +5,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
 import project.lms_rikkei_edu.modules.quiz.entity.BankQuestionEntity;
 import project.lms_rikkei_edu.modules.quiz.enums.QuestionDifficulty;
 import project.lms_rikkei_edu.modules.quiz.enums.QuestionStatus;
@@ -12,7 +13,11 @@ import project.lms_rikkei_edu.modules.quiz.enums.QuestionStatus;
 import java.util.List;
 import java.util.UUID;
 
-public interface BankQuestionRepository extends JpaRepository<BankQuestionEntity, UUID> {
+@Repository
+public interface BankQuestionRepository extends JpaRepository<BankQuestionEntity, UUID>, BankQuestionRepositoryCustom {
+
+    @Query("SELECT DISTINCT q.subjectTag FROM BankQuestionEntity q WHERE q.courseId = :courseId AND q.subjectTag IS NOT NULL AND TRIM(q.subjectTag) <> ''")
+    List<String> findDistinctTagsByCourseId(@Param("courseId") UUID courseId);
 
     // KHÔNG phân trang — vẫn cần cho pha text-match của hybrid search (BankQuestionServiceImpl#search)
     // và PickBankQuestionsModal (cần tải toàn bộ để chọn nhiều câu tùy ý). Giao diện danh sách chính
@@ -44,6 +49,8 @@ public interface BankQuestionRepository extends JpaRepository<BankQuestionEntity
 
     List<BankQuestionEntity> findByCourseIdAndStatusAndSubjectTag(
             UUID courseId, QuestionStatus status, String subjectTag);
+
+    long countByCourseId(UUID courseId);
 
     long countByCourseIdAndStatus(UUID courseId, QuestionStatus status);
 
@@ -86,4 +93,5 @@ public interface BankQuestionRepository extends JpaRepository<BankQuestionEntity
             @Param("courseId") UUID courseId,
             @Param("tag") String subjectTag,
             @Param("count") int count);
+
 }

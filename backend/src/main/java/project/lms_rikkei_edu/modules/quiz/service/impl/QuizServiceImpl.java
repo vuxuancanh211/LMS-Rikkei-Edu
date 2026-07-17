@@ -342,7 +342,7 @@ public class QuizServiceImpl implements QuizService {
 
     /**
      * Chấm điểm bản xem thử — tính đúng/sai + điểm dựa trên dữ liệu gốc
-     * (bank_options cho RANDOM_DRAW, quiz_options cho STATIC/SHUFFLED_POOL).
+     * (bank_options cho RANDOM_DRAW, quiz_options cho STATIC).
      * Không ghi bất kỳ bảng nào, không ảnh hưởng thống kê thật của quiz.
      */
     @Override
@@ -437,8 +437,8 @@ public class QuizServiceImpl implements QuizService {
 
     private QuizEntity findDraftQuiz(UUID courseId, UUID quizId) {
         QuizEntity quiz = findQuiz(courseId, quizId);
-        if (quiz.getStatus() != QuizStatus.DRAFT)
-            throw new BusinessException("Chỉ có thể chỉnh sửa quiz đang ở trạng thái DRAFT");
+        if (quiz.getStatus() == QuizStatus.PUBLISHED)
+            throw new BusinessException("Chỉ có thể chỉnh sửa quiz khi đang Tắt (Nháp hoặc Lưu trữ)");
         return quiz;
     }
 

@@ -2,15 +2,14 @@ package project.lms_rikkei_edu.modules.notification.controller;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.data.domain.PageImpl;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.data.web.PageableHandlerMethodArgumentResolver;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import project.lms_rikkei_edu.common.security.CurrentUserProvider;
 import project.lms_rikkei_edu.infrastructure.sse.SseEmitterRegistry;
-import project.lms_rikkei_edu.modules.notification.dto.response.NotificationResponse;
+import project.lms_rikkei_edu.modules.notification.dto.response.NotificationListItemResponse;
+import project.lms_rikkei_edu.modules.notification.dto.response.NotificationPageResponse;
 import project.lms_rikkei_edu.modules.notification.service.NotificationService;
 
 import java.time.OffsetDateTime;
@@ -53,15 +52,17 @@ class NotificationControllerIntegrationTest {
 
     @Test
     void getNotificationsReturnsPage() throws Exception {
-        NotificationResponse notification = notificationResponse(UUID.randomUUID(), userId);
-        when(notificationService.getNotifications(eq(userId), any()))
-                .thenReturn(new PageImpl<>(List.of(notification), PageRequest.of(0, 20), 1));
+        NotificationListItemResponse notification = notificationResponse(UUID.randomUUID());
+        when(notificationService.getNotificationList(eq(userId), any()))
+                .thenReturn(new NotificationPageResponse<>(List.of(notification), 0, 20, 1, 1, true));
 
         mockMvc.perform(get("/api/notifications"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content", hasSize(1)))
                 .andExpect(jsonPath("$.content[0].id").value(notification.getId().toString()))
-                .andExpect(jsonPath("$.content[0].title").value("Notification title"));
+                .andExpect(jsonPath("$.content[0].title").value("Notification title"))
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.totalElements").value(1));
     }
 
     @Test
@@ -101,18 +102,20 @@ class NotificationControllerIntegrationTest {
                 .andExpect(request().asyncStarted());
 
         verify(sseEmitterRegistry).register(userId);
+        verify(notificationService).sendUnreadCount(userId);
+        verify(notificationService).sendLatestNotifications(userId, 5);
     }
 
-    private NotificationResponse notificationResponse(UUID notificationId, UUID recipientId) {
-        return NotificationResponse.builder()
-                .id(notificationId)
-                .recipientId(recipientId)
-                .type("FORUM_REPLY")
-                .title("Notification title")
-                .body("Notification body")
-                .priority("NORMAL")
-                .read(false)
-                .createdAt(OffsetDateTime.now())
-                .build();
+    private NotificationListItemResponse notificationResponse(UUID notificationId) {
+        return new NotificationListItemResponse(
+                notificationId,
+                "FORUM_REPLY",
+                "Notification title",
+                "Notification body",
+                "FORUM_POST",
+                UUID.randomUUID(),
+                false,
+                OffsetDateTime.now()
+        );
     }
 }

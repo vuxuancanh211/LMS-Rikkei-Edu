@@ -19,11 +19,9 @@
       : `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
   }
 
-  /* ─── Popup xác nhận trước khi vào làm quiz ───────────────
-     Hiện lịch sử làm bài, số lần còn lại, điểm cao nhất so với điểm cần pass.
-     Nếu đang trong thời gian cooldown (sau lần nộp gần nhất), nút bắt đầu bị
-     khóa và thay bằng đồng hồ đếm ngược tới lúc được làm lại. */
-  function QuizConfirmModal({ lesson, courseId, onClose, onStart }) {
+  /* ─── Giao diện chi tiết Quiz nội tuyến ───────────────
+     Hiện lịch sử làm bài, số lần còn lại, điểm cao nhất so với điểm cần pass. */
+  function QuizInlineDetail({ lesson, courseId, onStart }) {
     const [detail, setDetail] = useState(null);
     const [progress, setProgress] = useState(null);
     const [attempts, setAttempts] = useState([]);
@@ -70,59 +68,67 @@
     const bestPct = progress?.bestScorePercentage;
 
     return (
-      <Md open={!!lesson} onClose={onClose} max={640}>
-        <MH title={lesson.title} sub="Xác nhận làm bài" icon="clipboard" iconBg="#eaf1ff" iconColor="#2563eb" onClose={onClose} />
-        <div className="modal-body">
+      <div className="card" style={{ maxWidth: 800, margin: "0 auto", overflow: "hidden" }}>
+        <div style={{ padding: "20px 24px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ width: 44, height: 44, borderRadius: 12, background: "#eaf1ff", color: "#2563eb", display: "grid", placeItems: "center", flexShrink: 0 }}>
+            <Ic n="clipboard" size={22} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: "#0f172a" }}>Thông tin bài trắc nghiệm</h3>
+            <div className="t-sm muted truncate" style={{ marginTop: 2 }}>{lesson.title}</div>
+          </div>
+        </div>
+        <div style={{ padding: "24px 24px 32px" }}>
           {loading ? (
-            <div style={{ padding: 40, textAlign: "center", color: "var(--text-2)" }}>Đang tải...</div>
+            <div style={{ padding: 40, textAlign: "center", color: "var(--text-2)" }}>Đang tải thông tin...</div>
           ) : error ? (
             <div style={{ padding: 40, textAlign: "center", color: "var(--error)" }}>{error}</div>
           ) : (
             <>
-              <div className="grid" style={{ gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 18 }}>
-                <div className="card" style={{ padding: 14, textAlign: "center" }}>
-                  <div className="t-xs muted">Số lần còn lại</div>
-                  <div style={{ fontSize: 20, fontWeight: 700, marginTop: 4 }}>
+              <div className="grid" style={{ gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 24 }}>
+                <div style={{ padding: "16px 14px", textAlign: "center", background: "#f8fafc", borderRadius: 12, border: "1px solid var(--border)" }}>
+                  <div className="t-xs muted" style={{ fontWeight: 600 }}>SỐ LẦN CÒN LẠI</div>
+                  <div style={{ fontSize: 22, fontWeight: 800, marginTop: 6, color: "#0f172a" }}>
                     {remaining == null ? "Không giới hạn" : `${remaining} / ${detail.maxAttempts}`}
                   </div>
                 </div>
-                <div className="card" style={{ padding: 14, textAlign: "center" }}>
-                  <div className="t-xs muted">Điểm cao nhất</div>
-                  <div style={{ fontSize: 20, fontWeight: 700, marginTop: 4,
+                <div style={{ padding: "16px 14px", textAlign: "center", background: "#f8fafc", borderRadius: 12, border: "1px solid var(--border)" }}>
+                  <div className="t-xs muted" style={{ fontWeight: 600 }}>ĐIỂM CAO NHẤT</div>
+                  <div style={{ fontSize: 22, fontWeight: 800, marginTop: 6,
                     color: progress?.passed ? "var(--success)" : "var(--text)" }}>
                     {bestPct != null ? `${Number(bestPct).toFixed(1)}%` : "—"}
                   </div>
                 </div>
-                <div className="card" style={{ padding: 14, textAlign: "center" }}>
-                  <div className="t-xs muted">Điểm cần đạt</div>
-                  <div style={{ fontSize: 20, fontWeight: 700, marginTop: 4 }}>
+                <div style={{ padding: "16px 14px", textAlign: "center", background: "#f8fafc", borderRadius: 12, border: "1px solid var(--border)" }}>
+                  <div className="t-xs muted" style={{ fontWeight: 600 }}>ĐIỂM CẦN ĐẠT</div>
+                  <div style={{ fontSize: 22, fontWeight: 800, marginTop: 6, color: "#0f172a" }}>
                     {detail?.passScore != null ? `${Number(detail.passScore).toFixed(1)}%` : "—"}
                   </div>
                 </div>
               </div>
 
-              <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>Lịch sử làm bài</div>
+              <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 12, color: "#0f172a" }}>Lịch sử làm bài</div>
               {attempts.length === 0 ? (
                 <div style={{ padding: 24, textAlign: "center", color: "var(--text-2)", background: "var(--bg-2, #f8fafc)", borderRadius: 10 }}>
                   Bạn chưa làm bài này lần nào.
                 </div>
               ) : (
-                <div style={{ overflowX: "auto" }}>
-                  <table className="tbl">
-                    <thead>
-                      <tr><th>Lần</th><th>Ngày nộp</th><th>Điểm</th><th>Kết quả</th></tr>
+                <div style={{ overflowX: "auto", border: "1px solid var(--border)", borderRadius: 10 }}>
+                  <table className="tbl" style={{ margin: 0 }}>
+                    <thead style={{ background: "#f8fafc" }}>
+                      <tr><th style={{ padding: "12px 16px" }}>Lần thi</th><th style={{ padding: "12px 16px" }}>Ngày nộp</th><th style={{ padding: "12px 16px" }}>Điểm số</th><th style={{ padding: "12px 16px" }}>Kết quả</th></tr>
                     </thead>
                     <tbody>
                       {attempts.map(a => (
                         <tr key={a.attemptId}>
-                          <td style={{ fontWeight: 700 }}>#{a.attemptNumber}</td>
-                          <td className="muted">{a.submittedAt ? new Date(a.submittedAt).toLocaleString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"}</td>
-                          <td style={{ fontWeight: 700 }}>
+                          <td style={{ fontWeight: 700, padding: "12px 16px" }}>#{a.attemptNumber}</td>
+                          <td className="muted" style={{ padding: "12px 16px" }}>{a.submittedAt ? new Date(a.submittedAt).toLocaleString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"}</td>
+                          <td style={{ fontWeight: 700, padding: "12px 16px" }}>
                             {a.scorePercentage != null
                               ? <span style={{ color: a.isPassed ? "var(--success)" : "var(--error)" }}>{Number(a.scorePercentage).toFixed(1)}%</span>
                               : <span className="muted">—</span>}
                           </td>
-                          <td>
+                          <td style={{ padding: "12px 16px" }}>
                             {a.status === "IN_PROGRESS" ? (
                               <span className="chip chip-neutral" style={{ fontSize: 11 }}>Đang làm</span>
                             ) : a.isPassed ? (
@@ -139,26 +145,26 @@
               )}
 
               {outOfAttempts && (
-                <div className="t-sm" style={{ color: "var(--error)", marginTop: 14 }}>
+                <div className="t-sm" style={{ color: "var(--error)", marginTop: 14, textAlign: "center" }}>
                   Bạn đã sử dụng hết số lần làm bài cho đề này.
                 </div>
               )}
+
+              <div style={{ marginTop: 32, display: "flex", justifyContent: "center" }}>
+                {inCooldown ? (
+                  <button className="btn btn-primary" disabled style={{ opacity: .7, cursor: "not-allowed", padding: "0 32px", height: 44, fontSize: 14.5 }}>
+                    Còn lại {fmtCountdown(retryAt - now)}
+                  </button>
+                ) : (
+                  <button className="btn btn-primary" disabled={!canStart} onClick={onStart} style={{ padding: "0 40px", height: 44, fontSize: 15 }}>
+                    {hasInProgress ? "Tiếp tục làm bài" : attempts.length > 0 ? "Làm lại bài" : "Bắt đầu làm bài"}
+                  </button>
+                )}
+              </div>
             </>
           )}
         </div>
-        <div className="modal-foot">
-          <button className="btn btn-ghost" onClick={onClose}>Đóng</button>
-          {inCooldown ? (
-            <button className="btn btn-primary" disabled style={{ opacity: .7, cursor: "not-allowed" }}>
-              Còn lại {fmtCountdown(retryAt - now)}
-            </button>
-          ) : (
-            <button className="btn btn-primary" disabled={!canStart} onClick={onStart}>
-              {hasInProgress ? "Tiếp tục làm bài" : attempts.length > 0 ? "Làm lại" : "Bắt đầu làm bài"}
-            </button>
-          )}
-        </div>
-      </Md>
+      </div>
     );
   }
 
@@ -657,7 +663,6 @@
     const [notifLoading, setNotifLoading] = useState(false);
     const [userMenu, setUserMenu] = useState(false);
     const [userName, setUserName] = useState("Học viên");
-    const [confirmQuiz, setConfirmQuiz] = useState(null); // lesson QUIZ đang chờ xác nhận trước khi vào làm bài
     
     /* State từ dev: quản lý gửi tin nhắn AI Chatbot thật */
     const [sending, setSending] = useState(false);
@@ -800,6 +805,7 @@
 
     const checkLessonCompletion = useCallback((currentResId?: string, forceCompleteRes?: boolean) => {
       if (!activeL?.id) return;
+      if (activeL.type === "QUIZ") return; // Quiz completion is strictly handled by backend score
       if (currentResId && forceCompleteRes) {
         completedResRef.current[currentResId] = true;
         setResProgressMap(m => ({ ...m, [currentResId]: { completed: true, pct: 100 } }));
@@ -1338,13 +1344,14 @@
     /* ── Progress: Text-only lesson (no video/doc, mark on access) ── */
     useEffect(() => {
       if (!activeL || activeL.progress === "COMPLETED") return;
+      if (activeL.type === "QUIZ") return;
       const hasVid = (activeL.resources || []).some((r: any) => !r.pendingDelete && r.resourceType === "VIDEO");
       const hasDoc = (activeL.resources || []).some((r: any) => !r.pendingDelete && r.resourceType !== "VIDEO");
       if (!hasVid && !hasDoc && !progRef.current[activeL.id]) {
         progRef.current[activeL.id] = "COMPLETED";
         updateProgress(null, null, null, true);
       }
-    }, [activeL?.id]);
+    }, [activeL?.id, activeL?.type]);
 
     /* ── Render ──────────────────────────────────────────── */
     return (
@@ -1499,78 +1506,91 @@
                     {activeL.title}
                   </h1>
 
-                  {/* ─── Video Section ─── */}
-                  {videoResources.length > 0 && (
-                    <div style={{ marginBottom: isVideoActive ? 24 : 0 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-                        <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#0f172a" }}>Danh sách Video</h3>
-                        <span className="chip" style={{ background: "#f1f5f9", color: "#64748b", fontSize: 11, fontWeight: 600 }}>{videoResources.length}</span>
-                      </div>
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 10, marginBottom: 14 }}>
-                        {videoResources.map((v, i) => (
-                          <ResourceCard key={v.id}
-                            title={v.displayName || v.originalFilename || `Video ${i + 1}`}
-                            subtitle={v.fileSizeBytes ? fmtBytes(v.fileSizeBytes) + " • Video" : `Video bài giảng ${i + 1}`}
-                            icon="video"
-                            iconBg="#eaf1ff" iconColor="#2563eb"
-                            isActive={i === activeVideoIdx}
-                            isCompleted={resProgressMap[v.id]?.completed || completedResRef.current[v.id] || (resourceWatchedPctRef.current[v.id] || 0) >= 90}
-                            onClick={() => {
-                              setActiveVideoIdx(i);
-                              if (activeL && progRef.current[activeL.id] !== "COMPLETED") {
-                                if (progRef.current[activeL.id] !== "IN_PROGRESS") {
-                                  progRef.current[activeL.id] = "IN_PROGRESS";
-                                }
-                                updateProgress(resourceWatchedPctRef.current[v.id] || null, null, cumDocSecRef.current[activeL.id] || 1, false);
-                              }
-                            }} />
-                        ))}
-                      </div>
-                      {isVideoActive && (
-                        <Viewer key={activeVideoRes?.id || videoUrl || activeVideoIdx}
-                          res={activeVideoRes} url={videoUrl} onVideoTimeUpdate={handleVideoTimeUpdate}
-                          isCompleted={activeVideoRes && (resProgressMap[activeVideoRes.id]?.completed || completedResRef.current[activeVideoRes.id] || (resourceWatchedPctRef.current[activeVideoRes.id] || 0) >= 90)}
-                          onMarkCompleted={() => activeVideoRes && checkLessonCompletion(activeVideoRes.id, true)} />
+                  {activeL.type === 'QUIZ' ? (
+                    <QuizInlineDetail
+                      lesson={activeL}
+                      courseId={courseId}
+                      onStart={() => {
+                        const url = `/player/quiz?courseId=${courseId}&quizId=${activeL.quizId}&from=lecture&lessonId=${activeL.id}`;
+                        if (navigate) navigate(url); else window.location.href = url;
+                      }}
+                    />
+                  ) : (
+                    <>
+                      {/* ─── Video Section ─── */}
+                      {videoResources.length > 0 && (
+                        <div style={{ marginBottom: isVideoActive ? 24 : 0 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#0f172a" }}>Danh sách Video</h3>
+                            <span className="chip" style={{ background: "#f1f5f9", color: "#64748b", fontSize: 11, fontWeight: 600 }}>{videoResources.length}</span>
+                          </div>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 10, marginBottom: 14 }}>
+                            {videoResources.map((v, i) => (
+                              <ResourceCard key={v.id}
+                                title={v.displayName || v.originalFilename || `Video ${i + 1}`}
+                                subtitle={v.fileSizeBytes ? fmtBytes(v.fileSizeBytes) + " • Video" : `Video bài giảng ${i + 1}`}
+                                icon="video"
+                                iconBg="#eaf1ff" iconColor="#2563eb"
+                                isActive={i === activeVideoIdx}
+                                isCompleted={resProgressMap[v.id]?.completed || completedResRef.current[v.id] || (resourceWatchedPctRef.current[v.id] || 0) >= 90}
+                                onClick={() => {
+                                  setActiveVideoIdx(i);
+                                  if (activeL && progRef.current[activeL.id] !== "COMPLETED") {
+                                    if (progRef.current[activeL.id] !== "IN_PROGRESS") {
+                                      progRef.current[activeL.id] = "IN_PROGRESS";
+                                    }
+                                    updateProgress(resourceWatchedPctRef.current[v.id] || null, null, cumDocSecRef.current[activeL.id] || 1, false);
+                                  }
+                                }} />
+                            ))}
+                          </div>
+                          {isVideoActive && (
+                            <Viewer key={activeVideoRes?.id || videoUrl || activeVideoIdx}
+                              res={activeVideoRes} url={videoUrl} onVideoTimeUpdate={handleVideoTimeUpdate}
+                              isCompleted={activeVideoRes && (resProgressMap[activeVideoRes.id]?.completed || completedResRef.current[activeVideoRes.id] || (resourceWatchedPctRef.current[activeVideoRes.id] || 0) >= 90)}
+                              onMarkCompleted={() => activeVideoRes && checkLessonCompletion(activeVideoRes.id, true)} />
+                          )}
+                        </div>
                       )}
-                    </div>
-                  )}
 
-                  {/* ─── Documents Section ─── */}
-                  <div style={{ marginTop: isVideoActive || videoResources.length > 0 ? 12 : 0 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-                      <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#0f172a" }}>Tài liệu học tập</h3>
-                      <span className="chip" style={{ background: "#f1f5f9", color: "#64748b", fontSize: 11, fontWeight: 600 }}>{docResources.length}</span>
-                    </div>
-                    {docResources.length > 0 ? (
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 10, marginBottom: viewRes && viewRes.resourceType !== "VIDEO" ? 14 : 0 }}>
-                        {docResources.map(r => {
-                          const rs = RS[r.resourceType] || RS.OTHER;
-                          const sub = [fmtBytes(r.fileSizeBytes), r.resourceType].filter(Boolean).join(" • ") || r.resourceType;
-                          return (
-                            <ResourceCard key={r.id}
-                              title={r.displayName || r.originalFilename}
-                              subtitle={sub}
-                              icon={rs.icon}
-                              iconBg={rs.bg} iconColor={rs.color}
-                              isActive={viewRes?.id === r.id}
-                              isCompleted={resProgressMap[r.id]?.completed || completedResRef.current[r.id]}
-                              onClick={() => handleViewRes(r)} />
-                          );
-                        })}
+                      {/* ─── Documents Section ─── */}
+                      <div style={{ marginTop: isVideoActive || videoResources.length > 0 ? 12 : 0 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#0f172a" }}>Tài liệu học tập</h3>
+                          <span className="chip" style={{ background: "#f1f5f9", color: "#64748b", fontSize: 11, fontWeight: 600 }}>{docResources.length}</span>
+                        </div>
+                        {docResources.length > 0 ? (
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 10, marginBottom: viewRes && viewRes.resourceType !== "VIDEO" ? 14 : 0 }}>
+                            {docResources.map(r => {
+                              const rs = RS[r.resourceType] || RS.OTHER;
+                              const sub = [fmtBytes(r.fileSizeBytes), r.resourceType].filter(Boolean).join(" • ") || r.resourceType;
+                              return (
+                                <ResourceCard key={r.id}
+                                  title={r.displayName || r.originalFilename}
+                                  subtitle={sub}
+                                  icon={rs.icon}
+                                  iconBg={rs.bg} iconColor={rs.color}
+                                  isActive={viewRes?.id === r.id}
+                                  isCompleted={resProgressMap[r.id]?.completed || completedResRef.current[r.id]}
+                                  onClick={() => handleViewRes(r)} />
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <div style={{ padding: "24px 16px", textAlign: "center", color: "#94a3b8",
+                            border: "1px dashed var(--border)", borderRadius: 12, fontSize: 13 }}>
+                            Bài học này chưa có tài liệu kèm theo
+                          </div>
+                        )}
+                        {viewRes && viewRes.resourceType !== "VIDEO" && (
+                          <Viewer key={viewRes?.id || getViewerUrl(viewRes)}
+                            res={viewRes} url={getViewerUrl(viewRes)}
+                            isCompleted={resProgressMap[viewRes.id]?.completed || completedResRef.current[viewRes.id]}
+                            onMarkCompleted={() => checkLessonCompletion(viewRes.id, true)} />
+                        )}
                       </div>
-                    ) : (
-                      <div style={{ padding: "24px 16px", textAlign: "center", color: "#94a3b8",
-                        border: "1px dashed var(--border)", borderRadius: 12, fontSize: 13 }}>
-                        Bài học này chưa có tài liệu kèm theo
-                      </div>
-                    )}
-                    {viewRes && viewRes.resourceType !== "VIDEO" && (
-                      <Viewer key={viewRes?.id || getViewerUrl(viewRes)}
-                        res={viewRes} url={getViewerUrl(viewRes)}
-                        isCompleted={resProgressMap[viewRes.id]?.completed || completedResRef.current[viewRes.id]}
-                        onMarkCompleted={() => checkLessonCompletion(viewRes.id, true)} />
-                    )}
-                  </div>
+                    </>
+                  )}
 
                   {/* Prev / Next */}
                   {(activeView !== "assignment" && activeL) || (activeView === "assignment" && selectedAssignmentId) ? (
@@ -1759,10 +1779,6 @@
                               <div key={l.id}
                                 onClick={() => {
                                   if (quizLocked) return;
-                                  if (isQuiz) {
-                                    setConfirmQuiz(l);
-                                    return;
-                                  }
                                   goLesson(l);
                                 }}
                                 title={quizLocked ? "Giảng viên chưa xuất bản đề này" : undefined}
@@ -1975,17 +1991,6 @@
             zIndex: 71, transition: ".2s" }}>
           <Ic n={chat ? "x" : "sparkles"} size={26} />
         </button>
-
-        <QuizConfirmModal
-          lesson={confirmQuiz}
-          courseId={courseId}
-          onClose={() => setConfirmQuiz(null)}
-          onStart={() => {
-            const url = `/player/quiz?courseId=${courseId}&quizId=${confirmQuiz.quizId}&from=lecture&lessonId=${confirmQuiz.id}`;
-            setConfirmQuiz(null);
-            if (navigate) navigate(url); else window.location.href = url;
-          }}
-        />
       </div>
     );
   }

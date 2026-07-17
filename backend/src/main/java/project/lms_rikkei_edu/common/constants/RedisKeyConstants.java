@@ -27,4 +27,5 @@ public final class RedisKeyConstants {
     public static final String JWT_BLOCKLIST       = "jwt_blocklist:";      // {userId} — block all access tokens của user
     public static final String CSV_IMPORT_PREVIEW  = "csv:import:";         // {token} — preview data for CSV import
     public static final String GROUP_MEMBER_CSV_IMPORT_PREVIEW = "csv:group-member-import:"; // {token}
+    public static final String NOTIFICATIONS_LATEST = "notifications:latest:"; // {userId}:size:{size}
 }

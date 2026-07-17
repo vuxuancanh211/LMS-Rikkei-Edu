@@ -404,7 +404,8 @@ class BankQuestionServiceTest {
     void search_textAndSemanticHits_combinesResultsTextFirst() {
         BankQuestionEntity textMatch = buildEntity();
         textMatch.setQuestionText("Capital of France");
-        when(bankQuestionRepository.findByCourseId(courseId)).thenReturn(List.of(textMatch));
+        when(bankQuestionRepository.searchAndFilter(eq(courseId), eq("France"), isNull(), isNull(), isNull()))
+                .thenReturn(List.of(textMatch));
         when(bankOptionRepository.findByBankQuestionIdOrderByOrderIndex(any())).thenReturn(List.of());
         when(bankQuestionRepository.hasQuizReference(any())).thenReturn(false);
         when(openAiProperties.getSearchTopK()).thenReturn(20);
@@ -428,7 +429,8 @@ class BankQuestionServiceTest {
 
     @Test
     void search_semanticHitQuestionNotFound_isDropped() {
-        when(bankQuestionRepository.findByCourseId(courseId)).thenReturn(List.of());
+        when(bankQuestionRepository.searchAndFilter(eq(courseId), eq("query"), isNull(), isNull(), isNull()))
+                .thenReturn(List.of());
         when(openAiProperties.getSearchTopK()).thenReturn(20);
         when(openAiProperties.getSearchSimilarityThreshold()).thenReturn(0.4);
 
@@ -578,7 +580,7 @@ class BankQuestionServiceTest {
 
         BankQuestionImportConfirmRequest request = new BankQuestionImportConfirmRequest();
         request.setToken("tok123");
-        request.setSelectedDuplicateRows(List.of(2));
+        request.setSelectedRows(List.of(1, 2));
 
         BankQuestionImportConfirmResponse response = serviceWithMockMapper.importConfirm(courseId, instructorId, request);
 
@@ -588,33 +590,6 @@ class BankQuestionServiceTest {
         verify(bankQuestionRepository).flush();
         verify(embeddingService).embedAndSaveBatchSafe(argThat(list -> list.size() == 2));
         verify(redisService).delete("quiz:bank:import:tok123");
-    }
-
-    @Test
-    void importConfirm_realObjectMapper_alwaysThrowsDueToMissingJacksonCreator() {
-        // Documents current production behavior: BankQuestionImportRowResult (@Getter @Builder,
-        // no @NoArgsConstructor/@AllArgsConstructor(access=...)/@Jacksonized, and the project has
-        // no jackson-module-parameter-names dependency) cannot be deserialized by a bare
-        // ObjectMapper — the exact kind built in JacksonConfig. Every real importConfirm call
-        // currently fails with this message regardless of a valid token/preview.
-        List<BankQuestionImportRowResult> preview = List.of(
-                BankQuestionImportRowResult.builder().rowNumber(1).questionText("New Q")
-                        .questionType(QuestionType.SINGLE_CHOICE).difficulty(QuestionDifficulty.EASY)
-                        .status("NEW").errors(List.of()).build()
-        );
-        try {
-            String json = new ObjectMapper().writeValueAsString(preview);
-            when(redisService.get("quiz:bank:import:tok123")).thenReturn(Optional.of((Object) json));
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-
-        BankQuestionImportConfirmRequest request = new BankQuestionImportConfirmRequest();
-        request.setToken("tok123");
-
-        assertThatThrownBy(() -> service.importConfirm(courseId, instructorId, request))
-                .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("không hợp lệ");
     }
 
     // ── Export ────────────────────────────────────────────────────────────────
