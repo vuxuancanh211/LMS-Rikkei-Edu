@@ -8,6 +8,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.HttpStatus;
 import project.lms_rikkei_edu.common.exception.BusinessException;
 import project.lms_rikkei_edu.common.security.CurrentUserProvider;
@@ -109,7 +111,7 @@ class GroupServiceImplTest {
     void getGroups_returnsPagedGroupsForCurrentInstructor() {
         StudyGroupEntity group = groupEntity(groupId, courseEntity(instructorId), instructorUser());
         when(currentUserProvider.getCurrentUser()).thenReturn(Optional.of(principal(instructorId, UserRole.INSTRUCTOR)));
-        when(studyGroupRepository.findByFilters(eq(instructorId), eq(courseId), eq("React"), any()))
+        when(studyGroupRepository.findAll(any(Specification.class), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(group), PageRequest.of(0, 10), 1));
         when(groupMemberRepository.countByGroupId(groupId)).thenReturn(2L);
 
