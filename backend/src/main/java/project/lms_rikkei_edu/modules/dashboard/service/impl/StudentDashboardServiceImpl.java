@@ -104,7 +104,7 @@ public class StudentDashboardServiceImpl implements StudentDashboardService {
     @Override
     public List<StudentDashboardResponse.DueAssignmentDto> getDueAssignments(UUID studentId) {
         return jdbc.query("""
-                SELECT a.id, a.title,
+                SELECT a.id, a.course_id, a.title,
                        TO_CHAR(a.deadline, 'DD/MM/YYYY') AS deadline_str,
                        CASE WHEN a.deadline < NOW() THEN 'late' ELSE 'assignment_pending' END AS status
                 FROM assignments a
@@ -121,6 +121,7 @@ public class StudentDashboardServiceImpl implements StudentDashboardService {
                     String title = rs.getString("title");
                     return StudentDashboardResponse.DueAssignmentDto.builder()
                             .id(rs.getObject("id", UUID.class))
+                            .courseId(rs.getObject("course_id", UUID.class))
                             .title(title)
                             .type("file")
                             .deadline(rs.getString("deadline_str") != null ? rs.getString("deadline_str") : "Không thời hạn")
@@ -135,7 +136,7 @@ public class StudentDashboardServiceImpl implements StudentDashboardService {
     public List<StudentDashboardResponse.DueAssignmentDto> getDueQuizzes(UUID studentId) {
         List<StudentDashboardResponse.DueAssignmentDto> list = new ArrayList<>();
         jdbc.query("""
-                SELECT q.id, q.title,
+                SELECT q.id, q.course_id, q.title,
                        TO_CHAR(q.end_date, 'DD/MM/YYYY') AS deadline_str,
                        CASE WHEN q.end_date < NOW() THEN 'late' ELSE 'quiz_pending' END AS status
                 FROM quizzes q
@@ -149,6 +150,7 @@ public class StudentDashboardServiceImpl implements StudentDashboardService {
                 """,
                 (rs, i) -> StudentDashboardResponse.DueAssignmentDto.builder()
                         .id(rs.getObject("id", UUID.class))
+                        .courseId(rs.getObject("course_id", UUID.class))
                         .title(rs.getString("title"))
                         .type("quiz")
                         .deadline(rs.getString("deadline_str") != null ? rs.getString("deadline_str") : "Không thời hạn")
@@ -159,7 +161,7 @@ public class StudentDashboardServiceImpl implements StudentDashboardService {
 
         if (list.size() < 5) {
             jdbc.query("""
-                    SELECT a.id, a.title,
+                    SELECT a.id, a.course_id, a.title,
                            TO_CHAR(a.deadline, 'DD/MM/YYYY') AS deadline_str,
                            CASE WHEN a.deadline < NOW() THEN 'late' ELSE 'quiz_pending' END AS status
                     FROM assignments a
@@ -174,6 +176,7 @@ public class StudentDashboardServiceImpl implements StudentDashboardService {
                     """,
                     (rs, i) -> StudentDashboardResponse.DueAssignmentDto.builder()
                             .id(rs.getObject("id", UUID.class))
+                            .courseId(rs.getObject("course_id", UUID.class))
                             .title(rs.getString("title"))
                             .type("quiz")
                             .deadline(rs.getString("deadline_str") != null ? rs.getString("deadline_str") : "Không thời hạn")

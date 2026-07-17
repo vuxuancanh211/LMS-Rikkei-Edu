@@ -210,7 +210,7 @@
                   {!dueState.loading && due.slice(0, 5).map(a => {
                     const st = a.status === "pending" ? "assignment_pending" : a.status;
                     return (
-                      <div key={a.id} className="row gap-12" style={{ padding: 12, borderRadius: 11, cursor: "pointer", flex: "none" }} onClick={() => nav("tasks", { tab: "assign" })}>
+                      <div key={a.id} className="row gap-12" style={{ padding: 12, borderRadius: 11, cursor: "pointer", flex: "none" }} onClick={() => nav("tasks", { tab: "assign", courseId: a.courseId })}>
                         <div className="stat-ic" style={{ width: 40, height: 40, borderRadius: 11, background: a.status === "late" ? "var(--chip-error-bg)" : "var(--chip-warning-bg)", color: a.status === "late" ? "var(--error)" : "var(--warning)" }}>
                           <Ic n={a.type === "quiz" ? "clipboard" : "file"} size={19} />
                         </div>
@@ -239,7 +239,7 @@
                   {!quizzesState.loading && quizzes.slice(0, 5).map(q => {
                     const st = q.status === "pending" ? "quiz_pending" : q.status;
                     return (
-                      <div key={q.id} className="row gap-12" style={{ padding: 12, borderRadius: 11, cursor: "pointer", flex: "none" }} onClick={() => nav("tasks", { tab: "quiz" })}>
+                      <div key={q.id} className="row gap-12" style={{ padding: 12, borderRadius: 11, cursor: "pointer", flex: "none" }} onClick={() => nav("tasks", { tab: "quiz", courseId: q.courseId })}>
                         <div className="stat-ic" style={{ width: 40, height: 40, borderRadius: 11, background: q.status === "late" ? "var(--chip-error-bg)" : "var(--chip-warning-bg)", color: q.status === "late" ? "var(--error)" : "var(--warning)" }}>
                           <Ic n="clipboard" size={19} />
                         </div>

@@ -20,6 +20,7 @@ export interface CourseSummary {
 
 export interface DueAssignment {
   id: string;
+  courseId: string;
   title: string;
   type: string;
   deadline: string;

@@ -60,6 +60,7 @@ class StudentDashboardServiceImplTest {
                     RowMapper<StudentDashboardResponse.DueAssignmentDto> mapper = invocation.getArgument(1);
                     when(rs.getString("title")).thenReturn("Quiz 1").thenReturn("Exercise 2");
                     when(rs.getObject("id", UUID.class)).thenReturn(UUID.randomUUID());
+                    when(rs.getObject("course_id", UUID.class)).thenReturn(UUID.randomUUID());
                     when(rs.getString("deadline_str")).thenReturn("15/07/2026").thenReturn(null);
                     when(rs.getString("status")).thenReturn("pending").thenReturn("late");
                     
@@ -169,6 +170,7 @@ class StudentDashboardServiceImplTest {
                 .thenAnswer(invocation -> {
                     RowMapper<StudentDashboardResponse.DueAssignmentDto> mapper = invocation.getArgument(1);
                     when(rs.getObject("id", UUID.class)).thenReturn(qid1, qid2);
+                    when(rs.getObject("course_id", UUID.class)).thenReturn(UUID.randomUUID(), UUID.randomUUID());
                     when(rs.getString("title")).thenReturn("Quiz Week 1", "Quiz Week 2");
                     when(rs.getString("deadline_str")).thenReturn("20/07/2026", "20/07/2026", null);
                     when(rs.getString("status")).thenReturn("quiz_pending", "late");
@@ -182,6 +184,7 @@ class StudentDashboardServiceImplTest {
                     RowMapper<StudentDashboardResponse.DueAssignmentDto> mapper = invocation.getArgument(1);
                     when(rs.getString("title")).thenReturn("Quiz-like HW");
                     when(rs.getObject("id", UUID.class)).thenReturn(UUID.randomUUID());
+                    when(rs.getObject("course_id", UUID.class)).thenReturn(UUID.randomUUID());
                     when(rs.getString("deadline_str")).thenReturn("25/07/2026");
                     when(rs.getString("status")).thenReturn("quiz_pending");
                     return Collections.singletonList(mapper.mapRow(rs, 0));
@@ -197,6 +200,9 @@ class StudentDashboardServiceImplTest {
         assertEquals("Quiz Week 2", res.get(1).getTitle());
         assertEquals("Không thời hạn", res.get(1).getDeadline());
         assertEquals("Quiz-like HW", res.get(2).getTitle());
+        assertNotNull(res.get(0).getCourseId());
+        assertNotNull(res.get(1).getCourseId());
+        assertNotNull(res.get(2).getCourseId());
     }
 
     @Test
