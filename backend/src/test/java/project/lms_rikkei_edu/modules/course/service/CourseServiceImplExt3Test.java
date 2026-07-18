@@ -57,6 +57,9 @@ class CourseServiceImplExt3Test {
     @Mock BankQuestionRepository bankQuestionRepository;
     @Mock StudentCourseService studentCourseService;
     @Mock CourseVersionReferenceChecker courseVersionReferenceChecker;
+    @Mock CourseEnrollmentRepository courseEnrollmentRepository;
+    @Mock project.lms_rikkei_edu.modules.user.repository.UserRepository userRepository;
+    @Mock project.lms_rikkei_edu.modules.notification.service.NotificationService notificationService;
 
     CourseServiceImpl service;
 
@@ -72,7 +75,7 @@ class CourseServiceImplExt3Test {
                 courseMapper, objectMapper, chapterMapper, lessonMapper,
                 entityManager, s3Service, quizService, quizRepository, bankQuestionRepository, studentCourseService,
                 new CourseListCacheGateway(courseRepository, courseMapper),
-                courseVersionReferenceChecker
+                courseVersionReferenceChecker, courseEnrollmentRepository, userRepository, notificationService
         );
         when(courseVersionReferenceChecker.isSafeToDelete(any(), any())).thenReturn(true);
     }
@@ -294,7 +297,7 @@ class CourseServiceImplExt3Test {
                     courseMapper, realMapper, chapterMapper, lessonMapper,
                     entityManager, s3Service, quizService, quizRepository, bankQuestionRepository, studentCourseService,
                     new CourseListCacheGateway(courseRepository, courseMapper),
-                    courseVersionReferenceChecker
+                    courseVersionReferenceChecker, courseEnrollmentRepository, userRepository, notificationService
             );
             when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.of(c));
             when(courseVersionRepository.findById(versionId)).thenReturn(Optional.of(version));
@@ -328,7 +331,7 @@ class CourseServiceImplExt3Test {
                     courseMapper, realMapper, chapterMapper, lessonMapper,
                     entityManager, s3Service, quizService, quizRepository, bankQuestionRepository, studentCourseService,
                     new CourseListCacheGateway(courseRepository, courseMapper),
-                    courseVersionReferenceChecker
+                    courseVersionReferenceChecker, courseEnrollmentRepository, userRepository, notificationService
             );
             when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.of(c));
             when(courseVersionRepository.findById(versionId)).thenReturn(Optional.of(version));
@@ -363,7 +366,7 @@ class CourseServiceImplExt3Test {
                     courseMapper, realMapper, chapterMapper, lessonMapper,
                     entityManager, s3Service, quizService, quizRepository, bankQuestionRepository, studentCourseService,
                     new CourseListCacheGateway(courseRepository, courseMapper),
-                    courseVersionReferenceChecker
+                    courseVersionReferenceChecker, courseEnrollmentRepository, userRepository, notificationService
             );
             when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.of(c));
             when(courseVersionRepository.findById(versionId)).thenReturn(Optional.of(version));
@@ -396,7 +399,7 @@ class CourseServiceImplExt3Test {
                     courseMapper, realMapper, chapterMapper, lessonMapper,
                     entityManager, s3Service, quizService, quizRepository, bankQuestionRepository, studentCourseService,
                     new CourseListCacheGateway(courseRepository, courseMapper),
-                    courseVersionReferenceChecker
+                    courseVersionReferenceChecker, courseEnrollmentRepository, userRepository, notificationService
             );
             when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.of(c));
             when(courseVersionRepository.findById(versionId)).thenReturn(Optional.of(version));
@@ -426,7 +429,7 @@ class CourseServiceImplExt3Test {
                     courseMapper, realMapper, chapterMapper, lessonMapper,
                     entityManager, s3Service, quizService, quizRepository, bankQuestionRepository, studentCourseService,
                     new CourseListCacheGateway(courseRepository, courseMapper),
-                    courseVersionReferenceChecker
+                    courseVersionReferenceChecker, courseEnrollmentRepository, userRepository, notificationService
             );
             when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.of(c));
             when(courseVersionRepository.findById(versionId)).thenReturn(Optional.of(version));

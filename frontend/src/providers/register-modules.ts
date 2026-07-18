@@ -17,9 +17,11 @@ import '../components/base/icons';
 import '../components/base';
 import '../components/features/AIChatbot';
 import '../components/features/ChatScreen';
+import '../pages/Instructor/course-detail/RichTextEditor';
 
 import '../pages/Student/StuDashboard';
 import '../pages/Student/StuCourses';
+import '../pages/Student/StuCourseDetail';
 import '../pages/Student/StuTasks';
 import '../pages/Forum/ForumPage';
 import '../pages/Student/StuCerts';

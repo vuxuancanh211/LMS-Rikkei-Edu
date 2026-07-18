@@ -50,6 +50,16 @@ public class Course {
     @Column(name = "thumbnail_url", columnDefinition = "text")
     private String thumbnailUrl;
 
+    @Convert(converter = project.lms_rikkei_edu.modules.course.converter.StringListJsonConverter.class)
+    @Column(name = "learning_outcomes", columnDefinition = "text")
+    @Builder.Default
+    private List<String> learningOutcomes = new ArrayList<>();
+
+    @Convert(converter = project.lms_rikkei_edu.modules.course.converter.StringListJsonConverter.class)
+    @Column(name = "requirements", columnDefinition = "text")
+    @Builder.Default
+    private List<String> requirements = new ArrayList<>();
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
     @Builder.Default

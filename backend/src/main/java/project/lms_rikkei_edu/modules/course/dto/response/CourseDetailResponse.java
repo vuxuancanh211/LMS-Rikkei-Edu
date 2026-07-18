@@ -30,6 +30,16 @@ public class CourseDetailResponse {
     private String rejectionReason;
     @Setter
     private String instructorName;
+    @Setter
+    private String instructorBio;
+    @Setter
+    private Integer instructorCourseCount;
+    @Setter
+    private List<String> learningOutcomes;
+    @Setter
+    private List<String> requirements;
+    @Setter
+    private Integer studentCount;
     private CourseCategoryResponse category;
     private List<ChapterResponse> chapters;
     private Instant submittedAt;

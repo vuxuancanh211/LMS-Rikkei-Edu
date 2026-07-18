@@ -679,6 +679,30 @@
       e.target.value = '';
     }
 
+    function handleFileSelect(e) {
+      const newFiles = Array.from(e.target.files || []);
+      const errors = [];
+      setFiles(prev => {
+        const map = new Map();
+        prev.forEach(f => map.set(f.name + f.size + f.lastModified, f));
+        newFiles.forEach(f => {
+          const key = f.name + f.size + f.lastModified;
+          if (map.has(key)) {
+            errors.push(`"${f.name}" đã được chọn`);
+            return;
+          }
+          map.set(key, f);
+        });
+        return Array.from(map.values());
+      });
+      if (errors.length > 0) {
+        setError(errors.join('. '));
+      } else {
+        setError('');
+      }
+      e.target.value = '';
+    }
+
     async function handleSubmit() {
       if (files.length === 0 && keepFileIds.length === 0) { setError('Vui lòng chọn file để nộp'); return; }
       const allowed = detail?.allowedFileTypes;
