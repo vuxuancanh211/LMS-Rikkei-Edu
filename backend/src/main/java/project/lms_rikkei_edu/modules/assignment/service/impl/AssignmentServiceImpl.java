@@ -24,6 +24,8 @@ import project.lms_rikkei_edu.modules.assignment.mapper.AssignmentMapper;
 import project.lms_rikkei_edu.modules.assignment.repository.AssignmentAttachmentRepository;
 import project.lms_rikkei_edu.modules.assignment.repository.AssignmentGroupRepository;
 import project.lms_rikkei_edu.modules.assignment.repository.AssignmentRepository;
+import project.lms_rikkei_edu.modules.assignment.repository.AssignmentSubmissionRepository;
+import project.lms_rikkei_edu.modules.assignment.repository.SubmissionFileRepository;
 import project.lms_rikkei_edu.modules.assignment.service.AssignmentService;
 import project.lms_rikkei_edu.infrastructure.s3.S3Service;
 import project.lms_rikkei_edu.modules.course.entity.Course;
@@ -59,6 +61,8 @@ public class AssignmentServiceImpl implements AssignmentService {
     private final S3Client s3Client;
     private final S3Service s3Service;
     private final ObjectMapper objectMapper;
+    private final AssignmentSubmissionRepository assignmentSubmissionRepository;
+    private final SubmissionFileRepository submissionFileRepository;
     private final CourseEnrollmentRepository courseEnrollmentRepository;
     private final StudentCourseService studentCourseService;
 
@@ -322,15 +326,18 @@ public class AssignmentServiceImpl implements AssignmentService {
         validateCourseOwnership(courseId, instructorId);
         AssignmentEntity assignment = findAssignment(courseId, assignmentId);
 
-        if (assignment.getStatus() == AssignmentStatus.PUBLISHED) {
-            throw new BusinessException("Không thể xoá bài tập đã publish");
+        long submissionCount = assignmentSubmissionRepository.countByAssignmentId(assignmentId);
+        if (submissionCount > 0) {
+            throw new BusinessException("Không thể xoá bài tập đã có sinh viên nộp bài");
         }
 
         assignmentGroupRepository.deleteByAssignmentId(assignmentId);
+
         assignmentAttachmentRepository.findByAssignmentIdOrderByOrderIndexAsc(assignmentId)
                 .forEach(att -> deleteS3Object(att.getS3Key()));
         assignmentAttachmentRepository.deleteAll(
                 assignmentAttachmentRepository.findByAssignmentIdOrderByOrderIndexAsc(assignmentId));
+
         assignmentRepository.delete(assignment);
 
         log.info("Deleted assignment {}", assignmentId);

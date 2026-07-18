@@ -21,6 +21,8 @@ public interface CourseRepository extends JpaRepository<Course, UUID>, JpaSpecif
 
     boolean existsByIdAndInstructorId(UUID id, UUID instructorId);
 
+    long countByInstructorIdAndStatus(UUID instructorId, CourseStatus status);
+
     boolean existsBySlug(String slug);
 
     boolean existsBySlugAndIdNot(String slug, UUID id);

@@ -51,6 +51,7 @@ class AdminCourseServiceImplTest {
     @Mock VideoUploadJobRepository videoUploadJobRepo;
     @Mock project.lms_rikkei_edu.modules.ai.service.LessonAiDataCleanupService lessonAiDataCleanupService;
     @Mock project.lms_rikkei_edu.modules.course.service.impl.CourseVersionReferenceChecker courseVersionReferenceChecker;
+    @Mock project.lms_rikkei_edu.modules.course.repository.CourseEnrollmentRepository courseEnrollmentRepository;
 
     AdminCourseServiceImpl adminCourseService;
 
@@ -64,7 +65,7 @@ class AdminCourseServiceImplTest {
                 courseRepo, courseMapper,
                 approvalLogRepo, lessonResourceRepo, courseVersionRepo,
                 userRepository, s3Service, new ObjectMapper(), cacheManager, lessonProgressRepo, videoUploadJobRepo,
-                lessonAiDataCleanupService, courseVersionReferenceChecker
+                lessonAiDataCleanupService, courseVersionReferenceChecker, courseEnrollmentRepository
         );
         when(courseVersionReferenceChecker.isSafeToDelete(any(), any())).thenReturn(true);
         when(userRepository.findAllByIdInAndDeletedAtIsNull(anyList())).thenReturn(List.of());

@@ -242,6 +242,7 @@ class StudentCourseServiceImplTest {
         Course course = new Course();
         course.setId(courseId);
         course.setStatus(CourseStatus.PUBLISHED);
+        course.setInstructorId(instructorId);
         when(courseRepository.findByIdWithCategory(courseId)).thenReturn(Optional.of(course));
         when(courseEnrollmentRepository.existsByCourseIdAndStudentId(courseId, studentId)).thenReturn(true);
 
@@ -263,9 +264,22 @@ class StudentCourseServiceImplTest {
         lProg.setLessonPercentage(BigDecimal.valueOf(100));
         when(lessonProgressRepository.findByStudentIdAndCourseId(studentId, courseId)).thenReturn(List.of(lProg));
 
+        // attachCourseStats(): exercise the ifPresent branch that fills in instructor name/bio
+        UserEntity instructor = new UserEntity();
+        instructor.setId(instructorId);
+        instructor.setFullName("Nguyễn Văn A");
+        instructor.setBio("10 năm kinh nghiệm Java");
+        when(userRepository.findById(instructorId)).thenReturn(Optional.of(instructor));
+        when(courseEnrollmentRepository.countByCourseId(courseId)).thenReturn(5L);
+        when(courseRepository.countByInstructorIdAndStatus(instructorId, CourseStatus.PUBLISHED)).thenReturn(3L);
+
         CourseDetailResponse result = studentCourseService.getCourseDetail(studentId, courseId);
         assertThat(result.getChapters().get(0).getLessons().get(0).getProgress()).isEqualTo("COMPLETED");
         assertThat(result.getChapters().get(0).getLessons().get(0).getProgressPercentage()).isEqualTo(100);
+        assertThat(result.getInstructorName()).isEqualTo("Nguyễn Văn A");
+        assertThat(result.getInstructorBio()).isEqualTo("10 năm kinh nghiệm Java");
+        assertThat(result.getStudentCount()).isEqualTo(5);
+        assertThat(result.getInstructorCourseCount()).isEqualTo(3);
     }
 
     @Test
@@ -454,6 +468,19 @@ class StudentCourseServiceImplTest {
         course.setChapters(List.of(chapter));
         when(courseRepository.findById(courseId)).thenReturn(Optional.of(course));
 
+        // updateCourseProgress() re-reads all lesson progress for the course to recompute the
+        // course-level percentage; since this is a mock (not a real DB), the entity just saved
+        // above isn't automatically reflected here — stub it as already-completed so the course
+        // is seen as 1/1 lessons done and certificate issuance actually triggers (matches the
+        // pattern used elsewhere in this file, e.g. line 264).
+        LessonProgressEntity completedLessonProgress = new LessonProgressEntity();
+        completedLessonProgress.setLessonId(lessonId);
+        completedLessonProgress.setStatus("COMPLETED");
+        when(lessonProgressRepository.findByStudentIdAndCourseId(studentId, courseId))
+                .thenReturn(List.of(completedLessonProgress));
+        when(courseProgressRepository.findByStudentIdAndCourseId(studentId, courseId))
+                .thenReturn(Optional.empty());
+
         UpdateProgressRequest req = new UpdateProgressRequest();
         req.setWatchedPercentage(BigDecimal.valueOf(95));
         req.setDocumentViewSeconds(15);
@@ -464,6 +491,8 @@ class StudentCourseServiceImplTest {
             "COMPLETED".equals(p.getStatus()) &&
             p.getLessonPercentage().intValue() == 100
         ));
+
+        verify(certificateService).issueCertificateIfEligible(studentId, courseId);
     }
 
     @Test
@@ -1127,7 +1156,7 @@ class StudentCourseServiceImplTest {
         a2.setPassingScore(BigDecimal.valueOf(5));
 
         when(assignmentRepository.findPublishedByCourseId(courseId)).thenReturn(List.of(a1, a2));
-        when(groupMemberRepository.findGroupIdsByStudentIdAndCourseId(studentId, courseId)).thenReturn(Collections.emptyList());
+        when(groupMemberRepository.findGroupIdsByStudentIdAndCourseId(studentId, courseId)).thenReturn(List.of(UUID.randomUUID()));
 
         AssignmentSubmissionEntity s1 = new AssignmentSubmissionEntity();
         s1.setAssignmentId(idPublished);
@@ -1156,5 +1185,37 @@ class StudentCourseServiceImplTest {
         ));
     }
 
-    // ── end new tests ──
+    @Test
+    void updateCourseProgress_assignmentStats_scoreBelowPassing_notCounted() {
+        UUID aId = UUID.randomUUID();
+        AssignmentEntity assignment = new AssignmentEntity();
+        assignment.setId(aId);
+        assignment.setScope(AssignmentScope.ALL_GROUPS);
+        assignment.setPassingScore(BigDecimal.valueOf(5));
+        when(assignmentRepository.findPublishedByCourseId(courseId)).thenReturn(List.of(assignment));
+        when(groupMemberRepository.findGroupIdsByStudentIdAndCourseId(studentId, courseId))
+                .thenReturn(List.of(UUID.randomUUID()));
+
+        AssignmentSubmissionEntity submission = new AssignmentSubmissionEntity();
+        submission.setAssignmentId(aId);
+        submission.setScore(BigDecimal.valueOf(3));
+        submission.setScorePublishedAt(OffsetDateTime.now());
+        when(assignmentSubmissionRepository.findByStudentIdAndAssignmentIdIn(eq(studentId), anyList()))
+                .thenReturn(List.of(submission));
+
+        Course course = new Course();
+        course.setId(courseId);
+        course.setChapters(Collections.emptyList());
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(course));
+        when(lessonProgressRepository.findByStudentIdAndCourseId(studentId, courseId)).thenReturn(Collections.emptyList());
+        when(courseProgressRepository.findByStudentIdAndCourseId(studentId, courseId)).thenReturn(Optional.empty());
+
+        studentCourseService.recalculateCourseProgress(studentId, courseId);
+
+        verify(courseProgressRepository).save(argThat(cp ->
+            cp.getTotalAssignmentsCount() == 1 &&
+            cp.getCompletedAssignmentsCount() == 0
+        ));
+    }
+
 }

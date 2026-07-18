@@ -61,7 +61,7 @@ public class BankQuestionController {
 
     @GetMapping("/tags")
     @PreAuthorize("hasAnyRole('INSTRUCTOR', 'ADMIN')")
-    public ResponseEntity<List<String>> getTags(@RequestParam UUID courseId) {
+    public ResponseEntity<List<String>> getTags(@PathVariable UUID courseId) {
         ownershipGuard.requireOwnership(courseId);
         return ResponseEntity.ok(bankQuestionService.getTags(courseId));
     }

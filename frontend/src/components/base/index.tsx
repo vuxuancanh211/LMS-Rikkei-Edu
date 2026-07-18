@@ -67,8 +67,25 @@ function StatCard({ icon, iconBg, iconColor, value, label, sub, trend }) {
   );
 }
 
+/* ---------- Course outcomes preview ("học được gì", dùng chung cho card giảng viên/học viên) ---------- */
+function CourseOutcomesPreview({ outcomes, max, style }) {
+  const list = (outcomes || []).filter(o => o.trim());
+  const limit = max || 2;
+  if (list.length === 0) return null;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4, ...style }}>
+      {list.slice(0, limit).map((o, i) => (
+        <div key={i} className="row gap-6 t-xs" style={{ color: "var(--text-2)" }}>
+          <span style={{ color: "#10b981" }}>✓</span><span className="truncate">{o}</span>
+        </div>
+      ))}
+      {list.length > limit && <span className="t-xs muted">+{list.length - limit} mục khác</span>}
+    </div>
+  );
+}
+
 /* ---------- Course card ---------- */
-function CourseCard({ c, onOpen, onCert, cta }) {
+function CourseCard({ c, onOpen, onCert, cta, preview }) {
   const ctaLabel = cta || (c.sStatus === "done" ? "Học lại" : c.sStatus === "new" ? "Bắt đầu học" : "Tiếp tục học");
   return (
     <div className="card course-card fade-in" onClick={onOpen} style={{ cursor: "pointer" }}>
@@ -84,6 +101,13 @@ function CourseCard({ c, onOpen, onCert, cta }) {
           <span className="meta-row"><I n="clock" size={15} /> {c.hours} giờ</span>
           {c.rating > 0 && <span className="meta-row" style={{ color: "var(--warning)" }}><I n="star" size={15} fill="currentColor" /> <b style={{ color: "var(--text)" }}>{c.rating}</b></span>}
         </div>
+        {preview && (
+          <>
+            {c.description && <p className="t-sm muted clamp-2" style={{ marginTop: 6 }}>{c.description}</p>}
+            <CourseOutcomesPreview outcomes={c.learningOutcomes} style={{ marginTop: 6 }} />
+            <div className="meta-row" style={{ marginTop: 6 }}><I n="users" size={15} /> {c.studentCount ?? 0} học viên</div>
+          </>
+        )}
         <div style={{ marginTop: "auto", paddingTop: 6 }}>
           {c.sStatus !== "new" && (
             <div style={{ marginBottom: 14 }}>
@@ -735,4 +759,4 @@ function AccountLockedOverlay() {
   );
 }
 
-Object.assign(window, { Avatar, Status, STATUS, Progress, StatCard, CourseCard, Search, Tabs, Select, Section, Pager, PageBar, usePaged, Modal, ModalHead, ConfirmModal, AlertModal, AccountLockedOverlay, Empty, LineChart, BarChart, Donut });
+Object.assign(window, { Avatar, Status, STATUS, Progress, StatCard, CourseCard, CourseOutcomesPreview, Search, Tabs, Select, Section, Pager, PageBar, usePaged, Modal, ModalHead, ConfirmModal, AlertModal, AccountLockedOverlay, Empty, LineChart, BarChart, Donut });

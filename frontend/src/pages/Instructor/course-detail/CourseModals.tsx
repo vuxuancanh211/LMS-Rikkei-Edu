@@ -279,8 +279,8 @@
       }
       setSaving(true); setErr(null);
       try {
-        await api.post(`/instructor/courses/${courseId}/chapters/${chapterId}/lessons`, payload);
-        close(); onAdded?.();
+        const { data } = await api.post(`/instructor/courses/${courseId}/chapters/${chapterId}/lessons`, payload);
+        close(); onAdded?.(data);
       } catch (e: any) { setErr(e?.response?.data?.message || "Thêm bài giảng thất bại"); }
       finally { setSaving(false); }
     }
@@ -308,7 +308,7 @@
             ))}
           </div>
           {type === "LECTURE" && (
-            <div className="t-xs muted" style={{ marginTop: 8 }}>Thêm video/tài liệu cho bài giảng này sau, qua nút "Thêm nội dung".</div>
+            <div className="t-xs muted" style={{ marginTop: 8 }}>Sau khi tạo, bạn sẽ được hỏi thêm video/tài liệu ngay — hoặc có thể bỏ qua và thêm sau.</div>
           )}
 
           {type === "QUIZ" && (

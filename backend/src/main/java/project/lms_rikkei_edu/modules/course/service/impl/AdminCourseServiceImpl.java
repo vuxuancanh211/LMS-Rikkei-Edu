@@ -51,6 +51,7 @@ public class AdminCourseServiceImpl implements AdminCourseService {
     private final VideoUploadJobRepository videoUploadJobRepo;
     private final LessonAiDataCleanupService lessonAiDataCleanupService;
     private final CourseVersionReferenceChecker courseVersionReferenceChecker;
+    private final CourseEnrollmentRepository courseEnrollmentRepository;
 
     /* Cache "course-detail" key theo courseId + INSTRUCTOR id (xem CourseServiceImpl), nhưng
        admin action chỉ có adminId trong tham số nên không thể evict bằng @CacheEvict(key=...)
@@ -122,6 +123,11 @@ public class AdminCourseServiceImpl implements AdminCourseService {
         );
         CourseDetailResponse response = courseMapper.toDetailResponse(course);
         response.setInstructorName(resolveInstructorName(loadInstructorNames(List.of(course)), course));
+        response.setStudentCount((int) courseEnrollmentRepository.countByCourseId(courseId));
+        if (course.getInstructorId() != null) {
+            userRepository.findById(course.getInstructorId()).ifPresent(u -> response.setInstructorBio(u.getBio()));
+            response.setInstructorCourseCount((int) courseRepo.countByInstructorIdAndStatus(course.getInstructorId(), CourseStatus.PUBLISHED));
+        }
         return response;
     }
 

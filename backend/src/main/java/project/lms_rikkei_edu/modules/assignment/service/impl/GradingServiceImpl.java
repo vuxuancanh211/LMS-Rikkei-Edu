@@ -23,7 +23,6 @@ import project.lms_rikkei_edu.modules.assignment.repository.AssignmentSubmission
 import project.lms_rikkei_edu.modules.assignment.repository.SubmissionFileRepository;
 import project.lms_rikkei_edu.modules.assignment.service.GradingService;
 import project.lms_rikkei_edu.modules.course.entity.Course;
-import project.lms_rikkei_edu.modules.course.repository.CourseEnrollmentRepository;
 import project.lms_rikkei_edu.modules.course.repository.CourseRepository;
 import project.lms_rikkei_edu.modules.course.service.StudentCourseService;
 import project.lms_rikkei_edu.modules.group.entity.StudyGroupEntity;
@@ -52,7 +51,6 @@ public class GradingServiceImpl implements GradingService {
     private final GroupMemberRepository groupMemberRepository;
     private final StudyGroupRepository studyGroupRepository;
     private final CourseRepository courseRepository;
-    private final CourseEnrollmentRepository courseEnrollmentRepository;
     private final S3Service s3Service;
     private final StudentCourseService studentCourseService;
 
@@ -234,7 +232,7 @@ public class GradingServiceImpl implements GradingService {
 
     private Set<UUID> getExpectedStudentIds(AssignmentEntity assignment, UUID courseId) {
         if (assignment.getScope() == AssignmentScope.ALL_GROUPS) {
-            return new HashSet<>(courseEnrollmentRepository.findStudentIdsByCourseId(courseId));
+            return new HashSet<>(groupMemberRepository.findStudentIdsByCourseId(courseId));
         }
 
         List<UUID> assignedGroupIds = assignmentGroupRepository.findByAssignmentId(assignment.getId())

@@ -155,6 +155,11 @@ import { createPortal } from 'react-dom';
     const [bankStatusFilter, setBankStatusFilter] = useState('ALL');
     const [availableTags, setAvailableTags] = useState([]);
 
+    // Temporary states for Advanced Search Modal
+    const [tempBankStatusFilter, setTempBankStatusFilter] = useState('ALL');
+    const [tempBankFilter, setTempBankFilter] = useState('ALL');
+    const [tempBankTagFilter, setTempBankTagFilter] = useState('');
+
     // Fetch tags khi mở tab bank
     useEffect(() => {
       if (tab === 'bank' && activeCourseId) {
@@ -268,18 +273,24 @@ import { createPortal } from 'react-dom';
     const [editAssignment, setEditAssignment] = useState(null);
     const [ctxMenu, setCtxMenu] = useState(null);
     const [viewAssignment, setViewAssignment] = useState(null);
+    const [assignCourseFilter, setAssignCourseFilter] = useState('all');
+    const [filterOpen, setFilterOpen] = useState(false);
 
     const showToast = useCallback((msg, type = 'success') => {
       setToast({ msg, type });
       setTimeout(() => setToast(null), 4000);
     }, []);
 
-    /* ── Fetch bài tập tự luận của khóa học đang chọn ── */
+    /* ── Fetch bài tập tự luận — tuỳ filter: all → API không courseId, cụ thể → API course ── */
     const fetchAssignments = useCallback(async () => {
-      if (!activeCourseId) return;
       setAssignmentsLoading(true);
       try {
-        const res = await api.get(`/instructor/courses/${activeCourseId}/assignments`);
+        let res;
+        if (assignCourseFilter === 'all') {
+          res = await api.get('/instructor/assignments');
+        } else {
+          res = await api.get(`/instructor/courses/${assignCourseFilter}/assignments`);
+        }
         const data = res.data || res;
         setAssignments(Array.isArray(data) ? data : []);
       } catch (err) {
@@ -287,9 +298,9 @@ import { createPortal } from 'react-dom';
       } finally {
         setAssignmentsLoading(false);
       }
-    }, [activeCourseId, showToast]);
+    }, [assignCourseFilter, showToast]);
 
-    useEffect(() => { fetchAssignments(); }, [fetchAssignments]);
+    useEffect(() => { if (tab === 'assign') fetchAssignments(); }, [fetchAssignments, tab]);
 
     async function handleEditAssignment(a) {
       try {
@@ -730,6 +741,7 @@ import { createPortal } from 'react-dom';
         <div className="page-head between" style={{ flex: 'none', alignItems: 'flex-end', flexWrap: 'wrap', gap: 16 }}>
           <div>
             <h1 className="t-h1">Bài tập & Trắc nghiệm</h1>
+            {tab !== 'assign' && (
             <div className="row gap-8" style={{ marginTop: 6 }}>
               <span className="muted" style={{ fontSize: 13 }}>Khóa học:</span>
               {coursesLoading ? (
@@ -745,6 +757,7 @@ import { createPortal } from 'react-dom';
                 />
               )}
             </div>
+            )}
           </div>
           <div className="row gap-10" style={{ flexWrap: 'wrap' }}>
             {tab === 'assign' && (
@@ -795,8 +808,51 @@ import { createPortal } from 'react-dom';
             onChange={(v) => { setTab(v); setQ(''); }}
           />
           <div className="grow" />
+          {tab === 'assign' && (
+            <div style={{ position: 'relative' }}>
+              <button className="icon-btn" style={{ width: 34, height: 34 }}
+                onClick={() => setFilterOpen(prev => !prev)}
+                title="Lọc theo khóa học">
+                <Ic n="filter" size={16} />
+                {assignCourseFilter !== 'all' && (
+                  <span style={{
+                    position: 'absolute', top: 2, right: 2, width: 8, height: 8,
+                    borderRadius: '50%', background: 'var(--primary)',
+                  }} />
+                )}
+              </button>
+              {filterOpen && (
+                <>
+                  <div style={{ position: 'fixed', inset: 0, zIndex: 49 }} onClick={() => setFilterOpen(false)} />
+                  <div style={{
+                    position: 'absolute', top: '100%', right: 0, marginTop: 4,
+                    background: '#fff', borderRadius: 10, boxShadow: '0 6px 20px rgba(0,0,0,.12)',
+                    zIndex: 50, padding: 8, minWidth: 240,
+                  }}>
+                    <Select
+                      value={assignCourseFilter}
+                      onChange={v => {
+                        setAssignCourseFilter(v);
+                        setFilterOpen(false);
+                      }}
+                      options={[
+                        { v: 'all', label: 'Tất cả khóa học' },
+                        ...courses.map(c => ({ v: c.id, label: c.title })),
+                      ]}
+                      style={{ width: '100%' }}
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+          )}
           {tab === 'bank' && (
-            <button className="btn" onClick={() => setAdvSearchOpen(true)} style={{ position: 'relative' }}>
+            <button className="btn" onClick={() => {
+              setTempBankStatusFilter(bankStatusFilter);
+              setTempBankFilter(bankFilter);
+              setTempBankTagFilter(bankTagFilter);
+              setAdvSearchOpen(true);
+            }} style={{ position: 'relative' }}>
               <Ic n="filter" /> Tìm kiếm nâng cao
               {(bankStatusFilter !== 'ALL' || bankFilter !== 'ALL' || bankTagFilter.trim() !== '') && (
                 <span style={{
@@ -827,6 +883,7 @@ import { createPortal } from 'react-dom';
                   <thead>
                     <tr>
                       <th style={{ position: 'sticky', top: 0, zIndex: 10, background: 'var(--surface)', boxShadow: '0 1px 0 var(--border)' }}>Tên bài tập</th>
+                      <th style={{ position: 'sticky', top: 0, zIndex: 10, background: 'var(--surface)', boxShadow: '0 1px 0 var(--border)' }}>Khóa học</th>
                       <th style={{ position: 'sticky', top: 0, zIndex: 10, background: 'var(--surface)', boxShadow: '0 1px 0 var(--border)' }}>Phạm vi</th>
                       <th style={{ position: 'sticky', top: 0, zIndex: 10, background: 'var(--surface)', boxShadow: '0 1px 0 var(--border)' }}>Hạn nộp</th>
                       <th style={{ position: 'sticky', top: 0, zIndex: 10, background: 'var(--surface)', boxShadow: '0 1px 0 var(--border)' }}>Điểm tối đa</th>
@@ -849,6 +906,7 @@ import { createPortal } from 'react-dom';
                             <b style={{ fontSize: 13.5, display: 'block', maxWidth: 220 }} className="truncate">{a.title}</b>
                           </div>
                         </td>
+                        <td className="muted truncate" style={{ maxWidth: 160 }}>{a.courseTitle || '—'}</td>
                         <td className="muted">{ASSIGN_SCOPE_LABEL[a.scope] || a.scope}</td>
                         <td className="muted">{a.deadline ? formatDate(a.deadline) : '—'}</td>
                         <td><b>{a.maxScore ?? '—'}</b></td>
@@ -858,9 +916,28 @@ import { createPortal } from 'react-dom';
                           </span>
                         </td>
                         <td onClick={e => e.stopPropagation()}>
+                          <div className="row gap-6">
                           <button className="btn btn-ghost btn-sm" onClick={() => handleEditAssignment(a)}>
                             <Ic n="edit" size={14} />Sửa
                           </button>
+                          <button className="icon-btn" style={{ width: 34, height: 34, color: 'var(--error)' }}
+                            onClick={() => setConfirmState({
+                              title: 'Xóa bài tập?',
+                              message: `Xóa bài tập "${a.title}"? Hành động này không thể hoàn tác.`,
+                              danger: true,
+                              onConfirm: async () => {
+                                try {
+                                  await api.delete(`/instructor/courses/${a.courseId}/assignments/${a.id}`);
+                                  showToast('Đã xóa bài tập');
+                                  fetchAssignments();
+                                } catch (err) {
+                                  showToast(extractError(err), 'error');
+                                }
+                              },
+                            })}>
+                            <Ic n="trash" size={15} />
+                          </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -1067,8 +1144,8 @@ import { createPortal } from 'react-dom';
             <div>
               <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Trạng thái</label>
               <Select
-                value={bankStatusFilter}
-                onChange={setBankStatusFilter}
+                value={tempBankStatusFilter}
+                onChange={setTempBankStatusFilter}
                 options={[
                   { v: 'ALL', label: 'Tất cả trạng thái' },
                   { v: 'ACTIVE', label: 'Hoạt động' },
@@ -1080,8 +1157,8 @@ import { createPortal } from 'react-dom';
             <div>
               <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Độ khó</label>
               <Select
-                value={bankFilter}
-                onChange={setBankFilter}
+                value={tempBankFilter}
+                onChange={setTempBankFilter}
                 options={[
                   { v: 'ALL', label: 'Tất cả độ khó' },
                   { v: 'EASY', label: 'Dễ' },
@@ -1094,8 +1171,8 @@ import { createPortal } from 'react-dom';
             <div>
               <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Danh sách Tag</label>
               <Select
-                value={bankTagFilter}
-                onChange={setBankTagFilter}
+                value={tempBankTagFilter}
+                onChange={setTempBankTagFilter}
                 options={[
                   { v: '', label: 'Tất cả tag' },
                   ...availableTags.map(tag => ({ v: tag, label: tag }))
@@ -1106,11 +1183,16 @@ import { createPortal } from 'react-dom';
           </div>
           <div className="modal-foot" style={{ justifyContent: 'space-between' }}>
             <button className="btn btn-ghost" onClick={() => {
-              setBankFilter('ALL');
-              setBankStatusFilter('ALL');
-              setBankTagFilter('');
+              setTempBankFilter('ALL');
+              setTempBankStatusFilter('ALL');
+              setTempBankTagFilter('');
             }}>Xóa bộ lọc</button>
-            <button className="btn btn-primary" onClick={() => setAdvSearchOpen(false)}>Hoàn tất</button>
+            <button className="btn btn-primary" onClick={() => {
+              setBankFilter(tempBankFilter);
+              setBankStatusFilter(tempBankStatusFilter);
+              setBankTagFilter(tempBankTagFilter);
+              setAdvSearchOpen(false);
+            }}>Hoàn tất</button>
           </div>
         </Modal>
 

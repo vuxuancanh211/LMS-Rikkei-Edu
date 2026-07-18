@@ -9,6 +9,7 @@ import project.lms_rikkei_edu.modules.course.enums.CourseLevel;
 import project.lms_rikkei_edu.modules.course.enums.CourseStatus;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 /* Getter+Setter+no-args ctor cần cho Jackson deserialize lại từ Redis khi
@@ -35,4 +36,7 @@ public class CourseResponse {
     private Instant submittedAt;
     private Instant createdAt;
     private Instant updatedAt;
+    private List<String> learningOutcomes;
+    @Setter
+    private Integer studentCount;
 }

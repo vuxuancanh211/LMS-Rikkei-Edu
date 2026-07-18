@@ -5,7 +5,7 @@
 (function () {
   const { useState, useEffect, useRef } = React;
   const Ic = window.Icon;
-  const { Modal, ModalHead, Empty, Search, Select, StatCard, Pager } = window;
+  const { Modal, ModalHead, Empty, Search, Select, StatCard, Pager, RichTextEditor, CourseOutcomesPreview } = window;
   const api = window.httpClient;
 
   function hasSearchText(value) {
@@ -61,6 +61,8 @@
     const [thumbUrl, setThumbUrl]             = useState(null);
     const [saving, setSaving]                 = useState(false);
     const [err, setErr]                       = useState(null);
+    const [outcomesOpen, setOutcomesOpen]     = useState(false);
+    const [outcomes, setOutcomes]             = useState([]);
     const fileRef = useRef();
 
     useEffect(() => {
@@ -74,6 +76,7 @@
       setStep(1); setTitle(""); setDesc(""); setLevel(LEVELS[1].value);
       setCategoryId(null); setDuration(""); setErr(null);
       setThumbFile(null); setThumbPreview(null); setThumbUrl(null); setThumbProgress(0);
+      setOutcomesOpen(false); setOutcomes([]);
     };
     const close = () => { reset(); onClose(); };
 
@@ -116,6 +119,7 @@
           level,
           categoryId: categoryId || null,
           thumbnailUrl: finalThumb || null,
+          learningOutcomes: outcomes.map(s => s.trim()).filter(Boolean),
         });
         reset(); onCreated && onCreated(data.slug);
       } catch (e) {
@@ -155,16 +159,45 @@
               <Select value={level} onChange={setLevel} options={LEVELS.map(l => ({ v: l.value, label: l.label }))} />
             </Field>
             <Field label="Mô tả khóa học" full>
-              <textarea className="input" style={{ height: 96, padding: 12, resize: "none" }} value={desc}
-                onChange={e => setDesc(e.target.value)}
+              <RichTextEditor value={desc} onChange={setDesc} minHeight={90} compact
                 placeholder="Giới thiệu ngắn gọn nội dung, đối tượng và mục tiêu của khóa học..." />
             </Field>
+            <div style={{ gridColumn: "1/-1" }}>
+              <button type="button" onClick={() => setOutcomesOpen(v => !v)}
+                style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: "none", cursor: "pointer", padding: 0, font: "inherit" }}>
+                <span className="t-label" style={{ margin: 0 }}>Bạn sẽ học được gì (tuỳ chọn)</span>
+                <Ic n="chevron_down" size={13} style={{ color: "var(--text-3)", transform: outcomesOpen ? "none" : "rotate(-90deg)", transition: ".2s" }} />
+              </button>
+              {outcomesOpen && (
+                <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+                  {outcomes.map((val, i) => (
+                    <div key={i} className="row gap-8">
+                      <span style={{ width: 20, height: 20, borderRadius: 6, background: "#e7f8f0", color: "#047857",
+                        fontSize: 11, flex: "none", display: "flex", alignItems: "center", justifyContent: "center" }}>✓</span>
+                      <input className="input" style={{ flex: 1, height: 38, fontSize: 13 }} value={val}
+                        onChange={e => setOutcomes(o => o.map((x, idx) => idx === i ? e.target.value : x))}
+                        placeholder="VD: Xây dựng ứng dụng hoàn chỉnh" />
+                      <button type="button" className="icon-btn" style={{ width: 30, height: 30, flex: "none" }}
+                        onClick={() => setOutcomes(o => o.filter((_, idx) => idx !== i))}><Ic n="x" size={13} /></button>
+                    </div>
+                  ))}
+                  {outcomes.length < 3 && (
+                    <button type="button" className="btn btn-ghost btn-sm" style={{ alignSelf: "flex-start", borderStyle: "dashed" }}
+                      onClick={() => setOutcomes(o => [...o, ""])}>
+                      <Ic n="plus" size={13} />Thêm mục
+                    </button>
+                  )}
+                  <span className="t-xs muted">Có thể bổ sung chi tiết hơn sau khi tạo khóa học.</span>
+                </div>
+              )}
+            </div>
             {err && <div style={{ gridColumn: "1/-1", color: "var(--error)", fontSize: 13 }}>{err}</div>}
           </>) : (<>
             {/* Thumbnail dropzone */}
             <input ref={fileRef} type="file" accept="image/png,image/jpeg" style={{ display: "none" }}
               onChange={e => onThumbPick(e.target.files?.[0])} />
-            <div style={{ gridColumn: "1/-1", border: "2px dashed var(--border-strong)", borderRadius: 12, overflow: "hidden", cursor: "pointer", background: "var(--surface-2)", aspectRatio: "16/7", position: "relative" }}
+            <div style={{ gridColumn: "1 / 2" }}>
+            <div style={{ border: "2px dashed var(--border-strong)", borderRadius: 12, overflow: "hidden", cursor: "pointer", background: "var(--surface-2)", aspectRatio: "16/7", position: "relative" }}
               onClick={() => fileRef.current?.click()}
               onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = "var(--accent)"; }}
               onDragLeave={e => { e.currentTarget.style.borderColor = "var(--border-strong)"; }}
@@ -186,7 +219,7 @@
             </div>
 
             {thumbUploading && (
-              <div style={{ gridColumn: "1/-1" }}>
+              <div style={{ marginTop: 8 }}>
                 <div style={{ height: 5, borderRadius: 999, background: "var(--border)", overflow: "hidden" }}>
                   <div style={{ width: thumbProgress + "%", height: "100%", background: "var(--accent)", transition: "width .2s" }} />
                 </div>
@@ -194,19 +227,39 @@
               </div>
             )}
 
-            <Field label="Thời lượng dự kiến">
-              <div style={{ position: "relative" }}>
-                <input
-                  className="input"
-                  style={{ paddingRight: 44 }}
-                  value={duration}
-                  onChange={e => setDuration(e.target.value.replace(/[^0-9]/g, ""))}
-                  placeholder="VD: 32"
-                  inputMode="numeric"
-                />
-                <span style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", color: "var(--text-3)", fontSize: 14, pointerEvents: "none", userSelect: "none" }}>giờ</span>
+            <div style={{ marginTop: 16 }}>
+              <Field label="Thời lượng dự kiến">
+                <div style={{ position: "relative" }}>
+                  <input
+                    className="input"
+                    style={{ paddingRight: 44 }}
+                    value={duration}
+                    onChange={e => setDuration(e.target.value.replace(/[^0-9]/g, ""))}
+                    placeholder="VD: 32"
+                    inputMode="numeric"
+                  />
+                  <span style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", color: "var(--text-3)", fontSize: 14, pointerEvents: "none", userSelect: "none" }}>giờ</span>
+                </div>
+              </Field>
+            </div>
+            </div>
+
+            {/* Live preview */}
+            <div style={{ gridColumn: "2 / 3" }}>
+              <div className="t-label" style={{ marginBottom: 8 }}>Xem trước</div>
+              <div className="card" style={{ overflow: "hidden" }}>
+                <div style={{ aspectRatio: "16/9", background: thumbPreview ? `url(${thumbPreview}) center/cover` : "var(--surface-2)" }} />
+                <div style={{ padding: 12 }}>
+                  <div className="row gap-6 wrap" style={{ marginBottom: 8 }}>
+                    {catOptions.find(c => c.v === categoryId)?.label && <span className="chip chip-info" style={{ fontSize: 10 }}>{catOptions.find(c => c.v === categoryId)?.label}</span>}
+                    <span className="chip chip-neutral" style={{ fontSize: 10 }}>{LEVELS.find(l => l.value === level)?.label}</span>
+                  </div>
+                  <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, lineHeight: 1.3 }}>{title || "Tên khóa học của bạn"}</div>
+                  <div className="t-xs" style={{ color: "var(--text-3)" }}>0 học viên</div>
+                </div>
               </div>
-            </Field>
+            </div>
+
             {err && <div style={{ gridColumn: "1/-1", color: "var(--error)", fontSize: 13 }}>{err}</div>}
           </>)}
         </div>
@@ -320,12 +373,14 @@
                       <h3 className="clamp-2">{c.title}</h3>
                       <div className="row gap-16 wrap" style={{ marginBottom: 8 }}>
                         {c.level && <span className="meta-row"><Ic n="layers" size={15} /> {c.level}</span>}
+                        <span className="meta-row"><Ic n="users" size={15} /> {c.studentCount ?? 0} học viên</span>
                       </div>
+                      {c.description && <p className="t-sm muted clamp-2" style={{ marginBottom: 8 }}>{c.description}</p>}
+                      <CourseOutcomesPreview outcomes={c.learningOutcomes} style={{ marginBottom: 8 }} />
                       <div className="row gap-10" style={{ marginTop: "auto", paddingTop: 6 }}>
-                        <button className="btn btn-ghost btn-sm grow" onClick={() => {
-                          window.__previewCourse = { courseId: c.id, role: "instructor" };
-                          nav("preview");
-                        }}><Ic n="eye" size={15} />Xem</button>
+                        <button className="btn btn-ghost btn-sm grow"
+                          onClick={() => nav("courseDetail", { slug: c.slug, autoPreview: "1" })}>
+                          <Ic n="eye" size={15} />Xem</button>
                         <button className="btn btn-primary btn-sm grow" onClick={() => nav("courseDetail", { slug: c.slug })}>
                           <Ic n="edit" size={15} />Sửa</button>
                       </div>

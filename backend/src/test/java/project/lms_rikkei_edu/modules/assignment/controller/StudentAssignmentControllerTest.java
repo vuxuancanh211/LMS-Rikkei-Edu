@@ -112,7 +112,7 @@ class StudentAssignmentControllerTest {
     void submitAssignment_returns200() throws Exception {
         when(currentUserProvider.getCurrentUserId()).thenReturn(Optional.of(studentId));
         when(studentAssignmentService.submitAssignment(eq(courseId), eq(assignmentId), eq(studentId),
-                any(), any())).thenReturn(submissionResponse());
+                any(), any(), any())).thenReturn(submissionResponse());
 
         var file = new MockMultipartFile("files", "hw.pdf", "application/pdf", new byte[1024]);
 

@@ -2,10 +2,11 @@
 /* ============================================================
      RIKKEI EDU – Giảng viên · Chi tiết Khóa học
    ============================================================ */
+import { createPortal } from 'react-dom';
 (function () {
   const { useState, useEffect, useRef } = React;
   const Ic = window.Icon;
-  const { Status, StatCard, Tabs, Select, Section, Modal, ModalHead, Empty } = window;
+  const { Status, StatCard, Tabs, Select, Section, Modal, ModalHead, Empty, RichTextEditor } = window;
   const { AddChapterModal, AddLessonModal, ChangeQuizModal, AddResourceModal, ResourcePreviewModal, CourseContentTab, CourseVersionsTab, CourseHistoryTab, AiDocsTab } = window;
   const EditResourceInner = window.EditResourceModal;
   const api = window.httpClient;
@@ -91,6 +92,59 @@
     );
   }
 
+  /* Danh sách nhập lặp lại (học được gì / yêu cầu đầu vào) */
+  function ListEditor({ items, onChange, iconBg, iconColor, icon, placeholder, addLabel, disabled }) {
+    function setAt(i, val) {
+      const next = items.slice(); next[i] = val; onChange(next);
+    }
+    function removeAt(i) {
+      onChange(items.filter((_, idx) => idx !== i));
+    }
+    function add() {
+      onChange([...items, ""]);
+    }
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {items.map((val, i) => (
+          <div key={i} className="row gap-8">
+            <span style={{ width: 22, height: 22, borderRadius: 6, background: iconBg, color: iconColor,
+              fontSize: 12, flex: "none", display: "flex", alignItems: "center", justifyContent: "center" }}>{icon}</span>
+            <input className="input" style={{ flex: 1, height: 40 }} value={val} disabled={disabled}
+              onChange={e => setAt(i, e.target.value)} placeholder={placeholder} />
+            <button type="button" className="icon-btn" style={{ width: 32, height: 32, flex: "none" }} disabled={disabled}
+              onClick={() => removeAt(i)}><Ic n="x" size={14} /></button>
+          </div>
+        ))}
+        {!disabled && (
+          <button type="button" className="btn btn-ghost btn-sm" style={{ alignSelf: "flex-start", borderStyle: "dashed" }} onClick={add}>
+            <Ic n="plus" size={14} />{addLabel}
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  /* Card gấp/mở dùng cho tab "Thông tin" */
+  function AccordionSection({ icon, title, open, onToggle, children }) {
+    return (
+      <div className="card" style={{ overflow: "hidden", position: "relative" }}>
+        <div style={{ position: "absolute", top: 0, left: 0, width: 4, height: "100%", background: "var(--accent)" }} />
+        <button type="button" onClick={onToggle}
+          style={{ width: "100%", boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "space-between",
+            padding: "18px 22px", background: "none", border: "none", cursor: "pointer", textAlign: "left", font: "inherit" }}>
+          <div className="row gap-10">
+            <div className="stat-ic" style={{ width: 28, height: 28, borderRadius: 8, background: "var(--accent-soft)", color: "var(--accent)" }}>
+              <Ic n={icon} size={14} />
+            </div>
+            <span style={{ fontSize: 15.5, fontWeight: 700 }}>{title}</span>
+          </div>
+          <Ic n="chevron_down" size={16} style={{ color: "var(--text-3)", transform: open ? "none" : "rotate(-90deg)", transition: ".2s" }} />
+        </button>
+        {open && <div style={{ padding: "0 22px 22px" }}>{children}</div>}
+      </div>
+    );
+  }
+
   function Dropzone({ icon, title, hint, h, file, onClick, onDrop }) {
     return (
       <div style={{ border: "2px dashed var(--border-strong)", borderRadius: 12, padding: h || 26, textAlign: "center", color: "var(--text-3)", cursor: "pointer", background: "var(--surface-2)", transition: ".15s" }}
@@ -137,7 +191,7 @@
     );
   }
 
-  function InsCourseDetail({ nav, slug }) {
+  function InsCourseDetail({ nav, slug, autoPreview }) {
     const [courseId, setCourseId] = useState(null);
 
     const [course, setCourse]     = useState(null);
@@ -148,14 +202,24 @@
     const [open, setOpen]         = useState(0);
     const [submitting, setSubmitting] = useState(false);
     const [submitMsg, setSubmitMsg]   = useState(null);
+    useEffect(() => {
+      if (!submitMsg) return;
+      const t = setTimeout(() => setSubmitMsg(null), 4000);
+      return () => clearTimeout(t);
+    }, [submitMsg]);
 
     const [editTitle,        setEditTitle]        = useState("");
     const [editDesc,         setEditDesc]         = useState("");
     const [editLevel,        setEditLevel]        = useState(LEVELS[1].value);
     const [editCat,          setEditCat]          = useState(null);
+    const [editOutcomes,     setEditOutcomes]     = useState<string[]>([]);
+    const [editRequirements, setEditRequirements] = useState<string[]>([]);
     const [categories,       setCategories]       = useState([]);
     const [infoSaving,       setInfoSaving]       = useState(false);
     const [infoMsg,          setInfoMsg]          = useState(null);
+    const [infoBasicOpen,    setInfoBasicOpen]    = useState(true);
+    const [infoCoverOpen,    setInfoCoverOpen]    = useState(false);
+    const [infoDescOpen,     setInfoDescOpen]     = useState(true);
     const [thumbFile,        setThumbFile]        = useState(null);
     const [thumbPreview,     setThumbPreview]     = useState(null);
     const [thumbUploading,   setThumbUploading]   = useState(false);
@@ -172,7 +236,10 @@
     const [renameLessonState, setRenameLessonState] = useState(null);
     const [changeQuizState,   setChangeQuizState]   = useState(null); // { chapterId, lessonId, currentQuizId }
     const [editResourceState, setEditResourceState] = useState(null);
-    const [showPreview,       setShowPreview]       = useState(false);
+    const [previewStage,      setPreviewStage]      = useState(null); // null | "overview" | "player"
+    // true khi vào "Xem trước" thẳng từ danh sách khóa học (autoPreview) — lúc đó nút "Quay lại"
+    // phải trả về danh sách, không phải màn chỉnh sửa, vì người dùng chưa từng mở màn chỉnh sửa.
+    const [previewFromList,   setPreviewFromList]   = useState(false);
     const [history,           setHistory]           = useState([]);
     const [historyLoading,    setHistoryLoading]    = useState(false);
     const [snapshotView,      setSnapshotView]      = useState(null); // { versionNo, snapshot }
@@ -182,6 +249,8 @@
     const [deletingDraft,     setDeletingDraft]     = useState(null); // versionId đang xóa
     const [showSaveDraft,     setShowSaveDraft]     = useState(false);
     const [draftLabel,        setDraftLabel]        = useState("");
+    const [showSubmitUpdate,  setShowSubmitUpdate]  = useState(false);
+    const [changeSummaryInput,setChangeSummaryInput]= useState("");
     const [viewingVersion,    setViewingVersion]    = useState(null); // null = live | CourseVersionResponse
     const [showVersionPicker, setShowVersionPicker] = useState(false);
     const [cloningDraft,      setCloningDraft]      = useState(false);
@@ -223,6 +292,8 @@
           setEditDesc(r.data.description || "");
           setEditLevel(r.data.level || LEVELS[1].value);
           setEditCat(r.data.category?.id || null);
+          setEditOutcomes(r.data.learningOutcomes && r.data.learningOutcomes.length ? r.data.learningOutcomes : []);
+          setEditRequirements(r.data.requirements && r.data.requirements.length ? r.data.requirements : []);
           setThumbFile(null);
           setThumbPreview(null);
           if (silent) requestAnimationFrame(() => { scrollEl?.scrollTo({ top: savedScroll }); });
@@ -231,6 +302,15 @@
         .finally(() => { if (!silent) setLoading(false); });
     }
     useEffect(() => { loadCourse(); setViewingVersion(null); }, [slug]);
+    // Nút "Xem" ở danh sách khóa học điều hướng thẳng vào đây kèm autoPreview=1 — tự mở overlay
+    // xem trước (giao diện học viên) ngay khi courseId đã tải xong, không cần bấm lại "Xem trước".
+    useEffect(() => {
+      if (autoPreview && courseId) {
+        window.__previewCourse = { courseId, role: "instructor" };
+        setPreviewFromList(true);
+        setPreviewStage("overview");
+      }
+    }, [autoPreview, courseId]);
     useEffect(() => {
       api.get("/instructor/courses/categories").then(r => setCategories(r.data || [])).catch(() => {});
     }, []);
@@ -258,16 +338,22 @@
         .catch(() => {});
     }
 
-    async function handleSubmit() {
+    async function handleSubmit(changeSummary) {
       setSubmitting(true); setSubmitMsg(null);
       try {
-        await api.put(`/instructor/courses/${courseId}/submit`);
+        await api.put(`/instructor/courses/${courseId}/submit`, changeSummary ? { changeSummary } : undefined);
         setSubmitMsg("Đã gửi duyệt thành công!");
         loadCourse(true);
         refreshHistoryAndVersions();
       }
       catch (e) { setSubmitMsg(e?.response?.data?.message || "Gửi duyệt thất bại"); }
       finally { setSubmitting(false); }
+    }
+
+    async function handleSubmitUpdate() {
+      await handleSubmit(changeSummaryInput.trim() || undefined);
+      setShowSubmitUpdate(false);
+      setChangeSummaryInput("");
     }
 
     async function handleWithdraw() {
@@ -476,6 +562,8 @@
           description: editDesc.trim() || null,
           level: editLevel,
           categoryId: (editCat && editCat !== "null") ? editCat : null,
+          learningOutcomes: editOutcomes.map(s => s.trim()).filter(Boolean),
+          requirements: editRequirements.map(s => s.trim()).filter(Boolean),
         });
         setInfoMsg("Đã lưu thay đổi!"); loadCourse(true);
       } catch (e) { setInfoMsg(e?.response?.data?.message || "Lưu thất bại"); }
@@ -712,9 +800,9 @@
             })()}
           </div>
           <div className="row gap-10 wrap" style={{ rowGap: 10 }}>
-            <button className="btn btn-ghost btn-sm" onClick={() => { window.__previewCourse = { courseId, role: "instructor" }; setShowPreview(true); }}><Ic n="eye" size={15} />Xem trước</button>
+            <button className="btn btn-ghost btn-sm" onClick={() => { window.__previewCourse = { courseId, role: "instructor" }; setPreviewFromList(false); setPreviewStage("overview"); }}><Ic n="eye" size={15} />Xem trước</button>
             {!viewingVersion && (course?.status === "DRAFT" || course?.status === "REJECTED") && (
-              <button className="btn btn-success btn-sm" disabled={submitting} onClick={handleSubmit}><Ic n="send" size={15} />{submitting ? "Đang gửi..." : "Gửi duyệt"}</button>
+              <button className="btn btn-success btn-sm" disabled={submitting} onClick={() => handleSubmit()}><Ic n="send" size={15} />{submitting ? "Đang gửi..." : "Gửi duyệt"}</button>
             )}
             {!viewingVersion && course?.status === "PUBLISHED" && hasPendingChanges && (
               <button className="btn btn-ghost btn-sm" disabled={savingDraft} onClick={() => setShowSaveDraft(true)}
@@ -723,7 +811,7 @@
               </button>
             )}
             {!viewingVersion && course?.status === "PUBLISHED" && hasPendingChanges && (
-              <button className="btn btn-success btn-sm" disabled={submitting} onClick={handleSubmit}><Ic n="send" size={15} />{submitting ? "Đang gửi..." : "Gửi cập nhật"}</button>
+              <button className="btn btn-success btn-sm" disabled={submitting} onClick={() => setShowSubmitUpdate(true)}><Ic n="send" size={15} />{submitting ? "Đang gửi..." : "Gửi cập nhật"}</button>
             )}
             {!viewingVersion && course?.status === "PUBLISHED" && hasPendingChanges && (
               <button className="btn btn-ghost btn-sm" disabled={submitting} onClick={handleWithdraw}>Hủy thay đổi</button>
@@ -816,10 +904,18 @@
           </div>
         )}
 
-        {submitMsg && (
-          <div style={{ padding: "10px 16px", borderRadius: 10, marginBottom: 14, fontSize: 13.5,
-            background: submitMsg.startsWith("Đã") ? "#dcfce7" : "#fee2e2",
-            color: submitMsg.startsWith("Đã") ? "#16a34a" : "#dc2626" }}>{submitMsg}</div>
+        {/* Toast — portal thẳng ra document.body giống InsAssess.tsx, hiện ở góc phải trên
+            thay vì chiếm chỗ cố định trong trang, tự ẩn sau 4s. */}
+        {submitMsg && createPortal(
+          <div style={{
+            position: "fixed", top: 20, right: 24, zIndex: 9999, minWidth: 280, maxWidth: 420,
+            background: submitMsg.startsWith("Đã") ? "#10b981" : "var(--error)",
+            color: "#fff", borderRadius: 11, padding: "13px 18px", fontWeight: 600, fontSize: 14,
+            boxShadow: "0 4px 24px rgba(0,0,0,.18)"
+          }}>
+            {submitMsg}
+          </div>,
+          document.body
         )}
 
 
@@ -1049,53 +1145,154 @@
         )}
 
         {/* ── Info tab ── */}
-        {tab === "info" && (
-          <Section>
-            <div className="between" style={{ marginBottom: 20 }}>
-              <h2 className="t-h2">Thông tin khóa học</h2>
-            </div>
+        {tab === "info" && (() => {
+          const previewOutcomes = editOutcomes.filter(o => o.trim());
+          const plainDesc = (editDesc || "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+          const levelInfo = LEVELS.find(l => l.value === editLevel) || LEVELS[1];
+          return (
+            <div className="row gap-20" style={{ alignItems: "flex-start", flexWrap: "wrap" }}>
+              {/* Cột trái: form */}
+              <div style={{ flex: "1 1 560px", minWidth: 460, display: "flex", flexDirection: "column", gap: 16 }}>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
-              <Field label="Tên khóa học" full>
-                <input className="input" value={editTitle} onChange={e => setEditTitle(e.target.value)} disabled={!canEditInfo} />
-              </Field>
-              <Field label="Danh mục">
-                <Select
-                  value={editCat}
-                  onChange={v => setEditCat(v === "null" ? null : v)}
-                  options={[{ v: null, label: "— Chưa chọn —" }, ...categories.map(c => ({ v: c.id, label: c.name }))]}
-                  disabled={!canEditInfo}
-                />
-              </Field>
-              <Field label="Cấp độ">
-                <Select value={editLevel} onChange={setEditLevel} options={LEVELS.map(l => ({ v: l.value, label: l.label }))} disabled={!canEditInfo} />
-              </Field>
-              <Field label="Mô tả" full>
-                <textarea className="input" style={{ height: 100, padding: 12, resize: "none" }} value={editDesc}
-                  onChange={e => setEditDesc(e.target.value)} disabled={!canEditInfo}
-                  placeholder="Mô tả ngắn gọn về khóa học..." />
-              </Field>
+                <AccordionSection icon="edit" title="Thông tin cơ bản" open={infoBasicOpen} onToggle={() => setInfoBasicOpen(v => !v)}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                    <Field label="Tên khóa học">
+                      <input className="input" style={{ height: 50, fontSize: 17, fontWeight: 700 }}
+                        value={editTitle} onChange={e => setEditTitle(e.target.value)} disabled={!canEditInfo} />
+                    </Field>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                      <Field label="Danh mục">
+                        <Select
+                          value={editCat}
+                          onChange={v => setEditCat(v === "null" ? null : v)}
+                          options={[{ v: null, label: "— Chưa chọn —" }, ...categories.map(c => ({ v: c.id, label: c.name }))]}
+                          disabled={!canEditInfo}
+                        />
+                      </Field>
+                      <Field label="Cấp độ">
+                        <div className="row gap-8">
+                          {LEVELS.map(l => (
+                            <button key={l.value} type="button" disabled={!canEditInfo}
+                              onClick={() => setEditLevel(l.value)}
+                              className="btn btn-sm"
+                              style={{ flex: 1, fontWeight: 700,
+                                background: editLevel === l.value ? "var(--accent-soft)" : "var(--surface)",
+                                color: editLevel === l.value ? "var(--accent)" : "var(--text-2)",
+                                border: `1.5px solid ${editLevel === l.value ? "var(--accent)" : "var(--border)"}` }}>
+                              {l.label}
+                            </button>
+                          ))}
+                        </div>
+                      </Field>
+                    </div>
+                  </div>
+                </AccordionSection>
+
+                <AccordionSection icon="image" title="Ảnh bìa & giới thiệu" open={infoCoverOpen} onToggle={() => setInfoCoverOpen(v => !v)}>
+                  <div className="row gap-16" style={{ alignItems: "center" }}>
+                    <div style={{ width: 160, aspectRatio: "16/9", borderRadius: 10, overflow: "hidden", flex: "none",
+                      background: course?.thumbnailUrl ? `#0f172a url(${course.thumbnailUrl}) center/cover` : "linear-gradient(135deg,#1e3a5f,#2563eb)" }} />
+                    <div style={{ flex: 1 }}>
+                      <div className="t-sm muted" style={{ marginBottom: 10 }}>Khuyến nghị 1280×720px · JPG hoặc PNG · tối đa 4MB</div>
+                      {canEditInfo && (
+                        <button className="btn btn-ghost btn-sm" onClick={() => setThumbModalOpen(true)}>
+                          <Ic n="upload" size={14} />Đổi ảnh bìa
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </AccordionSection>
+
+                <AccordionSection icon="file_text" title="Mô tả & nội dung" open={infoDescOpen} onToggle={() => setInfoDescOpen(v => !v)}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+                    <Field label="Mô tả chi tiết">
+                      <RichTextEditor value={editDesc} onChange={setEditDesc} disabled={!canEditInfo}
+                        placeholder="Giới thiệu tổng quan về khóa học, đối tượng phù hợp, giá trị mang lại..." />
+                    </Field>
+                    <Field label="Học viên sẽ học được gì">
+                      <ListEditor items={editOutcomes} onChange={setEditOutcomes} disabled={!canEditInfo}
+                        icon="✓" iconBg="#e7f8f0" iconColor="#047857"
+                        placeholder="VD: Xây dựng ứng dụng web hoàn chỉnh với React"
+                        addLabel="Thêm mục" />
+                    </Field>
+                    <Field label="Yêu cầu đầu vào">
+                      <ListEditor items={editRequirements} onChange={setEditRequirements} disabled={!canEditInfo}
+                        icon="•" iconBg="var(--surface-2)" iconColor="var(--text-2)"
+                        placeholder="VD: Kiến thức cơ bản về HTML/CSS"
+                        addLabel="Thêm mục" />
+                    </Field>
+                  </div>
+                </AccordionSection>
+
+                {infoMsg && (
+                  <div style={{ padding: "10px 14px", borderRadius: 10, fontSize: 13.5,
+                    background: infoMsg.startsWith("Đã") ? "#dcfce7" : "#fee2e2",
+                    color: infoMsg.startsWith("Đã") ? "#16a34a" : "#dc2626" }}>{infoMsg}
+                  </div>
+                )}
+                {canEditInfo && (
+                  <div className="row gap-10" style={{ justifyContent: "flex-end" }}>
+                    <button className="btn btn-ghost" onClick={() => {
+                      setEditTitle(course?.title || "");
+                      setEditDesc(course?.description || "");
+                      setEditLevel(course?.level || LEVELS[1].value);
+                      setEditCat(course?.category?.id || null);
+                      setEditOutcomes(course?.learningOutcomes || []);
+                      setEditRequirements(course?.requirements || []);
+                      setInfoMsg(null);
+                    }}>Hủy</button>
+                    <button className="btn btn-primary" disabled={infoSaving} onClick={handleSaveInfo}>{infoSaving ? "Đang lưu..." : "Lưu thay đổi"}</button>
+                  </div>
+                )}
+              </div>
+
+              {/* Cột phải: xem trước như catalog thật */}
+              <div style={{ flex: "0 0 320px", minWidth: 280, position: "sticky", top: 20 }}>
+                <div className="row gap-8" style={{ marginBottom: 10, color: "var(--text-2)" }}>
+                  <Ic n="eye" size={15} /><span className="t-sm" style={{ fontWeight: 600 }}>Xem trước trên catalog</span>
+                </div>
+                <div className="card" style={{ overflow: "hidden" }}>
+                  <div style={{ aspectRatio: "16/9", position: "relative",
+                    background: course?.thumbnailUrl ? `#0f172a url(${course.thumbnailUrl}) center/cover` : "linear-gradient(135deg,#1e3a5f,#2563eb)" }} />
+                  <div style={{ padding: 18 }}>
+                    <div className="row gap-6 wrap" style={{ marginBottom: 10 }}>
+                      {course?.category?.name && <span className="chip chip-info">{course.category.name}</span>}
+                      <span className="chip chip-neutral">{levelInfo.label}</span>
+                    </div>
+                    <div style={{ fontSize: 15.5, fontWeight: 700, marginBottom: 10, lineHeight: 1.35 }}>
+                      {editTitle || "Tên khóa học của bạn sẽ hiển thị ở đây"}
+                    </div>
+                    <div className="row gap-8" style={{ marginBottom: 12, color: "var(--text-3)", fontSize: 12.5 }}>
+                      <Ic n="users" size={13} />
+                      <span>{course?.studentCount || 0} học viên</span>
+                    </div>
+                    {plainDesc && (
+                      <p className="t-sm muted clamp-2" style={{ marginBottom: 10 }}>{plainDesc}</p>
+                    )}
+                    {previewOutcomes.length > 0 && (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: 12 }}>
+                        {previewOutcomes.slice(0, 3).map((o, i) => (
+                          <div key={i} className="row gap-6 t-xs" style={{ color: "var(--text-2)" }}>
+                            <span style={{ color: "#10b981" }}>✓</span><span>{o}</span>
+                          </div>
+                        ))}
+                        {previewOutcomes.length > 3 && <span className="t-xs muted">+{previewOutcomes.length - 3} mục khác</span>}
+                      </div>
+                    )}
+                    <div className="row gap-16" style={{ paddingTop: 12, borderTop: "1px solid var(--border)", color: "var(--text-3)" }}>
+                      <span className="meta-row t-xs"><Ic n="book" size={13} />{counts.lessons} bài học</span>
+                      <span className="meta-row t-xs"><Ic n="video" size={13} />{counts.VIDEO} video</span>
+                    </div>
+                  </div>
+                </div>
+                <button className="btn btn-ghost btn-block" style={{ marginTop: 12, borderColor: "var(--accent)", color: "var(--accent)" }}
+                  onClick={() => { window.__previewCourse = { courseId, role: "instructor" }; setPreviewFromList(false); setPreviewStage("overview"); }}>
+                  <Ic n="eye" size={15} />Xem như học viên
+                </button>
+              </div>
             </div>
-            {infoMsg && (
-              <div style={{ marginTop: 12, padding: "10px 14px", borderRadius: 10, fontSize: 13.5,
-                background: infoMsg.startsWith("Đã") ? "#dcfce7" : "#fee2e2",
-                color: infoMsg.startsWith("Đã") ? "#16a34a" : "#dc2626" }}>{infoMsg}
-              </div>
-            )}
-            {canEditInfo && (
-              <div className="row gap-10" style={{ marginTop: 20, justifyContent: "flex-end" }}>
-                <button className="btn btn-ghost" onClick={() => {
-                  setEditTitle(course?.title || "");
-                  setEditDesc(course?.description || "");
-                  setEditLevel(course?.level || LEVELS[1].value);
-                  setEditCat(course?.category?.id || null);
-                  setInfoMsg(null);
-                }}>Hủy</button>
-                <button className="btn btn-primary" disabled={infoSaving} onClick={handleSaveInfo}>{infoSaving ? "Đang lưu..." : "Lưu thay đổi"}</button>
-              </div>
-            )}
-          </Section>
-        )}
+          );
+        })()}
 
         {/* ── History tab ── */}
         {tab === "versions" && !viewingVersion && (
@@ -1344,6 +1541,28 @@
           </Modal>
         )}
 
+        {/* Modal gửi cập nhật — lý do cập nhật để admin biết đã sửa gì */}
+        {showSubmitUpdate && (
+          <Modal open onClose={() => setShowSubmitUpdate(false)} max={460}>
+            <ModalHead title="Gửi cập nhật để admin duyệt" icon="send" iconBg="#f0fdf4" iconColor="#16a34a" onClose={() => setShowSubmitUpdate(false)} />
+            <div className="modal-body">
+              <label className="t-label" style={{ display: "block", marginBottom: 7 }}>
+                Lý do cập nhật <span className="muted">(tuỳ chọn, admin sẽ thấy khi duyệt)</span>
+              </label>
+              <textarea className="input" style={{ height: 100, padding: 12, resize: "none" }} maxLength={500} autoFocus
+                placeholder="VD: Sửa lỗi chính tả bài 3, thêm video hướng dẫn chương 2..."
+                value={changeSummaryInput} onChange={e => setChangeSummaryInput(e.target.value)} />
+              <div className="muted" style={{ fontSize: 12, marginTop: 6, textAlign: "right" }}>{changeSummaryInput.length}/500</div>
+            </div>
+            <div className="modal-foot">
+              <button className="btn btn-ghost" onClick={() => setShowSubmitUpdate(false)}>Hủy</button>
+              <button className="btn btn-primary" disabled={submitting} onClick={handleSubmitUpdate}>
+                <Ic n="send" size={15} />{submitting ? "Đang gửi..." : "Gửi cập nhật"}
+              </button>
+            </div>
+          </Modal>
+        )}
+
         {/* Modal lưu bản nháp */}
         {showSaveDraft && (
           <Modal open onClose={() => setShowSaveDraft(false)} max={420}>
@@ -1370,11 +1589,28 @@
 
         {/* Modals */}
         <AddChapterModal   open={addChapterOpen}     onClose={() => setAddChapterOpen(false)}   courseId={courseId} onAdded={() => loadCourse(true)} />
-        <AddLessonModal    open={!!addLessonState}   onClose={() => setAddLessonState(null)}    courseId={courseId} chapterId={addLessonState?.chapterId} onAdded={() => loadCourse(true)} />
+        <AddLessonModal    open={!!addLessonState}   onClose={() => setAddLessonState(null)}    courseId={courseId} chapterId={addLessonState?.chapterId}
+          onAdded={(createdLesson) => {
+            loadCourse(true);
+            // Bài giảng thường (không phải quiz) — mở luôn modal "Thêm nội dung" để giảng viên
+            // đính kèm video/tài liệu ngay, thay vì phải tự tìm nút này sau khi đóng modal.
+            if (createdLesson && createdLesson.type !== "QUIZ") {
+              setAddResourceState({ lessonId: createdLesson.id, lessonTitle: createdLesson.title });
+            }
+          }} />
         <AddResourceModal  open={!!addResourceState} onClose={() => setAddResourceState(null)}  courseId={courseId} lessonId={addResourceState?.lessonId} lessonTitle={addResourceState?.lessonTitle} onAdded={() => loadCourse(true)} />
         <ChangeQuizModal   open={!!changeQuizState}  onClose={() => setChangeQuizState(null)}   courseId={courseId} chapterId={changeQuizState?.chapterId} lessonId={changeQuizState?.lessonId} currentQuizId={changeQuizState?.currentQuizId} onChanged={() => loadCourse(true)} />
 
-        {showPreview && React.createElement(window.PreviewPlayer, { onBack: () => setShowPreview(false) })}
+        {previewStage === "overview" && (
+          <div style={{ position: "fixed", inset: 0, zIndex: 200, background: "var(--bg)", overflowY: "auto" }}>
+            {React.createElement(window.StuCourseDetail, {
+              courseId, previewMode: true,
+              onBack: () => (previewFromList ? nav("courses") : setPreviewStage(null)),
+              onEnterContent: () => setPreviewStage("player"),
+            })}
+          </div>
+        )}
+        {previewStage === "player" && React.createElement(window.PreviewPlayer, { onBack: () => setPreviewStage("overview") })}
 
         <ConfirmModal
           open={!!confirmState}

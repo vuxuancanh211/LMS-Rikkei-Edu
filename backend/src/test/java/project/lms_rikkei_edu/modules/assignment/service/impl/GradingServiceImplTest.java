@@ -22,7 +22,6 @@ import project.lms_rikkei_edu.modules.assignment.repository.AssignmentRepository
 import project.lms_rikkei_edu.modules.assignment.repository.AssignmentSubmissionRepository;
 import project.lms_rikkei_edu.modules.assignment.repository.SubmissionFileRepository;
 import project.lms_rikkei_edu.modules.course.entity.Course;
-import project.lms_rikkei_edu.modules.course.repository.CourseEnrollmentRepository;
 import project.lms_rikkei_edu.modules.course.repository.CourseRepository;
 import project.lms_rikkei_edu.modules.course.service.StudentCourseService;
 import project.lms_rikkei_edu.modules.group.entity.GroupMemberEntity;
@@ -65,7 +64,6 @@ class GradingServiceImplTest {
     @Mock private GroupMemberRepository groupMemberRepository;
     @Mock private StudyGroupRepository studyGroupRepository;
     @Mock private CourseRepository courseRepository;
-    @Mock private CourseEnrollmentRepository courseEnrollmentRepository;
     @Mock private S3Service s3Service;
     @Mock private StudentCourseService studentCourseService;
 
@@ -86,7 +84,7 @@ class GradingServiceImplTest {
                 submissionFileRepository, assignmentGroupRepository,
                 userRepository, groupMemberRepository,
                 studyGroupRepository, courseRepository,
-                courseEnrollmentRepository, s3Service, studentCourseService);
+                s3Service, studentCourseService);
     }
 
     // ── getSubmissions ─────────────────────────────────────────────────────
@@ -97,7 +95,7 @@ class GradingServiceImplTest {
         var submission = submissionEntity("GRADED");
         when(assignmentRepository.findById(assignmentId))
                 .thenReturn(Optional.of(assignment));
-        when(courseEnrollmentRepository.findStudentIdsByCourseId(courseId))
+        when(groupMemberRepository.findStudentIdsByCourseId(courseId))
                 .thenReturn(List.of(studentId));
         when(assignmentSubmissionRepository.findByAssignmentIdOrderBySubmittedAtDesc(assignmentId))
                 .thenReturn(List.of(submission));
@@ -122,7 +120,7 @@ class GradingServiceImplTest {
         var submission = submissionEntity("SUBMITTED");
         when(assignmentRepository.findById(assignmentId))
                 .thenReturn(Optional.of(assignment));
-        when(courseEnrollmentRepository.findStudentIdsByCourseId(courseId))
+        when(groupMemberRepository.findStudentIdsByCourseId(courseId))
                 .thenReturn(List.of(studentId));
         when(assignmentSubmissionRepository.findByAssignmentIdOrderBySubmittedAtDesc(assignmentId))
                 .thenReturn(List.of(submission));
@@ -145,7 +143,7 @@ class GradingServiceImplTest {
         var submission = submissionEntity("LATE");
         when(assignmentRepository.findById(assignmentId))
                 .thenReturn(Optional.of(assignment));
-        when(courseEnrollmentRepository.findStudentIdsByCourseId(courseId))
+        when(groupMemberRepository.findStudentIdsByCourseId(courseId))
                 .thenReturn(List.of(studentId));
         when(assignmentSubmissionRepository.findByAssignmentIdOrderBySubmittedAtDesc(assignmentId))
                 .thenReturn(List.of(submission));
@@ -211,7 +209,7 @@ class GradingServiceImplTest {
         when(presigned.url()).thenReturn(new URL("https://example.com/file.pdf"));
         when(assignmentRepository.findById(assignmentId))
                 .thenReturn(Optional.of(assignment));
-        when(courseEnrollmentRepository.findStudentIdsByCourseId(courseId))
+        when(groupMemberRepository.findStudentIdsByCourseId(courseId))
                 .thenReturn(List.of(studentId));
         when(assignmentSubmissionRepository.findByAssignmentIdOrderBySubmittedAtDesc(assignmentId))
                 .thenReturn(List.of(submission));
@@ -242,7 +240,7 @@ class GradingServiceImplTest {
         var assignment = publishedAssignment();
         when(assignmentRepository.findById(assignmentId))
                 .thenReturn(Optional.of(assignment));
-        when(courseEnrollmentRepository.findStudentIdsByCourseId(courseId))
+        when(groupMemberRepository.findStudentIdsByCourseId(courseId))
                 .thenReturn(List.of(studentId));
         when(userRepository.findAllByIdInAndDeletedAtIsNull(anyList()))
                 .thenReturn(List.of(studentUser()));
@@ -270,7 +268,7 @@ class GradingServiceImplTest {
         userB.setFullName("Student B");
         when(assignmentRepository.findById(assignmentId))
                 .thenReturn(Optional.of(assignment));
-        when(courseEnrollmentRepository.findStudentIdsByCourseId(courseId))
+        when(groupMemberRepository.findStudentIdsByCourseId(courseId))
                 .thenReturn(List.of(studentId, studentB));
         when(userRepository.findAllByIdInAndDeletedAtIsNull(anyList()))
                 .thenReturn(List.of(studentUser(), userB));

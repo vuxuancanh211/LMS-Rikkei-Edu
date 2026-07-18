@@ -14,6 +14,17 @@
     OTHER: { ic: "file",   bg: "#f1f5f9", fg: "#475569" },
   };
 
+  const LESSON_TYPE_BADGE = {
+    VIDEO: { bg: "#eaf1ff", fg: "#2563eb", ic: "video" },
+    QUIZ:  { bg: "#f3e8ff", fg: "#7e22ce", ic: "clipboard" },
+    OTHER: { bg: "#f0fdf4", fg: "#16a34a", ic: "book" },
+  };
+  function lessonBadge(lesson) {
+    if (lesson.lessonType === "QUIZ") return LESSON_TYPE_BADGE.QUIZ;
+    if ((lesson.resources || []).some(r => r.resourceType === "VIDEO")) return LESSON_TYPE_BADGE.VIDEO;
+    return LESSON_TYPE_BADGE.OTHER;
+  }
+
   function InlineEdit({ value, onSave, placeholder }: any) {
     const [editing, setEditing] = useState(false);
     const [val, setVal]         = useState(value);
@@ -60,11 +71,47 @@
     const [dragOverChapterIdx, setDragOverChapterIdx] = useState(null);
     const [dragLesson, setDragLesson] = useState(null); // { chapterId, index }
     const [dragOverLesson, setDragOverLesson] = useState(null); // { chapterId, index }
+    const [search, setSearch] = useState("");
+
+    const allLessons = chapters.flatMap((ch: any) => ch.items || []);
+    const allResources = allLessons.flatMap((l: any) => l.resources || []);
+    const stats = {
+      chapters: chapters.length,
+      lessons: allLessons.length,
+      video: allResources.filter((r: any) => r.resourceType === "VIDEO").length,
+      pdf: allResources.filter((r: any) => r.resourceType === "PDF").length,
+      doc: allResources.filter((r: any) => r.resourceType === "DOC" || r.resourceType === "SLIDE").length,
+    };
+    const emptyChapters = chapters.filter((ch: any) => (ch.items || []).length === 0).length;
+    const emptyLessons = allLessons.filter((l: any) => l.lessonType !== "QUIZ" && !(l.resources || []).length).length;
+    const publishIssues = emptyChapters + emptyLessons;
+
+    const q = search.trim().toLowerCase();
+    function chapterMatches(ch: any) {
+      if (!q) return true;
+      if (ch.name?.toLowerCase().includes(q)) return true;
+      return (ch.items || []).some((l: any) => l.title?.toLowerCase().includes(q));
+    }
+    function lessonMatches(l: any) {
+      if (!q) return true;
+      return l.title?.toLowerCase().includes(q);
+    }
 
     return (
       <Section>
-        <div className="between" style={{ marginBottom: 16 }}>
-          <h2 className="t-h2">Chương trình học</h2>
+        <div className="between wrap" style={{ marginBottom: 12, rowGap: 8 }}>
+          <div>
+            <h2 className="t-h2" style={{ marginBottom: 8 }}>Chương trình học</h2>
+            {chapters.length > 0 && (
+              <div className="row gap-14 wrap t-xs muted">
+                <span className="row gap-5"><Ic n="layers" size={13} />{stats.chapters} chương</span>
+                <span className="row gap-5"><Ic n="book" size={13} />{stats.lessons} bài giảng</span>
+                {stats.video > 0 && <span style={{ color: "#2563eb" }}>{stats.video} video</span>}
+                {stats.pdf > 0   && <span style={{ color: "#dc2626" }}>{stats.pdf} PDF</span>}
+                {stats.doc > 0   && <span style={{ color: "#1d4ed8" }}>{stats.doc} tài liệu</span>}
+              </div>
+            )}
+          </div>
           {canEdit && (
             <button className="btn btn-ghost btn-sm" onClick={() => setAddChapterOpen(true)}>
               <Ic n="plus" size={15} />Thêm chương
@@ -72,8 +119,38 @@
           )}
         </div>
 
+        {canEdit && publishIssues > 0 && (
+          <div className="row gap-10" style={{ padding: "10px 14px", borderRadius: 10, marginBottom: 14, background: "#fef9c3", color: "#854d0e" }}>
+            <Ic n="warn" size={15} style={{ flex: "none" }} />
+            <span className="t-xs">{publishIssues} chương/bài giảng chưa có nội dung — hãy bổ sung trước khi gửi duyệt.</span>
+          </div>
+        )}
+
+        {chapters.length > 0 && (
+          <div className="field-icon" style={{ marginBottom: 14 }}>
+            <Ic n="search" />
+            <input className="input" value={search} onChange={e => setSearch(e.target.value)} placeholder="Tìm chương/bài giảng theo tên..." />
+          </div>
+        )}
+
         {chapters.length === 0 && (
-          <Empty icon="layers" title="Chưa có chương nào" sub="Nhấn 'Thêm chương' để bắt đầu xây dựng nội dung." />
+          <div className="card card-pad" style={{ textAlign: "center", padding: "40px 24px" }}>
+            <div className="row gap-28" style={{ justifyContent: "center", marginBottom: 20 }}>
+              {["Thêm chương", "Thêm bài giảng", "Tải video/tài liệu"].map((step, i) => (
+                <div key={step} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, maxWidth: 130 }}>
+                  <div style={{ width: 32, height: 32, borderRadius: 999, background: "var(--accent-soft)", color: "var(--accent)",
+                    fontWeight: 700, fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center" }}>{i + 1}</div>
+                  <span className="t-xs muted">{step}</span>
+                </div>
+              ))}
+            </div>
+            <div className="t-sm muted" style={{ marginBottom: 16 }}>Chưa có chương nào. Bắt đầu xây dựng chương trình học của bạn.</div>
+            {canEdit && (
+              <button className="btn btn-primary btn-sm" onClick={() => setAddChapterOpen(true)}>
+                <Ic n="plus" size={14} />Thêm chương
+              </button>
+            )}
+          </div>
         )}
 
         {chapters.map((ch: any, ci: number) => (
@@ -86,6 +163,7 @@
               setDragChapterIdx(null); setDragOverChapterIdx(null);
             }}
             style={{
+              display: chapterMatches(ch) ? undefined : "none",
               border: dragOverChapterIdx === ci ? "1px solid var(--accent)" : "1px solid var(--border)", borderRadius: 12, marginBottom: 10,
               opacity: ch.pendingDelete ? 0.55 : dragChapterIdx === ci ? 0.4 : 1,
               outline: ch.isDraft ? "2px solid #22c55e" : ch.pendingDelete ? "2px solid #ef4444" : "none",
@@ -95,16 +173,23 @@
             <div className="row gap-12" style={{ padding: "12px 16px", background: "var(--surface-2)", cursor: "pointer", userSelect: "none" }}
               onClick={() => setOpen(open === ci ? -1 : ci)}>
               <Ic n="chevron_down" size={18} style={{ transform: open === ci ? "none" : "rotate(-90deg)", transition: ".2s", color: "var(--text-3)", flexShrink: 0 }} />
+              <div style={{ width: 26, height: 26, borderRadius: "50%", background: "var(--primary)", color: "#fff",
+                fontSize: 11.5, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>{ci + 1}</div>
               <div className="grow" style={{ fontWeight: 600, fontSize: 14.5, display: "flex", alignItems: "center", gap: 8 }}>
                 {canEdit
                   ? <InlineEdit value={ch.name} onSave={(t: string) => handleRenameChapter(ch.id, t)} placeholder="Tên chương..." />
                   : ch.name}
                 {ch.isDraft       && <span className="chip" style={{ fontSize: 10.5, padding: "1px 7px", background: "#dcfce7", color: "#16a34a", fontWeight: 700, flex: "none" }}>MỚI</span>}
                 {ch.pendingDelete && <span className="chip" style={{ fontSize: 10.5, padding: "1px 7px", background: "#fee2e2", color: "#dc2626", fontWeight: 700, flex: "none" }}>Chờ xóa</span>}
+                {ch.items.length === 0 && !ch.pendingDelete && <span className="chip" style={{ fontSize: 10, padding: "1px 7px", background: "#fef9c3", color: "#a16207", fontWeight: 700, flex: "none" }}>Chưa có bài giảng</span>}
               </div>
               <span className="muted t-xs">{ch.items.length} bài giảng</span>
               {canEdit && (
                 <div className="row gap-4" onClick={e => e.stopPropagation()}>
+                  <button className="btn btn-ghost btn-sm" style={{ height: 30, padding: "0 10px", fontSize: 12 }}
+                    onClick={() => setAddLessonState({ chapterId: ch.id })}>
+                    <Ic n="plus" size={13} />Bài giảng
+                  </button>
                   <div draggable
                     onDragStart={e => { setDragChapterIdx(ci); e.dataTransfer.effectAllowed = "move"; }}
                     onDragEnd={() => { setDragChapterIdx(null); setDragOverChapterIdx(null); }}
@@ -133,6 +218,7 @@
                   const hasResources = !isQuiz && lesson.resources?.length > 0;
                   const isDraggingThis = dragLesson?.chapterId === ch.id && dragLesson?.index === li;
                   const isDragOverThis = dragOverLesson?.chapterId === ch.id && dragOverLesson?.index === li;
+                  const badge = lessonBadge(lesson);
                   return (
                     <div key={lesson.lessonId}
                       onDragOver={e => {
@@ -147,6 +233,7 @@
                         setDragLesson(null); setDragOverLesson(null);
                       }}
                       style={{
+                      display: lessonMatches(lesson) ? undefined : "none",
                       margin: "0 10px 8px",
                       border: isDragOverThis ? "1px solid var(--accent)" : lesson.pendingDelete ? "1px dashed #fca5a5" : lesson.isDraft ? "1px solid #86efac" : "1px solid var(--border-soft, #e5e7eb)",
                       borderRadius: 10,
@@ -166,8 +253,8 @@
                           ? <Ic n="chevron_down" size={15} style={{ transform: lessonOpen ? "none" : "rotate(-90deg)", transition: ".18s", color: "var(--text-3)", flex: "none" }} />
                           : <div style={{ width: 15, flex: "none" }} />}
                         <div className="stat-ic" style={{ width: 34, height: 34, borderRadius: 8,
-                          background: isQuiz ? "#eaf1ff" : "#f0fdf4", color: isQuiz ? "#2563eb" : "#16a34a", flex: "none" }}>
-                          <Ic n={isQuiz ? "clipboard" : "book"} size={15} />
+                          background: badge.bg, color: badge.fg, flex: "none" }}>
+                          <Ic n={badge.ic} size={15} />
                         </div>
                         <div className="grow" style={{ minWidth: 0 }}>
                           <div style={{ fontWeight: 500, fontSize: 13.5, display: "flex", alignItems: "center", gap: 7 }} className="truncate"
@@ -201,6 +288,9 @@
                                 {videoCount > 0 && <span className="muted t-xs">{videoCount} video</span>}
                                 {docCount > 0   && <span className="muted t-xs">{docCount} tài liệu</span>}
                                 {lesson.dur     && <span className="muted t-xs">{lesson.dur}</span>}
+                                {videoCount === 0 && docCount === 0 && (
+                                  <span className="chip" style={{ fontSize: 10, padding: "1px 7px", background: "#fef9c3", color: "#a16207", fontWeight: 700 }}>Chưa có nội dung</span>
+                                )}
                               </>
                             )}
                           </div>
