@@ -98,6 +98,23 @@ class CsvImportServiceImplTest {
     }
 
     @Test
+    void preview_success_withBomHeader() {
+        var file = createCsvMock("test.csv",
+                """
+                \uFEFFfullname,email,phone
+                John,john@test.com,0934567890""");
+        when(userService.existsByEmail("john@test.com")).thenReturn(false);
+        when(userService.existsByPhoneNumber("0934567890")).thenReturn(false);
+        doNothing().when(redisService).set(anyString(), anyString(), anyLong());
+
+        CsvImportPreviewResponse result = service.preview(file, "STUDENT", null);
+
+        assertThat(result.getTotalRows()).isEqualTo(1);
+        assertThat(result.getValidCount()).isEqualTo(1);
+        assertThat(result.getRows().getFirst().getStatus()).isEqualTo("VALID");
+    }
+
+    @Test
     void preview_withFormatError() {
         var file = createCsvMock("test.csv",
                 """

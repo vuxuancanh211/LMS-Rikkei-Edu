@@ -716,6 +716,29 @@
       setNotifUnread(0);
     }
 
+    const refreshCourseProgress = useCallback(async () => {
+      if (!courseId) return;
+      try {
+        const r = await api.get(`/student/courses/${courseId}`);
+        setCourse(prev => prev ? {
+          ...prev,
+          completedAssignments: r.data?.completedAssignments ?? prev.completedAssignments,
+          totalAssignments: r.data?.totalAssignments ?? prev.totalAssignments,
+        } : r.data);
+      } catch { /* ignore */ }
+    }, [courseId]);
+
+    useEffect(() => {
+      const onFocus = () => refreshCourseProgress();
+      const onVisibility = () => { if (document.visibilityState === 'visible') refreshCourseProgress(); };
+      window.addEventListener('focus', onFocus);
+      document.addEventListener('visibilitychange', onVisibility);
+      return () => {
+        window.removeEventListener('focus', onFocus);
+        document.removeEventListener('visibilitychange', onVisibility);
+      };
+    }, [refreshCourseProgress]);
+
     /* Close dropdowns on outside click */
     useEffect(() => {
       const close = () => { setNotifOpen(false); setUserMenu(false); };
@@ -738,7 +761,11 @@
     const isVideoActive   = videoResources.length > 0;
     const videoUrl        = activeVideoRes ? (resUrls[activeVideoRes.id]?.url || activeVideoRes?.externalUrl) : null;
     const completedCount  = useMemo(() => allLessons.filter(l => l.progress === "COMPLETED").length, [allLessons]);
-    const progressPct     = useMemo(() => totalLessons > 0 ? Math.round((completedCount / totalLessons) * 100) : 0, [completedCount, totalLessons]);
+    const completedAssignments = course?.completedAssignments ?? 0;
+    const totalAssignments = course?.totalAssignments ?? 0;
+    const progressCompleted = completedCount + completedAssignments;
+    const progressTotal = totalLessons + totalAssignments;
+    const progressPct = progressTotal > 0 ? Math.round((progressCompleted / progressTotal) * 100) : 0;
 
     const assignIdx      = useMemo(() => assignments.findIndex(a => a.id === selectedAssignmentId), [assignments, selectedAssignmentId]);
     const prevAssignment = assignIdx > 0 ? assignments[assignIdx - 1] : null;
@@ -1483,10 +1510,12 @@
                   courseId,
                   role: "student",
                   onBack: () => {
+                    refreshCourseProgress();
                     setActiveView("lesson");
                     setSelectedAssignmentId(null);
                     setSidebarTab("lessons");
                   },
+                  onChanged: refreshCourseProgress,
                 })
               ) : !activeL ? (
                 <div style={{ textAlign: "center", padding: 60, color: "#94a3b8" }}>
@@ -1692,7 +1721,7 @@
               <div style={{ marginBottom: 16 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#94a3b8", marginBottom: 4 }}>
                   <span>Tiến độ</span>
-                  <span>{progressPct}% ({completedCount + (course?.completedAssignments ?? 0)}/{totalLessons + (course?.totalAssignments ?? 0)})</span>
+                  <span>{progressPct}% ({progressCompleted}/{progressTotal})</span>
                 </div>
                 <div style={{ height: 4, borderRadius: 999, background: "rgba(255,255,255,.1)", overflow: "hidden" }}>
                   <div style={{ width: `${progressPct}%`, height: "100%", background: "#10b981", borderRadius: 999, transition: "width .3s" }} />
