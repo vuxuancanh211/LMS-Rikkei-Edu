@@ -222,6 +222,51 @@ class StudentAssignmentServiceImplTest {
         assertThat(result.get(0).getPassScore()).isEqualByComparingTo(BigDecimal.valueOf(5));
     }
 
+    @Test
+    void getAllAssignments_noEnrolledCourses_returnsEmptyList() {
+        when(courseEnrollmentRepository.findCourseIdsByStudentId(studentId)).thenReturn(List.of());
+
+        List<StudentAssignmentListResponse> result = service.getAllAssignments(studentId);
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    void getAllAssignments_returnsAccessibleAssignmentsWithCourseTitle() {
+        UUID otherCourseId = UUID.randomUUID();
+        UUID otherAssignmentId = UUID.randomUUID();
+        var assignment = assignmentEntity(AssignmentStatus.PUBLISHED);
+        var otherAssignment = assignmentEntity(AssignmentStatus.PUBLISHED);
+        otherAssignment.setId(otherAssignmentId);
+        otherAssignment.setCourseId(otherCourseId);
+        var otherCourse = new Course();
+        otherCourse.setId(otherCourseId);
+        otherCourse.setTitle("Other Course");
+        var submission = new AssignmentSubmissionEntity();
+        submission.setAssignmentId(otherAssignmentId);
+        submission.setStatus("SUBMITTED");
+
+        when(courseEnrollmentRepository.findCourseIdsByStudentId(studentId))
+                .thenReturn(List.of(courseId, otherCourseId));
+        when(courseRepository.findAllById(List.of(courseId, otherCourseId)))
+                .thenReturn(List.of(course(), otherCourse));
+        when(assignmentRepository.findByCourseIdInOrderByCreatedAtDesc(List.of(courseId, otherCourseId)))
+                .thenReturn(List.of(assignment, otherAssignment));
+        when(groupMemberRepository.findGroupIdsByStudentIdAndCourseId(studentId, courseId))
+                .thenReturn(List.of());
+        when(groupMemberRepository.findGroupIdsByStudentIdAndCourseId(studentId, otherCourseId))
+                .thenReturn(List.of());
+        when(assignmentSubmissionRepository.findByStudentIdAndAssignmentIdIn(studentId, List.of(assignmentId, otherAssignmentId)))
+                .thenReturn(List.of(submission));
+
+        List<StudentAssignmentListResponse> result = service.getAllAssignments(studentId);
+
+        assertThat(result).hasSize(2);
+        assertThat(result).extracting(StudentAssignmentListResponse::getCourseTitle)
+                .containsExactly("Course Title", "Other Course");
+        assertThat(result.get(1).getSubmissionStatus()).isEqualTo("SUBMITTED");
+    }
+
     // ── getAssignmentDetail ────────────────────────────────────────────────
 
     @Test
