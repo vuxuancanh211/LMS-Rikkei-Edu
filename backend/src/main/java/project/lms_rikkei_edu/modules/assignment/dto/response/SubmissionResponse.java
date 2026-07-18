@@ -13,12 +13,12 @@ import java.util.UUID;
 public class SubmissionResponse {
 
     private UUID id;
-    private int submissionNumber;
     private String status;
     private String note;
     private boolean isLate;
     private BigDecimal score;
     private String feedback;
     private OffsetDateTime submittedAt;
+    private OffsetDateTime scorePublishedAt;
     private List<SubmissionFileResponse> files;
 }

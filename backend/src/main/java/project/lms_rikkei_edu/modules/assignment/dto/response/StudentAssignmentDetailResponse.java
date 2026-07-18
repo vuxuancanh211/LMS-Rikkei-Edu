@@ -25,9 +25,9 @@ public class StudentAssignmentDetailResponse {
     private Boolean allowLateSubmission;
     private Integer latePenaltyPercent;
     private BigDecimal maxScore;
+    private BigDecimal passScore;
     private Integer maxFileSizeMb;
     private List<String> allowedFileTypes;
-    private Integer maxSubmissions;
     private OffsetDateTime publishedAt;
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;

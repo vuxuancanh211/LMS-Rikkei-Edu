@@ -5,6 +5,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import project.lms_rikkei_edu.modules.dashboard.dto.response.*;
 import project.lms_rikkei_edu.modules.dashboard.service.InstructorDashboardService;
+import project.lms_rikkei_edu.modules.dashboard.util.DashboardChartUtils;
 
 import java.time.Instant;
 import java.time.ZoneId;
@@ -16,19 +17,27 @@ import java.util.*;
 public class InstructorDashboardServiceImpl implements InstructorDashboardService {
 
     private final JdbcTemplate jdbc;
-    private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm").withZone(ZoneId.systemDefault());
+    private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm").withZone(ZoneId.of("Asia/Ho_Chi_Minh"));
 
     @Override
     public InstructorDashboardStatsResponse getStats(UUID instructorId) {
-        Integer activeCoursesCount = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM courses WHERE instructor_id = ? AND status IN ('PUBLISHED', 'ACTIVE')",
-                Integer.class, instructorId);
-        if (activeCoursesCount == null) activeCoursesCount = 0;
-
-        Integer pendingCoursesCount = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM courses WHERE instructor_id = ? AND status = 'PENDING_APPROVAL'",
-                Integer.class, instructorId);
-        if (pendingCoursesCount == null) pendingCoursesCount = 0;
+        Map<String, Integer> courseCounts = java.util.Optional.ofNullable(jdbc.query("""
+                SELECT
+                    COUNT(CASE WHEN status IN ('PUBLISHED', 'ACTIVE') THEN 1 END) AS active_cnt,
+                    COUNT(CASE WHEN status = 'PENDING_APPROVAL' THEN 1 END) AS pending_cnt
+                FROM courses
+                WHERE instructor_id = ?
+                """, rs -> {
+            if (rs.next()) {
+                return Map.of(
+                        "active", rs.getInt("active_cnt"),
+                        "pending", rs.getInt("pending_cnt")
+                );
+            }
+            return Map.of("active", 0, "pending", 0);
+        }, instructorId)).orElseGet(Map::of);
+        int activeCoursesCount = courseCounts.getOrDefault("active", 0);
+        int pendingCoursesCount = courseCounts.getOrDefault("pending", 0);
 
         Integer totalStudentsCount = jdbc.queryForObject("""
                 SELECT COUNT(DISTINCT ce.student_id)
@@ -72,20 +81,8 @@ public class InstructorDashboardServiceImpl implements InstructorDashboardServic
     @Override
     public InstructorDashboardChartResponse getCompletionChart(UUID instructorId) {
         List<Double> monthlyCompletionRates = new ArrayList<>(Collections.nCopies(6, 0.0));
-        List<String> monthlyLabels = new ArrayList<>();
-        Map<String, Integer> ymToIndex = new HashMap<>();
-
-        String[] EN_MONTHS = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
-        Calendar cal = Calendar.getInstance();
-        for (int i = 5; i >= 0; i--) {
-            Calendar c = (Calendar) cal.clone();
-            c.add(Calendar.MONTH, -i);
-            int month = c.get(Calendar.MONTH);
-            int year = c.get(Calendar.YEAR);
-            String ym = String.format("%04d-%02d", year, month + 1);
-            monthlyLabels.add(EN_MONTHS[month]);
-            ymToIndex.put(ym, 5 - i);
-        }
+        List<String> monthlyLabels = DashboardChartUtils.getMonthlyLabels(6);
+        Map<String, Integer> ymToIndex = DashboardChartUtils.getYearMonthToIndexMap(6);
 
         jdbc.query("""
                 SELECT TO_CHAR(cp.updated_at, 'YYYY-MM') AS ym, COALESCE(AVG(cp.overall_percentage), 0.0) AS rate

@@ -3,7 +3,7 @@
   const { useState, useEffect } = React;
   const Ic = window.Icon;
   const { Search, Select, Modal, ModalHead, Empty } = window;
-  const { getGroups, createGroup, updateGroup, deleteGroup, getUnassignedStudents } = window.__groupService;
+  const { getGroups, createGroup, updateGroup, deleteGroup, getUnassignedStudents, addGroupMembers } = window.__groupService;
   const { getMyCourseOptions } = window.__courseService;
 
   function hasSearchText(value) {
@@ -38,6 +38,10 @@
     const [activeTab, setActiveTab] = useState("groups");
     const [unassignedStudents, setUnassignedStudents] = useState([]);
     const [unassignedLoading, setUnassignedLoading] = useState(false);
+    const [selectedUnassigned, setSelectedUnassigned] = useState([]);
+    const [assignModalOpen, setAssignModalOpen] = useState(false);
+    const [assignSuccess, setAssignSuccess] = useState("");
+    const [unassignedQ, setUnassignedQ] = useState("");
 
     const today = new Date().toISOString().split("T")[0];
 
@@ -81,9 +85,9 @@
     useEffect(() => { load(); }, [q, courseFilter, refreshKey]);
 
     useEffect(() => {
-      if (activeTab !== "unassigned" || courseFilter === "all") return;
+      if (activeTab !== "unassigned") return;
       setUnassignedLoading(true);
-      getUnassignedStudents(courseFilter)
+      getUnassignedStudents(courseFilter !== "all" ? courseFilter : undefined)
         .then(res => setUnassignedStudents(res || []))
         .catch(() => setUnassignedStudents([]))
         .finally(() => setUnassignedLoading(false));
@@ -196,10 +200,15 @@
 
     const courseOpts = courses.map(c => ({ v: c.id, label: c.title }));
 
-    const pgUnassigned = window.usePaged(unassignedStudents, 10);
+    const unassignedFiltered = unassignedQ
+      ? unassignedStudents.filter(s =>
+          s.fullName?.toLowerCase().includes(unassignedQ.toLowerCase()) ||
+          s.email?.toLowerCase().includes(unassignedQ.toLowerCase()))
+      : unassignedStudents;
+    const pgUnassigned = window.usePaged(unassignedFiltered, 10);
 
     function exportUnassignedCsv() {
-      const courseTitle = courses.find(c => c.id === courseFilter)?.title || "unknown";
+      const courseTitle = courseFilter !== "all" && courses.find(c => c.id === courseFilter)?.title || "tat_ca_khoa_hoc";
       const csv = unassignedStudents.map(s => s.email).join("\n");
       const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" });
       const url = URL.createObjectURL(blob);
@@ -209,6 +218,40 @@
       a.click();
       URL.revokeObjectURL(url);
     }
+
+    const isAllSelected = pgUnassigned.slice.length > 0 && pgUnassigned.slice.every(s => selectedUnassigned.find(x => x.id === s.id));
+    const toggleSelectAll = () => {
+      if (isAllSelected) {
+        setSelectedUnassigned(prev => prev.filter(s => !pgUnassigned.slice.find(x => x.id === s.id)));
+      } else {
+        const currentIds = new Set(pgUnassigned.slice.map(s => s.id));
+        setSelectedUnassigned(prev => [...prev.filter(s => !currentIds.has(s.id)), ...pgUnassigned.slice]);
+      }
+    };
+    const toggleSelectStudent = (s) => {
+      setSelectedUnassigned(prev => {
+        const exists = prev.find(x => x.id === s.id);
+        if (exists) return prev.filter(x => x.id !== s.id);
+        return [...prev, s];
+      });
+    };
+
+    const openAssignModal = () => {
+      if (selectedUnassigned.length === 0) return;
+      setAssignSuccess("");
+      setAssignModalOpen(true);
+    };
+
+    const handleAssignSuccess = () => {
+      setAssignModalOpen(false);
+      const count = selectedUnassigned.length;
+      setSelectedUnassigned([]);
+      setAssignSuccess(`Đã thêm ${count} học viên vào nhóm thành công`);
+      getUnassignedStudents(courseFilter !== "all" ? courseFilter : undefined)
+        .then(res => setUnassignedStudents(res || []))
+        .catch(() => setUnassignedStudents([]));
+      setTimeout(() => setAssignSuccess(""), 4000);
+    };
 
     const tabStyle = (tab) => ({
       flex: 1, height: 38, border: "none", background: "transparent",
@@ -278,19 +321,23 @@
         ) : (
           <>
             <div className="toolbar">
-              <div style={{ flex: 1 }} />
+              <Search placeholder="Tìm học viên..." value={unassignedQ} onChange={setUnassignedQ} />
               <Select value={courseFilter} onChange={setCourseFilter} options={[{ v: "all", label: "Tất cả khóa học" }, ...courseOpts]} style={{ width: 220, flex: "none" }} />
               {unassignedStudents.length > 0 && (
                 <button className="btn btn-ghost" onClick={exportUnassignedCsv}>
                   <Ic n="download" size={15} />Xuất CSV
                 </button>
               )}
+              {courseFilter !== "all" && selectedUnassigned.length > 0 && (
+                <button className="btn btn-primary" onClick={openAssignModal}>
+                  <Ic n="plus" size={15} />Thêm vào nhóm ({selectedUnassigned.length})
+                </button>
+              )}
             </div>
-            {courseFilter === "all" ? (
-              <div style={{ display: "flex", justifyContent: "center", alignItems: "center", minHeight: 200, color: "#94a3b8", fontSize: 13 }}>
-                Vui lòng chọn một khóa học để xem danh sách sinh viên chưa có nhóm
-              </div>
-            ) : unassignedLoading ? (
+            {assignSuccess && (
+              <div style={{ padding: "10px 14px", borderRadius: 8, background: "#e7f8f0", color: "#059669", fontSize: 14, marginBottom: 16 }}>{assignSuccess}</div>
+            )}
+            {unassignedLoading ? (
               <div className="t-center muted" style={{ display: "flex", justifyContent: "center", alignItems: "center", minHeight: 200 }}>Đang tải...</div>
             ) : pgUnassigned.slice.length === 0 ? (
               <div style={{ display: "flex", justifyContent: "center", alignItems: "center", minHeight: 200 }}>
@@ -298,30 +345,42 @@
               </div>
             ) : (
               <>
-                <div style={{ border: "1px solid #e2e8f0", borderRadius: 10, overflow: "hidden", background: "#fff" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 14px",
+                <div style={{ border: "1px solid #e2e8f0", borderRadius: 10, overflowX: "auto", background: "#fff" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", minWidth: 700,
                     background: "#f8fafc", borderBottom: "1px solid #e2e8f0", fontSize: 11, fontWeight: 600, color: "#64748b" }}>
-                    <span style={{ width: 36, flexShrink: 0, textAlign: "center" }}>STT</span>
-                    <span style={{ flex: 1 }}>Học viên</span>
-                    <span style={{ width: 200 }}>Email</span>
-                    <span style={{ width: 140 }}>SĐT</span>
+                    {courseFilter !== "all" && (
+                      <span style={{ width: 36, flexShrink: 0, textAlign: "center" }}>
+                        {pgUnassigned.slice.length > 0 ? (
+                          <input type="checkbox" checked={isAllSelected} onChange={toggleSelectAll}
+                            style={{ accentColor: "#2563eb", cursor: "pointer", width: 16, height: 16 }} />
+                        ) : null}
+                      </span>
+                    )}
+                    <span style={{ width: 32, flexShrink: 0, textAlign: "center" }}>STT</span>
+                    <span style={{ flex: "1 1 180px", minWidth: 120 }}>Học viên</span>
+                    <span style={{ flex: "1.5 1 200px", minWidth: 140 }}>Email</span>
+                    <span style={{ flex: "0.8 1 100px", minWidth: 80 }}>SĐT</span>
+                    <span style={{ flex: "1.2 1 160px", minWidth: 120 }}>Khóa học</span>
                   </div>
                   {pgUnassigned.slice.map((s, i) => (
-                    <div key={s.id}
-                      style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px",
-                        borderBottom: i < pgUnassigned.slice.length - 1 ? "1px solid #f1f5f9" : "none" }}>
-                      <span style={{ width: 36, flexShrink: 0, textAlign: "center", fontSize: 12, color: "#94a3b8" }}>
+                    <div key={s.id + '-' + s.courseId}
+                      style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", minWidth: 700,
+                        borderBottom: i < pgUnassigned.slice.length - 1 ? "1px solid #f1f5f9" : "none",
+                        background: selectedUnassigned.find(x => x.id === s.id) ? "#eef2ff" : "transparent" }}>
+                      {courseFilter !== "all" && (
+                        <span style={{ width: 36, flexShrink: 0, textAlign: "center" }}>
+                          <input type="checkbox" checked={!!selectedUnassigned.find(x => x.id === s.id)}
+                            onChange={() => toggleSelectStudent(s)}
+                            style={{ accentColor: "#2563eb", cursor: "pointer", width: 16, height: 16 }} />
+                        </span>
+                      )}
+                      <span style={{ width: 32, flexShrink: 0, textAlign: "center", fontSize: 12, color: "#94a3b8" }}>
                         {pgUnassigned.from + i}
                       </span>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0 }}>
-                        <div style={{ width: 32, height: 32, borderRadius: 999, background: "#e2e8f0",
-                          display: "grid", placeItems: "center", fontSize: 11, fontWeight: 700, color: "#64748b", flexShrink: 0 }}>
-                          {s.fullName?.charAt(0)?.toUpperCase() || "?"}
-                        </div>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: "#0f172a" }} className="truncate">{s.fullName}</span>
-                      </div>
-                      <span style={{ width: 200, fontSize: 12, color: "#94a3b8" }}>{s.email}</span>
-                      <span style={{ width: 140, fontSize: 12, color: "#475569" }}>{s.phoneNumber || "—"}</span>
+                      <span style={{ flex: "1 1 180px", minWidth: 120, fontSize: 13, fontWeight: 600, color: "#0f172a", wordBreak: "break-word" }}>{s.fullName}</span>
+                      <span style={{ flex: "1.5 1 200px", minWidth: 140, fontSize: 12, color: "#94a3b8", wordBreak: "break-word" }}>{s.email}</span>
+                      <span style={{ flex: "0.8 1 100px", minWidth: 80, fontSize: 12, color: "#475569" }}>{s.phoneNumber || "—"}</span>
+                      <span style={{ flex: "1.2 1 160px", minWidth: 120, fontSize: 12, color: "#475569", wordBreak: "break-word" }}>{s.courseTitle}</span>
                     </div>
                   ))}
                 </div>
@@ -375,6 +434,16 @@
             </button>
           </div>
         </Modal>
+        <AssignToGroupModal
+          open={assignModalOpen}
+          onClose={() => setAssignModalOpen(false)}
+          courseId={courseFilter}
+          selectedStudents={selectedUnassigned}
+          onSuccess={handleAssignSuccess}
+          getGroups={getGroups}
+          addGroupMembers={addGroupMembers}
+          Ic={Ic}
+        />
         <Modal open={!!editTarget} onClose={() => { if (!editing) setEditTarget(null); }}>
           <ModalHead title="Chỉnh sửa nhóm" sub={editTarget ? `Cập nhật thông tin nhóm "${editTarget.name}"` : ""} icon="edit" iconBg="#eaf1ff" iconColor="#2563eb" onClose={() => { if (!editing) setEditTarget(null); }} />
           <form name="editGroupForm" onSubmit={e => { e.preventDefault(); handleEditSubmit(); }}>
@@ -392,6 +461,142 @@
           </form>
         </Modal>
       </div>
+    );
+  }
+
+  function AssignToGroupModal({ open, onClose, courseId, selectedStudents, onSuccess, getGroups, addGroupMembers, Ic }) {
+    const [groups, setGroups] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [selectedGroup, setSelectedGroup] = useState(null);
+    const [adding, setAdding] = useState(false);
+    const [error, setError] = useState("");
+    const [activeTab, setActiveTab] = useState("can");
+
+    useEffect(() => {
+      if (!open) {
+        setGroups([]);
+        setSelectedGroup(null);
+        setAdding(false);
+        setError("");
+        setActiveTab("can");
+        return;
+      }
+      setLoading(true);
+      getGroups({ courseId, size: 100 })
+        .then(res => setGroups(res.content || []))
+        .catch(() => setGroups([]))
+        .finally(() => setLoading(false));
+    }, [open, courseId]);
+
+    const selectedCount = selectedStudents?.length || 0;
+
+    const enriched = groups.map(g => {
+      const maxCap = g.maxCapacity || Infinity;
+      const remaining = maxCap - g.memberCount;
+      return { ...g, remaining, canAdd: remaining >= selectedCount && g.status !== "COMPLETED" };
+    });
+
+    const canAddGroups = enriched.filter(g => g.canAdd);
+    const cannotAddGroups = enriched.filter(g => !g.canAdd);
+
+    const handleAdd = async () => {
+      if (!selectedGroup || adding) return;
+      setAdding(true);
+      setError("");
+      try {
+        const emails = selectedStudents.map(s => s.email);
+        await addGroupMembers(selectedGroup.id, { emails });
+        onSuccess();
+      } catch (err) {
+        const msg = err?.response?.data?.message || err?.message || "Có lỗi xảy ra";
+        setError(msg);
+      } finally {
+        setAdding(false);
+      }
+    };
+
+    const groupStatusColor = { UPCOMING: "warning", ACTIVE: "success", COMPLETED: "muted" };
+    const groupStatusLabel = { UPCOMING: "Sắp diễn ra", ACTIVE: "Đang hoạt động", COMPLETED: "Đã kết thúc" };
+
+    return (
+      <Modal open={open} onClose={onClose} max="600px">
+        <ModalHead title="Chọn nhóm để thêm" sub={`Đã chọn ${selectedCount} học viên — chọn nhóm để xếp vào`} icon="layers" iconBg="#eaf1ff" iconColor="#2563eb" onClose={onClose} />
+        <div className="modal-body" style={{ minHeight: 320 }}>
+          {error && <div style={{ padding: "10px 14px", borderRadius: 8, background: "#fef2f2", color: "#b91c1c", fontSize: 14, marginBottom: 12 }}>{error}</div>}
+          {loading ? (
+            <div className="t-center muted" style={{ padding: 60 }}>Đang tải danh sách nhóm...</div>
+          ) : groups.length === 0 ? (
+            <div className="t-center muted" style={{ padding: 60 }}>Chưa có nhóm nào trong khóa học này</div>
+          ) : (
+            <>
+              <div className="row gap-8" style={{ marginBottom: 12 }}>
+                <button className={activeTab === "can" ? "btn btn-primary btn-sm" : "btn btn-ghost btn-sm"}
+                  onClick={() => { setActiveTab("can"); setSelectedGroup(null); }}>
+                  Có thể thêm ({canAddGroups.length})
+                </button>
+                <button className={activeTab === "cannot" ? "btn btn-primary btn-sm" : "btn btn-ghost btn-sm"}
+                  onClick={() => { setActiveTab("cannot"); setSelectedGroup(null); }}>
+                  Không thể thêm ({cannotAddGroups.length})
+                </button>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 360, overflowY: "auto" }}>
+                {(activeTab === "can" ? canAddGroups : cannotAddGroups).map(g => {
+                  const isSel = selectedGroup?.id === g.id;
+                  const cannotReason = !g.canAdd ? (
+                    g.status === "COMPLETED" ? "Nhóm đã kết thúc" :
+                    g.remaining < selectedCount ? `Chỉ còn ${g.remaining} chỗ trống` : ""
+                  ) : null;
+                  return (
+                    <div key={g.id} onClick={() => { if (g.canAdd) setSelectedGroup(g); }}
+                      style={{
+                        display: "flex", alignItems: "center", gap: 12, padding: "12px 14px",
+                        borderRadius: 10, cursor: g.canAdd ? "pointer" : "default",
+                        border: `1.5px solid ${isSel ? "#2563eb" : "#e2e8f0"}`,
+                        background: isSel ? "#eef2ff" : "#fff",
+                        opacity: !g.canAdd ? 0.6 : 1,
+                        transition: ".13s"
+                      }}>
+                      <span style={{ width: 22, flex: "none", display: "grid", placeItems: "center" }}>
+                        {g.canAdd ? (
+                          <span style={{
+                            width: 18, height: 18, borderRadius: 999,
+                            border: `2px solid ${isSel ? "#2563eb" : "#cbd5e1"}`,
+                            background: isSel ? "#2563eb" : "transparent",
+                            display: "grid", placeItems: "center"
+                          }}>
+                            {isSel && <span style={{ width: 6, height: 6, borderRadius: 999, background: "#fff" }} />}
+                          </span>
+                        ) : (
+                          <Ic n="x" size={16} style={{ color: "#dc2626" }} />
+                        )}
+                      </span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div className="row gap-8" style={{ alignItems: "center" }}>
+                          <span style={{ fontSize: 14, fontWeight: 700, color: "#0f172a" }}>{g.name}</span>
+                          <span className={"chip chip-" + groupStatusColor[g.status]} style={{ fontSize: 10 }}>
+                            {groupStatusLabel[g.status]}
+                          </span>
+                        </div>
+                        <div style={{ display: "flex", gap: 16, marginTop: 4, fontSize: 12, color: "#64748b" }}>
+                          <span><Ic n="calendar" size={12} style={{ marginRight: 4 }} />{g.startDate}{g.endDate ? ` – ${g.endDate}` : ""}</span>
+                          <span><Ic n="users" size={12} style={{ marginRight: 4 }} />{g.memberCount}/{g.maxCapacity || "∞"}{g.canAdd ? ` (còn ${g.remaining} chỗ)` : ""}</span>
+                        </div>
+                        {cannotReason && <div style={{ marginTop: 4, fontSize: 12, color: "#dc2626" }}>{cannotReason}</div>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </div>
+        <div className="modal-foot">
+          <button className="btn btn-ghost" onClick={onClose} disabled={adding}>Hủy</button>
+          <button className="btn btn-primary" disabled={!selectedGroup || adding || activeTab === "cannot"} onClick={handleAdd}>
+            {adding ? "Đang thêm..." : selectedGroup ? `Thêm vào "${selectedGroup.name}"` : "Chọn nhóm để thêm"}
+          </button>
+        </div>
+      </Modal>
     );
   }
 

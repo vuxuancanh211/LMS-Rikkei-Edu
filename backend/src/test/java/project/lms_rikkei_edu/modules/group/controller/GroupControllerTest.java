@@ -20,7 +20,6 @@ import project.lms_rikkei_edu.modules.group.dto.request.UpdateGroupRequest;
 import project.lms_rikkei_edu.modules.group.dto.response.GroupDetailResponse;
 import project.lms_rikkei_edu.modules.group.dto.response.GroupMemberResponse;
 import project.lms_rikkei_edu.modules.group.dto.response.GroupResponse;
-import project.lms_rikkei_edu.modules.group.dto.response.StudentSearchResponse;
 import project.lms_rikkei_edu.modules.group.service.GroupService;
 
 import java.time.LocalDate;
@@ -187,22 +186,6 @@ class GroupControllerTest {
     }
 
     @Nested
-    class SearchStudents {
-
-        @Test
-        void returns200_withSearchResults() throws Exception {
-            when(groupService.searchStudentsByEmail("student@example.com"))
-                    .thenReturn(List.of(studentSearchResponse()));
-
-            mockMvc.perform(get("/api/instructor/groups/students/search")
-                            .param("email", "student@example.com"))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$", hasSize(1)))
-                    .andExpect(jsonPath("$[0].email").value("student@example.com"));
-        }
-    }
-
-    @Nested
     class AddMembers {
 
         @Test
@@ -299,15 +282,6 @@ class GroupControllerTest {
                 .studentEmail("student@example.com")
                 .avatarUrl(null)
                 .joinedAt(OffsetDateTime.now())
-                .build();
-    }
-
-    private StudentSearchResponse studentSearchResponse() {
-        return StudentSearchResponse.builder()
-                .id(studentId)
-                .email("student@example.com")
-                .fullName("Student One")
-                .avatarUrl(null)
                 .build();
     }
 }

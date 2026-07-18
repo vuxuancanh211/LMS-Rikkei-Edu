@@ -82,18 +82,6 @@ class AdminDashboardControllerTest {
     }
 
     @Test
-    void getRecentActivities_ShouldReturnOk() {
-        java.util.List<project.lms_rikkei_edu.modules.dashboard.dto.response.SystemActivityDto> mockResponse = java.util.Collections.emptyList();
-        when(adminDashboardService.getRecentActivities()).thenReturn(mockResponse);
-
-        ResponseEntity<java.util.List<project.lms_rikkei_edu.modules.dashboard.dto.response.SystemActivityDto>> result = adminDashboardController.getRecentActivities();
-
-        assertNotNull(result);
-        assertEquals(200, result.getStatusCode().value());
-        assertEquals(mockResponse, result.getBody());
-    }
-
-    @Test
     void getUsersChart_ShouldReturnOk() {
         project.lms_rikkei_edu.modules.dashboard.dto.response.AdminDashboardUsersChartResponse mockResponse = new project.lms_rikkei_edu.modules.dashboard.dto.response.AdminDashboardUsersChartResponse();
         when(adminDashboardService.getUsersChart()).thenReturn(mockResponse);

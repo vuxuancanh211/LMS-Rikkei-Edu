@@ -6,6 +6,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import java.util.UUID;
 
+@Deprecated(since = "1.0", forRemoval = true)
 @Data
 @Builder
 @NoArgsConstructor

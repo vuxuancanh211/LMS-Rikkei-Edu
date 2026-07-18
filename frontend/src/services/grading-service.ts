@@ -12,7 +12,6 @@ export interface BatchReleaseRequest {
 
 export interface InstructorSubmissionResponse {
   id: string;
-  submissionNumber: number;
   status: string;
   note: string | null;
   late: boolean;
@@ -30,7 +29,6 @@ export interface InstructorSubmissionResponse {
   assignmentId: string;
   assignmentTitle: string | null;
   assignmentMaxScore: number | null;
-  assignmentMaxSubmissions: number | null;
 
   courseId: string;
   courseTitle: string | null;

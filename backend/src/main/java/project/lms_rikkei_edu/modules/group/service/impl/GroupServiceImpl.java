@@ -38,20 +38,20 @@ import project.lms_rikkei_edu.modules.notification.enums.NotificationType;
 import project.lms_rikkei_edu.modules.notification.service.NotificationPreferenceService;
 import project.lms_rikkei_edu.modules.notification.service.NotificationService;
 import project.lms_rikkei_edu.modules.user.entity.UserEntity;
-import project.lms_rikkei_edu.modules.user.enums.UserRole;
 import project.lms_rikkei_edu.modules.user.repository.UserRepository;
 
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.UUID;
+import java.util.Optional;
 import java.util.Collections;
+import java.util.UUID;
+import java.util.stream.Collectors;
 
 @RequiredArgsConstructor
 @Service
@@ -59,6 +59,9 @@ public class GroupServiceImpl implements GroupService {
 
     private static final String GROUP_REFERENCE_TYPE = "GROUP";
     private static final String COURSE_TITLE_SEPARATOR = "\" của khóa học \"";
+    private static final String COURSE_NOT_FOUND = "Course not found";
+    private static final String CANNOT_CREATE_GROUP_FOR_OTHER_COURSES = "You can only create groups for your own courses";
+    private static final String COURSE_FIELD = "course";
 
     private final StudyGroupRepository studyGroupRepository;
     private final GroupMemberRepository groupMemberRepository;
@@ -78,7 +81,16 @@ public class GroupServiceImpl implements GroupService {
         UserPrincipal currentUser = requireCurrentUser();
         Specification<StudyGroupEntity> spec = groupSearchSpec(currentUser.getId(), courseId, keyword);
         Page<StudyGroupEntity> groupPage = studyGroupRepository.findAll(spec, pageable);
-        return groupPage.map(this::toGroupResponse);
+        if (groupPage.isEmpty()) {
+            return groupPage.map(g -> null);
+        }
+        List<UUID> groupIds = groupPage.getContent().stream().map(StudyGroupEntity::getId).toList();
+        Map<UUID, Long> memberCountMap = groupMemberRepository.countByGroupIds(groupIds).stream()
+                .collect(Collectors.toMap(
+                        row -> (UUID) row[0],
+                        row -> ((Number) row[1]).longValue()
+                ));
+        return groupPage.map(group -> toGroupResponse(group, memberCountMap.getOrDefault(group.getId(), 0L).intValue()));
     }
 
     @Override
@@ -97,11 +109,11 @@ public class GroupServiceImpl implements GroupService {
         UserPrincipal currentUser = requireCurrentUser();
 
         Course course = courseRepository.findById(request.getCourseId())
-                .orElseThrow(() -> new BusinessException("Course not found", HttpStatus.NOT_FOUND));
+                .orElseThrow(() -> new BusinessException(COURSE_NOT_FOUND, HttpStatus.NOT_FOUND));
 
         if (!course.getInstructorId().equals(currentUser.getId())
                 && currentUser.getRole().name().equals("INSTRUCTOR")) {
-            throw new BusinessException("You can only create groups for your own courses", HttpStatus.FORBIDDEN);
+            throw new BusinessException(CANNOT_CREATE_GROUP_FOR_OTHER_COURSES, HttpStatus.FORBIDDEN);
         }
 
         LocalDate today = LocalDate.now(ZoneId.systemDefault());
@@ -272,9 +284,6 @@ public class GroupServiceImpl implements GroupService {
         if (!toCreate.isEmpty()) {
             courseEnrollmentRepository.saveAll(toCreate);
         }
-        if (studentIds != null && !studentIds.isEmpty()) {
-            studentCourseService.resetProgressForStudents(courseId, studentIds);
-        }
     }
 
     private void notifyAddedMembers(StudyGroupEntity group, List<GroupMemberEntity> members, UserPrincipal actor) {
@@ -350,9 +359,18 @@ public class GroupServiceImpl implements GroupService {
     @Transactional(readOnly = true)
     public List<GroupResponse> getStudentGroups() {
         UserPrincipal currentUser = requireCurrentUser();
-        return studyGroupRepository.findByStudentId(currentUser.getId())
-                .stream()
-                .map(this::toGroupResponse)
+        List<StudyGroupEntity> groups = studyGroupRepository.findByStudentId(currentUser.getId());
+        if (groups.isEmpty()) {
+            return List.of();
+        }
+        List<UUID> groupIds = groups.stream().map(StudyGroupEntity::getId).toList();
+        Map<UUID, Long> memberCountMap = groupMemberRepository.countByGroupIds(groupIds).stream()
+                .collect(Collectors.toMap(
+                        row -> (UUID) row[0],
+                        row -> ((Number) row[1]).longValue()
+                ));
+        return groups.stream()
+                .map(group -> toGroupResponse(group, memberCountMap.getOrDefault(group.getId(), 0L).intValue()))
                 .toList();
     }
 
@@ -368,45 +386,22 @@ public class GroupServiceImpl implements GroupService {
         }
 
         List<GroupMemberEntity> members = groupMemberRepository.findByGroupIdWithStudent(groupId);
-        return toGroupDetailResponse(group, members);
-    }
-
-    @Override
-    @Transactional(readOnly = true)
-    public List<StudentSearchResponse> searchStudentsByEmail(String email) {
-        if (email == null || email.isBlank()) {
-            return List.of();
-        }
-        List<UserEntity> students = userRepository
-                .searchStudentsByEmail(email.trim(), UserRole.STUDENT);
-        return students.stream()
-                .map(u -> StudentSearchResponse.builder()
-                        .id(u.getId())
-                        .email(u.getEmail())
-                        .fullName(u.getFullName())
-                        .avatarUrl(u.getAvatarUrl())
-                        .build())
-                .toList();
+        return toGroupDetailResponse(group, members, true);
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<StudentSearchResponse> getUnassignedStudents(UUID courseId) {
-        List<UUID> enrolledIds = courseEnrollmentRepository.findStudentIdsByCourseId(courseId);
-        List<UUID> inGroupIds = groupMemberRepository.findStudentIdsByCourseId(courseId);
-        Set<UUID> inGroupSet = new HashSet<>(inGroupIds);
-        List<UUID> unassignedIds = enrolledIds.stream()
-                .filter(id -> !inGroupSet.contains(id))
-                .toList();
-        if (unassignedIds.isEmpty()) return List.of();
-        List<UserEntity> students = userRepository.findAllById(unassignedIds);
-        return students.stream()
-                .map(u -> StudentSearchResponse.builder()
-                        .id(u.getId())
-                        .email(u.getEmail())
-                        .fullName(u.getFullName())
-                        .phoneNumber(u.getPhoneNumber())
-                        .avatarUrl(u.getAvatarUrl())
+        List<Object[]> rows = courseEnrollmentRepository.findUnassignedStudentsWithCourseInfo(courseId);
+        return rows.stream()
+                .map(r -> StudentSearchResponse.builder()
+                        .id((UUID) r[0])
+                        .email((String) r[1])
+                        .fullName((String) r[2])
+                        .phoneNumber((String) r[3])
+                        .avatarUrl((String) r[4])
+                        .courseId((UUID) r[5])
+                        .courseTitle((String) r[6])
                         .build())
                 .toList();
     }
@@ -467,6 +462,10 @@ public class GroupServiceImpl implements GroupService {
     }
 
     private GroupResponse toGroupResponse(StudyGroupEntity group) {
+        return toGroupResponse(group, (int) groupMemberRepository.countByGroupId(group.getId()));
+    }
+
+    private GroupResponse toGroupResponse(StudyGroupEntity group, int memberCount) {
         return GroupResponse.builder()
                 .id(group.getId())
                 .courseId(group.getCourse().getId())
@@ -474,7 +473,7 @@ public class GroupServiceImpl implements GroupService {
                 .name(group.getName())
                 .description(group.getDescription())
                 .maxCapacity(group.getMaxCapacity())
-                .memberCount((int) groupMemberRepository.countByGroupId(group.getId()))
+                .memberCount(memberCount)
                 .startDate(group.getStartDate())
                 .endDate(group.getEndDate())
                 .status(computeGroupStatus(group))
@@ -483,6 +482,10 @@ public class GroupServiceImpl implements GroupService {
     }
 
     private GroupDetailResponse toGroupDetailResponse(StudyGroupEntity group, List<GroupMemberEntity> members) {
+        return toGroupDetailResponse(group, members, false);
+    }
+
+    private GroupDetailResponse toGroupDetailResponse(StudyGroupEntity group, List<GroupMemberEntity> members, boolean isStudent) {
         return GroupDetailResponse.builder()
                 .id(group.getId())
                 .courseId(group.getCourse().getId())
@@ -495,16 +498,20 @@ public class GroupServiceImpl implements GroupService {
                 .endDate(group.getEndDate())
                 .status(computeGroupStatus(group))
                 .createdAt(group.getCreatedAt())
-                .members(members.stream().map(this::toMemberResponse).toList())
+                .members(members.stream().map(m -> toMemberResponse(m, isStudent)).toList())
                 .build();
     }
 
     private GroupMemberResponse toMemberResponse(GroupMemberEntity member) {
+        return toMemberResponse(member, false);
+    }
+
+    private GroupMemberResponse toMemberResponse(GroupMemberEntity member, boolean isStudent) {
         return GroupMemberResponse.builder()
                 .id(member.getId())
                 .studentId(member.getStudent().getId())
                 .studentName(member.getStudent().getFullName())
-                .studentEmail(member.getStudent().getEmail())
+                .studentEmail(isStudent ? null : member.getStudent().getEmail())
                 .avatarUrl(member.getStudent().getAvatarUrl())
                 .joinedAt(member.getJoinedAt())
                 .build();
@@ -513,7 +520,7 @@ public class GroupServiceImpl implements GroupService {
     private Specification<StudyGroupEntity> groupSearchSpec(UUID instructorId, UUID courseId, String keyword) {
         return (root, query, criteriaBuilder) -> {
             if (query.getResultType() != Long.class && query.getResultType() != long.class) {
-                root.fetch("course", jakarta.persistence.criteria.JoinType.LEFT);
+                root.fetch(COURSE_FIELD, jakarta.persistence.criteria.JoinType.LEFT);
                 root.fetch("instructor", jakarta.persistence.criteria.JoinType.LEFT);
                 query.distinct(true);
             }
@@ -521,14 +528,14 @@ public class GroupServiceImpl implements GroupService {
             var predicate = criteriaBuilder.equal(root.join("instructor", jakarta.persistence.criteria.JoinType.LEFT).get("id"), instructorId);
 
             if (courseId != null) {
-                var coursePredicate = criteriaBuilder.equal(root.join("course", jakarta.persistence.criteria.JoinType.LEFT).get("id"), courseId);
+                var coursePredicate = criteriaBuilder.equal(root.join(COURSE_FIELD, jakarta.persistence.criteria.JoinType.LEFT).get("id"), courseId);
                 predicate = criteriaBuilder.and(predicate, coursePredicate);
             }
 
             List<String> keywords = extractSearchKeywords(keyword);
             if (!keywords.isEmpty()) {
                 var groupName = criteriaBuilder.lower(root.get("name"));
-                var courseTitle = criteriaBuilder.lower(root.join("course", jakarta.persistence.criteria.JoinType.LEFT).get("title"));
+                var courseTitle = criteriaBuilder.lower(root.join(COURSE_FIELD, jakarta.persistence.criteria.JoinType.LEFT).get("title"));
                 var keywordPredicate = criteriaBuilder.disjunction();
                 for (String kw : keywords) {
                     keywordPredicate = criteriaBuilder.or(keywordPredicate,

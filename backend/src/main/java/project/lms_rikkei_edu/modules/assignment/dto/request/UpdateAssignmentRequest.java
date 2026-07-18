@@ -1,5 +1,7 @@
 package project.lms_rikkei_edu.modules.assignment.dto.request;
 
+import jakarta.validation.constraints.DecimalMax;
+import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Size;
 import lombok.Getter;
 import lombok.Setter;
@@ -32,11 +34,14 @@ public class UpdateAssignmentRequest {
 
     private Integer latePenaltyPercent;
 
+    @DecimalMin(value = "0", inclusive = false, message = "Điểm tối đa phải lớn hơn 0")
+    @DecimalMax(value = "100.00", message = "Điểm tối đa không được vượt quá 100")
     private BigDecimal maxScore;
+
+    @DecimalMin(value = "0", message = "Điểm đạt không được nhỏ hơn 0")
+    private BigDecimal passingScore;
 
     private Integer maxFileSizeMb;
 
     private List<String> allowedFileTypes;
-
-    private Integer maxSubmissions;
 }

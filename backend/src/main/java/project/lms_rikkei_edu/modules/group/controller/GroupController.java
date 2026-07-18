@@ -68,14 +68,9 @@ public class GroupController {
         return ResponseEntity.noContent().build();
     }
 
-    @GetMapping("/students/search")
-    public ResponseEntity<List<StudentSearchResponse>> searchStudents(@RequestParam String email) {
-        return ResponseEntity.ok(groupService.searchStudentsByEmail(email));
-    }
-
     @GetMapping("/students/unassigned")
     public ResponseEntity<List<StudentSearchResponse>> getUnassignedStudents(
-            @RequestParam UUID courseId) {
+            @RequestParam(required = false) UUID courseId) {
         return ResponseEntity.ok(groupService.getUnassignedStudents(courseId));
     }
 

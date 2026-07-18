@@ -53,9 +53,4 @@ public class AdminDashboardController {
     public ResponseEntity<List<PendingApprovalDto>> getPendingApprovals() {
         return ResponseEntity.ok(adminDashboardService.getPendingApprovals());
     }
-
-    @GetMapping("/recent-activities")
-    public ResponseEntity<List<SystemActivityDto>> getRecentActivities() {
-        return ResponseEntity.ok(adminDashboardService.getRecentActivities());
-    }
 }

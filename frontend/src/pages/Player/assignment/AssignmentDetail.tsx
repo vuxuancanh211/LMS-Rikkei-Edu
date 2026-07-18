@@ -43,7 +43,7 @@
     return p.length > 1 ? p.pop().toUpperCase() : "FILE";
   }
 
-  function AssignmentDetail({ assignmentId, courseId, role, onBack }) {
+  function AssignmentDetail({ assignmentId, courseId, role, onBack, onChanged }) {
     const [detail, setDetail] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
@@ -55,6 +55,7 @@
     const [submitting, setSubmitting] = useState(false);
     const [submitError, setSubmitError] = useState("");
     const [refreshKey, setRefreshKey] = useState(0);
+    const [resubmitting, setResubmitting] = useState(false);
 
     const isStudent = role === "student";
 
@@ -66,7 +67,7 @@
         ? `/student/courses/${courseId}/assignments/${assignmentId}`
         : `/instructor/courses/${courseId}/assignments/${assignmentId}`;
       api.get(ep)
-        .then(r => setDetail(r.data))
+        .then(r => { setDetail(r.data); setResubmitting(false); })
         .catch(() => setError("Không thể tải thông tin bài tập"))
         .finally(() => setLoading(false));
     }, [assignmentId, courseId, isStudent, refreshKey]);
@@ -101,6 +102,7 @@
         });
         setSelectedFiles([]);
         setRefreshKey(k => k + 1);
+        onChanged?.();
       } catch (err) {
         setSubmitError(err.response?.data?.message || "Nộp bài thất bại");
       } finally {
@@ -143,6 +145,8 @@
     }));
 
     const sub = detail.studentSubmission;
+
+    const canResubmit = isStudent && sub && !sub.scorePublishedAt && detail.status === "PUBLISHED";
 
     function FileCard({ file, onClick }) {
       const thumb = getThumbnail(file);
@@ -265,12 +269,12 @@
                 { label: "Điểm tối đa", value: detail.maxScore != null ? `${detail.maxScore} điểm` : "—" },
                 { label: "Ngày bắt đầu", value: fmtDate(detail.startDate) || "—" },
                 { label: "Hạn nộp", value: fmtDate(detail.deadline) || "—" },
-                {
+                ...(detail.deadline ? [{
                   label: "Nộp muộn",
                   value: detail.allowLateSubmission
                     ? `Cho phép (trừ ${detail.latePenaltyPercent ?? 0}%/ngày)`
                     : "Không cho phép"
-                },
+                }] : []),
                 {
                   label: "Loại file",
                   value: detail.allowedFileTypes?.length > 0
@@ -285,17 +289,17 @@
                       }).join(", ")
                     : "Tất cả"
                 },
-                {
-                  label: "Số lần nộp",
-                  value: isStudent
-                    ? `Đã nộp: ${sub?.submissionNumber || 0} / ${detail.maxSubmissions ?? '?'} lần`
-                    : (detail.maxSubmissions != null ? `${detail.maxSubmissions} lần` : "—")
-                },
                 { label: "Kích thước file", value: detail.maxFileSizeMb != null ? `${detail.maxFileSizeMb} MB` : "—" },
                 { label: "Ngày tạo", value: fmtDate(detail.createdAt) || "—" },
               ];
-              if (isStudent && sub?.score != null) {
+              if (isStudent) {
                 items.splice(6, 0, {
+                  label: "Điểm đạt",
+                  value: detail.passScore != null ? `${detail.passScore} / ${detail.maxScore ?? '?'}` : "—",
+                });
+              }
+              if (isStudent && sub?.score != null) {
+                items.splice(7, 0, {
                   label: "Điểm của bạn",
                   value: `${sub.score} / ${detail.maxScore ?? '?'}`,
                 });
@@ -338,7 +342,7 @@
                 Bài nộp của bạn
               </div>
 
-              {sub ? (
+              {sub && !resubmitting ? (
                 /* ── Already submitted ── */
                 <div style={{ background: "#fff", borderRadius: 10, border: "1px solid #e2e8f0",
                   overflow: "hidden" }}>
@@ -352,7 +356,7 @@
                     </span>
                     <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
                       <span style={{ fontSize: 12, color: "#94a3b8" }}>
-                        Lần {sub.submissionNumber} · {fmtDate(sub.submittedAt)}
+                        {fmtDate(sub.submittedAt)}
                       </span>
                       {sub.isLate && <span style={{ fontSize: 11, color:"#dc2626", fontWeight:500 }}>Nộp trễ</span>}
                     </div>
@@ -384,6 +388,17 @@
                           {sub.score}
                         </div>
                       </div>
+                      {(() => {
+                        const max = detail.maxScore ? Number(detail.maxScore) : 0;
+                        const pass = detail.passScore ? Number(detail.passScore) : max * 0.5;
+                        const p = Number(sub.score) >= pass;
+                        return (
+                          <span className={"chip " + (p ? "chip-success" : "chip-error")}
+                            style={{ fontSize: 11, fontWeight: 600 }}>
+                            {p ? "Đạt" : "Chưa đạt"}
+                          </span>
+                        );
+                      })()}
                       {sub.feedback && (
                         <div style={{ flex: 1 }}>
                           <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 2 }}>Nhận xét</div>
@@ -398,6 +413,14 @@
                     <div style={{ padding: "12px 14px", fontSize: 12.5, color: "#64748b",
                       display: "flex", alignItems: "center", gap: 6 }}>
                       <Ic n="clock" size={13} />Đang chờ chấm điểm
+                    </div>
+                  )}
+                  {canResubmit && (
+                    <div style={{ padding: "8px 14px", borderTop: "1px solid #e2e8f0" }}>
+                      <button className="btn btn-ghost btn-sm" onClick={() => { setResubmitting(true); setSelectedFiles([]); }}
+                        style={{ fontSize: 12, color: "#2563eb" }}>
+                        <Ic n="refresh" size={13} />Nộp lại
+                      </button>
                     </div>
                   )}
                 </div>

@@ -39,5 +39,4 @@ public class AdminDashboardResponse {
     private List<String> weeklyEnrollmentsLabels;
 
     private List<PendingApprovalDto> pendingApprovals;
-    private List<SystemActivityDto> recentActivities;
 }

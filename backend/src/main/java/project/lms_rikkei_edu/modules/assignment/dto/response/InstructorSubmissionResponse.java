@@ -1,5 +1,6 @@
 package project.lms_rikkei_edu.modules.assignment.dto.response;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Builder;
 import lombok.Getter;
 
@@ -13,9 +14,9 @@ import java.util.UUID;
 public class InstructorSubmissionResponse {
 
     private UUID id;
-    private int submissionNumber;
     private String status;
     private String note;
+    @JsonProperty("isLate")
     private boolean isLate;
     private BigDecimal score;
     private String feedback;
@@ -31,7 +32,7 @@ public class InstructorSubmissionResponse {
     private UUID assignmentId;
     private String assignmentTitle;
     private BigDecimal assignmentMaxScore;
-    private Integer assignmentMaxSubmissions;
+    private BigDecimal assignmentPassScore;
 
     private UUID courseId;
     private String courseTitle;
