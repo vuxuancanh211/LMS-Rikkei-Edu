@@ -39,6 +39,7 @@ import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequ
 
 import java.math.BigDecimal;
 import java.net.URL;
+import java.io.IOException;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -51,6 +52,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -757,6 +759,136 @@ class StudentAssignmentServiceImplTest {
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("File không được để trống");
     }
+    // ── resubmit paths ───────────────────────────────────────────────────
+
+    @Test
+    void submitAssignment_filesNull_keepFileIdsProvided_reassignsKeptFiles() throws Exception {
+        enrollStudent();
+        enrollInGroup();
+        var assignment = assignmentEntity(AssignmentStatus.PUBLISHED);
+        var oldSub = new AssignmentSubmissionEntity();
+        oldSub.setId(UUID.randomUUID());
+        oldSub.setScorePublishedAt(null);
+        var oldFile = new SubmissionFileEntity();
+        oldFile.setId(UUID.randomUUID());
+        oldFile.setSubmissionId(oldSub.getId());
+        oldFile.setS3Key("submissions/kept.pdf");
+        when(assignmentRepository.findByIdAndCourseId(assignmentId, courseId))
+                .thenReturn(Optional.of(assignment));
+        when(assignmentSubmissionRepository
+                .findByAssignmentIdAndStudentIdOrderByCreatedAtDesc(assignmentId, studentId))
+                .thenReturn(List.of(oldSub));
+        when(submissionFileRepository.findBySubmissionIdOrderByOrderIndexAsc(oldSub.getId()))
+                .thenReturn(List.of(oldFile));
+        var presigned = mock(PresignedGetObjectRequest.class);
+        when(presigned.url()).thenReturn(new URL("https://example.com/kept.pdf"));
+        when(s3Service.generatePresignedInlineUrl(anyString(), anyLong()))
+                .thenReturn(presigned);
+
+        service.submitAssignment(courseId, assignmentId, studentId, null, null, List.of(oldFile.getId()));
+
+        verify(s3Client, never()).putObject(any(Consumer.class), any(RequestBody.class));
+        verify(submissionFileRepository).save(any(SubmissionFileEntity.class));
+        verify(s3Service, never()).deleteObject(anyString());
+        verify(submissionFileRepository, never()).delete(any());
+        verify(assignmentSubmissionRepository).delete(oldSub);
+        verify(assignmentSubmissionRepository).save(any(AssignmentSubmissionEntity.class));
+    }
+
+    @Test
+    void submitAssignment_withExistingFiles_reassignsKeptAndDeletesOthers() throws Exception {
+        enrollStudent();
+        enrollInGroup();
+        var assignment = assignmentEntity(AssignmentStatus.PUBLISHED);
+        var oldSub = new AssignmentSubmissionEntity();
+        oldSub.setId(UUID.randomUUID());
+        oldSub.setScorePublishedAt(null);
+        var keptFile = new SubmissionFileEntity();
+        keptFile.setId(UUID.randomUUID());
+        keptFile.setSubmissionId(oldSub.getId());
+        keptFile.setS3Key("submissions/kept.pdf");
+        var deletedFile = new SubmissionFileEntity();
+        deletedFile.setId(UUID.randomUUID());
+        deletedFile.setSubmissionId(oldSub.getId());
+        deletedFile.setS3Key("submissions/deleted.pdf");
+        var newFile = new MockMultipartFile("file", "new.pdf", "application/pdf", new byte[1024]);
+        when(assignmentRepository.findByIdAndCourseId(assignmentId, courseId))
+                .thenReturn(Optional.of(assignment));
+        when(assignmentSubmissionRepository
+                .findByAssignmentIdAndStudentIdOrderByCreatedAtDesc(assignmentId, studentId))
+                .thenReturn(List.of(oldSub));
+        when(submissionFileRepository.findBySubmissionIdOrderByOrderIndexAsc(oldSub.getId()))
+                .thenReturn(List.of(keptFile, deletedFile));
+        when(s3Client.putObject(any(Consumer.class), any(RequestBody.class)))
+                .thenReturn(null);
+        var presigned = mock(PresignedGetObjectRequest.class);
+        when(presigned.url()).thenReturn(new URL("https://example.com/kept.pdf"));
+        when(s3Service.generatePresignedInlineUrl(anyString(), anyLong()))
+                .thenReturn(presigned);
+
+        service.submitAssignment(courseId, assignmentId, studentId, null, List.of(newFile), List.of(keptFile.getId()));
+
+        verify(submissionFileRepository).save(argThat(f -> f.getId().equals(keptFile.getId())));
+        verify(s3Service).deleteObject(deletedFile.getS3Key());
+        verify(submissionFileRepository).delete(deletedFile);
+        verify(assignmentSubmissionRepository).delete(oldSub);
+    }
+
+    @Test
+    void submitAssignment_withExistingFiles_keepFileIdsNull_deletesAllOldFiles() throws Exception {
+        enrollStudent();
+        enrollInGroup();
+        var assignment = assignmentEntity(AssignmentStatus.PUBLISHED);
+        var oldSub = new AssignmentSubmissionEntity();
+        oldSub.setId(UUID.randomUUID());
+        oldSub.setScorePublishedAt(null);
+        var oldFile = new SubmissionFileEntity();
+        oldFile.setId(UUID.randomUUID());
+        oldFile.setSubmissionId(oldSub.getId());
+        oldFile.setS3Key("submissions/old.pdf");
+        var newFile = new MockMultipartFile("file", "new.pdf", "application/pdf", new byte[1024]);
+        when(assignmentRepository.findByIdAndCourseId(assignmentId, courseId))
+                .thenReturn(Optional.of(assignment));
+        when(assignmentSubmissionRepository
+                .findByAssignmentIdAndStudentIdOrderByCreatedAtDesc(assignmentId, studentId))
+                .thenReturn(List.of(oldSub));
+        when(submissionFileRepository.findBySubmissionIdOrderByOrderIndexAsc(oldSub.getId()))
+                .thenReturn(List.of(oldFile));
+        when(s3Client.putObject(any(Consumer.class), any(RequestBody.class)))
+                .thenReturn(null);
+        var presigned = mock(PresignedGetObjectRequest.class);
+        when(presigned.url()).thenReturn(new URL("https://example.com/new.pdf"));
+        when(s3Service.generatePresignedInlineUrl(anyString(), anyLong()))
+                .thenReturn(presigned);
+
+        service.submitAssignment(courseId, assignmentId, studentId, null, List.of(newFile), null);
+
+        verify(s3Service).deleteObject(oldFile.getS3Key());
+        verify(submissionFileRepository).delete(oldFile);
+        verify(assignmentSubmissionRepository).delete(oldSub);
+        verify(s3Client).putObject(any(Consumer.class), any(RequestBody.class));
+        verify(submissionFileRepository, never()).save(any());
+    }
+
+    @Test
+    void submitAssignment_s3UploadThrowsIoException_throws() throws IOException {
+        enrollStudent();
+        enrollInGroup();
+        var assignment = assignmentEntity(AssignmentStatus.PUBLISHED);
+        var file = mock(MultipartFile.class);
+        when(file.getOriginalFilename()).thenReturn("hw.pdf");
+        when(file.getContentType()).thenReturn("application/pdf");
+        when(file.getSize()).thenReturn(1024L);
+        when(file.isEmpty()).thenReturn(false);
+        when(file.getInputStream()).thenThrow(new IOException("Stream closed"));
+        when(assignmentRepository.findByIdAndCourseId(assignmentId, courseId))
+                .thenReturn(Optional.of(assignment));
+
+        assertThatThrownBy(() -> service.submitAssignment(courseId, assignmentId, studentId, null, List.of(file), null))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Upload file thất bại");
+    }
+
     // ── end new tests ──
     private void enrollStudent() {
         when(courseEnrollmentRepository.existsByCourseIdAndStudentId(courseId, studentId))

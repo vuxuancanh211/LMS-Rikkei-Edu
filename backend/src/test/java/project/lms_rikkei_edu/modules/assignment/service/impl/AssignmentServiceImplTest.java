@@ -922,6 +922,68 @@ class AssignmentServiceImplTest {
         assertThat(assignment.getMaxScore()).isEqualByComparingTo(BigDecimal.valueOf(100));
     }
 
+    // ── deleteAssignment ─────────────────────────────────────────────────
+
+    @Test
+    void deleteAssignment_success_noSubmissions() {
+        var assignment = assignmentEntity(AssignmentStatus.DRAFT, AssignmentScope.ALL_GROUPS);
+        UUID attachmentId = UUID.randomUUID();
+        var attachment = new AssignmentAttachmentEntity();
+        attachment.setId(attachmentId);
+        attachment.setAssignmentId(assignmentId);
+        attachment.setS3Key("assignments/key.pdf");
+
+        when(courseRepository.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(true);
+        when(assignmentRepository.findByIdAndCourseId(assignmentId, courseId))
+                .thenReturn(Optional.of(assignment));
+        when(assignmentSubmissionRepository.countByAssignmentId(assignmentId)).thenReturn(0L);
+        when(assignmentAttachmentRepository.findByAssignmentIdOrderByOrderIndexAsc(assignmentId))
+                .thenReturn(List.of(attachment));
+
+        service.deleteAssignment(courseId, assignmentId, instructorId);
+
+        verify(assignmentGroupRepository).deleteByAssignmentId(assignmentId);
+        verify(s3Client).deleteObject(any(Consumer.class));
+        verify(assignmentAttachmentRepository).deleteAll(anyList());
+        verify(assignmentRepository).delete(assignment);
+    }
+
+    @Test
+    void deleteAssignment_hasSubmissions_throws() {
+        var assignment = assignmentEntity(AssignmentStatus.DRAFT, AssignmentScope.ALL_GROUPS);
+
+        when(courseRepository.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(true);
+        when(assignmentRepository.findByIdAndCourseId(assignmentId, courseId))
+                .thenReturn(Optional.of(assignment));
+        when(assignmentSubmissionRepository.countByAssignmentId(assignmentId)).thenReturn(5L);
+
+        assertThatThrownBy(() -> service.deleteAssignment(courseId, assignmentId, instructorId))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("sinh viên nộp bài");
+
+        verify(assignmentGroupRepository, never()).deleteByAssignmentId(any());
+        verify(assignmentRepository, never()).delete(any());
+    }
+
+    @Test
+    void deleteAssignment_courseNotOwned_throws() {
+        when(courseRepository.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(false);
+
+        assertThatThrownBy(() -> service.deleteAssignment(courseId, assignmentId, instructorId))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Bạn không sở hữu");
+    }
+
+    @Test
+    void deleteAssignment_notFound_throws() {
+        when(courseRepository.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(true);
+        when(assignmentRepository.findByIdAndCourseId(assignmentId, courseId))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.deleteAssignment(courseId, assignmentId, instructorId))
+                .isInstanceOf(AssignmentNotFoundException.class);
+    }
+
     // ── end new tests ────────────────────────────────────────────────
 
     // ── helper methods ───────────────────────────────────────────────────────
