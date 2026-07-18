@@ -13,6 +13,7 @@ import project.lms_rikkei_edu.modules.quiz.entity.QuizEntity;
 import project.lms_rikkei_edu.modules.quiz.entity.QuizQuestionEntity;
 import project.lms_rikkei_edu.modules.quiz.enums.*;
 import project.lms_rikkei_edu.modules.course.repository.CourseEnrollmentRepository;
+import project.lms_rikkei_edu.modules.course.repository.CourseRepository;
 import project.lms_rikkei_edu.modules.quiz.repository.*;
 import project.lms_rikkei_edu.modules.quiz.service.impl.QuizStatsServiceImpl;
 
@@ -34,6 +35,7 @@ class QuizStatsServiceTest {
     @Mock private QuizAttemptAnswerRepository answerRepository;
     @Mock private QuizQuestionRepository questionRepository;
     @Mock private CourseEnrollmentRepository courseEnrollmentRepository;
+    @Mock private CourseRepository courseRepository;
 
     @InjectMocks
     private QuizStatsServiceImpl statsService;

@@ -182,14 +182,15 @@ class StudentAssignmentServiceImplTest {
         enrollStudent();
         var assignment = assignmentEntity(AssignmentStatus.PUBLISHED);
         var submission = new AssignmentSubmissionEntity();
+        submission.setAssignmentId(assignmentId);
         submission.setStatus("SUBMITTED");
         when(assignmentRepository.findByCourseIdOrderByCreatedAtDesc(courseId))
                 .thenReturn(List.of(assignment));
         when(groupMemberRepository.findGroupIdsByStudentIdAndCourseId(studentId, courseId))
                 .thenReturn(List.of());
         when(assignmentAttachmentRepository.countByAssignmentId(assignmentId)).thenReturn(0L);
-        when(assignmentSubmissionRepository.findByAssignmentIdAndStudentId(assignmentId, studentId))
-                .thenReturn(Optional.of(submission));
+        when(assignmentSubmissionRepository.findByStudentIdAndAssignmentIdIn(studentId, List.of(assignmentId)))
+                .thenReturn(List.of(submission));
 
         List<StudentAssignmentListResponse> result = service.getAssignments(courseId, studentId);
 
@@ -203,6 +204,7 @@ class StudentAssignmentServiceImplTest {
         enrollStudent();
         var assignment = assignmentEntity(AssignmentStatus.PUBLISHED);
         var submission = new AssignmentSubmissionEntity();
+        submission.setAssignmentId(assignmentId);
         submission.setStatus("GRADED");
         submission.setScore(BigDecimal.valueOf(85));
         when(assignmentRepository.findByCourseIdOrderByCreatedAtDesc(courseId))
@@ -210,8 +212,8 @@ class StudentAssignmentServiceImplTest {
         when(groupMemberRepository.findGroupIdsByStudentIdAndCourseId(studentId, courseId))
                 .thenReturn(List.of());
         when(assignmentAttachmentRepository.countByAssignmentId(assignmentId)).thenReturn(0L);
-        when(assignmentSubmissionRepository.findByAssignmentIdAndStudentId(assignmentId, studentId))
-                .thenReturn(Optional.of(submission));
+        when(assignmentSubmissionRepository.findByStudentIdAndAssignmentIdIn(studentId, List.of(assignmentId)))
+                .thenReturn(List.of(submission));
 
         List<StudentAssignmentListResponse> result = service.getAssignments(courseId, studentId);
 
