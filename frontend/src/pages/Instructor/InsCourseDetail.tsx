@@ -2,6 +2,7 @@
 /* ============================================================
      RIKKEI EDU – Giảng viên · Chi tiết Khóa học
    ============================================================ */
+import { createPortal } from 'react-dom';
 (function () {
   const { useState, useEffect, useRef } = React;
   const Ic = window.Icon;
@@ -201,6 +202,11 @@
     const [open, setOpen]         = useState(0);
     const [submitting, setSubmitting] = useState(false);
     const [submitMsg, setSubmitMsg]   = useState(null);
+    useEffect(() => {
+      if (!submitMsg) return;
+      const t = setTimeout(() => setSubmitMsg(null), 4000);
+      return () => clearTimeout(t);
+    }, [submitMsg]);
 
     const [editTitle,        setEditTitle]        = useState("");
     const [editDesc,         setEditDesc]         = useState("");
@@ -898,10 +904,18 @@
           </div>
         )}
 
-        {submitMsg && (
-          <div style={{ padding: "10px 16px", borderRadius: 10, marginBottom: 14, fontSize: 13.5,
-            background: submitMsg.startsWith("Đã") ? "#dcfce7" : "#fee2e2",
-            color: submitMsg.startsWith("Đã") ? "#16a34a" : "#dc2626" }}>{submitMsg}</div>
+        {/* Toast — portal thẳng ra document.body giống InsAssess.tsx, hiện ở góc phải trên
+            thay vì chiếm chỗ cố định trong trang, tự ẩn sau 4s. */}
+        {submitMsg && createPortal(
+          <div style={{
+            position: "fixed", top: 20, right: 24, zIndex: 9999, minWidth: 280, maxWidth: 420,
+            background: submitMsg.startsWith("Đã") ? "#10b981" : "var(--error)",
+            color: "#fff", borderRadius: 11, padding: "13px 18px", fontWeight: 600, fontSize: 14,
+            boxShadow: "0 4px 24px rgba(0,0,0,.18)"
+          }}>
+            {submitMsg}
+          </div>,
+          document.body
         )}
 
 
