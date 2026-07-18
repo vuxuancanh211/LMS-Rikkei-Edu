@@ -19,7 +19,9 @@ import project.lms_rikkei_edu.modules.chat.entity.ChatRoomEntity;
 import project.lms_rikkei_edu.modules.chat.entity.ChatRoomMemberEntity;
 import project.lms_rikkei_edu.modules.chat.service.ChatRoomService;
 import project.lms_rikkei_edu.modules.course.entity.Course;
+import project.lms_rikkei_edu.modules.course.entity.CourseProgressEntity;
 import project.lms_rikkei_edu.modules.course.repository.CourseEnrollmentRepository;
+import project.lms_rikkei_edu.modules.course.repository.CourseProgressRepository;
 import project.lms_rikkei_edu.modules.course.repository.CourseRepository;
 import project.lms_rikkei_edu.modules.group.dto.request.AddGroupMembersRequest;
 import project.lms_rikkei_edu.modules.group.dto.request.CreateGroupRequest;
@@ -41,6 +43,7 @@ import project.lms_rikkei_edu.modules.user.enums.UserStatus;
 import project.lms_rikkei_edu.modules.user.repository.UserRepository;
 
 import jakarta.persistence.criteria.*;
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.Collections;
@@ -85,6 +88,8 @@ class GroupServiceImplTest {
     @Mock
     private SseEmitterRegistry sseEmitterRegistry;
     @Mock
+    private CourseProgressRepository courseProgressRepository;
+    @Mock
     private project.lms_rikkei_edu.modules.course.service.StudentCourseService studentCourseService;
 
     private GroupServiceImpl groupService;
@@ -108,7 +113,8 @@ class GroupServiceImplTest {
                 notificationService,
                 notificationPreferenceService,
                 chatRoomService,
-                sseEmitterRegistry
+                sseEmitterRegistry,
+                courseProgressRepository
         );
     }
 
@@ -190,12 +196,65 @@ class GroupServiceImplTest {
         when(currentUserProvider.getCurrentUser()).thenReturn(Optional.of(principal(instructorId, UserRole.INSTRUCTOR)));
         when(studyGroupRepository.findByIdAndInstructorId(groupId, instructorId)).thenReturn(Optional.of(group));
         when(groupMemberRepository.findByGroupIdWithStudent(groupId)).thenReturn(List.of(member));
+        when(courseProgressRepository.findByStudentIdInAndCourseIdIn(any(), any())).thenReturn(List.of());
 
         GroupDetailResponse result = groupService.getGroupDetail(groupId);
 
         assertThat(result.getId()).isEqualTo(groupId);
         assertThat(result.getMembers()).hasSize(1);
         assertThat(result.getMembers().getFirst().getStudentId()).isEqualTo(studentId);
+        assertThat(result.getMembers().getFirst().getProgress()).isZero();
+    }
+
+    @Test
+    void getGroupDetail_returnsProgress_whenCourseProgressExists() {
+        StudyGroupEntity group = groupEntity(groupId, courseEntity(instructorId), instructorUser());
+        GroupMemberEntity member = memberEntity(group, studentUser(studentId, "student@example.com"));
+        CourseProgressEntity progress = new CourseProgressEntity();
+        progress.setStudentId(studentId);
+        progress.setCourseId(courseId);
+        progress.setOverallPercentage(BigDecimal.valueOf(85.5));
+        when(currentUserProvider.getCurrentUser()).thenReturn(Optional.of(principal(instructorId, UserRole.INSTRUCTOR)));
+        when(studyGroupRepository.findByIdAndInstructorId(groupId, instructorId)).thenReturn(Optional.of(group));
+        when(groupMemberRepository.findByGroupIdWithStudent(groupId)).thenReturn(List.of(member));
+        when(courseProgressRepository.findByStudentIdInAndCourseIdIn(any(), any())).thenReturn(List.of(progress));
+
+        GroupDetailResponse result = groupService.getGroupDetail(groupId);
+
+        assertThat(result.getMembers().getFirst().getProgress()).isEqualTo(85);
+    }
+
+    @Test
+    void getGroupDetail_returnsZeroProgress_whenCourseProgressHasNullPercentage() {
+        StudyGroupEntity group = groupEntity(groupId, courseEntity(instructorId), instructorUser());
+        GroupMemberEntity member = memberEntity(group, studentUser(studentId, "student@example.com"));
+        CourseProgressEntity progress = new CourseProgressEntity();
+        progress.setStudentId(studentId);
+        progress.setCourseId(courseId);
+        progress.setOverallPercentage(null);
+        when(currentUserProvider.getCurrentUser()).thenReturn(Optional.of(principal(instructorId, UserRole.INSTRUCTOR)));
+        when(studyGroupRepository.findByIdAndInstructorId(groupId, instructorId)).thenReturn(Optional.of(group));
+        when(groupMemberRepository.findByGroupIdWithStudent(groupId)).thenReturn(List.of(member));
+        when(courseProgressRepository.findByStudentIdInAndCourseIdIn(any(), any())).thenReturn(List.of(progress));
+
+        GroupDetailResponse result = groupService.getGroupDetail(groupId);
+
+        assertThat(result.getMembers().getFirst().getProgress()).isZero();
+    }
+
+    @Test
+    void getGroupDetail_returnsZeroProgress_whenGroupHasNoCourse() {
+        StudyGroupEntity group = groupEntity(groupId, courseEntity(instructorId), instructorUser());
+        group.setCourse(null);
+        GroupMemberEntity member = memberEntity(group, studentUser(studentId, "student@example.com"));
+        when(currentUserProvider.getCurrentUser()).thenReturn(Optional.of(principal(instructorId, UserRole.INSTRUCTOR)));
+        when(studyGroupRepository.findByIdAndInstructorId(groupId, instructorId)).thenReturn(Optional.of(group));
+        when(groupMemberRepository.findByGroupIdWithStudent(groupId)).thenReturn(List.of(member));
+
+        GroupDetailResponse result = groupService.getGroupDetail(groupId);
+
+        assertThat(result.getMembers().getFirst().getProgress()).isZero();
+        verify(courseProgressRepository, never()).findByStudentIdInAndCourseIdIn(any(), any());
     }
 
     @Test
@@ -422,6 +481,7 @@ class GroupServiceImplTest {
         when(chatRoomService.getOrCreateRoomForGroup(group, group.getInstructor())).thenReturn(chatRoomEntity(group));
         when(notificationPreferenceService.isInAppEnabled(studentId, NotificationType.GROUP_MEMBER_ADDED.name()))
                 .thenReturn(true);
+        when(courseProgressRepository.findByStudentIdInAndCourseIdIn(any(), any())).thenReturn(List.of());
 
         List<GroupMemberResponse> result = groupService.addMembers(groupId, request);
 
@@ -440,6 +500,7 @@ class GroupServiceImplTest {
         );
         assertThat(result).hasSize(1);
         assertThat(result.getFirst().getStudentEmail()).isEqualTo("student@example.com");
+        assertThat(result.getFirst().getProgress()).isZero();
     }
 
     @Test
@@ -457,6 +518,7 @@ class GroupServiceImplTest {
         when(chatRoomService.getOrCreateRoomForGroup(group, group.getInstructor())).thenReturn(chatRoomEntity(group));
         when(notificationPreferenceService.isInAppEnabled(studentId, NotificationType.GROUP_MEMBER_ADDED.name()))
                 .thenReturn(false);
+        when(courseProgressRepository.findByStudentIdInAndCourseIdIn(any(), any())).thenReturn(List.of());
 
         groupService.addMembers(groupId, request);
 
@@ -654,12 +716,14 @@ class GroupServiceImplTest {
         when(studyGroupRepository.findByIdWithCourse(groupId)).thenReturn(Optional.of(group));
         when(groupMemberRepository.existsByGroupIdAndStudentId(groupId, studentId)).thenReturn(true);
         when(groupMemberRepository.findByGroupIdWithStudent(groupId)).thenReturn(List.of(member));
+        when(courseProgressRepository.findByStudentIdInAndCourseIdIn(any(), any())).thenReturn(List.of());
 
         GroupDetailResponse result = groupService.getStudentGroupDetail(groupId);
 
         assertThat(result.getMembers()).hasSize(1);
         assertThat(result.getMembers().getFirst().getStudentId()).isEqualTo(studentId);
         assertThat(result.getMembers().getFirst().getStudentEmail()).isNull();
+        assertThat(result.getMembers().getFirst().getProgress()).isNull();
     }
 
     @Test
@@ -712,6 +776,7 @@ class GroupServiceImplTest {
         when(chatRoomService.getOrCreateRoomForGroup(group, group.getInstructor())).thenReturn(chatRoomEntity(group));
         when(notificationPreferenceService.isInAppEnabled(any(), eq(NotificationType.GROUP_MEMBER_ADDED.name())))
                 .thenReturn(true);
+        when(courseProgressRepository.findByStudentIdInAndCourseIdIn(any(), any())).thenReturn(List.of());
 
         List<GroupMemberResponse> result = groupService.addMembers(groupId, request);
 

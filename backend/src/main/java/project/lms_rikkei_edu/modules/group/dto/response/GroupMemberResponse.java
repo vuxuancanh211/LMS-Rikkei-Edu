@@ -15,4 +15,5 @@ public class GroupMemberResponse {
     private String studentEmail;
     private String avatarUrl;
     private OffsetDateTime joinedAt;
+    private Integer progress;
 }

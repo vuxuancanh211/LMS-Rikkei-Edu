@@ -1,6 +1,6 @@
 // @ts-nocheck
 (function () {
-  const { useState, useEffect } = React;
+  const { useState, useEffect, useMemo } = React;
   const Ic = window.Icon;
   const { Avatar, StatCard, Search, Section, Modal, ModalHead, Empty } = window;
   const { getGroupDetail, addGroupMembers, removeGroupMember } = window.__groupService;
@@ -30,6 +30,12 @@
     }, [groupId]);
 
     const members = group?.members || [];
+    const avgProgress = useMemo(() => {
+      const withProgress = members.filter(m => m.progress != null);
+      if (!withProgress.length) return null;
+      const sum = withProgress.reduce((a, m) => a + m.progress, 0);
+      return Math.round(sum / withProgress.length);
+    }, [members]);
     let list = members.filter(s => !q || s.studentName.toLowerCase().includes(q.toLowerCase()));
     const pg = window.usePaged(list, 10);
 
@@ -68,16 +74,17 @@
         </div>
         <div className="grid grid-stats" style={{ marginBottom: 22, gridTemplateColumns: "repeat(2,1fr)" }}>
           <StatCard icon="users" iconBg="#eaf1ff" iconColor="#2563eb" value={String(group?.memberCount || 0)} label="Thành viên" />
-          <StatCard icon="trending" iconBg="#e7f8f0" iconColor="#059669" value="—" label="Tiến độ TB" />
+          <StatCard icon="trending" iconBg="#e7f8f0" iconColor="#059669" value={avgProgress != null ? avgProgress + '%' : '—'} label="Tiến độ TB" />
         </div>
         <div className="toolbar"><Search placeholder="Tìm học viên..." value={q} onChange={setQ} /></div>
         <Section pad={false}>
           <div style={{ overflowX: "auto" }}><table className="tbl">
-            <thead><tr><th>Học viên</th><th>Email</th><th>Ngày tham gia</th><th></th></tr></thead>
+            <thead><tr><th>Học viên</th><th>Email</th><th>Tiến độ</th><th>Ngày tham gia</th><th></th></tr></thead>
             <tbody>{pg.slice.map(m => (
               <tr key={m.id}>
                 <td><div className="row gap-10"><Avatar name={m.studentName} size={36} src={m.avatarUrl} /><b style={{ fontSize: 14 }}>{m.studentName}</b></div></td>
                 <td className="muted">{m.studentEmail}</td>
+                <td>{m.progress != null ? <div className="row gap-6"><div className="progress-bar" style={{ width: 80 }}><div style={{ width: m.progress + '%' }} /></div><span className="t-sm">{m.progress}%</span></div> : <span className="muted">—</span>}</td>
                 <td className="muted">{new Date(m.joinedAt).toLocaleDateString("vi-VN")}</td>
                 <td><button className="icon-btn" style={{ width: 34, height: 34 }} onClick={() => setRemoveTarget(m)}><Ic n="x" size={18} /></button></td>
               </tr>

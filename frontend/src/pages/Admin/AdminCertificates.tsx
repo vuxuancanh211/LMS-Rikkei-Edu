@@ -182,8 +182,8 @@ import { getAdminCertificates, revokeCertificate } from '../../services';
                 </tbody>
               </table>
             </div>
-            <window.PageBar pg={pg} unit="chứng chỉ" />
           </div>
+          <window.PageBar pg={pg} unit="chứng chỉ" />
         )}
 
         <Modal open={!!selected} onClose={() => setSelected(null)} max={720}>

@@ -197,6 +197,9 @@ body {
 .tbl tbody tr { transition: background .12s; }
 .tbl tbody tr:hover { background: var(--surface-2); }
 
+.progress-bar { height: 8px; background: var(--border); border-radius: 99px; overflow: hidden; }
+.progress-bar > div { height: 100%; background: #2563eb; border-radius: 99px; transition: width .3s; }
+
 /* ---------- Utility ---------- */
 .row { display: flex; align-items: center; }
 .between { display: flex; align-items: center; justify-content: space-between; gap: 16px; }

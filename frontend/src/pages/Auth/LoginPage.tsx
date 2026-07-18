@@ -31,7 +31,6 @@ import { useAuthStore } from '../../store';
           <div className="login-aside-bg" />
           <div className="login-brand">
             <div className="sb-logo" style={{ width: 40, height: 40 }}><Ic n="cap" size={21} /></div>
-            <div><div style={{ color: '#fff', fontWeight: 800, fontSize: 17, lineHeight: 1 }}>Rikkei Edu</div><div style={{ color: '#7c89a3', fontSize: 12, marginTop: 3 }}>Learning Management System</div></div>
           </div>
           <div className="login-aside-mid">
             <div className="login-photo" style={{ backgroundImage: `url(${s.img})` }} />
@@ -143,7 +142,6 @@ import { useAuthStore } from '../../store';
             <b style={{ color: 'var(--text)' }}>Tài khoản học viên</b> được khởi tạo bởi Quản trị viên. Vui lòng liên hệ bộ phận đào tạo nếu chưa có tài khoản.
           </div>
 
-          <div className="t-xs dim" style={{ textAlign: 'center', marginTop: 26, lineHeight: 1.7 }}>© 2026 Rikkei Edu. All rights reserved.<br /><span className="link" style={{ fontSize: 12 }}>Hỗ trợ kỹ thuật</span> · <span className="link" style={{ fontSize: 12 }}>Chính sách bảo mật</span></div>
         </form>
       </AuthShell>
     );

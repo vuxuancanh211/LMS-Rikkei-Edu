@@ -19,7 +19,9 @@ import project.lms_rikkei_edu.modules.chat.entity.ChatRoomMemberEntity;
 import project.lms_rikkei_edu.modules.chat.service.ChatRoomService;
 import project.lms_rikkei_edu.modules.course.entity.Course;
 import project.lms_rikkei_edu.modules.course.entity.CourseEnrollmentEntity;
+import project.lms_rikkei_edu.modules.course.entity.CourseProgressEntity;
 import project.lms_rikkei_edu.modules.course.repository.CourseEnrollmentRepository;
+import project.lms_rikkei_edu.modules.course.repository.CourseProgressRepository;
 import project.lms_rikkei_edu.modules.course.repository.CourseRepository;
 import project.lms_rikkei_edu.modules.course.service.StudentCourseService;
 import project.lms_rikkei_edu.modules.group.dto.request.AddGroupMembersRequest;
@@ -74,6 +76,7 @@ public class GroupServiceImpl implements GroupService {
     private final NotificationPreferenceService notificationPreferenceService;
     private final ChatRoomService chatRoomService;
     private final SseEmitterRegistry sseEmitterRegistry;
+    private final CourseProgressRepository courseProgressRepository;
 
     @Override
     @Transactional(readOnly = true)
@@ -99,8 +102,10 @@ public class GroupServiceImpl implements GroupService {
         UserPrincipal currentUser = requireCurrentUser();
         StudyGroupEntity group = findGroupForInstructor(groupId, currentUser.getId());
         List<GroupMemberEntity> members = groupMemberRepository.findByGroupIdWithStudent(groupId);
+        UUID courseId = group.getCourse() != null ? group.getCourse().getId() : null;
+        Map<UUID, Integer> progressMap = fetchProgressMap(members, courseId);
 
-        return toGroupDetailResponse(group, members);
+        return toGroupDetailResponse(group, members, false, progressMap);
     }
 
     @Override
@@ -258,7 +263,9 @@ public class GroupServiceImpl implements GroupService {
                 ChatRoomMemberEntity.MemberRole.MEMBER));
         notifyAddedMembers(group, members, currentUser);
         sendChatRoomsChangedAfterCommit(studentIds, "GROUP_MEMBER_ADDED", groupId);
-        return members.stream().map(this::toMemberResponse).toList();
+        UUID courseId = group.getCourse() != null ? group.getCourse().getId() : null;
+        Map<UUID, Integer> progressMap = fetchProgressMap(members, courseId);
+        return members.stream().map(m -> toMemberResponse(m, false, progressMap)).toList();
     }
 
     /**
@@ -386,7 +393,9 @@ public class GroupServiceImpl implements GroupService {
         }
 
         List<GroupMemberEntity> members = groupMemberRepository.findByGroupIdWithStudent(groupId);
-        return toGroupDetailResponse(group, members, true);
+        UUID courseId = group.getCourse() != null ? group.getCourse().getId() : null;
+        Map<UUID, Integer> progressMap = fetchProgressMap(members, courseId);
+        return toGroupDetailResponse(group, members, true, progressMap);
     }
 
     @Override
@@ -457,6 +466,21 @@ public class GroupServiceImpl implements GroupService {
         return startDate + (endDate != null ? " - " + endDate : "");
     }
 
+    private Map<UUID, Integer> fetchProgressMap(List<GroupMemberEntity> members, UUID courseId) {
+        if (courseId == null || members == null || members.isEmpty()) return Map.of();
+        List<UUID> studentIds = members.stream()
+                .map(m -> m.getStudent().getId())
+                .toList();
+        return courseProgressRepository.findByStudentIdInAndCourseIdIn(studentIds, List.of(courseId))
+                .stream()
+                .collect(Collectors.toMap(
+                        CourseProgressEntity::getStudentId,
+                        cp -> cp.getOverallPercentage() != null
+                                ? cp.getOverallPercentage().intValue()
+                                : 0,
+                        (a, b) -> a));
+    }
+
     private String notificationKey(String prefix, UUID groupId, UUID studentId) {
         return prefix + ":" + groupId + ":" + studentId;
     }
@@ -482,10 +506,14 @@ public class GroupServiceImpl implements GroupService {
     }
 
     private GroupDetailResponse toGroupDetailResponse(StudyGroupEntity group, List<GroupMemberEntity> members) {
-        return toGroupDetailResponse(group, members, false);
+        return toGroupDetailResponse(group, members, false, Map.of());
     }
 
     private GroupDetailResponse toGroupDetailResponse(StudyGroupEntity group, List<GroupMemberEntity> members, boolean isStudent) {
+        return toGroupDetailResponse(group, members, isStudent, Map.of());
+    }
+
+    private GroupDetailResponse toGroupDetailResponse(StudyGroupEntity group, List<GroupMemberEntity> members, boolean isStudent, Map<UUID, Integer> progressMap) {
         return GroupDetailResponse.builder()
                 .id(group.getId())
                 .courseId(group.getCourse().getId())
@@ -498,22 +526,28 @@ public class GroupServiceImpl implements GroupService {
                 .endDate(group.getEndDate())
                 .status(computeGroupStatus(group))
                 .createdAt(group.getCreatedAt())
-                .members(members.stream().map(m -> toMemberResponse(m, isStudent)).toList())
+                .members(members.stream().map(m -> toMemberResponse(m, isStudent, progressMap)).toList())
                 .build();
     }
 
     private GroupMemberResponse toMemberResponse(GroupMemberEntity member) {
-        return toMemberResponse(member, false);
+        return toMemberResponse(member, false, Map.of());
     }
 
     private GroupMemberResponse toMemberResponse(GroupMemberEntity member, boolean isStudent) {
+        return toMemberResponse(member, isStudent, Map.of());
+    }
+
+    private GroupMemberResponse toMemberResponse(GroupMemberEntity member, boolean isStudent, Map<UUID, Integer> progressMap) {
+        UUID studentId = member.getStudent().getId();
         return GroupMemberResponse.builder()
                 .id(member.getId())
-                .studentId(member.getStudent().getId())
+                .studentId(studentId)
                 .studentName(member.getStudent().getFullName())
                 .studentEmail(isStudent ? null : member.getStudent().getEmail())
                 .avatarUrl(member.getStudent().getAvatarUrl())
                 .joinedAt(member.getJoinedAt())
+                .progress(isStudent ? null : progressMap.getOrDefault(studentId, 0))
                 .build();
     }
 

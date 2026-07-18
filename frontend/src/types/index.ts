@@ -120,6 +120,7 @@ export type GroupMemberResponse = {
   studentEmail: string;
   avatarUrl?: string | null;
   joinedAt: string;
+  progress?: number | null;
 };
 
 export type GroupDetailResponse = GroupResponse & {
