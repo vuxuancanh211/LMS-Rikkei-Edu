@@ -6,6 +6,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import project.lms_rikkei_edu.common.exception.BusinessException;
+import project.lms_rikkei_edu.common.security.CurrentUserProvider;
+import project.lms_rikkei_edu.common.security.UserPrincipal;
 import project.lms_rikkei_edu.modules.assignment.dto.request.BatchReleaseRequest;
 import project.lms_rikkei_edu.modules.assignment.dto.request.GradeRequest;
 import project.lms_rikkei_edu.modules.assignment.dto.response.InstructorSubmissionResponse;
@@ -28,6 +30,9 @@ import project.lms_rikkei_edu.modules.course.service.StudentCourseService;
 import project.lms_rikkei_edu.modules.group.entity.StudyGroupEntity;
 import project.lms_rikkei_edu.modules.group.repository.GroupMemberRepository;
 import project.lms_rikkei_edu.modules.group.repository.StudyGroupRepository;
+import project.lms_rikkei_edu.modules.notification.enums.NotificationType;
+import project.lms_rikkei_edu.modules.notification.service.NotificationPreferenceService;
+import project.lms_rikkei_edu.modules.notification.service.NotificationService;
 import project.lms_rikkei_edu.modules.user.entity.UserEntity;
 import project.lms_rikkei_edu.modules.user.repository.UserRepository;
 import project.lms_rikkei_edu.infrastructure.s3.S3Service;
@@ -53,6 +58,9 @@ public class GradingServiceImpl implements GradingService {
     private final CourseRepository courseRepository;
     private final S3Service s3Service;
     private final StudentCourseService studentCourseService;
+    private final NotificationService notificationService;
+    private final NotificationPreferenceService notificationPreferenceService;
+    private final CurrentUserProvider currentUserProvider;
 
     @Override
     @Transactional(readOnly = true)
@@ -306,6 +314,7 @@ public class GradingServiceImpl implements GradingService {
                 if (processed.add(key)) {
                     studentCourseService.updateAssignmentProgress(s.getStudentId(), s.getCourseId());
                 }
+                notifyStudentScorePublished(s, instructorId);
             }
         }
 
@@ -329,6 +338,38 @@ public class GradingServiceImpl implements GradingService {
         assignmentSubmissionRepository.save(submission);
 
         log.info("Instructor {} returned submission {}", instructorId, submissionId);
+    }
+
+    private void notifyStudentScorePublished(AssignmentSubmissionEntity s, UUID instructorId) {
+        try {
+            AssignmentEntity assignment = assignmentRepository.findById(s.getAssignmentId()).orElse(null);
+            if (assignment == null) return;
+
+            String courseTitle = courseRepository.findById(s.getCourseId())
+                    .map(Course::getTitle)
+                    .orElse("");
+            String actorName = currentUserProvider.getCurrentUser()
+                    .map(UserPrincipal::getUsername)
+                    .orElse(null);
+            String title = "Điểm bài tập đã được công bố";
+            String body = "Điểm bài tập \"" + assignment.getTitle() + "\" (khóa \"" + courseTitle + "\") đã được công bố.";
+
+            if (!notificationPreferenceService.isInAppEnabled(s.getStudentId(), NotificationType.SUBMISSION_GRADED.name())) {
+                return;
+            }
+            notificationService.createNotification(
+                    s.getStudentId(),
+                    NotificationType.SUBMISSION_GRADED.name(),
+                    title,
+                    body,
+                    "ASSIGNMENT",
+                    assignment.getId(),
+                    instructorId,
+                    actorName,
+                    "score-released-" + s.getId() + ":" + s.getStudentId());
+        } catch (Exception ex) {
+            log.warn("Không thể gửi thông báo công bố điểm cho submissionId={}: {}", s.getId(), ex.getMessage());
+        }
     }
 
     private InstructorSubmissionResponse getSingleResponse(AssignmentSubmissionEntity submission,

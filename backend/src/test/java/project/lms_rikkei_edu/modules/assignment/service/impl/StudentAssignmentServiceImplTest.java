@@ -11,6 +11,10 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.multipart.MultipartFile;
 import project.lms_rikkei_edu.common.exception.BusinessException;
 import project.lms_rikkei_edu.infrastructure.s3.S3Service;
+import project.lms_rikkei_edu.modules.notification.enums.NotificationType;
+import project.lms_rikkei_edu.modules.notification.service.NotificationPreferenceService;
+import project.lms_rikkei_edu.modules.notification.service.NotificationService;
+import project.lms_rikkei_edu.modules.user.repository.UserRepository;
 import project.lms_rikkei_edu.modules.assignment.dto.response.AssignmentAttachmentResponse;
 import project.lms_rikkei_edu.modules.assignment.dto.response.StudentAssignmentDetailResponse;
 import project.lms_rikkei_edu.modules.assignment.dto.response.StudentAssignmentListResponse;
@@ -72,6 +76,9 @@ class StudentAssignmentServiceImplTest {
     @Mock private S3Client s3Client;
     @Mock private S3Service s3Service;
     @Mock private AssignmentMapper assignmentMapper;
+    @Mock private NotificationService notificationService;
+    @Mock private NotificationPreferenceService notificationPreferenceService;
+    @Mock private UserRepository userRepository;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private StudentAssignmentServiceImpl service;
@@ -91,6 +98,7 @@ class StudentAssignmentServiceImplTest {
                 assignmentAttachmentRepository, assignmentSubmissionRepository,
                 submissionFileRepository, groupMemberRepository,
                 courseRepository, courseEnrollmentRepository,
+                notificationService, notificationPreferenceService, userRepository,
                 s3Client, s3Service, objectMapper, assignmentMapper);
         ReflectionTestUtils.setField(service, "bucket", "test-bucket");
         ReflectionTestUtils.setField(service, "presignedUrlExpiry", 3600L);

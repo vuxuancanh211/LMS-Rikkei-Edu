@@ -145,7 +145,7 @@ import { createPortal } from 'react-dom';
     }
 
     return createPortal(
-      <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 400,
+      <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 2000,
         background: "rgba(0,0,0,.88)", display: "flex", flexDirection: "column" }}>
 
         {/* Top bar */}
