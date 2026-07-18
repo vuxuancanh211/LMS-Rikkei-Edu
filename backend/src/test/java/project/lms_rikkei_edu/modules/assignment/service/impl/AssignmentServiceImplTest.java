@@ -12,6 +12,7 @@ import org.mockito.quality.Strictness;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.util.ReflectionTestUtils;
 import project.lms_rikkei_edu.common.exception.BusinessException;
+import project.lms_rikkei_edu.common.security.CurrentUserProvider;
 import project.lms_rikkei_edu.infrastructure.s3.S3Service;
 import project.lms_rikkei_edu.modules.assignment.dto.request.CreateAssignmentRequest;
 import project.lms_rikkei_edu.modules.assignment.dto.request.UpdateAssignmentRequest;
@@ -36,6 +37,9 @@ import project.lms_rikkei_edu.modules.course.repository.CourseEnrollmentReposito
 import project.lms_rikkei_edu.modules.course.repository.CourseRepository;
 import project.lms_rikkei_edu.modules.course.service.StudentCourseService;
 import project.lms_rikkei_edu.modules.group.repository.StudyGroupRepository;
+import project.lms_rikkei_edu.modules.notification.enums.NotificationType;
+import project.lms_rikkei_edu.modules.notification.service.NotificationPreferenceService;
+import project.lms_rikkei_edu.modules.notification.service.NotificationService;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest;
@@ -54,8 +58,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -87,6 +95,12 @@ class AssignmentServiceImplTest {
     private AssignmentSubmissionRepository assignmentSubmissionRepository;
     @Mock
     private StudentCourseService studentCourseService;
+    @Mock
+    private NotificationService notificationService;
+    @Mock
+    private NotificationPreferenceService notificationPreferenceService;
+    @Mock
+    private CurrentUserProvider currentUserProvider;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private AssignmentServiceImpl service;
@@ -104,7 +118,8 @@ class AssignmentServiceImplTest {
                 assignmentAttachmentRepository, courseRepository,
                 assignmentMapper, studyGroupRepository, s3Client, s3Service, objectMapper,
                 assignmentSubmissionRepository, submissionFileRepository,
-                courseEnrollmentRepository, studentCourseService);
+                courseEnrollmentRepository, studentCourseService,
+                notificationService, notificationPreferenceService, currentUserProvider);
         ReflectionTestUtils.setField(service, "bucket", "test-bucket");
         ReflectionTestUtils.setField(service, "presignedUrlExpiry", 3600L);
     }
@@ -792,12 +807,57 @@ class AssignmentServiceImplTest {
         when(assignmentMapper.toResponse(any())).thenReturn(assignmentResponse());
         when(courseEnrollmentRepository.findStudentIdsByCourseId(courseId))
                 .thenReturn(List.of(studentId1, studentId2));
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(publishedCourse()));
+        when(notificationPreferenceService.isInAppEnabled(any(), eq(NotificationType.ASSIGNMENT_PUBLISHED.name()))).thenReturn(false);
 
         service.publishAssignment(courseId, assignmentId, instructorId);
 
-        verify(courseEnrollmentRepository).findStudentIdsByCourseId(courseId);
+        verify(courseEnrollmentRepository, times(2)).findStudentIdsByCourseId(courseId);
         verify(studentCourseService).recalculateCourseProgress(studentId1, courseId);
         verify(studentCourseService).recalculateCourseProgress(studentId2, courseId);
+        verify(notificationService, never()).createNotification(any(), any(), any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void publishAssignment_notifiesStudentsWithEnabledPreference() {
+        var assignment = assignmentEntity(AssignmentStatus.DRAFT, AssignmentScope.ALL_GROUPS);
+        var studentId1 = UUID.randomUUID();
+
+        when(courseRepository.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(true);
+        when(assignmentRepository.findByIdAndCourseId(assignmentId, courseId))
+                .thenReturn(Optional.of(assignment));
+        when(assignmentRepository.save(any())).thenReturn(assignment);
+        when(assignmentMapper.toResponse(any())).thenReturn(assignmentResponse());
+        when(courseEnrollmentRepository.findStudentIdsByCourseId(courseId))
+                .thenReturn(List.of(studentId1));
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(publishedCourse()));
+        when(notificationPreferenceService.isInAppEnabled(studentId1, NotificationType.ASSIGNMENT_PUBLISHED.name())).thenReturn(true);
+        when(currentUserProvider.getCurrentUser()).thenReturn(Optional.empty());
+
+        service.publishAssignment(courseId, assignmentId, instructorId);
+
+        verify(notificationService).createNotification(
+                eq(studentId1), eq(NotificationType.ASSIGNMENT_PUBLISHED.name()),
+                anyString(), anyString(), anyString(), eq(assignmentId),
+                eq(instructorId), nullable(String.class), anyString());
+    }
+
+    @Test
+    void publishAssignment_noEnrolledStudents_skipsNotification() {
+        var assignment = assignmentEntity(AssignmentStatus.DRAFT, AssignmentScope.ALL_GROUPS);
+
+        when(courseRepository.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(true);
+        when(assignmentRepository.findByIdAndCourseId(assignmentId, courseId))
+                .thenReturn(Optional.of(assignment));
+        when(assignmentRepository.save(any())).thenReturn(assignment);
+        when(assignmentMapper.toResponse(any())).thenReturn(assignmentResponse());
+        when(courseEnrollmentRepository.findStudentIdsByCourseId(courseId))
+                .thenReturn(List.of());
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(publishedCourse()));
+
+        service.publishAssignment(courseId, assignmentId, instructorId);
+
+        verify(notificationService, never()).createNotification(any(), any(), any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -838,6 +898,25 @@ class AssignmentServiceImplTest {
         assertThat(assignment.getScope()).isEqualTo(AssignmentScope.SPECIFIC_GROUPS);
         verify(assignmentRepository).save(any());
         verify(assignmentMapper).toResponse(any());
+    }
+
+    @Test
+    void updateAssignment_draft_updatesToAllGroups_deletesOldGroups() {
+        var assignment = assignmentEntity(AssignmentStatus.DRAFT, AssignmentScope.SPECIFIC_GROUPS);
+        var request = new UpdateAssignmentRequest();
+        request.setScope(AssignmentScope.ALL_GROUPS);
+
+        when(courseRepository.existsByIdAndInstructorId(courseId, instructorId)).thenReturn(true);
+        when(assignmentRepository.findByIdAndCourseId(assignmentId, courseId))
+                .thenReturn(Optional.of(assignment));
+        when(assignmentRepository.save(any())).thenReturn(assignment);
+        when(assignmentMapper.toResponse(any())).thenReturn(assignmentResponse());
+
+        AssignmentResponse result = service.updateAssignment(courseId, assignmentId, instructorId, request);
+
+        assertThat(result).isNotNull();
+        assertThat(assignment.getScope()).isEqualTo(AssignmentScope.ALL_GROUPS);
+        verify(assignmentGroupRepository).deleteByAssignmentId(assignmentId);
     }
 
     @Test

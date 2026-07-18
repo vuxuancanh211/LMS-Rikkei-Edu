@@ -9,6 +9,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 import project.lms_rikkei_edu.common.exception.BusinessException;
+import project.lms_rikkei_edu.common.security.CurrentUserProvider;
+import project.lms_rikkei_edu.common.security.UserPrincipal;
 import project.lms_rikkei_edu.modules.assignment.dto.request.CreateAssignmentRequest;
 import project.lms_rikkei_edu.modules.assignment.dto.request.UpdateAssignmentRequest;
 import project.lms_rikkei_edu.modules.assignment.dto.response.AssignmentAttachmentResponse;
@@ -34,6 +36,9 @@ import project.lms_rikkei_edu.modules.course.repository.CourseEnrollmentReposito
 import project.lms_rikkei_edu.modules.course.repository.CourseRepository;
 import project.lms_rikkei_edu.modules.course.service.StudentCourseService;
 import project.lms_rikkei_edu.modules.group.entity.StudyGroupEntity;
+import project.lms_rikkei_edu.modules.notification.enums.NotificationType;
+import project.lms_rikkei_edu.modules.notification.service.NotificationPreferenceService;
+import project.lms_rikkei_edu.modules.notification.service.NotificationService;
 import project.lms_rikkei_edu.modules.group.repository.StudyGroupRepository;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -65,6 +70,9 @@ public class AssignmentServiceImpl implements AssignmentService {
     private final SubmissionFileRepository submissionFileRepository;
     private final CourseEnrollmentRepository courseEnrollmentRepository;
     private final StudentCourseService studentCourseService;
+    private final NotificationService notificationService;
+    private final NotificationPreferenceService notificationPreferenceService;
+    private final CurrentUserProvider currentUserProvider;
 
     @Value("${app.s3.bucket}")
     private String bucket;
@@ -376,8 +384,44 @@ public class AssignmentServiceImpl implements AssignmentService {
             studentCourseService.recalculateCourseProgress(studentId, courseId);
         }
 
+        notifyStudentsAssignmentPublished(courseId, assignment, instructorId);
+
         log.info("Published assignment {} for course {}", assignmentId, courseId);
         return assignmentMapper.toResponse(assignment);
+    }
+
+    private void notifyStudentsAssignmentPublished(UUID courseId, AssignmentEntity assignment, UUID instructorId) {
+        try {
+            String courseTitle = courseRepository.findById(courseId)
+                    .map(Course::getTitle)
+                    .orElse("");
+            String actorName = currentUserProvider.getCurrentUser()
+                    .map(UserPrincipal::getUsername)
+                    .orElse(null);
+            String title = "Bài tập mới";
+            String body = "Bài tập \"" + assignment.getTitle() + "\" trong khóa \"" + courseTitle + "\" đã được xuất bản.";
+
+            List<UUID> studentIds = courseEnrollmentRepository.findStudentIdsByCourseId(courseId);
+            if (studentIds.isEmpty()) return;
+
+            for (UUID studentId : studentIds) {
+                if (!notificationPreferenceService.isInAppEnabled(studentId, NotificationType.ASSIGNMENT_PUBLISHED.name())) {
+                    continue;
+                }
+                notificationService.createNotification(
+                        studentId,
+                        NotificationType.ASSIGNMENT_PUBLISHED.name(),
+                        title,
+                        body,
+                        "ASSIGNMENT",
+                        assignment.getId(),
+                        instructorId,
+                        actorName,
+                        "assignment-published-" + assignment.getId() + ":" + studentId);
+            }
+        } catch (Exception ex) {
+            log.warn("Không thể gửi thông báo publish assignment cho assignmentId={}: {}", assignment.getId(), ex.getMessage());
+        }
     }
 
     @Override

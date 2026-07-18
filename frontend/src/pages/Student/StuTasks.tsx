@@ -596,6 +596,8 @@
     const [submitting, setSubmitting] = useState(false);
     const [keepFileIds, setKeepFileIds] = useState([]);
     const [resubmitting, setResubmitting] = useState(false);
+    const [previewIdx, setPreviewIdx] = useState(null);
+    const [previewFilesList, setPreviewFilesList] = useState([]);
 
     useEffect(() => {
       if (!a) return;
@@ -618,6 +620,32 @@
       });
     }
 
+    function fmtBytes(bytes) {
+      if (!bytes) return '';
+      if (bytes >= 1048576) return (bytes / 1048576).toFixed(1) + ' MB';
+      if (bytes >= 1024) return (bytes / 1024).toFixed(0) + ' KB';
+      return bytes + ' B';
+    }
+
+    function getFileExt(name) {
+      const i = name.lastIndexOf('.');
+      return i > 0 ? name.slice(i + 1).toUpperCase() : 'FILE';
+    }
+
+    function removeFile(i) {
+      setFiles(prev => prev.filter((_, idx) => idx !== i));
+    }
+
+    function openPreview(list, idx) {
+      setPreviewFilesList(list);
+      setPreviewIdx(idx);
+    }
+
+    function closePreview() {
+      setPreviewIdx(null);
+      setPreviewFilesList([]);
+    }
+
     if (!a) return null;
 
     const sub = detail?.studentSubmission;
@@ -625,6 +653,31 @@
     const graded = sub?.status === 'GRADED';
     const isPublished = detail?.status === 'PUBLISHED';
     const isClosed = detail?.status === 'CLOSED';
+    const canResubmit = submitted && !sub?.scorePublishedAt && isPublished;
+
+    function handleFileSelect(e) {
+      const newFiles = Array.from(e.target.files || []);
+      const errors = [];
+      setFiles(prev => {
+        const map = new Map();
+        prev.forEach(f => map.set(f.name + f.size + f.lastModified, f));
+        newFiles.forEach(f => {
+          const key = f.name + f.size + f.lastModified;
+          if (map.has(key)) {
+            errors.push(`"${f.name}" đã được chọn`);
+            return;
+          }
+          map.set(key, f);
+        });
+        return Array.from(map.values());
+      });
+      if (errors.length > 0) {
+        setError(errors.join('. '));
+      } else {
+        setError('');
+      }
+      e.target.value = '';
+    }
 
     function handleFileSelect(e) {
       const newFiles = Array.from(e.target.files || []);
@@ -697,7 +750,7 @@
     }
 
     return (
-      <Md open={!!a} onClose={onClose} max={600}>
+      <><Md open={!!a} onClose={onClose} max={600}>
         <MH title={detail?.title || a.title} sub={detail?.courseTitle || 'Đang tải...'} icon="file" iconBg="#eaf1ff" iconColor="#2563eb" onClose={onClose} />
         {loading ? (
           <div className="modal-body" style={{ padding: 40, textAlign: 'center', color: 'var(--text-2)' }}>Đang tải...</div>
@@ -835,18 +888,31 @@
               {sub?.files?.length > 0 && (
                 <div>
                   <div className="t-label" style={{ marginBottom: 6 }}>Bài đã nộp</div>
-                  {sub.files.map(f => (
-                    <div key={f.id} className="row gap-8" style={{ padding: '8px 10px', background: 'var(--surface-2)', borderRadius: 8, marginBottom: 6 }}>
-                      <Ic n="paperclip" size={15} style={{ color: 'var(--text-2)' }} />
-                      <span className="t-sm" style={{ flex: 1 }}>{f.displayName || f.originalFilename}</span>
-                      {f.url && <a href={f.url} target="_blank" rel="noopener noreferrer" className="btn btn-ghost btn-xs">Xem</a>}
-                    </div>
-                  ))}
+                  {sub.files.map(f => {
+                    const subPreviewFiles = sub.files.map(sf => ({
+                      name: sf.originalFilename,
+                      url: sf.url,
+                      size: sf.fileSizeBytes,
+                      mimeType: sf.mimeType,
+                    }));
+                    return (
+                      <div key={f.id} className="row gap-8" style={{ padding: '8px 10px', background: 'var(--surface-2)', borderRadius: 8, marginBottom: 6 }}>
+                        <div style={{ width: 28, height: 28, borderRadius: 6, background: '#f1f5f9', color: '#64748b', display: 'grid', placeItems: 'center', fontSize: 9, fontWeight: 800, flexShrink: 0 }}>
+                          {getFileExt(f.originalFilename)}
+                        </div>
+                        <span className="t-sm" style={{ flex: 1 }}>{f.displayName || f.originalFilename}</span>
+                        <span className="t-xs muted">{fmtBytes(f.fileSizeBytes)}</span>
+                        {f.url && <button className="btn btn-ghost btn-xs" onClick={() => openPreview(subPreviewFiles, sub.files.indexOf(f))}>
+                          <Ic n="eye" size={13} />
+                        </button>}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
 
               {/* Nộp lại button */}
-              {sub && !sub.scorePublishedAt && isPublished && !resubmitting && (
+              {canResubmit && !resubmitting && (
                 <div style={{ textAlign: 'right' }}>
                   <button className="btn btn-ghost btn-sm" onClick={() => {
                     setResubmitting(true);
@@ -890,12 +956,51 @@
                 <div>
                   <div className="t-label" style={{ marginBottom: 8 }}>{resubmitting ? 'Chọn thêm file mới' : 'Nộp bài làm'}</div>
                   <label htmlFor="subfile" style={{ display: 'block', border: '2px dashed var(--border-strong)', borderRadius: 12, padding: 22, textAlign: 'center', cursor: 'pointer', background: files.length > 0 ? 'var(--accent-soft)' : 'var(--surface-2)' }}>
-                    <Ic n={files.length > 0 ? 'check_circle' : 'upload'} size={26} style={{ marginBottom: 8, color: files.length > 0 ? 'var(--accent)' : 'var(--text-3)' }} />
-                    <div style={{ fontWeight: 600, fontSize: 14 }}>{files.length > 0 ? `${files.length} file đã chọn` : 'Kéo thả hoặc bấm để chọn file'}</div>
-                    <div className="t-xs muted" style={{ marginTop: 4 }}>{detail.maxFileSizeMb ? `Tổng tối đa ${detail.maxFileSizeMb} MB` : 'ZIP, PDF, DOCX'}</div>
+                    <Ic n="upload" size={26} style={{ marginBottom: 8, color: 'var(--text-3)' }} />
+                    <div style={{ fontWeight: 600, fontSize: 14 }}>Kéo thả hoặc bấm để chọn file</div>
+                    <div className="t-xs muted" style={{ marginTop: 4 }}>
+                      {detail.allowedFileTypes?.length > 0
+                        ? detail.allowedFileTypes.map(t => { const map = { 'image/jpeg': 'JPEG', 'image/png': 'PNG', 'application/pdf': 'PDF', 'application/zip': 'ZIP', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'DOCX', 'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'PPTX' }; return map[t] || t.split('/').pop()?.toUpperCase() || t; }).join(', ')
+                        : 'Tất cả các loại file'}
+                      {detail.maxFileSizeMb != null && ` · Tổng tối đa ${detail.maxFileSizeMb} MB`}
+                    </div>
                     <input id="subfile" type="file" multiple style={{ display: 'none' }}
                       onChange={handleFileSelect} />
                   </label>
+
+                  {/* File list preview */}
+                  {files.length > 0 && (
+                    <div style={{ marginTop: 12 }}>
+                      <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 6 }}>
+                        Đã chọn {files.length} file
+                      </div>
+                      {files.map((f, i) => {
+                        const previewList = files.map(sf => ({
+                          name: sf.name,
+                          file: sf,
+                          size: sf.size,
+                          mimeType: sf.type,
+                        }));
+                        return (
+                          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: '#fff', borderRadius: 8, border: '1px solid #e2e8f0', marginBottom: 4 }}>
+                            <div style={{ width: 28, height: 28, borderRadius: 6, background: '#f1f5f9', display: 'grid', placeItems: 'center', fontSize: 9, fontWeight: 800, color: '#64748b', flexShrink: 0 }}>
+                              {getFileExt(f.name)}
+                            </div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 12.5, fontWeight: 500, color: '#0f172a' }} className="truncate">{f.name}</div>
+                              <div style={{ fontSize: 11, color: '#94a3b8' }}>{fmtBytes(f.size)}</div>
+                            </div>
+                            <button onClick={() => openPreview(previewList, i)} style={{ width: 24, height: 24, borderRadius: 6, border: 'none', background: 'transparent', color: '#64748b', cursor: 'pointer', display: 'grid', placeItems: 'center' }}>
+                              <Ic n="eye" size={13} />
+                            </button>
+                            <button onClick={() => removeFile(i)} style={{ width: 24, height: 24, borderRadius: 6, border: 'none', background: 'transparent', color: '#94a3b8', cursor: 'pointer', display: 'grid', placeItems: 'center' }}>
+                              <Ic n="x" size={14} />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -923,6 +1028,15 @@
           </>
         ) : null}
       </Md>
+
+      {previewIdx !== null && previewFilesList[previewIdx] && (
+        React.createElement(window.FilePreview, {
+          files: previewFilesList,
+          initialIdx: previewIdx,
+          onClose: closePreview,
+        })
+      )}
+    </>
     );
   }
 
