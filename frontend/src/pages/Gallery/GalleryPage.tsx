@@ -71,7 +71,7 @@ function registerGalleryPage() {
     ],
   };
   const SCREENS = {
-    student: { dashboard: "StuDashboard", courses: "StuCourses", courseDetail: "StuCourseDetail", groups: "StuGroups", groupDetail: "StuGroupDetail", tasks: "StuTasks", forum: "ForumPage", chat: "ChatScreen", certs: "StuCerts", settings: "Settings", notifications: "NotificationsPage" },
+    student: { dashboard: "StuDashboard", courses: "StuCourses", courseDetail: "StuCourseDetail", groups: "StuGroups", groupDetail: "StuGroupDetail", tasks: "StuTasks", forum: "ForumPage", chat: "ChatScreen", certs: "StuCerts", certDetail: "StuCertDetail", settings: "Settings", notifications: "NotificationsPage" },
     instructor: { dashboard: "InsDashboard", courses: "InsCourses", courseDetail: "InsCourseDetail", groups: "InsGroups", groupDetail: "InsGroupDetail", assess: "InsAssess", grading: "InsGrading", forum: "ForumPage", chat: "ChatScreen", aiDocs: "InsAiDocs", settings: "Settings", notifications: "NotificationsPage" },
     admin: { dashboard: "AdminDashboard", users: "AdminUsers", courses: "AdminCourses", approval: "AdminApproval", certificates: "AdminCertificates", forum: "AdminForum", forumBrowse: "ForumPage", aiDocs: "AdminAiDocs", settings: "Settings", notifications: "NotificationsPage" },
   };
@@ -344,7 +344,7 @@ function registerGalleryPage() {
               )}
             </div>
           </header>
-          <main style={{ flex: 1 }}>{useMemo(() => <Comp nav={go} persona={persona} demo={demo} groupId={routeParams?.groupId} courseId={routeParams?.courseId} slug={routeParams?.slug} quizId={routeParams?.quizId} postId={routeParams?.postId || routeParams?.id} autoPreview={routeParams?.autoPreview} />, [route, role, routeParams?.groupId, routeParams?.courseId, routeParams?.slug, routeParams?.quizId, routeParams?.postId, routeParams?.id, routeParams?.autoPreview, persona, demo, go])}</main>
+          <main style={{ flex: 1 }}>{useMemo(() => <Comp nav={go} persona={persona} demo={demo} groupId={routeParams?.groupId} courseId={routeParams?.courseId} certificateId={routeParams?.certificateId} slug={routeParams?.slug} quizId={routeParams?.quizId} postId={routeParams?.postId || routeParams?.id} />, [route, role, routeParams?.groupId, routeParams?.courseId, routeParams?.certificateId, routeParams?.slug, routeParams?.quizId, routeParams?.postId, routeParams?.id, persona, demo, go])}</main>
         </div>
         {(role === "student" || role === "instructor") && <window.AIChatbot />}
         <window.AlertModal open={!!switchAlert} onClose={() => setSwitchAlert(null)} title={switchAlert?.title} message={switchAlert?.message} type="error" />

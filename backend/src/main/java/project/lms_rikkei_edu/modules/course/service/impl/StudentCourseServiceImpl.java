@@ -16,6 +16,7 @@ import project.lms_rikkei_edu.modules.assignment.enums.AssignmentScope;
 import project.lms_rikkei_edu.modules.assignment.repository.AssignmentGroupRepository;
 import project.lms_rikkei_edu.modules.assignment.repository.AssignmentRepository;
 import project.lms_rikkei_edu.modules.assignment.repository.AssignmentSubmissionRepository;
+import project.lms_rikkei_edu.modules.certificate.service.CertificateService;
 import project.lms_rikkei_edu.modules.course.dto.request.UpdateProgressRequest;
 import project.lms_rikkei_edu.modules.course.dto.response.ChapterResponse;
 import project.lms_rikkei_edu.modules.course.dto.response.CourseDetailResponse;
@@ -79,6 +80,7 @@ public class StudentCourseServiceImpl implements StudentCourseService {
     private final AssignmentSubmissionRepository assignmentSubmissionRepository;
     private final AssignmentGroupRepository assignmentGroupRepository;
     private final GroupMemberRepository groupMemberRepository;
+    private final CertificateService certificateService;
 
     @Value("${app.s3.presigned-url-expiry:3600}")
     private long presignedUrlExpiry;
@@ -623,6 +625,7 @@ public class StudentCourseServiceImpl implements StudentCourseService {
                     newProg.setStatus(STATUS_IN_PROGRESS);
                     return newProg;
                 });
+        String oldStatus = courseProgress.getStatus();
 
         courseProgress.setCompletedLessonsCount((int) completedLessons);
         courseProgress.setTotalLessonsCount(totalLessons);
@@ -638,6 +641,10 @@ public class StudentCourseServiceImpl implements StudentCourseService {
         }
 
         courseProgressRepository.save(courseProgress);
+
+        if (!STATUS_COMPLETED.equals(oldStatus) && STATUS_COMPLETED.equals(courseProgress.getStatus())) {
+            certificateService.issueCertificateIfEligible(studentId, courseId);
+        }
     }
 
     /**

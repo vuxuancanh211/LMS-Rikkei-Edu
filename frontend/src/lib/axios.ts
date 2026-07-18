@@ -39,6 +39,70 @@ function flushQueue(token: string | null, error: unknown = null) {
   waitingQueue = [];
 }
 
+function redirectToLogin() {
+  if (window.location.pathname !== '/login') {
+    window.location.assign('/login');
+  }
+}
+
+function triggerAccountLockedModal(data: unknown) {
+  if (typeof window !== 'undefined' && (window as any).__triggerAccountLockedModal) {
+    (window as any).__triggerAccountLockedModal(data);
+    return true;
+  }
+  return false;
+}
+
+function isLockedMessage(message: string) {
+  return /khóa|locked|disabled|vô hiệu/i.test(message || '');
+}
+
+export async function refreshAccessToken(): Promise<string> {
+  const { refreshToken: storedRefreshToken, setTokens, logout } = useAuthStore.getState();
+
+  if (!storedRefreshToken) {
+    logout();
+    redirectToLogin();
+    throw new Error('Missing refresh token');
+  }
+
+  if (isRefreshing) {
+    return new Promise((resolve, reject) => {
+      waitingQueue.push({ resolve, reject });
+    });
+  }
+
+  isRefreshing = true;
+
+  try {
+    const { data: tokens } = await axios.post(
+      `${httpClient.defaults.baseURL || ''}/auth/refresh`,
+      { refreshToken: storedRefreshToken },
+      { headers: { 'Content-Type': 'application/json' }, timeout: 10000 },
+    );
+    setTokens(tokens);
+    const newToken = tokens.accessToken;
+    flushQueue(newToken);
+    return newToken;
+  } catch (refreshError: any) {
+    flushQueue(null, refreshError);
+    const refreshStatus = refreshError?.response?.status;
+    if (refreshStatus === 401 || refreshStatus === 403) {
+      const msg = refreshError?.response?.data?.message || '';
+      if (refreshStatus === 403 || isLockedMessage(msg)) {
+        if (triggerAccountLockedModal(refreshError?.response?.data)) {
+          throw refreshError;
+        }
+      }
+      logout();
+      redirectToLogin();
+    }
+    throw refreshError;
+  } finally {
+    isRefreshing = false;
+  }
+}
+
 httpClient.interceptors.response.use(
   (response) => response,
   async (error) => {
@@ -51,86 +115,30 @@ httpClient.interceptors.response.use(
       originalRequest._retry ||
       originalRequest.skipAuthRefresh
     ) {
-      if (status === 403 || (status === 401 && /khóa|locked|disabled|vô hiệu/i.test(error.response?.data?.message || ''))) {
-        if (typeof window !== 'undefined' && (window as any).__triggerAccountLockedModal) {
-          (window as any).__triggerAccountLockedModal(error.response?.data);
+      if (status === 403 || (status === 401 && isLockedMessage(error.response?.data?.message || ''))) {
+        if (triggerAccountLockedModal(error.response?.data)) {
           return Promise.reject(error);
         }
       }
       return Promise.reject(error);
     }
 
-    if (/khóa|locked|disabled|vô hiệu/i.test(error.response?.data?.message || '')) {
-      if (typeof window !== 'undefined' && (window as any).__triggerAccountLockedModal) {
-        (window as any).__triggerAccountLockedModal(error.response?.data);
+    if (isLockedMessage(error.response?.data?.message || '')) {
+      if (triggerAccountLockedModal(error.response?.data)) {
         return Promise.reject(error);
       }
     }
 
-    const { refreshToken: storedRefreshToken, setTokens, logout } = useAuthStore.getState();
-
-    if (!storedRefreshToken) {
-      if (status === 403 || /khóa|locked|disabled|vô hiệu/i.test(error.response?.data?.message || '')) {
-        if (typeof window !== 'undefined' && (window as any).__triggerAccountLockedModal) {
-          (window as any).__triggerAccountLockedModal(error.response?.data);
-          return Promise.reject(error);
-        }
-      }
-      logout();
-      if (window.location.pathname !== '/login') {
-        window.location.assign('/login');
-      }
-      return Promise.reject(error);
-    }
-
-    /* Another request is already refreshing — queue this one */
-    if (isRefreshing) {
-      return new Promise((resolve, reject) => {
-        waitingQueue.push({
-          resolve: (newToken) => {
-            originalRequest._retry = true;
-            const { tokenType } = useAuthStore.getState();
-            originalRequest.headers.Authorization = `${tokenType || 'Bearer'} ${newToken}`;
-            resolve(httpClient(originalRequest));
-          },
-          reject,
-        });
-      });
-    }
-
     originalRequest._retry = true;
-    isRefreshing = true;
 
     try {
-      const { data: tokens } = await axios.post(
-        `${httpClient.defaults.baseURL || ''}/auth/refresh`,
-        { refreshToken: storedRefreshToken },
-        { headers: { 'Content-Type': 'application/json' }, timeout: 10000 },
-      );
-      setTokens(tokens);
-      const newToken = tokens.accessToken;
-      originalRequest.headers.Authorization = `${tokens.tokenType || 'Bearer'} ${newToken}`;
-      flushQueue(newToken);
+      const newToken = await refreshAccessToken();
+      const { tokenType } = useAuthStore.getState();
+      originalRequest.headers = originalRequest.headers || {};
+      originalRequest.headers.Authorization = `${tokenType || 'Bearer'} ${newToken}`;
       return httpClient(originalRequest);
-    } catch (refreshError: any) {
-      flushQueue(null, refreshError);
-      const refreshStatus = refreshError?.response?.status;
-      if (refreshStatus === 401 || refreshStatus === 403) {
-        const msg = refreshError?.response?.data?.message || '';
-        if (refreshStatus === 403 || /khóa|locked|disabled|vô hiệu/i.test(msg)) {
-          if (typeof window !== 'undefined' && (window as any).__triggerAccountLockedModal) {
-            (window as any).__triggerAccountLockedModal(refreshError?.response?.data);
-            return Promise.reject(refreshError);
-          }
-        }
-        logout();
-        if (window.location.pathname !== '/login') {
-          window.location.assign('/login');
-        }
-      }
+    } catch (refreshError) {
       return Promise.reject(refreshError);
-    } finally {
-      isRefreshing = false;
     }
   },
 );

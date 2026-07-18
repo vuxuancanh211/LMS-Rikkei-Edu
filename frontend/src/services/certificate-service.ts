@@ -7,6 +7,7 @@ export type CertificateVerifyResponse = {
   status: CertificateStatus;
   studentName: string;
   courseTitle: string;
+  courseThumbnailUrl?: string | null;
   instructorName: string;
   issuedAt: string;
   revokedAt?: string | null;
@@ -21,6 +22,7 @@ export type CertificateResponse = {
   status: CertificateStatus;
   studentName: string;
   courseTitle: string;
+  courseThumbnailUrl?: string | null;
   instructorName: string;
   issuedAt: string;
   revokedAt?: string | null;
