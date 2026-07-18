@@ -92,7 +92,7 @@
             value={courseId || 'ALL'}
             onChange={selectCourse}
             options={[{ v: 'ALL', label: 'Tất cả khóa học' }, ...courses.map(c => ({ v: c.id, label: c.title }))]}
-            style={{ minWidth: 200, flex: '1 1 auto' }}
+            style={{ minWidth: 200, flex: '1 1 0' }}
           />
           <Sl
             value={filterStatus}
@@ -103,7 +103,7 @@
               { v: 'FAILED', label: 'Chưa đạt' },
               { v: 'NOT_STARTED', label: 'Chưa làm' }
             ]}
-            style={{ minWidth: 160, flex: '1 1 auto', marginLeft: 12 }}
+            style={{ minWidth: 160, flex: '1 1 0', marginLeft: 12 }}
           />
           <div className="grow" />
           <Se placeholder="Tìm quiz..." value={q} onChange={setQ} style={{ width: 220, flex: 'none' }} />
@@ -420,8 +420,9 @@
             value={courseId || 'ALL'}
             onChange={selectCourse}
             options={[{ v: 'ALL', label: 'Tất cả khóa học' }, ...courses.map(c => ({ v: c.id, label: c.title }))]}
-            style={{ minWidth: 200, flex: '1 1 auto' }}
+            style={{ minWidth: 200, flex: '1 1 0' }}
           />
+          <div style={{ minWidth: 160, flex: '1 1 0', marginLeft: 12 }} />
           <div className="grow" />
           <Se placeholder="Tìm bài tập..." value={q} onChange={setQ} style={{ width: 220, flex: 'none' }} />
         </div>
