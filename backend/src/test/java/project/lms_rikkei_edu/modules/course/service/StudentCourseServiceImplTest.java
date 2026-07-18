@@ -20,6 +20,7 @@ import project.lms_rikkei_edu.modules.assignment.enums.AssignmentScope;
 import project.lms_rikkei_edu.modules.assignment.repository.AssignmentGroupRepository;
 import project.lms_rikkei_edu.modules.assignment.repository.AssignmentRepository;
 import project.lms_rikkei_edu.modules.assignment.repository.AssignmentSubmissionRepository;
+import project.lms_rikkei_edu.modules.certificate.service.CertificateService;
 import project.lms_rikkei_edu.modules.group.repository.GroupMemberRepository;
 import project.lms_rikkei_edu.modules.course.dto.request.UpdateProgressRequest;
 import project.lms_rikkei_edu.modules.course.dto.response.*;
@@ -68,6 +69,7 @@ class StudentCourseServiceImplTest {
     @Mock private AssignmentSubmissionRepository assignmentSubmissionRepository;
     @Mock private AssignmentGroupRepository assignmentGroupRepository;
     @Mock private GroupMemberRepository groupMemberRepository;
+    @Mock private CertificateService certificateService;
 
     @InjectMocks private StudentCourseServiceImpl studentCourseService;
 
@@ -1156,4 +1158,3 @@ class StudentCourseServiceImplTest {
 
     // ── end new tests ──
 }
-
