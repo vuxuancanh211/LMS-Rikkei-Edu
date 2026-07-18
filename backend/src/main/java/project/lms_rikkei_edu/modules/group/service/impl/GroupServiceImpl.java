@@ -514,10 +514,12 @@ public class GroupServiceImpl implements GroupService {
     }
 
     private GroupDetailResponse toGroupDetailResponse(StudyGroupEntity group, List<GroupMemberEntity> members, boolean isStudent, Map<UUID, Integer> progressMap) {
+        UUID courseId = group.getCourse() != null ? group.getCourse().getId() : null;
+        String courseTitle = group.getCourse() != null ? group.getCourse().getTitle() : null;
         return GroupDetailResponse.builder()
                 .id(group.getId())
-                .courseId(group.getCourse().getId())
-                .courseTitle(group.getCourse().getTitle())
+                .courseId(courseId)
+                .courseTitle(courseTitle)
                 .name(group.getName())
                 .description(group.getDescription())
                 .maxCapacity(group.getMaxCapacity())

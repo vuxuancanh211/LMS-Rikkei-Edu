@@ -147,7 +147,7 @@ import { getAdminCertificates, revokeCertificate } from '../../services';
         {!loading && error && <div className="card card-pad" style={{ color:'var(--chip-error-fg)', background:'var(--chip-error-bg)', borderColor:'#f8caca' }}>{error}</div>}
         {!loading && !error && items.length === 0 && <Empty icon="award" title="Không có chứng chỉ" text="Không tìm thấy chứng chỉ phù hợp với bộ lọc hiện tại." />}
 
-        {!loading && !error && items.length > 0 && (
+        {!loading && !error && items.length > 0 && (<>
           <div className="card" style={{ overflow:'hidden' }}>
             <div style={{ overflowX:'auto' }}>
               <table className="tbl">
@@ -184,7 +184,7 @@ import { getAdminCertificates, revokeCertificate } from '../../services';
             </div>
           </div>
           <window.PageBar pg={pg} unit="chứng chỉ" />
-        )}
+        </>)}
 
         <Modal open={!!selected} onClose={() => setSelected(null)} max={720}>
           <ModalHead
