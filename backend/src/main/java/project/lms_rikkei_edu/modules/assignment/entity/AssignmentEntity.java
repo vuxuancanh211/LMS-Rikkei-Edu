@@ -60,15 +60,15 @@ public class AssignmentEntity {
     @Column(name = "max_score", precision = 5, scale = 2)
     private BigDecimal maxScore;
 
+    @Column(name = "pass_score", precision = 5, scale = 2)
+    private BigDecimal passingScore;
+
     @Column(name = "max_file_size_mb")
     private Integer maxFileSizeMb;
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "allowed_file_types", columnDefinition = "jsonb")
     private String allowedFileTypes;
-
-    @Column(name = "max_submissions")
-    private Integer maxSubmissions;
 
     @Column(name = "published_at")
     private OffsetDateTime publishedAt;

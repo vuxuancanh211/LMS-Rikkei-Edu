@@ -29,9 +29,6 @@ public class AssignmentSubmissionEntity {
     @Column(name = "course_id", nullable = false)
     private UUID courseId;
 
-    @Column(name = "submission_number")
-    private Integer submissionNumber;
-
     @Column(length = 20)
     private String status;
 
