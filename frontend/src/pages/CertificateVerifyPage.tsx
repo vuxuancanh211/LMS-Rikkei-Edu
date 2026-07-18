@@ -20,10 +20,18 @@ function Field({ label, value, mono = false }: { label: string; value?: string |
   );
 }
 
+function certificateBackground(data: CertificateVerifyResponse, revoked: boolean) {
+  if (data.courseThumbnailUrl) {
+    const overlay = revoked ? 'rgba(63,29,29,.74)' : 'rgba(15,23,42,.58)';
+    return `linear-gradient(135deg, ${overlay}, ${overlay}), url(${data.courseThumbnailUrl}) center/cover`;
+  }
+  return revoked ? 'linear-gradient(135deg,#3f1d1d,#7f1d1d)' : 'linear-gradient(135deg,#0f172a,#1e293b)';
+}
+
 function CertificatePreview({ data, revoked }: { data: CertificateVerifyResponse; revoked: boolean }) {
   return (
     <div className="card fade-in" style={{ overflow: 'hidden', boxShadow: 'var(--sh-lg)' }}>
-      <div style={{ padding: 22, background: 'linear-gradient(135deg,#0f172a,#1e293b)', position: 'relative' }}>
+      <div style={{ padding: 22, background: certificateBackground(data, revoked), position: 'relative' }}>
         <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(circle at 20% 15%, rgba(37,99,235,.28), transparent 26%), radial-gradient(circle at 82% 72%, rgba(245,158,11,.22), transparent 24%)' }} />
         <div style={{ border: '1.5px solid rgba(255,255,255,.18)', borderRadius: 16, padding: '34px 24px 30px', textAlign: 'center', position: 'relative' }}>
           <div style={{ width: 54, height: 54, borderRadius: 14, background: '#fff', display: 'grid', placeItems: 'center', margin: '0 auto 16px', fontWeight: 900, fontSize: 26, color: '#0f172a', boxShadow: '0 14px 36px rgba(0,0,0,.18)' }}>

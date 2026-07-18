@@ -1,5 +1,5 @@
 import { useAuthStore } from '../store';
-import { httpClient } from '../lib';
+import { httpClient, refreshAccessToken } from '../lib';
 
 export type NotificationItem = {
   id: string;
@@ -81,6 +81,15 @@ let sseReconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let sseHasConnected = false;
 let sseRunning = false;
 
+async function refreshSseAuthentication() {
+  try {
+    await refreshAccessToken();
+    return !!useAuthStore.getState().accessToken;
+  } catch {
+    return false;
+  }
+}
+
 export function connectSSE(
   onEvent: (eventName: string, data: unknown) => void,
   onError?: () => void,
@@ -153,6 +162,16 @@ export function connectSSE(
         headers: { 'Authorization': `${tokenType || 'Bearer'} ${accessToken}` },
         signal: sseController.signal,
       });
+      if (response.status === 401) {
+        const refreshed = await refreshSseAuthentication();
+        if (refreshed) {
+          sseDelayMs = 500;
+        } else {
+          sseAborted = true;
+          if (!sseAborted) notifyError();
+        }
+        return;
+      }
       if (!response.ok || !response.body) {
         sseDelayMs = Math.min(sseDelayMs * 1.5, 30000);
         if (!sseAborted) notifyError();

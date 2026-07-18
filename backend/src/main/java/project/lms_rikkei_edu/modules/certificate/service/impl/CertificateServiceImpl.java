@@ -12,7 +12,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import project.lms_rikkei_edu.infrastructure.s3.S3Service;
-import project.lms_rikkei_edu.modules.certificate.dto.request.IssueCertificateRequest;
 import project.lms_rikkei_edu.modules.certificate.dto.request.RevokeCertificateRequest;
 import project.lms_rikkei_edu.modules.certificate.dto.response.AdminCertificatePageResponse;
 import project.lms_rikkei_edu.modules.certificate.dto.response.CertificateDownloadResponse;
@@ -20,7 +19,6 @@ import project.lms_rikkei_edu.modules.certificate.dto.response.CertificateRespon
 import project.lms_rikkei_edu.modules.certificate.dto.response.CertificateVerifyResponse;
 import project.lms_rikkei_edu.modules.certificate.entity.CertificateEntity;
 import project.lms_rikkei_edu.modules.certificate.enums.CertificateStatus;
-import project.lms_rikkei_edu.modules.certificate.exception.CertificateAlreadyIssuedException;
 import project.lms_rikkei_edu.modules.certificate.exception.CertificateNotFoundException;
 import project.lms_rikkei_edu.modules.certificate.exception.CertificatePdfException;
 import project.lms_rikkei_edu.modules.certificate.exception.CertificateStateException;
@@ -69,20 +67,24 @@ public class CertificateServiceImpl implements CertificateService {
 
     @Override
     @Transactional
-    public CertificateResponse issueCertificate(UUID adminId, IssueCertificateRequest request) {
-        UserEntity student = userRepository.findByIdAndDeletedAtIsNull(request.getStudentId())
-                .orElseThrow(() -> new CertificateStateException("Student not found: " + request.getStudentId()));
+    public void issueCertificateIfEligible(UUID studentId, UUID courseId) {
+        UserEntity student = userRepository.findByIdAndDeletedAtIsNull(studentId)
+                .orElseThrow(() -> new CertificateStateException("Student not found: " + studentId));
         if (student.getRole() != UserRole.STUDENT) {
-            throw new CertificateStateException("User is not a student: " + request.getStudentId());
+            throw new CertificateStateException("User is not a student: " + studentId);
         }
 
-        Course course = courseRepository.findById(request.getCourseId())
-                .orElseThrow(() -> new CourseNotFoundException(request.getCourseId()));
+        Course course = courseRepository.findById(courseId)
+                .orElseThrow(() -> new CourseNotFoundException(courseId));
 
         if (certificateRepository.existsByStudentIdAndCourseId(student.getId(), course.getId())) {
-            throw new CertificateAlreadyIssuedException("Certificate already issued for this student and course");
+            return;
         }
 
+        createCertificate(student, course);
+    }
+
+    private CertificateResponse createCertificate(UserEntity student, Course course) {
         String credentialId = generateCredentialId();
         String instructorName = resolveInstructorName(course);
         String verifyUrl = buildVerifyUrl(credentialId);

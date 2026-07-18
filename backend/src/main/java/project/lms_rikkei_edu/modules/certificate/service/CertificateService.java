@@ -1,6 +1,5 @@
 package project.lms_rikkei_edu.modules.certificate.service;
 
-import project.lms_rikkei_edu.modules.certificate.dto.request.IssueCertificateRequest;
 import project.lms_rikkei_edu.modules.certificate.dto.request.RevokeCertificateRequest;
 import project.lms_rikkei_edu.modules.certificate.dto.response.AdminCertificatePageResponse;
 import project.lms_rikkei_edu.modules.certificate.dto.response.CertificateDownloadResponse;
@@ -12,7 +11,7 @@ import java.util.UUID;
 
 public interface CertificateService {
 
-    CertificateResponse issueCertificate(UUID adminId, IssueCertificateRequest request);
+    void issueCertificateIfEligible(UUID studentId, UUID courseId);
 
     List<CertificateResponse> getAllCertificatesForAdmin();
 

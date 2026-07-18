@@ -9,11 +9,9 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import project.lms_rikkei_edu.common.exception.BusinessException;
 import project.lms_rikkei_edu.common.security.CurrentUserProvider;
-import project.lms_rikkei_edu.modules.certificate.dto.request.IssueCertificateRequest;
 import project.lms_rikkei_edu.modules.certificate.dto.request.RevokeCertificateRequest;
 import project.lms_rikkei_edu.modules.certificate.dto.response.AdminCertificatePageResponse;
 import project.lms_rikkei_edu.modules.certificate.dto.response.CertificateDownloadResponse;
@@ -49,13 +47,6 @@ public class CertificateController {
     @GetMapping("/api/student/certificates/{id}/download")
     public ResponseEntity<CertificateDownloadResponse> getStudentDownloadUrl(@PathVariable UUID id) {
         return ResponseEntity.ok(certificateService.getStudentDownloadUrl(currentUserId(), id));
-    }
-
-    @PostMapping("/api/admin/certificates/issue")
-    public ResponseEntity<CertificateResponse> issueCertificate(
-            @Valid @RequestBody IssueCertificateRequest request) {
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(certificateService.issueCertificate(currentUserId(), request));
     }
 
     @GetMapping("/api/admin/certificates")

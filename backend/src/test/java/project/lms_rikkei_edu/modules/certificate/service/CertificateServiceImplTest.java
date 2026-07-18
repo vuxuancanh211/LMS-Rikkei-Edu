@@ -14,14 +14,12 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import project.lms_rikkei_edu.infrastructure.s3.S3Service;
-import project.lms_rikkei_edu.modules.certificate.dto.request.IssueCertificateRequest;
 import project.lms_rikkei_edu.modules.certificate.dto.request.RevokeCertificateRequest;
 import project.lms_rikkei_edu.modules.certificate.dto.response.AdminCertificatePageResponse;
 import project.lms_rikkei_edu.modules.certificate.dto.response.CertificateResponse;
 import project.lms_rikkei_edu.modules.certificate.dto.response.CertificateVerifyResponse;
 import project.lms_rikkei_edu.modules.certificate.entity.CertificateEntity;
 import project.lms_rikkei_edu.modules.certificate.enums.CertificateStatus;
-import project.lms_rikkei_edu.modules.certificate.exception.CertificateAlreadyIssuedException;
 import project.lms_rikkei_edu.modules.certificate.exception.CertificateNotFoundException;
 import project.lms_rikkei_edu.modules.certificate.exception.CertificatePdfException;
 import project.lms_rikkei_edu.modules.certificate.exception.CertificateStateException;
@@ -107,13 +105,13 @@ class CertificateServiceImplTest {
                 .id(courseId)
                 .title("Java Spring Boot")
                 .slug("java-spring-boot")
+                .thumbnailUrl("https://cdn.test/java.png")
                 .instructorId(instructorId)
                 .build();
     }
 
     @Test
     void issueCertificateCreatesPdfUploadsSavesAndSendsEmail() {
-        IssueCertificateRequest request = issueRequest(studentId, courseId);
         byte[] pdfBytes = "%PDF test".getBytes();
 
         when(userRepository.findByIdAndDeletedAtIsNull(studentId)).thenReturn(Optional.of(student));
@@ -134,12 +132,7 @@ class CertificateServiceImplTest {
             return response(entity, "Teacher One");
         });
 
-        CertificateResponse result = service.issueCertificate(adminId, request);
-
-        assertThat(result.getStatus()).isEqualTo(CertificateStatus.ISSUED);
-        assertThat(result.getStudentName()).isEqualTo("Nguyen Van A");
-        assertThat(result.getCourseTitle()).isEqualTo("Java Spring Boot");
-        assertThat(result.getInstructorName()).isEqualTo("Teacher One");
+        service.issueCertificateIfEligible(studentId, courseId);
 
         ArgumentCaptor<CertificateEntity> certificateCaptor = ArgumentCaptor.forClass(CertificateEntity.class);
         verify(certificateRepository).save(certificateCaptor.capture());
@@ -161,7 +154,6 @@ class CertificateServiceImplTest {
 
     @Test
     void issueCertificateSendsEmailAfterTransactionCommit() {
-        IssueCertificateRequest request = issueRequest(studentId, courseId);
         byte[] pdfBytes = "%PDF test".getBytes();
 
         when(userRepository.findByIdAndDeletedAtIsNull(studentId)).thenReturn(Optional.of(student));
@@ -176,9 +168,13 @@ class CertificateServiceImplTest {
 
         TransactionSynchronizationManager.initSynchronization();
         try {
-            CertificateResponse result = service.issueCertificate(adminId, request);
+            service.issueCertificateIfEligible(studentId, courseId);
 
             verify(certificateEmailAsyncService, never()).sendCertificateIssuedMailAsync(any(), any(), any(), any(), any(), any());
+
+            ArgumentCaptor<CertificateEntity> certificateCaptor = ArgumentCaptor.forClass(CertificateEntity.class);
+            verify(certificateRepository).save(certificateCaptor.capture());
+            String credentialId = certificateCaptor.getValue().getCredentialId();
 
             TransactionSynchronizationManager.getSynchronizations().forEach(TransactionSynchronization::afterCommit);
 
@@ -186,9 +182,9 @@ class CertificateServiceImplTest {
                     eq("student@test.com"),
                     eq("Nguyen Van A"),
                     eq("Java Spring Boot"),
-                    eq("https://lms.test/verify/" + result.getCredentialId()),
+                    eq("https://lms.test/verify/" + credentialId),
                     eq(pdfBytes),
-                    eq(result.getCredentialId() + ".pdf"));
+                    eq(credentialId + ".pdf"));
         } finally {
             TransactionSynchronizationManager.clearSynchronization();
         }
@@ -199,7 +195,7 @@ class CertificateServiceImplTest {
         UserEntity admin = user(studentId, "admin@test.com", "Admin", UserRole.ADMIN);
         when(userRepository.findByIdAndDeletedAtIsNull(studentId)).thenReturn(Optional.of(admin));
 
-        assertThatThrownBy(() -> service.issueCertificate(adminId, issueRequest(studentId, courseId)))
+        assertThatThrownBy(() -> service.issueCertificateIfEligible(studentId, courseId))
                 .isInstanceOf(CertificateStateException.class)
                 .hasMessageContaining("User is not a student");
 
@@ -212,18 +208,17 @@ class CertificateServiceImplTest {
         when(userRepository.findByIdAndDeletedAtIsNull(studentId)).thenReturn(Optional.of(student));
         when(courseRepository.findById(courseId)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.issueCertificate(adminId, issueRequest(studentId, courseId)))
+        assertThatThrownBy(() -> service.issueCertificateIfEligible(studentId, courseId))
                 .isInstanceOf(CourseNotFoundException.class);
     }
 
     @Test
-    void issueCertificateRejectsDuplicateStudentCourse() {
+    void issueCertificateSkipsDuplicateStudentCourse() {
         when(userRepository.findByIdAndDeletedAtIsNull(studentId)).thenReturn(Optional.of(student));
         when(courseRepository.findById(courseId)).thenReturn(Optional.of(course));
         when(certificateRepository.existsByStudentIdAndCourseId(studentId, courseId)).thenReturn(true);
 
-        assertThatThrownBy(() -> service.issueCertificate(adminId, issueRequest(studentId, courseId)))
-                .isInstanceOf(CertificateAlreadyIssuedException.class);
+        service.issueCertificateIfEligible(studentId, courseId);
 
         verify(certificatePdfService, never()).generate(any(), any(), any(), any(), any(), any());
     }
@@ -238,7 +233,7 @@ class CertificateServiceImplTest {
         when(certificatePdfService.generate(any(), any(), any(), any(), any(), any()))
                 .thenReturn(new byte[(2 * 1024 * 1024) + 1]);
 
-        assertThatThrownBy(() -> service.issueCertificate(adminId, issueRequest(studentId, courseId)))
+        assertThatThrownBy(() -> service.issueCertificateIfEligible(studentId, courseId))
                 .isInstanceOf(CertificatePdfException.class)
                 .hasMessageContaining("exceeds 2MB");
 
@@ -413,13 +408,6 @@ class CertificateServiceImplTest {
                 .isInstanceOf(CertificateNotFoundException.class);
     }
 
-    private static IssueCertificateRequest issueRequest(UUID studentId, UUID courseId) {
-        IssueCertificateRequest request = new IssueCertificateRequest();
-        request.setStudentId(studentId);
-        request.setCourseId(courseId);
-        return request;
-    }
-
     private static UserEntity user(UUID id, String email, String fullName, UserRole role) {
         UserEntity user = new UserEntity();
         user.setId(id);
@@ -452,6 +440,7 @@ class CertificateServiceImplTest {
                 .status(certificate.getStatus())
                 .studentName(certificate.getStudent().getFullName())
                 .courseTitle(certificate.getCourse().getTitle())
+                .courseThumbnailUrl(certificate.getCourse().getThumbnailUrl())
                 .instructorName(instructorName)
                 .issuedAt(certificate.getIssuedAt())
                 .revokedAt(certificate.getRevokedAt())
@@ -464,6 +453,7 @@ class CertificateServiceImplTest {
                 .status(certificate.getStatus())
                 .studentName(certificate.getStudent().getFullName())
                 .courseTitle(certificate.getCourse().getTitle())
+                .courseThumbnailUrl(certificate.getCourse().getThumbnailUrl())
                 .instructorName(instructorName)
                 .issuedAt(certificate.getIssuedAt())
                 .revokedAt(certificate.getRevokedAt())

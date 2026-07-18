@@ -31,6 +31,14 @@ function sortCertificates(list, sort) {
   return copy.sort((a, b) => new Date(b.issuedAt).getTime() - new Date(a.issuedAt).getTime());
 }
 
+function certificateBackground(certificate, revoked) {
+  if (certificate.courseThumbnailUrl) {
+    const overlay = revoked ? 'rgba(63,29,29,.74)' : 'rgba(15,23,42,.58)';
+    return `linear-gradient(135deg, ${overlay}, ${overlay}), url(${certificate.courseThumbnailUrl}) center/cover`;
+  }
+  return revoked ? "linear-gradient(135deg,#3f1d1d,#7f1d1d)" : "linear-gradient(135deg,#0f172a,#1e293b)";
+}
+
 /* ---------------- Certificates ---------------- */
 function StuCerts({ nav }) {
   const [q, setQ] = uS("");
@@ -103,7 +111,7 @@ function StuCerts({ nav }) {
           const revoked = ct.status === 'REVOKED';
           return (
           <div key={ct.id} className="card fade-in" style={{ overflow: "hidden", opacity: revoked ? .82 : 1 }}>
-            <div style={{ padding: 18, background: revoked ? "linear-gradient(135deg,#3f1d1d,#7f1d1d)" : "linear-gradient(135deg,#0f172a,#1e293b)", position: "relative" }}>
+            <div style={{ padding: 18, background: certificateBackground(ct, revoked), position: "relative" }}>
               <div style={{ border: "1.5px solid rgba(255,255,255,.18)", borderRadius: 12, padding: "22px 18px", textAlign: "center", position: "relative" }}>
                 <div style={{ width: 46, height: 46, borderRadius: 12, background: "#fff", display: "grid", placeItems: "center", margin: "0 auto 12px", fontWeight: 800, fontSize: 22, color: "#0f172a" }}>R</div>
                 <div style={{ height: 5, width: "70%", background: "rgba(255,255,255,.22)", borderRadius: 9, margin: "0 auto 7px" }} />

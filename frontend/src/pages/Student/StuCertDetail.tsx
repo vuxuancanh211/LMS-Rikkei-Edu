@@ -23,6 +23,14 @@ function Info({ label, value, mono }) {
   );
 }
 
+function certificateBackground(certificate, revoked) {
+  if (certificate?.courseThumbnailUrl) {
+    const overlay = revoked ? 'rgba(63,29,29,.74)' : 'rgba(15,23,42,.58)';
+    return `linear-gradient(135deg, ${overlay}, ${overlay}), url(${certificate.courseThumbnailUrl}) center/cover`;
+  }
+  return revoked ? 'linear-gradient(135deg,#3f1d1d,#7f1d1d)' : 'linear-gradient(135deg,#0f172a,#1e293b)';
+}
+
 function StuCertDetail({ nav, certificateId }) {
   const [certificate, setCertificate] = uS(null);
   const [loading, setLoading] = uS(true);
@@ -102,7 +110,7 @@ function StuCertDetail({ nav, certificateId }) {
 
       <div className="grid" style={{ gridTemplateColumns: 'minmax(0,1.05fr) minmax(300px,.7fr)', gap: 22, alignItems: 'start' }}>
         <div className="card" style={{ overflow: 'hidden' }}>
-          <div style={{ padding: 26, background: revoked ? 'linear-gradient(135deg,#3f1d1d,#7f1d1d)' : 'linear-gradient(135deg,#0f172a,#1e293b)', color: '#fff' }}>
+          <div style={{ padding: 26, background: certificateBackground(certificate, revoked), color: '#fff' }}>
             <div style={{ border: '1.5px solid rgba(255,255,255,.18)', borderRadius: 16, padding: 30, textAlign: 'center' }}>
               <div style={{ width: 58, height: 58, borderRadius: 16, background: '#fff', color: '#0f172a', display: 'grid', placeItems: 'center', margin: '0 auto 16px', fontWeight: 900, fontSize: 28 }}>R</div>
               <div style={{ fontSize: 12, opacity: .72, fontWeight: 800, letterSpacing: '.12em', textTransform: 'uppercase' }}>Rikkei Edu Certificate</div>
