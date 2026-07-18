@@ -31,6 +31,7 @@ import project.lms_rikkei_edu.modules.course.service.impl.CourseVersionReference
 import project.lms_rikkei_edu.modules.quiz.repository.QuizRepository;
 import project.lms_rikkei_edu.modules.quiz.repository.BankQuestionRepository;
 import project.lms_rikkei_edu.modules.quiz.service.QuizService;
+import project.lms_rikkei_edu.modules.user.entity.UserEntity;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -120,6 +121,19 @@ class CourseServiceImplTest {
                 .build();
     }
 
+    private UserEntity userWithName(UUID id, String fullName) {
+        UserEntity u = new UserEntity();
+        u.setId(id);
+        u.setFullName(fullName);
+        return u;
+    }
+
+    private UserEntity userWithNameAndBio(UUID id, String fullName, String bio) {
+        UserEntity u = userWithName(id, fullName);
+        u.setBio(bio);
+        return u;
+    }
+
     private CourseDetailResponse stubDetailResponse() {
         return CourseDetailResponse.builder()
                 .id(COURSE_ID)
@@ -153,6 +167,47 @@ class CourseServiceImplTest {
             verify(courseRepository).save(captor.capture());
             assertThat(captor.getValue().getInstructorId()).isEqualTo(INSTRUCTOR_ID);
             assertThat(captor.getValue().getStatus()).isEqualTo(CourseStatus.DRAFT);
+            assertThat(captor.getValue().getLearningOutcomes()).isEmpty();
+        }
+
+        @Test
+        void sanitizesDescriptionAndCleansLearningOutcomes() {
+            CreateCourseRequest req = new CreateCourseRequest();
+            req.setTitle("Test Course");
+            req.setDescription("<script>alert(1);</script><b>Bold</b>");
+            // List.of() rejects null elements outright; use Arrays.asList() so the null actually
+            // reaches cleanStringList()'s null-filtering branch instead of NPE-ing at list construction.
+            req.setLearningOutcomes(java.util.Arrays.asList("  Valid outcome  ", "", "   ", null));
+
+            Course saved = draftCourse();
+            when(courseRepository.existsBySlug(anyString())).thenReturn(false);
+            when(courseRepository.save(any(Course.class))).thenReturn(saved);
+
+            courseService.createCourse(INSTRUCTOR_ID, req);
+
+            ArgumentCaptor<Course> captor = ArgumentCaptor.forClass(Course.class);
+            verify(courseRepository).save(captor.capture());
+            
+            Course captured = captor.getValue();
+            assertThat(captured.getDescription()).isEqualTo("<b>Bold</b>");
+            assertThat(captured.getLearningOutcomes()).containsExactly("Valid outcome");
+        }
+
+        @Test
+        void setsChatEnabled_whenExplicitlyProvided() {
+            CreateCourseRequest req = new CreateCourseRequest();
+            req.setTitle("Course With Chat");
+            req.setChatEnabled(true);
+
+            Course saved = draftCourse();
+            when(courseRepository.existsBySlug(anyString())).thenReturn(false);
+            when(courseRepository.save(any(Course.class))).thenReturn(saved);
+
+            courseService.createCourse(INSTRUCTOR_ID, req);
+
+            ArgumentCaptor<Course> captor = ArgumentCaptor.forClass(Course.class);
+            verify(courseRepository).save(captor.capture());
+            assertThat(captor.getValue().getChatEnabled()).isTrue();
         }
 
         @Test
@@ -232,6 +287,26 @@ class CourseServiceImplTest {
             CourseDetailResponse result = courseService.getCourseDetail(INSTRUCTOR_ID, COURSE_ID);
 
             assertThat(result.getId()).isEqualTo(COURSE_ID);
+        }
+
+        @Test
+        void attachesInstructorInfoAndStudentCount_whenInstructorExists() {
+            Course course = draftCourse();
+            CourseDetailResponse detail = stubDetailResponse();
+
+            when(courseRepository.findByIdWithFullContent(COURSE_ID)).thenReturn(Optional.of(course));
+            when(courseMapper.toDetailResponse(course)).thenReturn(detail);
+            when(courseEnrollmentRepository.countByCourseId(COURSE_ID)).thenReturn(7L);
+            when(userRepository.findById(INSTRUCTOR_ID)).thenReturn(Optional.of(
+                    userWithNameAndBio(INSTRUCTOR_ID, "Giang Vien A", "10 nam kinh nghiem")));
+            when(courseRepository.countByInstructorIdAndStatus(INSTRUCTOR_ID, CourseStatus.PUBLISHED)).thenReturn(4L);
+
+            CourseDetailResponse result = courseService.getCourseDetail(INSTRUCTOR_ID, COURSE_ID);
+
+            assertThat(result.getStudentCount()).isEqualTo(7);
+            assertThat(result.getInstructorName()).isEqualTo("Giang Vien A");
+            assertThat(result.getInstructorBio()).isEqualTo("10 nam kinh nghiem");
+            assertThat(result.getInstructorCourseCount()).isEqualTo(4);
         }
     }
 
@@ -341,6 +416,26 @@ class CourseServiceImplTest {
             assertThat(course.getTitle()).isEqualTo("New Title");
             assertThat(course.getDescription()).isEqualTo("New description");
             assertThat(course.getLevel()).isEqualTo(CourseLevel.ADVANCED);
+        }
+
+        @Test
+        void updatesDescriptionLearningOutcomesAndRequirements() {
+            UpdateCourseRequest req = new UpdateCourseRequest();
+            req.setDescription("<script>alert(1)</script>Safe text");
+            req.setLearningOutcomes(List.of("  Outcome 1  ", ""));
+            req.setRequirements(List.of("Req 1", "  "));
+
+            Course course = draftCourse();
+            when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.of(course));
+            when(courseRepository.existsBySlugAndIdNot(any(), any())).thenReturn(false);
+            when(courseRepository.save(any())).thenReturn(course);
+
+            courseService.updateCourse(INSTRUCTOR_ID, COURSE_ID, req);
+
+            verify(courseRepository).save(course);
+            assertThat(course.getDescription()).isEqualTo("Safe text");
+            assertThat(course.getLearningOutcomes()).containsExactly("Outcome 1");
+            assertThat(course.getRequirements()).containsExactly("Req 1");
         }
 
         @Test
@@ -480,6 +575,123 @@ class CourseServiceImplTest {
 
             assertThatThrownBy(() -> courseService.submitForApproval(INSTRUCTOR_ID, COURSE_ID, null))
                     .isInstanceOf(CourseStateException.class);
+        }
+
+        // ── notifyAdminsOfSubmission ─────────────────────────────────────────
+
+        @Test
+        void notifiesEachAdmin_onFirstSubmission() throws Exception {
+            Course course = draftCourse();
+            UserEntity admin1 = userWithName(UUID.randomUUID(), "Admin One");
+            UserEntity admin2 = userWithName(UUID.randomUUID(), "Admin Two");
+
+            when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.of(course));
+            when(lessonRepository.countByCourseId(COURSE_ID)).thenReturn(2L);
+            when(objectMapper.writeValueAsString(any())).thenReturn("{}");
+            when(courseVersionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+            when(approvalLogRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+            when(courseRepository.save(any())).thenReturn(course);
+            when(courseMapper.toDetailResponse(course)).thenReturn(stubDetailResponse());
+            when(userRepository.findById(INSTRUCTOR_ID)).thenReturn(Optional.of(
+                    userWithName(INSTRUCTOR_ID, "Giang Vien A")));
+            when(userRepository.findByRoleAndNotDeleted(project.lms_rikkei_edu.modules.user.enums.UserRole.ADMIN))
+                    .thenReturn(List.of(admin1, admin2));
+
+            courseService.submitForApproval(INSTRUCTOR_ID, COURSE_ID, "Initial submission");
+
+            verify(notificationService).createNotification(
+                    eq(admin1.getId()),
+                    eq(project.lms_rikkei_edu.modules.notification.enums.NotificationType.COURSE_SUBMITTED.name()),
+                    eq("Khóa học mới cần duyệt"),
+                    argThat((String body) -> body.contains("Giang Vien A") && !body.contains("Initial submission")),
+                    eq("COURSE"), eq(COURSE_ID), eq(INSTRUCTOR_ID), eq("Giang Vien A"),
+                    contains(admin1.getId().toString())
+            );
+            verify(notificationService).createNotification(
+                    eq(admin2.getId()), any(), any(), any(), any(), any(), any(), any(),
+                    contains(admin2.getId().toString())
+            );
+        }
+
+        @Test
+        void notifiesAdmin_onUpdateSubmission_includesChangeSummaryInBody() throws Exception {
+            Course course = publishedCourse();
+            UserEntity admin = userWithName(UUID.randomUUID(), "Admin One");
+
+            when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.of(course));
+            when(lessonResourceRepository.existsByCourseIdAndIsNewInUpdateTrue(COURSE_ID)).thenReturn(true);
+            when(objectMapper.writeValueAsString(any())).thenReturn("{}");
+            when(courseVersionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+            when(approvalLogRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+            when(courseRepository.save(any())).thenReturn(course);
+            when(courseMapper.toDetailResponse(course)).thenReturn(stubDetailResponse());
+            when(userRepository.findById(INSTRUCTOR_ID)).thenReturn(Optional.of(
+                    userWithName(INSTRUCTOR_ID, "Giang Vien B")));
+            when(userRepository.findByRoleAndNotDeleted(project.lms_rikkei_edu.modules.user.enums.UserRole.ADMIN))
+                    .thenReturn(List.of(admin));
+
+            courseService.submitForApproval(INSTRUCTOR_ID, COURSE_ID, "Fixed a typo");
+
+            verify(notificationService).createNotification(
+                    eq(admin.getId()),
+                    eq(project.lms_rikkei_edu.modules.notification.enums.NotificationType.COURSE_UPDATE_SUBMITTED.name()),
+                    eq("Cập nhật khóa học cần duyệt"),
+                    argThat((String body) -> body.contains(": Fixed a typo")),
+                    eq("COURSE"), eq(COURSE_ID), eq(INSTRUCTOR_ID), eq("Giang Vien B"),
+                    any()
+            );
+        }
+
+        @Test
+        void notifiesAdmin_onUpdateSubmission_blankChangeSummary_omitsSummaryFromBody() throws Exception {
+            Course course = publishedCourse();
+            UserEntity admin = userWithName(UUID.randomUUID(), "Admin One");
+
+            when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.of(course));
+            when(lessonResourceRepository.existsByCourseIdAndIsNewInUpdateTrue(COURSE_ID)).thenReturn(true);
+            when(objectMapper.writeValueAsString(any())).thenReturn("{}");
+            when(courseVersionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+            when(approvalLogRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+            when(courseRepository.save(any())).thenReturn(course);
+            when(courseMapper.toDetailResponse(course)).thenReturn(stubDetailResponse());
+            when(userRepository.findById(INSTRUCTOR_ID)).thenReturn(Optional.of(
+                    userWithName(INSTRUCTOR_ID, "Giang Vien B")));
+            when(userRepository.findByRoleAndNotDeleted(project.lms_rikkei_edu.modules.user.enums.UserRole.ADMIN))
+                    .thenReturn(List.of(admin));
+
+            courseService.submitForApproval(INSTRUCTOR_ID, COURSE_ID, "   ");
+
+            verify(notificationService).createNotification(
+                    eq(admin.getId()), any(), any(),
+                    argThat((String body) -> !body.contains(":")),
+                    any(), any(), any(), any(), any()
+            );
+        }
+
+        @Test
+        void notifiesAdmin_onUpdateSubmission_nullChangeSummary_omitsSummaryFromBody() throws Exception {
+            Course course = publishedCourse();
+            UserEntity admin = userWithName(UUID.randomUUID(), "Admin One");
+
+            when(courseRepository.findByIdWithCategory(COURSE_ID)).thenReturn(Optional.of(course));
+            when(lessonResourceRepository.existsByCourseIdAndIsNewInUpdateTrue(COURSE_ID)).thenReturn(true);
+            when(objectMapper.writeValueAsString(any())).thenReturn("{}");
+            when(courseVersionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+            when(approvalLogRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+            when(courseRepository.save(any())).thenReturn(course);
+            when(courseMapper.toDetailResponse(course)).thenReturn(stubDetailResponse());
+            when(userRepository.findById(INSTRUCTOR_ID)).thenReturn(Optional.of(
+                    userWithName(INSTRUCTOR_ID, "Giang Vien B")));
+            when(userRepository.findByRoleAndNotDeleted(project.lms_rikkei_edu.modules.user.enums.UserRole.ADMIN))
+                    .thenReturn(List.of(admin));
+
+            courseService.submitForApproval(INSTRUCTOR_ID, COURSE_ID, null);
+
+            verify(notificationService).createNotification(
+                    eq(admin.getId()), any(), any(),
+                    argThat((String body) -> !body.contains(":")),
+                    any(), any(), any(), any(), any()
+            );
         }
 
         // ── validateQuizzesActive ────────────────────────────────────────────
