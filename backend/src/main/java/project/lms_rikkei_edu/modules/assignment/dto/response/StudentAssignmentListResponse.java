@@ -14,6 +14,7 @@ public class StudentAssignmentListResponse {
 
     private UUID id;
     private UUID courseId;
+    private String courseTitle;
     private String title;
     private AssignmentStatus status;
     private OffsetDateTime deadline;

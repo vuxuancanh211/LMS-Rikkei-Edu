@@ -49,6 +49,26 @@ class StudentAssignmentControllerTest {
     }
 
     @Test
+    void getAllAssignments_returns200() throws Exception {
+        when(currentUserProvider.getCurrentUserId()).thenReturn(Optional.of(studentId));
+        when(studentAssignmentService.getAllAssignments(studentId))
+                .thenReturn(List.of(assignmentListResponse()));
+
+        mockMvc.perform(get("/api/student/assignments"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(assignmentId.toString()))
+                .andExpect(jsonPath("$[0].courseTitle").value("Course Title"));
+    }
+
+    @Test
+    void getAllAssignments_unauthorized_returns401() throws Exception {
+        when(currentUserProvider.getCurrentUserId()).thenReturn(Optional.empty());
+
+        mockMvc.perform(get("/api/student/assignments"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void getAssignments_returns200() throws Exception {
         when(currentUserProvider.getCurrentUserId()).thenReturn(Optional.of(studentId));
         when(studentAssignmentService.getAssignments(courseId, studentId))
@@ -119,6 +139,7 @@ class StudentAssignmentControllerTest {
         return StudentAssignmentListResponse.builder()
                 .id(assignmentId)
                 .courseId(courseId)
+                .courseTitle("Course Title")
                 .title("Test Assignment")
                 .status(AssignmentStatus.PUBLISHED)
                 .maxScore(BigDecimal.TEN)

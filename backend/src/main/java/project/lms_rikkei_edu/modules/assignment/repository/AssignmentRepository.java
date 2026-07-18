@@ -13,6 +13,8 @@ public interface AssignmentRepository extends JpaRepository<AssignmentEntity, UU
 
     List<AssignmentEntity> findByCourseIdOrderByCreatedAtDesc(UUID courseId);
 
+    List<AssignmentEntity> findByCourseIdInOrderByCreatedAtDesc(List<UUID> courseIds);
+
     List<AssignmentEntity> findByCreatedByOrderByCreatedAtDesc(UUID createdBy);
 
     Optional<AssignmentEntity> findByIdAndCourseId(UUID id, UUID courseId);

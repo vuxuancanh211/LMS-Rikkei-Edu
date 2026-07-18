@@ -62,6 +62,14 @@ public class QuizStatsController {
         return ResponseEntity.ok(statsService.getStudentCourseProgress(courseId, studentId));
     }
 
+    // Student: tiến độ quiz trên tất cả khóa đang học
+    @GetMapping("/api/student/quizzes/progress")
+    @PreAuthorize("hasRole('STUDENT')")
+    public ResponseEntity<List<StudentQuizProgressEntry>> getMyAllCourseProgress() {
+        UUID studentId = resolveCurrentUser();
+        return ResponseEntity.ok(statsService.getStudentAllCourseProgress(studentId));
+    }
+
     private UUID resolveCurrentUser() {
         return currentUserProvider.getCurrentUserId()
                 .orElseThrow(() -> new BusinessException("Không xác định được người dùng"));

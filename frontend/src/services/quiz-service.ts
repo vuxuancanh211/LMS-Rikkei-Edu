@@ -384,6 +384,11 @@ export async function getStudentCourseProgress(courseId: string) {
   return res.data;
 }
 
+export async function getStudentAllQuizProgress() {
+  const res = await httpClient.get<StudentQuizProgressEntry[]>(`/student/quizzes/progress`);
+  return res.data;
+}
+
 // ─── AI Question Generation ────────────────────────────────────────────────────
 
 export interface AiGenerateRequest {
