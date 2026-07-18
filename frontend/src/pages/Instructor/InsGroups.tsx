@@ -4,7 +4,7 @@
   const Ic = window.Icon;
   const { Search, Select, Modal, ModalHead, Empty } = window;
   const { getGroups, createGroup, updateGroup, deleteGroup, getUnassignedStudents, addGroupMembers } = window.__groupService;
-  const { getMyCourses } = window.__courseService;
+  const { getMyCourses, getMyCourseOptions } = window.__courseService;
 
   function hasSearchText(value) {
     return /[\p{L}\p{N}]/u.test(String(value || ''));

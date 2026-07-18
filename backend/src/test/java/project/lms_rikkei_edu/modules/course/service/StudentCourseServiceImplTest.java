@@ -1125,7 +1125,7 @@ class StudentCourseServiceImplTest {
         a2.setPassingScore(BigDecimal.valueOf(5));
 
         when(assignmentRepository.findPublishedByCourseId(courseId)).thenReturn(List.of(a1, a2));
-        when(groupMemberRepository.findGroupIdsByStudentIdAndCourseId(studentId, courseId)).thenReturn(Collections.emptyList());
+        when(groupMemberRepository.findGroupIdsByStudentIdAndCourseId(studentId, courseId)).thenReturn(List.of(UUID.randomUUID()));
 
         AssignmentSubmissionEntity s1 = new AssignmentSubmissionEntity();
         s1.setAssignmentId(idPublished);

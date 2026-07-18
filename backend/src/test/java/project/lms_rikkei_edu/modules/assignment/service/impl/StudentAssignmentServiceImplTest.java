@@ -117,7 +117,8 @@ class StudentAssignmentServiceImplTest {
         when(assignmentRepository.findByCourseIdOrderByCreatedAtDesc(courseId))
                 .thenReturn(List.of(published, closed, draft));
         when(groupMemberRepository.findGroupIdsByStudentIdAndCourseId(studentId, courseId))
-                .thenReturn(List.of());
+                .thenReturn(List.of(UUID.randomUUID()));
+        when(assignmentAttachmentRepository.countByAssignmentId(assignmentId)).thenReturn(0L);
 
         List<StudentAssignmentListResponse> result = service.getAssignments(courseId, studentId);
 
@@ -125,19 +126,17 @@ class StudentAssignmentServiceImplTest {
     }
 
     @Test
-    void getAssignments_allGroupsScope_includesAllEnrolled() {
+    void getAssignments_allGroupsScope_excludesStudentWithoutGroup() {
         enrollStudent();
         var assignment = assignmentEntity(AssignmentStatus.PUBLISHED);
         when(assignmentRepository.findByCourseIdOrderByCreatedAtDesc(courseId))
                 .thenReturn(List.of(assignment));
         when(groupMemberRepository.findGroupIdsByStudentIdAndCourseId(studentId, courseId))
                 .thenReturn(List.of());
-        when(assignmentAttachmentRepository.countByAssignmentId(assignmentId)).thenReturn(0L);
 
         List<StudentAssignmentListResponse> result = service.getAssignments(courseId, studentId);
 
-        assertThat(result).hasSize(1);
-        assertThat(result.get(0).getId()).isEqualTo(assignmentId);
+        assertThat(result).isEmpty();
     }
 
     @Test
@@ -329,7 +328,7 @@ class StudentAssignmentServiceImplTest {
         when(courseEnrollmentRepository.existsByCourseIdAndStudentId(courseId, studentId))
                 .thenReturn(false);
 
-        assertThatThrownBy(() -> service.submitAssignment(courseId, assignmentId, studentId, null, List.of()))
+        assertThatThrownBy(() -> service.submitAssignment(courseId, assignmentId, studentId, null, List.of(), null))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("không tham gia");
     }
@@ -340,7 +339,7 @@ class StudentAssignmentServiceImplTest {
         when(assignmentRepository.findByIdAndCourseId(assignmentId, courseId))
                 .thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.submitAssignment(courseId, assignmentId, studentId, null, List.of()))
+        assertThatThrownBy(() -> service.submitAssignment(courseId, assignmentId, studentId, null, List.of(), null))
                 .isInstanceOf(AssignmentNotFoundException.class);
     }
 
@@ -351,7 +350,7 @@ class StudentAssignmentServiceImplTest {
         when(assignmentRepository.findByIdAndCourseId(assignmentId, courseId))
                 .thenReturn(Optional.of(assignment));
 
-        assertThatThrownBy(() -> service.submitAssignment(courseId, assignmentId, studentId, null, List.of()))
+        assertThatThrownBy(() -> service.submitAssignment(courseId, assignmentId, studentId, null, List.of(), null))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("chưa được xuất bản");
     }
@@ -369,7 +368,7 @@ class StudentAssignmentServiceImplTest {
         when(assignmentGroupRepository.findByAssignmentId(assignmentId))
                 .thenReturn(List.of(ag));
 
-        assertThatThrownBy(() -> service.submitAssignment(courseId, assignmentId, studentId, null, List.of()))
+        assertThatThrownBy(() -> service.submitAssignment(courseId, assignmentId, studentId, null, List.of(), null))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("quyền truy cập");
     }
@@ -385,7 +384,7 @@ class StudentAssignmentServiceImplTest {
         when(groupMemberRepository.findGroupIdsByStudentIdAndCourseId(studentId, courseId))
                 .thenReturn(List.of());
 
-        assertThatThrownBy(() -> service.submitAssignment(courseId, assignmentId, studentId, null, List.of()))
+        assertThatThrownBy(() -> service.submitAssignment(courseId, assignmentId, studentId, null, List.of(), null))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("quá hạn nộp");
     }
@@ -409,7 +408,7 @@ class StudentAssignmentServiceImplTest {
                 .thenReturn(presigned);
 
         SubmissionResponse result = service.submitAssignment(
-                courseId, assignmentId, studentId, null, List.of(file));
+                courseId, assignmentId, studentId, null, List.of(file), null);
 
         assertThat(result.getStatus()).isEqualTo("LATE");
         assertThat(result.isLate()).isTrue();
@@ -434,7 +433,7 @@ class StudentAssignmentServiceImplTest {
                 .thenReturn(presigned);
 
         SubmissionResponse result = service.submitAssignment(
-                courseId, assignmentId, studentId, null, List.of(file));
+                courseId, assignmentId, studentId, null, List.of(file), null);
 
         assertThat(result.getStatus()).isEqualTo("SUBMITTED");
         assertThat(result.isLate()).isFalse();
@@ -449,7 +448,7 @@ class StudentAssignmentServiceImplTest {
         when(groupMemberRepository.findGroupIdsByStudentIdAndCourseId(studentId, courseId))
                 .thenReturn(List.of());
 
-        assertThatThrownBy(() -> service.submitAssignment(courseId, assignmentId, studentId, null, List.of()))
+        assertThatThrownBy(() -> service.submitAssignment(courseId, assignmentId, studentId, null, List.of(), null))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("ít nhất 1 file");
     }
@@ -466,7 +465,7 @@ class StudentAssignmentServiceImplTest {
                 .thenReturn(List.of());
 
         var files = List.<MultipartFile>of(file);
-        assertThatThrownBy(() -> service.submitAssignment(courseId, assignmentId, studentId, null, files))
+        assertThatThrownBy(() -> service.submitAssignment(courseId, assignmentId, studentId, null, files, null))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("không được hỗ trợ");
     }
@@ -483,9 +482,27 @@ class StudentAssignmentServiceImplTest {
                 .thenReturn(List.of());
 
         var files = List.<MultipartFile>of(file);
-        assertThatThrownBy(() -> service.submitAssignment(courseId, assignmentId, studentId, null, files))
+        assertThatThrownBy(() -> service.submitAssignment(courseId, assignmentId, studentId, null, files, null))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("vượt quá kích thước");
+                .hasMessageContaining("vượt quá");
+    }
+
+    @Test
+    void submitAssignment_totalFileSizeExceeds_throws() {
+        enrollStudent();
+        var assignment = assignmentEntity(AssignmentStatus.PUBLISHED);
+        assignment.setMaxFileSizeMb(3);
+        var file1 = new MockMultipartFile("file1", "a.pdf", "application/pdf", new byte[2 * 1024 * 1024]);
+        var file2 = new MockMultipartFile("file2", "b.pdf", "application/pdf", new byte[2 * 1024 * 1024]);
+        when(assignmentRepository.findByIdAndCourseId(assignmentId, courseId))
+                .thenReturn(Optional.of(assignment));
+        when(groupMemberRepository.findGroupIdsByStudentIdAndCourseId(studentId, courseId))
+                .thenReturn(List.of());
+
+        var files = List.<MultipartFile>of(file1, file2);
+        assertThatThrownBy(() -> service.submitAssignment(courseId, assignmentId, studentId, null, files, null))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("vượt quá");
     }
 
     @Test
@@ -505,7 +522,7 @@ class StudentAssignmentServiceImplTest {
                 .thenReturn(presigned);
 
         SubmissionResponse result = service.submitAssignment(
-                courseId, assignmentId, studentId, "My note", List.of(file));
+                courseId, assignmentId, studentId, "My note", List.of(file), null);
 
         assertThat(result.getNote()).isEqualTo("My note");
         assertThat(result.getFiles()).hasSize(1);
@@ -526,7 +543,7 @@ class StudentAssignmentServiceImplTest {
         when(groupMemberRepository.findGroupIdsByStudentIdAndCourseId(studentId, courseId))
                 .thenReturn(List.of());
 
-        assertThatThrownBy(() -> service.submitAssignment(courseId, assignmentId, studentId, null, List.of()))
+        assertThatThrownBy(() -> service.submitAssignment(courseId, assignmentId, studentId, null, List.of(), null))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("chưa đến thời gian");
     }
@@ -546,21 +563,18 @@ class StudentAssignmentServiceImplTest {
                 .findByAssignmentIdAndStudentIdOrderByCreatedAtDesc(assignmentId, studentId))
                 .thenReturn(List.of(existingSub));
 
-        assertThatThrownBy(() -> service.submitAssignment(courseId, assignmentId, studentId, null, List.of()))
+        assertThatThrownBy(() -> service.submitAssignment(courseId, assignmentId, studentId, null, List.of(), null))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("công bố điểm");
     }
 
     @Test
-    void submitAssignment_cleanupPreviousSubmissions_deletesOldOnes() throws Exception {
+    void submitAssignment_withExistingSubmissions_preservesOldOnes() throws Exception {
         enrollStudent();
         var assignment = assignmentEntity(AssignmentStatus.PUBLISHED);
         var oldSub = new AssignmentSubmissionEntity();
         oldSub.setId(UUID.randomUUID());
         oldSub.setScorePublishedAt(null);
-        var oldFile = new SubmissionFileEntity();
-        oldFile.setId(UUID.randomUUID());
-        oldFile.setS3Key("submissions/old-key.pdf");
         var file = new MockMultipartFile("file", "hw.pdf", "application/pdf", new byte[1024]);
         when(assignmentRepository.findByIdAndCourseId(assignmentId, courseId))
                 .thenReturn(Optional.of(assignment));
@@ -569,8 +583,6 @@ class StudentAssignmentServiceImplTest {
         when(assignmentSubmissionRepository
                 .findByAssignmentIdAndStudentIdOrderByCreatedAtDesc(assignmentId, studentId))
                 .thenReturn(List.of(oldSub));
-        when(submissionFileRepository.findBySubmissionIdOrderByOrderIndexAsc(oldSub.getId()))
-                .thenReturn(List.of(oldFile));
         when(s3Client.putObject(any(Consumer.class), any(RequestBody.class)))
                 .thenReturn(null);
         var presigned = mock(PresignedGetObjectRequest.class);
@@ -578,10 +590,8 @@ class StudentAssignmentServiceImplTest {
         when(s3Service.generatePresignedInlineUrl(anyString(), anyLong()))
                 .thenReturn(presigned);
 
-        service.submitAssignment(courseId, assignmentId, studentId, null, List.of(file));
+        service.submitAssignment(courseId, assignmentId, studentId, null, List.of(file), null);
 
-        verify(s3Service).deleteObject(oldFile.getS3Key());
-        verify(submissionFileRepository).delete(oldFile);
         verify(assignmentSubmissionRepository).delete(oldSub);
         verify(assignmentSubmissionRepository).save(any(AssignmentSubmissionEntity.class));
     }
@@ -625,7 +635,7 @@ class StudentAssignmentServiceImplTest {
         when(s3Client.putObject(any(Consumer.class), any(RequestBody.class)))
                 .thenThrow(new RuntimeException("S3 error"));
 
-        assertThatThrownBy(() -> service.submitAssignment(courseId, assignmentId, studentId, null, List.of(file)))
+        assertThatThrownBy(() -> service.submitAssignment(courseId, assignmentId, studentId, null, List.of(file), null))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessageContaining("S3 error");
     }
@@ -647,22 +657,19 @@ class StudentAssignmentServiceImplTest {
         when(s3Service.generatePresignedInlineUrl(anyString(), anyLong()))
                 .thenReturn(presigned);
 
-        SubmissionResponse result = service.submitAssignment(courseId, assignmentId, studentId, null, List.of(file));
+        SubmissionResponse result = service.submitAssignment(courseId, assignmentId, studentId, null, List.of(file), null);
 
         assertThat(result.isLate()).isFalse();
         assertThat(result.getStatus()).isEqualTo("SUBMITTED");
     }
 
     @Test
-    void submitAssignment_cleanupFileS3KeyNull_skipsDelete() throws Exception {
+    void submitAssignment_withExistingSubmission_keepsOldAndCreatesNew() throws Exception {
         enrollStudent();
         var assignment = assignmentEntity(AssignmentStatus.PUBLISHED);
         var oldSub = new AssignmentSubmissionEntity();
         oldSub.setId(UUID.randomUUID());
         oldSub.setScorePublishedAt(null);
-        var oldFile = new SubmissionFileEntity();
-        oldFile.setId(UUID.randomUUID());
-        oldFile.setS3Key(null);
         var file = new MockMultipartFile("file", "hw.pdf", "application/pdf", new byte[1024]);
         when(assignmentRepository.findByIdAndCourseId(assignmentId, courseId))
                 .thenReturn(Optional.of(assignment));
@@ -671,8 +678,6 @@ class StudentAssignmentServiceImplTest {
         when(assignmentSubmissionRepository
                 .findByAssignmentIdAndStudentIdOrderByCreatedAtDesc(assignmentId, studentId))
                 .thenReturn(List.of(oldSub));
-        when(submissionFileRepository.findBySubmissionIdOrderByOrderIndexAsc(oldSub.getId()))
-                .thenReturn(List.of(oldFile));
         when(s3Client.putObject(any(Consumer.class), any(RequestBody.class)))
                 .thenReturn(null);
         var presigned = mock(PresignedGetObjectRequest.class);
@@ -680,11 +685,12 @@ class StudentAssignmentServiceImplTest {
         when(s3Service.generatePresignedInlineUrl(anyString(), anyLong()))
                 .thenReturn(presigned);
 
-        service.submitAssignment(courseId, assignmentId, studentId, null, List.of(file));
+        service.submitAssignment(courseId, assignmentId, studentId, null, List.of(file), null);
 
         verify(s3Service, never()).deleteObject(anyString());
-        verify(submissionFileRepository).delete(oldFile);
+        verify(submissionFileRepository, never()).delete(any());
         verify(assignmentSubmissionRepository).delete(oldSub);
+        verify(assignmentSubmissionRepository).save(any(AssignmentSubmissionEntity.class));
     }
 
     @Test
@@ -697,7 +703,7 @@ class StudentAssignmentServiceImplTest {
         when(groupMemberRepository.findGroupIdsByStudentIdAndCourseId(studentId, courseId))
                 .thenReturn(List.of());
 
-        assertThatThrownBy(() -> service.submitAssignment(courseId, assignmentId, studentId, null, List.of(emptyFile)))
+        assertThatThrownBy(() -> service.submitAssignment(courseId, assignmentId, studentId, null, List.of(emptyFile), null))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("File không được để trống");
     }

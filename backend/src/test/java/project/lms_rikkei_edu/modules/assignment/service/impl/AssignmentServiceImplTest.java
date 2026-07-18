@@ -28,6 +28,8 @@ import project.lms_rikkei_edu.modules.assignment.mapper.AssignmentMapper;
 import project.lms_rikkei_edu.modules.assignment.repository.AssignmentAttachmentRepository;
 import project.lms_rikkei_edu.modules.assignment.repository.AssignmentGroupRepository;
 import project.lms_rikkei_edu.modules.assignment.repository.AssignmentRepository;
+import project.lms_rikkei_edu.modules.assignment.repository.AssignmentSubmissionRepository;
+import project.lms_rikkei_edu.modules.assignment.repository.SubmissionFileRepository;
 import project.lms_rikkei_edu.modules.course.entity.Course;
 import project.lms_rikkei_edu.modules.course.enums.CourseStatus;
 import project.lms_rikkei_edu.modules.course.repository.CourseEnrollmentRepository;
@@ -79,6 +81,10 @@ class AssignmentServiceImplTest {
     @Mock
     private CourseEnrollmentRepository courseEnrollmentRepository;
     @Mock
+    private SubmissionFileRepository submissionFileRepository;
+    @Mock
+    private AssignmentSubmissionRepository assignmentSubmissionRepository;
+    @Mock
     private StudentCourseService studentCourseService;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -96,6 +102,7 @@ class AssignmentServiceImplTest {
                 assignmentRepository, assignmentGroupRepository,
                 assignmentAttachmentRepository, courseRepository,
                 assignmentMapper, studyGroupRepository, s3Client, s3Service, objectMapper,
+                assignmentSubmissionRepository, submissionFileRepository,
                 courseEnrollmentRepository, studentCourseService);
         ReflectionTestUtils.setField(service, "bucket", "test-bucket");
         ReflectionTestUtils.setField(service, "presignedUrlExpiry", 3600L);

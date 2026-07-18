@@ -56,6 +56,7 @@
     const [submitError, setSubmitError] = useState("");
     const [refreshKey, setRefreshKey] = useState(0);
     const [resubmitting, setResubmitting] = useState(false);
+    const [keepFileIds, setKeepFileIds] = useState([]);
 
     const isStudent = role === "student";
 
@@ -83,7 +84,29 @@
     }
 
     function handleFileSelect(e) {
-      setSelectedFiles(Array.from(e.target.files || []));
+      const newFiles = Array.from(e.target.files || []);
+      const allowed = detail?.allowedFileTypes;
+      const maxSize = detail?.maxFileSizeMb;
+      const errors = [];
+      setSelectedFiles(prev => {
+        const map = new Map();
+        prev.forEach(f => map.set(f.name + f.size + f.lastModified, f));
+        newFiles.forEach(f => {
+          const key = f.name + f.size + f.lastModified;
+          if (map.has(key)) {
+            errors.push(`"${f.name}" đã được chọn`);
+            return;
+          }
+          map.set(key, f);
+        });
+        return Array.from(map.values());
+      });
+      if (errors.length > 0) {
+        setSubmitError(errors.join('. '));
+      } else {
+        setSubmitError('');
+      }
+      e.target.value = '';
     }
 
     function removeFile(i) {
@@ -91,16 +114,42 @@
     }
 
     async function handleSubmit() {
-      if (selectedFiles.length === 0) return;
+      if (selectedFiles.length === 0 && keepFileIds.length === 0) return;
+      const allowed = detail?.allowedFileTypes;
+      const maxSize = detail?.maxFileSizeMb;
+      const errors = [];
+      let totalBytes = 0;
+      selectedFiles.forEach(f => {
+        if (allowed?.length > 0 && f.type && !allowed.some(t => t === f.type)) {
+          errors.push(`"${f.name}" không đúng định dạng file`);
+        }
+        totalBytes += f.size;
+      });
+      if (maxSize != null) {
+        const maxBytes = maxSize * 1024 * 1024;
+        if (totalBytes > maxBytes) {
+          errors.push(`Tổng kích thước các file vượt quá ${maxSize} MB`);
+        }
+      }
+      if (errors.length > 0) {
+        setSubmitError(errors.join('. '));
+        return;
+      }
       setSubmitting(true);
       setSubmitError("");
       try {
         const formData = new FormData();
         selectedFiles.forEach(f => formData.append("files", f));
+        const params = {};
+        if (keepFileIds.length > 0) {
+          params.keepFileIds = keepFileIds;
+        }
         await api.post(`/student/courses/${courseId}/assignments/${assignmentId}/submit`, formData, {
           headers: { "Content-Type": "multipart/form-data" },
+          params,
         });
         setSelectedFiles([]);
+        setKeepFileIds([]);
         setRefreshKey(k => k + 1);
       } catch (err) {
         setSubmitError(err.response?.data?.message || "Nộp bài thất bại");
@@ -288,7 +337,7 @@
                       }).join(", ")
                     : "Tất cả"
                 },
-                { label: "Kích thước file", value: detail.maxFileSizeMb != null ? `${detail.maxFileSizeMb} MB` : "—" },
+                { label: "Kích thước tối đa", value: detail.maxFileSizeMb != null ? `${detail.maxFileSizeMb} MB` : "—" },
                 { label: "Ngày tạo", value: fmtDate(detail.createdAt) || "—" },
               ];
               if (isStudent) {
@@ -416,7 +465,7 @@
                   )}
                   {canResubmit && (
                     <div style={{ padding: "8px 14px", borderTop: "1px solid #e2e8f0" }}>
-                      <button className="btn btn-ghost btn-sm" onClick={() => { setResubmitting(true); setSelectedFiles([]); }}
+                      <button className="btn btn-ghost btn-sm" onClick={() => { setResubmitting(true); setSelectedFiles([]); setKeepFileIds(sub.files?.map(f => f.id) || []); }}
                         style={{ fontSize: 12, color: "#2563eb" }}>
                         <Ic n="refresh" size={13} />Nộp lại
                       </button>
@@ -427,6 +476,42 @@
                 /* ── Not submitted yet ── */
                 detail.status === "PUBLISHED" ? (
                   <div>
+                    {resubmitting && sub?.files?.length > 0 && (
+                      <div style={{ marginBottom: 16 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: "#64748b", marginBottom: 8 }}>
+                          File đã nộp trước đó (bỏ chọn để xoá)
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                          {sub.files.map(f => {
+                            const checked = keepFileIds.includes(f.id);
+                            return (
+                              <label key={f.id}
+                                style={{ display: "flex", alignItems: "center", gap: 10,
+                                  padding: "8px 12px", background: checked ? "#eef2ff" : "#fff",
+                                  borderRadius: 8, border: `1px solid ${checked ? "#2563eb" : "#e2e8f0"}`,
+                                  cursor: "pointer", transition: ".13s" }}>
+                                <input type="checkbox" checked={checked}
+                                  onChange={() => {
+                                    setKeepFileIds(prev =>
+                                      prev.includes(f.id)
+                                        ? prev.filter(id => id !== f.id)
+                                        : [...prev, f.id]
+                                    );
+                                  }}
+                                  style={{ accentColor: "#2563eb", width: 16, height: 16, flexShrink: 0 }} />
+                                <Ic n="paperclip" size={14} style={{ color: "#64748b", flexShrink: 0 }} />
+                                <span style={{ fontSize: 13, color: "#0f172a", flex: 1, minWidth: 0 }}
+                                  className="truncate">{f.originalFilename}</span>
+                                <span style={{ fontSize: 11, color: "#94a3b8", flexShrink: 0 }}>
+                                  {fmtBytes(f.fileSizeBytes)}
+                                </span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
                     <div style={{ marginBottom: 12 }}>
                       <label style={{ display: "block", marginBottom: 6, fontSize: 12,
                         fontWeight: 600, color: "#64748b" }}>
@@ -447,7 +532,7 @@
                           {detail.allowedFileTypes?.length > 0
                             ? `Hỗ trợ: ${detail.allowedFileTypes.join(", ")}`
                             : "Tất cả các loại file"}
-                          {detail.maxFileSizeMb != null && ` · Tối đa ${detail.maxFileSizeMb} MB`}
+                          {detail.maxFileSizeMb != null && ` · Tổng tối đa ${detail.maxFileSizeMb} MB`}
                         </div>
                         <input id={"file-upload-input-" + assignmentId} type="file" multiple
                           style={{ display: "none" }} onChange={handleFileSelect} />
@@ -491,12 +576,12 @@
                       </div>
                     )}
 
-                    <button disabled={selectedFiles.length === 0 || submitting}
+                    <button disabled={(selectedFiles.length === 0 && keepFileIds.length === 0) || submitting}
                       onClick={handleSubmit}
                       style={{ width: "100%", height: 42, borderRadius: 10, border: "none",
-                        background: selectedFiles.length > 0 && !submitting ? "#2563eb" : "#e2e8f0",
-                        color: selectedFiles.length > 0 && !submitting ? "#fff" : "#94a3b8",
-                        fontWeight: 600, fontSize: 13.5, cursor: selectedFiles.length > 0 && !submitting ? "pointer" : "default",
+                        background: (selectedFiles.length > 0 || keepFileIds.length > 0) && !submitting ? "#2563eb" : "#e2e8f0",
+                        color: (selectedFiles.length > 0 || keepFileIds.length > 0) && !submitting ? "#fff" : "#94a3b8",
+                        fontWeight: 600, fontSize: 13.5, cursor: (selectedFiles.length > 0 || keepFileIds.length > 0) && !submitting ? "pointer" : "default",
                         display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
                       {submitting ? "Đang nộp..." : <><Ic n="send" size={15} />Nộp bài</>}
                     </button>

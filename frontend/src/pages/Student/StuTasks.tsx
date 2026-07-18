@@ -595,12 +595,16 @@
     const [error, setError] = useState('');
     const [files, setFiles] = useState([]);
     const [submitting, setSubmitting] = useState(false);
+    const [keepFileIds, setKeepFileIds] = useState([]);
+    const [resubmitting, setResubmitting] = useState(false);
 
     useEffect(() => {
       if (!a) return;
       setLoading(true);
       setError('');
       setFiles([]);
+      setKeepFileIds([]);
+      setResubmitting(false);
       api.get(`/student/courses/${courseId}/assignments/${a.id}`)
         .then(r => setDetail(r.data))
         .catch(err => setError(err?.response?.data?.message || 'Không thể tải chi tiết bài tập.'))
@@ -623,19 +627,69 @@
     const isPublished = detail?.status === 'PUBLISHED';
     const isClosed = detail?.status === 'CLOSED';
 
+    function handleFileSelect(e) {
+      const newFiles = Array.from(e.target.files || []);
+      const errors = [];
+      setFiles(prev => {
+        const map = new Map();
+        prev.forEach(f => map.set(f.name + f.size + f.lastModified, f));
+        newFiles.forEach(f => {
+          const key = f.name + f.size + f.lastModified;
+          if (map.has(key)) {
+            errors.push(`"${f.name}" đã được chọn`);
+            return;
+          }
+          map.set(key, f);
+        });
+        return Array.from(map.values());
+      });
+      if (errors.length > 0) {
+        setError(errors.join('. '));
+      } else {
+        setError('');
+      }
+      e.target.value = '';
+    }
+
     async function handleSubmit() {
-      if (files.length === 0) { setError('Vui lòng chọn file để nộp'); return; }
+      if (files.length === 0 && keepFileIds.length === 0) { setError('Vui lòng chọn file để nộp'); return; }
+      const allowed = detail?.allowedFileTypes;
+      const maxSize = detail?.maxFileSizeMb;
+      const errors = [];
+      let totalBytes = 0;
+      files.forEach(f => {
+        if (allowed?.length > 0 && f.type && !allowed.some(t => t === f.type)) {
+          errors.push(`"${f.name}" không đúng định dạng file`);
+        }
+        totalBytes += f.size;
+      });
+      if (maxSize != null) {
+        const maxBytes = maxSize * 1024 * 1024;
+        if (totalBytes > maxBytes) {
+          errors.push(`Tổng kích thước các file vượt quá ${maxSize} MB`);
+        }
+      }
+      if (errors.length > 0) {
+        setError(errors.join('. '));
+        return;
+      }
       setSubmitting(true);
       setError('');
       try {
         const formData = new FormData();
         files.forEach(f => formData.append('files', f));
+        const params = {};
+        if (keepFileIds.length > 0) {
+          params.keepFileIds = keepFileIds;
+        }
         await api.post(`/student/courses/${courseId}/assignments/${a.id}/submit`, formData, {
           headers: { 'Content-Type': 'multipart/form-data' },
+          params,
         });
         const res = await api.get(`/student/courses/${courseId}/assignments/${a.id}`);
         setDetail(res.data);
         setFiles([]);
+        setKeepFileIds([]);
       } catch (err) {
         setError(err?.response?.data?.message || 'Nộp bài thất bại');
       } finally {
@@ -678,12 +732,12 @@
                     { label: 'Điểm đạt', value: detail.passScore != null ? detail.passScore + ' điểm' : '—' },
                     { label: 'Ngày bắt đầu', value: fmtDate(detail.startDate) },
                   { label: 'Hạn nộp', value: fmtDate(detail.deadline) },
-                  {
+                  ...(detail.deadline ? [{
                     label: 'Nộp muộn',
                     value: detail.allowLateSubmission
                       ? `Cho phép (trừ ${detail.latePenaltyPercent ?? 0}%/ngày)`
                       : 'Không cho phép'
-                  },
+                  }] : []),
                   {
                     label: 'Loại file',
                     value: detail.allowedFileTypes?.length > 0
@@ -698,7 +752,7 @@
                         }).join(', ')
                       : 'Tất cả'
                   },
-                  { label: 'Kích thước file', value: detail.maxFileSizeMb != null ? detail.maxFileSizeMb + ' MB' : '—' },
+                  { label: 'Kích thước tối đa', value: detail.maxFileSizeMb != null ? detail.maxFileSizeMb + ' MB' : '—' },
                   { label: 'Ngày tạo', value: fmtDate(detail.createdAt) },
                   ...(sub?.score != null
                     ? [{ label: 'Điểm của bạn', value: `${sub.score} / ${detail.maxScore ?? '?'}` }]
@@ -784,7 +838,7 @@
                   <div className="t-label" style={{ marginBottom: 6 }}>Bài đã nộp</div>
                   {sub.files.map(f => (
                     <div key={f.id} className="row gap-8" style={{ padding: '8px 10px', background: 'var(--surface-2)', borderRadius: 8, marginBottom: 6 }}>
-                      <Ic n="file" size={15} style={{ color: 'var(--text-2)' }} />
+                      <Ic n="paperclip" size={15} style={{ color: 'var(--text-2)' }} />
                       <span className="t-sm" style={{ flex: 1 }}>{f.displayName || f.originalFilename}</span>
                       {f.url && <a href={f.url} target="_blank" rel="noopener noreferrer" className="btn btn-ghost btn-xs">Xem</a>}
                     </div>
@@ -792,16 +846,56 @@
                 </div>
               )}
 
-              {/* Upload area — chỉ khi PUBLISHED và chưa nộp */}
-              {isPublished && !sub && (
+              {/* Nộp lại button */}
+              {sub && !sub.scorePublishedAt && isPublished && !resubmitting && (
+                <div style={{ textAlign: 'right' }}>
+                  <button className="btn btn-ghost btn-sm" onClick={() => {
+                    setResubmitting(true);
+                    setFiles([]);
+                    setKeepFileIds(sub.files?.map(f => f.id) || []);
+                  }}>
+                    <Ic n="refresh" size={13} />Nộp lại
+                  </button>
+                </div>
+              )}
+
+              {/* Old files checkboxes khi resubmitting */}
+              {resubmitting && sub?.files?.length > 0 && (
                 <div>
-                  <div className="t-label" style={{ marginBottom: 8 }}>Nộp bài làm</div>
+                  <div className="t-label" style={{ marginBottom: 6 }}>File đã nộp trước đó (bỏ chọn để xoá)</div>
+                  {sub.files.map(f => {
+                    const checked = keepFileIds.includes(f.id);
+                    return (
+                      <label key={f.id}
+                        style={{ display: 'flex', alignItems: 'center', gap: 8,
+                          padding: '8px 10px', background: checked ? '#eef2ff' : 'var(--surface-2)',
+                          borderRadius: 8, border: `1px solid ${checked ? '#2563eb' : 'transparent'}`,
+                          cursor: 'pointer', marginBottom: 4 }}>
+                        <input type="checkbox" checked={checked}
+                          onChange={() => {
+                            setKeepFileIds(prev =>
+                              prev.includes(f.id) ? prev.filter(id => id !== f.id) : [...prev, f.id]
+                            );
+                          }}
+                          style={{ accentColor: '#2563eb', width: 16, height: 16, flexShrink: 0 }} />
+                        <Ic n="paperclip" size={14} style={{ color: 'var(--text-2)', flexShrink: 0 }} />
+                        <span className="t-sm truncate" style={{ flex: 1, minWidth: 0 }}>{f.originalFilename}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Upload area — khi chưa nộp hoặc đang nộp lại */}
+              {(isPublished && (!sub || resubmitting)) && (
+                <div>
+                  <div className="t-label" style={{ marginBottom: 8 }}>{resubmitting ? 'Chọn thêm file mới' : 'Nộp bài làm'}</div>
                   <label htmlFor="subfile" style={{ display: 'block', border: '2px dashed var(--border-strong)', borderRadius: 12, padding: 22, textAlign: 'center', cursor: 'pointer', background: files.length > 0 ? 'var(--accent-soft)' : 'var(--surface-2)' }}>
                     <Ic n={files.length > 0 ? 'check_circle' : 'upload'} size={26} style={{ marginBottom: 8, color: files.length > 0 ? 'var(--accent)' : 'var(--text-3)' }} />
                     <div style={{ fontWeight: 600, fontSize: 14 }}>{files.length > 0 ? `${files.length} file đã chọn` : 'Kéo thả hoặc bấm để chọn file'}</div>
-                    <div className="t-xs muted" style={{ marginTop: 4 }}>{detail.maxFileSizeMb ? `Tối đa ${detail.maxFileSizeMb}MB` : 'ZIP, PDF, DOCX'}</div>
+                    <div className="t-xs muted" style={{ marginTop: 4 }}>{detail.maxFileSizeMb ? `Tổng tối đa ${detail.maxFileSizeMb} MB` : 'ZIP, PDF, DOCX'}</div>
                     <input id="subfile" type="file" multiple style={{ display: 'none' }}
-                      onChange={e => setFiles(Array.from(e.target.files))} />
+                      onChange={handleFileSelect} />
                   </label>
                 </div>
               )}
@@ -817,12 +911,13 @@
 
             <div className="modal-foot">
               <button className="btn btn-ghost" onClick={onClose}>Đóng</button>
-              {isPublished && !sub && (
-                <button className="btn btn-success" onClick={handleSubmit} disabled={submitting || files.length === 0}>
+              {isPublished && (!sub || resubmitting) && (
+                <button className="btn btn-success" onClick={handleSubmit}
+                  disabled={submitting || (files.length === 0 && keepFileIds.length === 0)}>
                   <Ic n="upload" size={16} />{submitting ? 'Đang nộp...' : 'Nộp bài'}
                 </button>
               )}
-              {sub && (
+              {sub && !resubmitting && (
                 <button className="btn btn-ghost" disabled>Đã nộp bài</button>
               )}
             </div>

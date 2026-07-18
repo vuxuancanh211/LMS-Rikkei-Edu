@@ -12,4 +12,8 @@ public interface SubmissionFileRepository extends JpaRepository<SubmissionFileEn
     List<SubmissionFileEntity> findBySubmissionIdOrderByOrderIndexAsc(UUID submissionId);
 
     List<SubmissionFileEntity> findBySubmissionIdInOrderByOrderIndexAsc(Set<UUID> submissionIds);
+
+    List<SubmissionFileEntity> findBySubmissionIdIn(Set<UUID> submissionIds);
+
+    void deleteBySubmissionIdIn(Set<UUID> submissionIds);
 }

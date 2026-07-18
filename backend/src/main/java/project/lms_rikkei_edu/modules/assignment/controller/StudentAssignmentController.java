@@ -52,7 +52,8 @@ public class StudentAssignmentController {
             @PathVariable UUID courseId,
             @PathVariable UUID assignmentId,
             @RequestParam(value = "note", required = false) String note,
-            @RequestParam("files") List<MultipartFile> files) {
-        return ResponseEntity.ok(studentAssignmentService.submitAssignment(courseId, assignmentId, currentUserId(), note, files));
+            @RequestParam(value = "files", required = false) List<MultipartFile> files,
+            @RequestParam(value = "keepFileIds", required = false) List<UUID> keepFileIds) {
+        return ResponseEntity.ok(studentAssignmentService.submitAssignment(courseId, assignmentId, currentUserId(), note, files, keepFileIds));
     }
 }
