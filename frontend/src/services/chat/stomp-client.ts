@@ -6,6 +6,8 @@ let stompClient: Client | null = null;
 let subscribedRooms = new Map<string, () => void>();
 let connectCallbacks: (() => void)[] = [];
 
+const wsBaseUrl = import.meta.env.VITE_WS_BASE_URL || '';
+
 export function getStompClient(): Client | null {
     return stompClient;
 }
@@ -26,7 +28,7 @@ export function connectStomp(
     }
 
     stompClient = new Client({
-        webSocketFactory: () => new SockJS('http://localhost:8080/ws'),
+        webSocketFactory: () => new SockJS(`${wsBaseUrl}/ws`),
         connectHeaders: { Authorization: `Bearer ${token}` },
         // beforeConnect chạy lại trước MỖI lần kết nối, kể cả các lần tự động reconnect do
         // reconnectDelay kích hoạt (mất mạng, backend restart, token đã refresh...) — nếu không

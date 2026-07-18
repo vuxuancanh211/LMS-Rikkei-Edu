@@ -14,6 +14,8 @@ RUN mvn clean package -DskipTests -q
 FROM eclipse-temurin:21-jre-jammy
 WORKDIR /app
 
+RUN apt-get update && apt-get install -y --no-install-recommends wget && rm -rf /var/lib/apt/lists/*
+
 # Non-root user cho security
 RUN addgroup --system spring && adduser --system --ingroup spring spring
 RUN mkdir -p logs && chown -R spring:spring logs
