@@ -1127,7 +1127,7 @@ class StudentCourseServiceImplTest {
         a2.setPassingScore(BigDecimal.valueOf(5));
 
         when(assignmentRepository.findPublishedByCourseId(courseId)).thenReturn(List.of(a1, a2));
-        when(groupMemberRepository.findGroupIdsByStudentIdAndCourseId(studentId, courseId)).thenReturn(Collections.emptyList());
+        when(groupMemberRepository.findGroupIdsByStudentIdAndCourseId(studentId, courseId)).thenReturn(List.of(UUID.randomUUID()));
 
         AssignmentSubmissionEntity s1 = new AssignmentSubmissionEntity();
         s1.setAssignmentId(idPublished);
@@ -1156,5 +1156,37 @@ class StudentCourseServiceImplTest {
         ));
     }
 
-    // ── end new tests ──
+    @Test
+    void updateCourseProgress_assignmentStats_scoreBelowPassing_notCounted() {
+        UUID aId = UUID.randomUUID();
+        AssignmentEntity assignment = new AssignmentEntity();
+        assignment.setId(aId);
+        assignment.setScope(AssignmentScope.ALL_GROUPS);
+        assignment.setPassingScore(BigDecimal.valueOf(5));
+        when(assignmentRepository.findPublishedByCourseId(courseId)).thenReturn(List.of(assignment));
+        when(groupMemberRepository.findGroupIdsByStudentIdAndCourseId(studentId, courseId))
+                .thenReturn(List.of(UUID.randomUUID()));
+
+        AssignmentSubmissionEntity submission = new AssignmentSubmissionEntity();
+        submission.setAssignmentId(aId);
+        submission.setScore(BigDecimal.valueOf(3));
+        submission.setScorePublishedAt(OffsetDateTime.now());
+        when(assignmentSubmissionRepository.findByStudentIdAndAssignmentIdIn(eq(studentId), anyList()))
+                .thenReturn(List.of(submission));
+
+        Course course = new Course();
+        course.setId(courseId);
+        course.setChapters(Collections.emptyList());
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(course));
+        when(lessonProgressRepository.findByStudentIdAndCourseId(studentId, courseId)).thenReturn(Collections.emptyList());
+        when(courseProgressRepository.findByStudentIdAndCourseId(studentId, courseId)).thenReturn(Optional.empty());
+
+        studentCourseService.recalculateCourseProgress(studentId, courseId);
+
+        verify(courseProgressRepository).save(argThat(cp ->
+            cp.getTotalAssignmentsCount() == 1 &&
+            cp.getCompletedAssignmentsCount() == 0
+        ));
+    }
+
 }

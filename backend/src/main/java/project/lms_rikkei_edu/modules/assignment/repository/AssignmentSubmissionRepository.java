@@ -23,6 +23,10 @@ public interface AssignmentSubmissionRepository extends JpaRepository<Assignment
 
     List<AssignmentSubmissionEntity> findByAssignmentIdAndStatusOrderBySubmittedAtDesc(UUID assignmentId, String status);
 
+    long countByAssignmentId(UUID assignmentId);
+
+    void deleteByAssignmentId(UUID assignmentId);
+
     @Modifying
     @Query("UPDATE AssignmentSubmissionEntity s SET s.scorePublishedAt = :now WHERE s.id IN :ids")
     int batchPublishScores(@Param("ids") List<UUID> ids, @Param("now") OffsetDateTime now);
