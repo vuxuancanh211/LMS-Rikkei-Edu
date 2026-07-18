@@ -18,6 +18,9 @@ public interface QuizStatsService {
     // Student: tiến độ học của mình trong 1 khóa (tất cả quiz)
     List<StudentQuizProgressEntry> getStudentCourseProgress(UUID courseId, UUID studentId);
 
+    // Student: tiến độ quiz của mình trong tất cả khóa đang học
+    List<StudentQuizProgressEntry> getStudentAllCourseProgress(UUID studentId);
+
     // Instructor: lịch sử tất cả attempt của 1 quiz (xem theo student)
     List<AttemptHistoryEntry> getAllAttemptsForQuiz(UUID courseId, UUID quizId);
 }
