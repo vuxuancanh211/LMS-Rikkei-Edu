@@ -43,7 +43,7 @@
     return p.length > 1 ? p.pop().toUpperCase() : "FILE";
   }
 
-  function AssignmentDetail({ assignmentId, courseId, role, onBack }) {
+  function AssignmentDetail({ assignmentId, courseId, role, onBack, onChanged }) {
     const [detail, setDetail] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
@@ -102,6 +102,7 @@
         });
         setSelectedFiles([]);
         setRefreshKey(k => k + 1);
+        onChanged?.();
       } catch (err) {
         setSubmitError(err.response?.data?.message || "Nộp bài thất bại");
       } finally {
