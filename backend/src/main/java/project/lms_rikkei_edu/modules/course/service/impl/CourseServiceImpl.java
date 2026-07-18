@@ -34,6 +34,10 @@ import project.lms_rikkei_edu.modules.course.repository.*;
 import project.lms_rikkei_edu.modules.course.service.CourseService;
 import project.lms_rikkei_edu.modules.course.service.StudentCourseService;
 import project.lms_rikkei_edu.infrastructure.s3.S3Service;
+import project.lms_rikkei_edu.modules.notification.enums.NotificationType;
+import project.lms_rikkei_edu.modules.notification.service.NotificationService;
+import project.lms_rikkei_edu.modules.user.entity.UserEntity;
+import project.lms_rikkei_edu.modules.user.enums.UserRole;
 import project.lms_rikkei_edu.modules.quiz.dto.request.QuizMetadataRequest;
 import project.lms_rikkei_edu.modules.quiz.dto.response.QuizSummaryResponse;
 import project.lms_rikkei_edu.modules.quiz.entity.QuizEntity;
@@ -78,6 +82,7 @@ public class CourseServiceImpl implements CourseService {
     private final CourseVersionReferenceChecker courseVersionReferenceChecker;
     private final CourseEnrollmentRepository courseEnrollmentRepository;
     private final project.lms_rikkei_edu.modules.user.repository.UserRepository userRepository;
+    private final NotificationService notificationService;
 
     /* Self-proxy để getCourseDetailBySlug() gọi lại getCourseDetail() QUA proxy Spring AOP —
        gọi trực tiếp (this.getCourseDetail(...)) sẽ bỏ qua @Cacheable vì Spring cache dựa trên
@@ -253,6 +258,7 @@ public class CourseServiceImpl implements CourseService {
             course.setRejectionReason(null);
             createCourseVersion(instructorId, courseId, changeSummary, course);
             saveLogWithSnapshot(instructorId, courseId, "SUBMITTED_FIRST", course);
+            notifyAdminsOfSubmission(course, instructorId, changeSummary, false);
 
         } else if (course.getStatus() == CourseStatus.PUBLISHED) {
             boolean hasDraftChanges = course.isHasPendingDraft();
@@ -269,6 +275,7 @@ public class CourseServiceImpl implements CourseService {
             course.setPendingUpdateAt(Instant.now());
             createCourseVersion(instructorId, courseId, changeSummary, course);
             saveLogWithSnapshot(instructorId, courseId, "SUBMITTED_UPDATE", course);
+            notifyAdminsOfSubmission(course, instructorId, changeSummary, true);
 
         } else if (course.getStatus() == CourseStatus.PENDING_UPDATE) {
             throw new CourseStateException("Cập nhật đang chờ admin duyệt — không thể gửi lại. Hãy đợi admin xử lý hoặc hủy cập nhật trước.");
@@ -277,6 +284,31 @@ public class CourseServiceImpl implements CourseService {
         }
 
         return courseMapper.toDetailResponse(courseRepository.save(course));
+    }
+
+    // Báo cho toàn bộ admin khi giảng viên gửi duyệt (lần đầu hoặc gửi cập nhật) — idempotencyKey
+    // phải gắn theo từng admin (không dùng chung 1 key cho cả loạt) vì createNotification() coi
+    // idempotencyKey trùng là "đã gửi rồi" và bỏ qua, nên dùng key chung sẽ chỉ tạo được thông
+    // báo cho ĐÚNG 1 admin đầu tiên rồi bỏ qua hết các admin còn lại.
+    private void notifyAdminsOfSubmission(Course course, UUID instructorId, String changeSummary, boolean isUpdate) {
+        String instructorName = userRepository.findById(instructorId)
+                .map(UserEntity::getFullName)
+                .orElse("Giảng viên");
+        String type = (isUpdate ? NotificationType.COURSE_UPDATE_SUBMITTED : NotificationType.COURSE_SUBMITTED).name();
+        String title = isUpdate ? "Cập nhật khóa học cần duyệt" : "Khóa học mới cần duyệt";
+        String body = isUpdate
+                ? instructorName + " đã gửi cập nhật cho khóa học \"" + course.getTitle() + "\""
+                    + (changeSummary != null && !changeSummary.isBlank() ? ": " + changeSummary : "")
+                : instructorName + " đã gửi khóa học \"" + course.getTitle() + "\" để duyệt xuất bản";
+
+        List<UserEntity> admins = userRepository.findByRoleAndNotDeleted(UserRole.ADMIN);
+        for (UserEntity admin : admins) {
+            notificationService.createNotification(
+                    admin.getId(), type, title, body,
+                    "COURSE", course.getId(), instructorId, instructorName,
+                    "course-submit:" + course.getId() + ":" + course.getSubmittedAt() + ":" + admin.getId()
+            );
+        }
     }
 
     // Chặn gửi duyệt nếu còn bài học loại quiz trỏ tới đề chưa Hoạt động (DRAFT) hoặc đã Lưu trữ

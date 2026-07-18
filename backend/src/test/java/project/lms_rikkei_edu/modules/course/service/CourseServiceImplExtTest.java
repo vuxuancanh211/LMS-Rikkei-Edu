@@ -59,6 +59,7 @@ class CourseServiceImplExtTest {
     @Mock CourseVersionReferenceChecker courseVersionReferenceChecker;
     @Mock CourseEnrollmentRepository courseEnrollmentRepository;
     @Mock project.lms_rikkei_edu.modules.user.repository.UserRepository userRepository;
+    @Mock project.lms_rikkei_edu.modules.notification.service.NotificationService notificationService;
 
     CourseServiceImpl courseService;
 
@@ -76,7 +77,7 @@ class CourseServiceImplExtTest {
                 courseMapper, objectMapper, chapterMapper, lessonMapper,
                 entityManager, s3Service, quizService, quizRepository, bankQuestionRepository, studentCourseService,
                 new CourseListCacheGateway(courseRepository, courseMapper),
-                courseVersionReferenceChecker, courseEnrollmentRepository, userRepository
+                courseVersionReferenceChecker, courseEnrollmentRepository, userRepository, notificationService
         );
         when(courseVersionReferenceChecker.isSafeToDelete(any(), any())).thenReturn(true);
     }

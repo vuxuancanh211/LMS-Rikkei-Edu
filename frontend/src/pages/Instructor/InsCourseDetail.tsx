@@ -243,6 +243,8 @@
     const [deletingDraft,     setDeletingDraft]     = useState(null); // versionId đang xóa
     const [showSaveDraft,     setShowSaveDraft]     = useState(false);
     const [draftLabel,        setDraftLabel]        = useState("");
+    const [showSubmitUpdate,  setShowSubmitUpdate]  = useState(false);
+    const [changeSummaryInput,setChangeSummaryInput]= useState("");
     const [viewingVersion,    setViewingVersion]    = useState(null); // null = live | CourseVersionResponse
     const [showVersionPicker, setShowVersionPicker] = useState(false);
     const [cloningDraft,      setCloningDraft]      = useState(false);
@@ -330,16 +332,22 @@
         .catch(() => {});
     }
 
-    async function handleSubmit() {
+    async function handleSubmit(changeSummary) {
       setSubmitting(true); setSubmitMsg(null);
       try {
-        await api.put(`/instructor/courses/${courseId}/submit`);
+        await api.put(`/instructor/courses/${courseId}/submit`, changeSummary ? { changeSummary } : undefined);
         setSubmitMsg("Đã gửi duyệt thành công!");
         loadCourse(true);
         refreshHistoryAndVersions();
       }
       catch (e) { setSubmitMsg(e?.response?.data?.message || "Gửi duyệt thất bại"); }
       finally { setSubmitting(false); }
+    }
+
+    async function handleSubmitUpdate() {
+      await handleSubmit(changeSummaryInput.trim() || undefined);
+      setShowSubmitUpdate(false);
+      setChangeSummaryInput("");
     }
 
     async function handleWithdraw() {
@@ -788,7 +796,7 @@
           <div className="row gap-10 wrap" style={{ rowGap: 10 }}>
             <button className="btn btn-ghost btn-sm" onClick={() => { window.__previewCourse = { courseId, role: "instructor" }; setPreviewFromList(false); setPreviewStage("overview"); }}><Ic n="eye" size={15} />Xem trước</button>
             {!viewingVersion && (course?.status === "DRAFT" || course?.status === "REJECTED") && (
-              <button className="btn btn-success btn-sm" disabled={submitting} onClick={handleSubmit}><Ic n="send" size={15} />{submitting ? "Đang gửi..." : "Gửi duyệt"}</button>
+              <button className="btn btn-success btn-sm" disabled={submitting} onClick={() => handleSubmit()}><Ic n="send" size={15} />{submitting ? "Đang gửi..." : "Gửi duyệt"}</button>
             )}
             {!viewingVersion && course?.status === "PUBLISHED" && hasPendingChanges && (
               <button className="btn btn-ghost btn-sm" disabled={savingDraft} onClick={() => setShowSaveDraft(true)}
@@ -797,7 +805,7 @@
               </button>
             )}
             {!viewingVersion && course?.status === "PUBLISHED" && hasPendingChanges && (
-              <button className="btn btn-success btn-sm" disabled={submitting} onClick={handleSubmit}><Ic n="send" size={15} />{submitting ? "Đang gửi..." : "Gửi cập nhật"}</button>
+              <button className="btn btn-success btn-sm" disabled={submitting} onClick={() => setShowSubmitUpdate(true)}><Ic n="send" size={15} />{submitting ? "Đang gửi..." : "Gửi cập nhật"}</button>
             )}
             {!viewingVersion && course?.status === "PUBLISHED" && hasPendingChanges && (
               <button className="btn btn-ghost btn-sm" disabled={submitting} onClick={handleWithdraw}>Hủy thay đổi</button>
@@ -1515,6 +1523,28 @@
                   </div>
                 );
               })()}
+            </div>
+          </Modal>
+        )}
+
+        {/* Modal gửi cập nhật — lý do cập nhật để admin biết đã sửa gì */}
+        {showSubmitUpdate && (
+          <Modal open onClose={() => setShowSubmitUpdate(false)} max={460}>
+            <ModalHead title="Gửi cập nhật để admin duyệt" icon="send" iconBg="#f0fdf4" iconColor="#16a34a" onClose={() => setShowSubmitUpdate(false)} />
+            <div className="modal-body">
+              <label className="t-label" style={{ display: "block", marginBottom: 7 }}>
+                Lý do cập nhật <span className="muted">(tuỳ chọn, admin sẽ thấy khi duyệt)</span>
+              </label>
+              <textarea className="input" style={{ height: 100, padding: 12, resize: "none" }} maxLength={500} autoFocus
+                placeholder="VD: Sửa lỗi chính tả bài 3, thêm video hướng dẫn chương 2..."
+                value={changeSummaryInput} onChange={e => setChangeSummaryInput(e.target.value)} />
+              <div className="muted" style={{ fontSize: 12, marginTop: 6, textAlign: "right" }}>{changeSummaryInput.length}/500</div>
+            </div>
+            <div className="modal-foot">
+              <button className="btn btn-ghost" onClick={() => setShowSubmitUpdate(false)}>Hủy</button>
+              <button className="btn btn-primary" disabled={submitting} onClick={handleSubmitUpdate}>
+                <Ic n="send" size={15} />{submitting ? "Đang gửi..." : "Gửi cập nhật"}
+              </button>
             </div>
           </Modal>
         )}

@@ -16,6 +16,8 @@ export enum NotificationType {
   GROUP_ENDED = 'GROUP_ENDED',
   GROUP_DELETED = 'GROUP_DELETED',
   COURSE_APPROVED = 'COURSE_APPROVED',
+  COURSE_SUBMITTED = 'COURSE_SUBMITTED',
+  COURSE_UPDATE_SUBMITTED = 'COURSE_UPDATE_SUBMITTED',
   SYSTEM_ANNOUNCEMENT = 'SYSTEM_ANNOUNCEMENT',
   AI_SOURCE_INDEXED = 'AI_SOURCE_INDEXED',
   AI_SOURCE_FAILED = 'AI_SOURCE_FAILED',
@@ -39,6 +41,8 @@ export const NotificationTypeLabels: Record<NotificationType, string> = {
   [NotificationType.GROUP_ENDED]: 'Nhóm đã kết thúc',
   [NotificationType.GROUP_DELETED]: 'Nhóm đã giải tán',
   [NotificationType.COURSE_APPROVED]: 'Khóa học được duyệt',
+  [NotificationType.COURSE_SUBMITTED]: 'Khóa học cần duyệt',
+  [NotificationType.COURSE_UPDATE_SUBMITTED]: 'Cập nhật khóa học cần duyệt',
   [NotificationType.SYSTEM_ANNOUNCEMENT]: 'Thông báo hệ thống',
   [NotificationType.AI_SOURCE_INDEXED]: 'Cập nhật tri thức AI',
   [NotificationType.AI_SOURCE_FAILED]: 'Lỗi tri thức AI',
@@ -54,6 +58,8 @@ export const NotificationTypeMetadata: Record<string, { label: string; icon: str
   CERTIFICATE_ISSUED: { label: 'Chứng chỉ mới', icon: 'award', color: '#ec4899', category: 'Học tập' },
   COURSE_ENROLLMENT: { label: 'Ghi danh khóa học', icon: 'user_plus', color: '#2563eb', category: 'Khóa học' },
   COURSE_APPROVED: { label: 'Khóa học được duyệt', icon: 'check', color: '#16a34a', category: 'Khóa học' },
+  COURSE_SUBMITTED: { label: 'Khóa học cần duyệt', icon: 'send', color: '#d97706', category: 'Khóa học' },
+  COURSE_UPDATE_SUBMITTED: { label: 'Cập nhật khóa học cần duyệt', icon: 'send', color: '#d97706', category: 'Khóa học' },
   GROUP_MEMBER_ADDED: { label: 'Thêm vào nhóm học', icon: 'users', color: '#0ea5e9', category: 'Nhóm học' },
   GROUP_MEMBER_REMOVED: { label: 'Rời nhóm học', icon: 'user_minus', color: '#ef4444', category: 'Nhóm học' },
   GROUP_SCHEDULE_CHANGED: { label: 'Lịch học thay đổi', icon: 'calendar', color: '#f97316', category: 'Nhóm học' },
@@ -99,6 +105,12 @@ export function getNotificationTargetUrl(n: any, role?: string): string {
   if (type === 'QUIZ_PUBLISHED' || type === 'ASSIGNMENT_PUBLISHED' || type === 'SUBMISSION_GRADED') {
     if (refType === 'COURSE') return refId ? `${prefix}/courses/${refId}` : `${prefix}/courses`;
     return `${prefix}/notifications`;
+  }
+  if (type === 'COURSE_SUBMITTED' || type === 'COURSE_UPDATE_SUBMITTED') {
+    // Dành cho admin: /admin/courses/{id} không phải route có thật (chỉ có /admin/courses danh
+    // sách và /admin/approval), nên trỏ thẳng vào trang phê duyệt kèm approvalId để tự mở đúng
+    // khóa học (xem AdminApproval.tsx đọc query approvalId để auto-mở modal chi tiết).
+    return refId ? `${prefix}/approval?approvalId=${refId}` : `${prefix}/approval`;
   }
   if (type.startsWith('COURSE_')) {
     return refId ? `${prefix}/courses/${refId}` : `${prefix}/courses`;
