@@ -43,8 +43,11 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -78,21 +81,64 @@ public class StudentAssignmentServiceImpl implements StudentAssignmentService {
     public List<StudentAssignmentListResponse> getAssignments(UUID courseId, UUID studentId) {
         validateEnrollment(courseId, studentId);
 
-        List<UUID> studentGroupIds = groupMemberRepository.findGroupIdsByStudentIdAndCourseId(studentId, courseId);
-        Set<UUID> groupSet = Set.copyOf(studentGroupIds);
+        String courseTitle = courseRepository.findById(courseId)
+                .map(Course::getTitle)
+                .orElse(null);
+        List<AssignmentEntity> assignments = assignmentRepository.findByCourseIdOrderByCreatedAtDesc(courseId);
+        Map<UUID, String> courseTitleMap = new HashMap<>();
+        courseTitleMap.put(courseId, courseTitle);
+        return buildAssignmentList(assignments, studentId, courseTitleMap);
+    }
 
-        List<AssignmentEntity> allAssignments = assignmentRepository.findByCourseIdOrderByCreatedAtDesc(courseId);
+    @Override
+    @Transactional(readOnly = true)
+    public List<StudentAssignmentListResponse> getAllAssignments(UUID studentId) {
+        List<UUID> courseIds = courseEnrollmentRepository.findCourseIdsByStudentId(studentId);
+        if (courseIds.isEmpty()) return List.of();
 
-        return allAssignments.stream()
+        Map<UUID, String> courseTitleMap = courseRepository.findAllById(courseIds).stream()
+                .collect(Collectors.toMap(Course::getId, Course::getTitle));
+        List<AssignmentEntity> assignments = assignmentRepository.findByCourseIdInOrderByCreatedAtDesc(courseIds);
+        return buildAssignmentList(assignments, studentId, courseTitleMap);
+    }
+
+    private List<StudentAssignmentListResponse> buildAssignmentList(
+            List<AssignmentEntity> allAssignments,
+            UUID studentId,
+            Map<UUID, String> courseTitleMap) {
+        Set<UUID> courseIds = allAssignments.stream()
+                .map(AssignmentEntity::getCourseId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        Map<UUID, Set<UUID>> groupIdsByCourse = new HashMap<>();
+        for (UUID courseId : courseIds) {
+            groupIdsByCourse.put(courseId, Set.copyOf(
+                    groupMemberRepository.findGroupIdsByStudentIdAndCourseId(studentId, courseId)));
+        }
+
+        List<AssignmentEntity> accessibleAssignments = allAssignments.stream()
                 .filter(a -> a.getStatus() == AssignmentStatus.PUBLISHED || a.getStatus() == AssignmentStatus.CLOSED)
-                .filter(a -> canAccess(a, groupSet))
+                .filter(a -> canAccess(a, groupIdsByCourse.getOrDefault(a.getCourseId(), Set.of())))
+                .toList();
+
+        List<UUID> assignmentIds = accessibleAssignments.stream().map(AssignmentEntity::getId).toList();
+        Map<UUID, AssignmentSubmissionEntity> submissionMap = assignmentIds.isEmpty()
+                ? Map.of()
+                : assignmentSubmissionRepository.findByStudentIdAndAssignmentIdIn(studentId, assignmentIds).stream()
+                .collect(Collectors.toMap(
+                        AssignmentSubmissionEntity::getAssignmentId,
+                        s -> s,
+                        (first, ignored) -> first));
+
+        return accessibleAssignments.stream()
                 .map(a -> {
                     long attachmentCount = assignmentAttachmentRepository.countByAssignmentId(a.getId());
-                    AssignmentSubmissionEntity sub = assignmentSubmissionRepository
-                            .findByAssignmentIdAndStudentId(a.getId(), studentId).orElse(null);
+                    AssignmentSubmissionEntity sub = submissionMap.get(a.getId());
                     return StudentAssignmentListResponse.builder()
                             .id(a.getId())
                             .courseId(a.getCourseId())
+                            .courseTitle(courseTitleMap.get(a.getCourseId()))
                             .title(a.getTitle())
                             .status(a.getStatus())
                             .deadline(a.getDeadline())

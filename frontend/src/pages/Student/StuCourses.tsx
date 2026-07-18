@@ -34,15 +34,22 @@ function StuCourses({ nav }) {
       .finally(() => setLoading(false));
   }, []);
 
-  const mapped = courses.map(c => ({
-    ...c,
-    thumb: c.thumbnailUrl || "assets/courses/placeholder.png",
-    cat: c.category,
-    progress: c.progressPercentage || 0,
-    lessons: c.completedLessons + "/" + c.totalLessons,
-    instructor: c.instructorName,
-    sStatus: (c.progressPercentage || 0) >= 100 ? "done" : (c.progressPercentage || 0) > 0 ? "learning" : "new",
-  }));
+  const mapped = courses.map(c => {
+    const totalItems = (c.totalLessons ?? 0) + (c.totalAssignments ?? 0);
+    const completedItems = (c.completedLessons ?? 0) + (c.completedAssignments ?? 0);
+    const rawProgress = c.progress ?? c.progressPercentage ?? (totalItems > 0 ? Math.round((completedItems / totalItems) * 100) : 0);
+    const progress = Math.max(0, Math.min(100, rawProgress || 0));
+
+    return {
+      ...c,
+      thumb: c.thumbnailUrl || "assets/courses/placeholder.png",
+      cat: c.category,
+      progress,
+      lessons: c.completedLessons != null && c.totalLessons != null ? `${c.completedLessons}/${c.totalLessons}` : c.lessons,
+      instructor: c.instructorName || c.instructor,
+      sStatus: c.sStatus || (progress >= 100 ? "done" : progress > 0 ? "learning" : "new"),
+    };
+  });
 
   let list = mapped;
   if (tab === "learning") list = mapped.filter(c => c.sStatus === "learning");

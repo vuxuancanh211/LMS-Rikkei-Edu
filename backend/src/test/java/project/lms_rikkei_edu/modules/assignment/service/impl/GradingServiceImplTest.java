@@ -180,7 +180,7 @@ class GradingServiceImplTest {
         agEntity.setGroupId(groupId);
         when(assignmentGroupRepository.findByAssignmentId(assignmentId))
                 .thenReturn(List.of(agEntity));
-        when(groupMemberRepository.findByGroupIdWithStudent(groupId))
+        when(groupMemberRepository.findByGroupIdInWithStudent(any()))
                 .thenReturn(List.of(groupMember));
         when(userRepository.findAllByIdInAndDeletedAtIsNull(anyList()))
                 .thenReturn(List.of(studentUser));

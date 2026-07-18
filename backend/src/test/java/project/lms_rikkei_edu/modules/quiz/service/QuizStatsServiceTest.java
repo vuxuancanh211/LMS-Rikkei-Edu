@@ -7,12 +7,14 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import project.lms_rikkei_edu.common.exception.BusinessException;
+import project.lms_rikkei_edu.modules.course.entity.Course;
 import project.lms_rikkei_edu.modules.quiz.dto.response.*;
 import project.lms_rikkei_edu.modules.quiz.entity.QuizAttemptEntity;
 import project.lms_rikkei_edu.modules.quiz.entity.QuizEntity;
 import project.lms_rikkei_edu.modules.quiz.entity.QuizQuestionEntity;
 import project.lms_rikkei_edu.modules.quiz.enums.*;
 import project.lms_rikkei_edu.modules.course.repository.CourseEnrollmentRepository;
+import project.lms_rikkei_edu.modules.course.repository.CourseRepository;
 import project.lms_rikkei_edu.modules.quiz.repository.*;
 import project.lms_rikkei_edu.modules.quiz.service.impl.QuizStatsServiceImpl;
 
@@ -34,6 +36,7 @@ class QuizStatsServiceTest {
     @Mock private QuizAttemptAnswerRepository answerRepository;
     @Mock private QuizQuestionRepository questionRepository;
     @Mock private CourseEnrollmentRepository courseEnrollmentRepository;
+    @Mock private CourseRepository courseRepository;
 
     @InjectMocks
     private QuizStatsServiceImpl statsService;
@@ -231,6 +234,47 @@ class QuizStatsServiceTest {
         List<StudentQuizProgressEntry> result = statsService.getStudentCourseProgress(courseId, studentId);
 
         assertThat(result.get(0).isCanRetry()).isTrue();
+    }
+
+    @Test
+    void getStudentAllCourseProgress_noEnrollments_returnsEmptyList() {
+        when(courseEnrollmentRepository.findCourseIdsByStudentId(studentId)).thenReturn(List.of());
+
+        List<StudentQuizProgressEntry> result = statsService.getStudentAllCourseProgress(studentId);
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    void getStudentAllCourseProgress_noQuizzes_returnsEmptyList() {
+        when(courseEnrollmentRepository.findCourseIdsByStudentId(studentId)).thenReturn(List.of(courseId));
+        when(quizRepository.findByCourseIdIn(List.of(courseId))).thenReturn(List.of());
+
+        List<StudentQuizProgressEntry> result = statsService.getStudentAllCourseProgress(studentId);
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    void getStudentAllCourseProgress_returnsCourseInfoAndProgress() {
+        QuizEntity quiz = buildQuiz();
+        Course course = new Course();
+        course.setId(courseId);
+        course.setTitle("Course Title");
+        QuizAttemptEntity attempt = buildGradedAttempt(1, 80.0);
+
+        when(courseEnrollmentRepository.findCourseIdsByStudentId(studentId)).thenReturn(List.of(courseId));
+        when(quizRepository.findByCourseIdIn(List.of(courseId))).thenReturn(List.of(quiz));
+        when(courseRepository.findAllById(List.of(courseId))).thenReturn(List.of(course));
+        when(attemptRepository.findByQuizIdInAndStudentId(List.of(quizId), studentId)).thenReturn(List.of(attempt));
+
+        List<StudentQuizProgressEntry> result = statsService.getStudentAllCourseProgress(studentId);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getCourseId()).isEqualTo(courseId);
+        assertThat(result.get(0).getCourseTitle()).isEqualTo("Course Title");
+        assertThat(result.get(0).getAttemptsUsed()).isEqualTo(1);
+        assertThat(result.get(0).isPassed()).isTrue();
     }
 
     // ── getAllAttemptsForQuiz ──────────────────────────────────────────────────

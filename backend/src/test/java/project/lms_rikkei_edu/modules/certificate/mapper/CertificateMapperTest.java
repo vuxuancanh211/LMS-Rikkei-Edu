@@ -32,6 +32,7 @@ class CertificateMapperTest {
         assertThat(result.getStatus()).isEqualTo(CertificateStatus.ISSUED);
         assertThat(result.getStudentName()).isEqualTo("Nguyen Van A");
         assertThat(result.getCourseTitle()).isEqualTo("Java Spring Boot");
+        assertThat(result.getCourseThumbnailUrl()).isEqualTo("https://cdn.test/java.png");
         assertThat(result.getInstructorName()).isEqualTo("Teacher One");
         assertThat(result.getIssuedAt()).isEqualTo(certificate.getIssuedAt());
         assertThat(result.getRevokedAt()).isEqualTo(certificate.getRevokedAt());
@@ -49,6 +50,7 @@ class CertificateMapperTest {
         assertThat(result.getStatus()).isEqualTo(CertificateStatus.REVOKED);
         assertThat(result.getStudentName()).isEqualTo("Nguyen Van A");
         assertThat(result.getCourseTitle()).isEqualTo("Java Spring Boot");
+        assertThat(result.getCourseThumbnailUrl()).isEqualTo("https://cdn.test/java.png");
         assertThat(result.getInstructorName()).isEqualTo("Teacher One");
         assertThat(result.getRevokeReason()).isEqualTo("Invalid completion");
         assertThat(result.getRevokedAt()).isEqualTo(certificate.getRevokedAt());
@@ -65,9 +67,11 @@ class CertificateMapperTest {
 
         assertThat(response.getStudentName()).isNull();
         assertThat(response.getCourseTitle()).isNull();
+        assertThat(response.getCourseThumbnailUrl()).isNull();
         assertThat(response.getInstructorName()).isEqualTo("Rikkei Edu");
         assertThat(verifyResponse.getStudentName()).isNull();
         assertThat(verifyResponse.getCourseTitle()).isNull();
+        assertThat(verifyResponse.getCourseThumbnailUrl()).isNull();
         assertThat(verifyResponse.getInstructorName()).isEqualTo("Rikkei Edu");
     }
 
@@ -84,6 +88,7 @@ class CertificateMapperTest {
                 .id(courseId)
                 .title("Java Spring Boot")
                 .slug("java-spring-boot")
+                .thumbnailUrl("https://cdn.test/java.png")
                 .instructorId(UUID.randomUUID())
                 .build();
 

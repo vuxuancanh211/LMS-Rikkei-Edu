@@ -22,11 +22,6 @@ public class AdminUserDetailResponse {
     private String gender;
     private String bio;
     private OffsetDateTime lastLoginAt;
-    private OffsetDateTime disabledAt;
-    private UUID disabledBy;
-    private String disabledReason;
-    private OffsetDateTime deletedAt;
-    private UUID createdBy;
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;
 }

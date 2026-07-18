@@ -30,6 +30,7 @@ import project.lms_rikkei_edu.modules.user.service.UserService;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -471,12 +472,21 @@ public class CsvImportServiceImpl implements CsvImportService {
 
     private int findHeaderIndex(String[] headers, String... aliases) {
         for (int i = 0; i < headers.length; i++) {
-            String h = headers[i].trim().toLowerCase().replaceAll("\\s+", "");
+            String h = normalizeHeader(headers[i]);
             for (String alias : aliases) {
-                if (h.equals(alias)) return i;
+                if (h.equals(normalizeHeader(alias))) return i;
             }
         }
         return -1;
+    }
+
+    private String normalizeHeader(String value) {
+        String normalized = Normalizer.normalize(cleanQuotes(value == null ? "" : value), Normalizer.Form.NFD)
+                .replace("\uFEFF", "")
+                .replaceAll("\\p{M}", "")
+                .trim()
+                .toLowerCase();
+        return normalized.replaceAll("[^a-z0-9]", "");
     }
 
     private String cleanQuotes(String value) {

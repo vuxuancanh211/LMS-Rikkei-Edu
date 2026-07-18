@@ -4,7 +4,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import project.lms_rikkei_edu.common.exception.BusinessException;
+import project.lms_rikkei_edu.modules.course.entity.Course;
 import project.lms_rikkei_edu.modules.course.repository.CourseEnrollmentRepository;
+import project.lms_rikkei_edu.modules.course.repository.CourseRepository;
 import project.lms_rikkei_edu.modules.quiz.dto.response.*;
 import project.lms_rikkei_edu.modules.quiz.entity.QuizAttemptEntity;
 import project.lms_rikkei_edu.modules.quiz.entity.QuizEntity;
@@ -31,6 +33,7 @@ public class QuizStatsServiceImpl implements QuizStatsService {
     private final QuizAttemptAnswerRepository answerRepository;
     private final QuizQuestionRepository questionRepository;
     private final CourseEnrollmentRepository courseEnrollmentRepository;
+    private final CourseRepository courseRepository;
 
     // ── Instructor: quiz tổng quan ────────────────────────────────────────────
 
@@ -90,6 +93,34 @@ public class QuizStatsServiceImpl implements QuizStatsService {
         List<QuizEntity> quizzes = quizRepository.findByCourseId(courseId);
         if (quizzes.isEmpty()) return List.of();
 
+        String courseTitle = courseRepository.findById(courseId)
+                .map(Course::getTitle)
+                .orElse(null);
+        Map<UUID, String> courseTitleMap = new java.util.HashMap<>();
+        courseTitleMap.put(courseId, courseTitle);
+
+        return buildProgressEntries(quizzes, studentId, courseTitleMap);
+    }
+
+    @Override
+    public List<StudentQuizProgressEntry> getStudentAllCourseProgress(UUID studentId) {
+        List<UUID> courseIds = courseEnrollmentRepository.findCourseIdsByStudentId(studentId);
+        if (courseIds.isEmpty()) return List.of();
+
+        List<QuizEntity> quizzes = quizRepository.findByCourseIdIn(courseIds);
+        if (quizzes.isEmpty()) return List.of();
+
+        Map<UUID, String> courseTitleMap = courseRepository.findAllById(courseIds).stream()
+                .collect(Collectors.toMap(Course::getId, Course::getTitle));
+
+        return buildProgressEntries(quizzes, studentId, courseTitleMap);
+    }
+
+    private List<StudentQuizProgressEntry> buildProgressEntries(
+            List<QuizEntity> quizzes,
+            UUID studentId,
+            Map<UUID, String> courseTitleMap) {
+
         // Batch — 1 query lấy toàn bộ attempt của học viên cho mọi quiz trong khóa, thay vì
         // 2-3 query riêng cho từng quiz (N+1 khi khóa có nhiều quiz).
         List<UUID> quizIds = quizzes.stream().map(QuizEntity::getId).toList();
@@ -98,7 +129,10 @@ public class QuizStatsServiceImpl implements QuizStatsService {
                 .collect(Collectors.groupingBy(QuizAttemptEntity::getQuizId));
 
         return quizzes.stream()
-                .map(quiz -> buildProgressEntry(quiz, attemptsByQuiz.getOrDefault(quiz.getId(), List.of())))
+                .map(quiz -> buildProgressEntry(
+                        quiz,
+                        courseTitleMap.get(quiz.getCourseId()),
+                        attemptsByQuiz.getOrDefault(quiz.getId(), List.of())))
                 .toList();
     }
 
@@ -160,7 +194,7 @@ public class QuizStatsServiceImpl implements QuizStatsService {
         }).toList();
     }
 
-    private StudentQuizProgressEntry buildProgressEntry(QuizEntity quiz, List<QuizAttemptEntity> attempts) {
+    private StudentQuizProgressEntry buildProgressEntry(QuizEntity quiz, String courseTitle, List<QuizAttemptEntity> attempts) {
         long used = attempts.size();
         Integer max = quiz.getMaxAttempts(); // null = không giới hạn
 
@@ -193,6 +227,8 @@ public class QuizStatsServiceImpl implements QuizStatsService {
         boolean canRetry = (max == null || used < max) && cooldownPassed;
 
         return StudentQuizProgressEntry.builder()
+                .courseId(quiz.getCourseId())
+                .courseTitle(courseTitle)
                 .quizId(quiz.getId())
                 .quizTitle(quiz.getTitle())
                 .quizType(quiz.getQuizType())

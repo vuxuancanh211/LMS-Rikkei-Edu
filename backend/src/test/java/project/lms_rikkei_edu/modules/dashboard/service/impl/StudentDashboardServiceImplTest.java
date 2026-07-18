@@ -9,6 +9,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.ResultSetExtractor;
 import org.springframework.jdbc.core.RowCallbackHandler;
 import org.springframework.jdbc.core.RowMapper;
 import project.lms_rikkei_edu.modules.dashboard.dto.response.StudentDashboardResponse;
@@ -18,6 +19,7 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -48,10 +50,14 @@ class StudentDashboardServiceImplTest {
     void getStudentDashboard_ShouldReturnFullDataAndCoverAllBranches() {
         when(jdbc.queryForObject(contains("SELECT COALESCE(full_name"), eq(String.class), eq(studentId)))
                 .thenReturn("Nguyễn Văn Student");
-        when(jdbc.queryForObject(contains("FROM course_enrollments"), eq(Integer.class), eq(studentId)))
-                .thenReturn(3);
-        when(jdbc.queryForObject(contains("overall_percentage >= 70"), eq(Integer.class), eq(studentId)))
-                .thenReturn(1);
+        when(jdbc.query(contains("FROM course_enrollments ce"), any(ResultSetExtractor.class), eq(studentId)))
+                .thenAnswer(invocation -> {
+                    ResultSetExtractor<Map<String, Integer>> extractor = invocation.getArgument(1);
+                    when(rs.next()).thenReturn(true);
+                    when(rs.getInt("active_cnt")).thenReturn(3);
+                    when(rs.getInt("near_cnt")).thenReturn(1);
+                    return extractor.extractData(rs);
+                });
         when(jdbc.queryForObject(contains("FROM certificates"), eq(Integer.class), eq(studentId)))
                 .thenReturn(2);
 
@@ -134,8 +140,14 @@ class StudentDashboardServiceImplTest {
 
     @Test
     void getStats_ShouldReturnStats() {
-        when(jdbc.queryForObject(contains("FROM course_enrollments"), eq(Integer.class), eq(studentId))).thenReturn(4);
-        when(jdbc.queryForObject(contains("overall_percentage >= 70"), eq(Integer.class), eq(studentId))).thenReturn(2);
+        when(jdbc.query(contains("FROM course_enrollments ce"), any(ResultSetExtractor.class), eq(studentId)))
+                .thenAnswer(invocation -> {
+                    ResultSetExtractor<Map<String, Integer>> extractor = invocation.getArgument(1);
+                    when(rs.next()).thenReturn(true);
+                    when(rs.getInt("active_cnt")).thenReturn(4);
+                    when(rs.getInt("near_cnt")).thenReturn(2);
+                    return extractor.extractData(rs);
+                });
         when(jdbc.queryForObject(contains("FROM certificates"), eq(Integer.class), eq(studentId))).thenReturn(1);
         when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(Collections.emptyList());
         doNothing().when(jdbc).query(anyString(), any(RowCallbackHandler.class), any(Object[].class));

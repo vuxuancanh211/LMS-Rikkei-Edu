@@ -8,6 +8,7 @@ import project.lms_rikkei_edu.common.exception.GlobalExceptionHandler;
 import project.lms_rikkei_edu.common.security.CourseOwnershipGuard;
 import project.lms_rikkei_edu.common.security.CurrentUserProvider;
 import project.lms_rikkei_edu.modules.quiz.dto.response.QuizStatsResponse;
+import project.lms_rikkei_edu.modules.quiz.dto.response.StudentQuizProgressEntry;
 import project.lms_rikkei_edu.modules.quiz.service.QuizStatsService;
 
 import java.util.List;
@@ -85,5 +86,30 @@ class QuizStatsControllerTest {
         mockMvc.perform(get("/api/courses/{courseId}/my-quiz-progress", courseId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").isArray());
+    }
+
+    @Test
+    void getMyAllCourseProgress_returnsOk() throws Exception {
+        when(currentUserProvider.getCurrentUserId()).thenReturn(Optional.of(studentId));
+        when(statsService.getStudentAllCourseProgress(studentId))
+                .thenReturn(List.of(StudentQuizProgressEntry.builder()
+                        .courseId(courseId)
+                        .courseTitle("Course Title")
+                        .quizId(quizId)
+                        .quizTitle("Quiz 1")
+                        .build()));
+
+        mockMvc.perform(get("/api/student/quizzes/progress"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].courseTitle").value("Course Title"))
+                .andExpect(jsonPath("$[0].quizId").value(quizId.toString()));
+    }
+
+    @Test
+    void getMyAllCourseProgress_unauthorized_returns401() throws Exception {
+        when(currentUserProvider.getCurrentUserId()).thenReturn(Optional.empty());
+
+        mockMvc.perform(get("/api/student/quizzes/progress"))
+                .andExpect(status().isBadRequest());
     }
 }

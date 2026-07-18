@@ -118,7 +118,7 @@ class GroupServiceImplTest {
         when(currentUserProvider.getCurrentUser()).thenReturn(Optional.of(principal(instructorId, UserRole.INSTRUCTOR)));
         when(studyGroupRepository.findAll(any(Specification.class), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(group), PageRequest.of(0, 10), 1));
-        when(groupMemberRepository.countByGroupId(groupId)).thenReturn(2L);
+        when(groupMemberRepository.countByGroupIds(any())).thenReturn(Collections.singletonList(new Object[]{groupId, 2L}));
 
         var result = groupService.getGroups(courseId, " React ", PageRequest.of(0, 10));
 
@@ -659,6 +659,7 @@ class GroupServiceImplTest {
 
         assertThat(result.getMembers()).hasSize(1);
         assertThat(result.getMembers().getFirst().getStudentId()).isEqualTo(studentId);
+        assertThat(result.getMembers().getFirst().getStudentEmail()).isNull();
     }
 
     @Test

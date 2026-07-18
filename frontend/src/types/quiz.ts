@@ -327,14 +327,18 @@ export type AttemptHistoryEntry = {
 };
 
 export type StudentQuizProgressEntry = {
+  courseId?: string | null;
+  courseTitle?: string | null;
   quizId: string;
   quizTitle: string;
   quizType: QuizType;
   quizStatus: QuizStatus;
-  maxAttempts: number;
+  maxAttempts?: number | null;
   attemptsUsed: number;
   passed: boolean;
   bestScore?: number | null;
   bestScorePercentage?: number | null;
   canRetry: boolean;
+  passScore?: number | null;
+  nextRetryAt?: string | null;
 };

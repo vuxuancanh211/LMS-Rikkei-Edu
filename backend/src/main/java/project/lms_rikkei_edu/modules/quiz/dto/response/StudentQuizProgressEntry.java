@@ -11,6 +11,8 @@ import java.util.UUID;
 @Getter
 @Builder
 public class StudentQuizProgressEntry {
+    private UUID courseId;
+    private String courseTitle;
     private UUID quizId;
     private String quizTitle;
     private QuizType quizType;
