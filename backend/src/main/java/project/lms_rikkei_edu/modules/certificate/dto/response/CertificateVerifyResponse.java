@@ -13,6 +13,7 @@ public class CertificateVerifyResponse {
     private CertificateStatus status;
     private String studentName;
     private String courseTitle;
+    private String courseThumbnailUrl;
     private String instructorName;
     private OffsetDateTime issuedAt;
     private OffsetDateTime revokedAt;

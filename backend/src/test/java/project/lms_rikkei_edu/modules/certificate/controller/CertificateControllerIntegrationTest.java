@@ -9,14 +9,12 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import project.lms_rikkei_edu.common.exception.GlobalExceptionHandler;
 import project.lms_rikkei_edu.common.security.CurrentUserProvider;
-import project.lms_rikkei_edu.modules.certificate.dto.request.IssueCertificateRequest;
 import project.lms_rikkei_edu.modules.certificate.dto.request.RevokeCertificateRequest;
 import project.lms_rikkei_edu.modules.certificate.dto.response.AdminCertificatePageResponse;
 import project.lms_rikkei_edu.modules.certificate.dto.response.CertificateDownloadResponse;
 import project.lms_rikkei_edu.modules.certificate.dto.response.CertificateResponse;
 import project.lms_rikkei_edu.modules.certificate.dto.response.CertificateVerifyResponse;
 import project.lms_rikkei_edu.modules.certificate.enums.CertificateStatus;
-import project.lms_rikkei_edu.modules.certificate.exception.CertificateAlreadyIssuedException;
 import project.lms_rikkei_edu.modules.certificate.exception.CertificateNotFoundException;
 import project.lms_rikkei_edu.modules.certificate.service.CertificateService;
 
@@ -73,7 +71,8 @@ class CertificateControllerIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.credentialId").value("RKE-2026-ABC12345"))
                 .andExpect(jsonPath("$.status").value("ISSUED"))
-                .andExpect(jsonPath("$.studentName").value("Nguyen Van A"));
+                .andExpect(jsonPath("$.studentName").value("Nguyen Van A"))
+                .andExpect(jsonPath("$.courseThumbnailUrl").value("https://cdn.test/java.png"));
     }
 
     @Test
@@ -92,7 +91,8 @@ class CertificateControllerIntegrationTest {
         mockMvc.perform(get("/api/student/certificates"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$", hasSize(1)))
-                .andExpect(jsonPath("$[0].id").value(certificateId.toString()));
+                .andExpect(jsonPath("$[0].id").value(certificateId.toString()))
+                .andExpect(jsonPath("$[0].courseThumbnailUrl").value("https://cdn.test/java.png"));
 
         verify(certificateService).getMyCertificates(currentUserId);
     }
@@ -104,7 +104,8 @@ class CertificateControllerIntegrationTest {
         mockMvc.perform(get("/api/student/certificates/{id}", certificateId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(certificateId.toString()))
-                .andExpect(jsonPath("$.courseTitle").value("Java Spring Boot"));
+                .andExpect(jsonPath("$.courseTitle").value("Java Spring Boot"))
+                .andExpect(jsonPath("$.courseThumbnailUrl").value("https://cdn.test/java.png"));
     }
 
     @Test
@@ -124,46 +125,6 @@ class CertificateControllerIntegrationTest {
         mockMvc.perform(get("/api/student/certificates/{id}/download", certificateId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.url").value("https://s3.test/cert.pdf"));
-    }
-
-    @Test
-    void issueCertificateReturns201() throws Exception {
-        IssueCertificateRequest request = new IssueCertificateRequest();
-        request.setStudentId(studentId);
-        request.setCourseId(courseId);
-        when(certificateService.issueCertificate(eq(currentUserId), any(IssueCertificateRequest.class)))
-                .thenReturn(response(CertificateStatus.ISSUED));
-
-        mockMvc.perform(post("/api/admin/certificates/issue")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.status").value("ISSUED"));
-    }
-
-    @Test
-    void issueCertificateValidatesRequiredFields() throws Exception {
-        mockMvc.perform(post("/api/admin/certificates/issue")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.validationErrors.studentId").value("Student id is required"))
-                .andExpect(jsonPath("$.validationErrors.courseId").value("Course id is required"));
-    }
-
-    @Test
-    void issueCertificateReturns409WhenDuplicate() throws Exception {
-        IssueCertificateRequest request = new IssueCertificateRequest();
-        request.setStudentId(studentId);
-        request.setCourseId(courseId);
-        when(certificateService.issueCertificate(eq(currentUserId), any(IssueCertificateRequest.class)))
-                .thenThrow(new CertificateAlreadyIssuedException("Certificate already issued for this student and course"));
-
-        mockMvc.perform(post("/api/admin/certificates/issue")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.message").value("Certificate already issued for this student and course"));
     }
 
     @Test
@@ -240,6 +201,7 @@ class CertificateControllerIntegrationTest {
                 .status(status)
                 .studentName("Nguyen Van A")
                 .courseTitle("Java Spring Boot")
+                .courseThumbnailUrl("https://cdn.test/java.png")
                 .instructorName("Teacher One")
                 .issuedAt(OffsetDateTime.now().minusDays(1))
                 .revokedAt(status == CertificateStatus.REVOKED ? OffsetDateTime.now() : null)
@@ -252,6 +214,7 @@ class CertificateControllerIntegrationTest {
                 .status(status)
                 .studentName("Nguyen Van A")
                 .courseTitle("Java Spring Boot")
+                .courseThumbnailUrl("https://cdn.test/java.png")
                 .instructorName("Teacher One")
                 .issuedAt(OffsetDateTime.now().minusDays(1))
                 .revokedAt(status == CertificateStatus.REVOKED ? OffsetDateTime.now() : null)

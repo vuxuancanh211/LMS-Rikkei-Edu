@@ -11,11 +11,13 @@ public interface CertificateMapper {
 
     @Mapping(target = "studentName", source = "entity.student.fullName")
     @Mapping(target = "courseTitle", source = "entity.course.title")
+    @Mapping(target = "courseThumbnailUrl", source = "entity.course.thumbnailUrl")
     @Mapping(target = "instructorName", source = "instructorName")
     CertificateResponse toResponse(CertificateEntity entity, String instructorName);
 
     @Mapping(target = "studentName", source = "entity.student.fullName")
     @Mapping(target = "courseTitle", source = "entity.course.title")
+    @Mapping(target = "courseThumbnailUrl", source = "entity.course.thumbnailUrl")
     @Mapping(target = "instructorName", source = "instructorName")
     CertificateVerifyResponse toVerifyResponse(CertificateEntity entity, String instructorName);
 }
