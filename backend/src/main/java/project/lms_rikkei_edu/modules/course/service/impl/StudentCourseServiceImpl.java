@@ -669,7 +669,7 @@ public class StudentCourseServiceImpl implements StudentCourseService {
     private List<UUID> filterApplicableAssignments(List<AssignmentEntity> assignments, List<UUID> studentGroupIds) {
         List<UUID> applicableAssignmentIds = new ArrayList<>();
         for (AssignmentEntity a : assignments) {
-            if (a.getScope() == AssignmentScope.ALL_GROUPS) {
+            if (a.getScope() == AssignmentScope.ALL_GROUPS && !studentGroupIds.isEmpty()) {
                 applicableAssignmentIds.add(a.getId());
             } else {
                 List<UUID> assignedGroupIds = assignmentGroupRepository.findByAssignmentId(a.getId())

@@ -44,6 +44,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -223,7 +224,8 @@ public class StudentAssignmentServiceImpl implements StudentAssignmentService {
     @Override
     @Transactional
     public SubmissionResponse submitAssignment(UUID courseId, UUID assignmentId, UUID studentId,
-                                                String note, List<MultipartFile> files) {
+                                                String note, List<MultipartFile> files,
+                                                List<UUID> keepFileIds) {
         validateEnrollment(courseId, studentId);
         AssignmentEntity assignment = resolveAssignment(courseId, assignmentId, studentId);
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
@@ -232,17 +234,35 @@ public class StudentAssignmentServiceImpl implements StudentAssignmentService {
             throw new BusinessException("Bài tập chưa đến thời gian cho phép nộp");
         }
 
-        cleanupPreviousSubmissions(assignmentId, studentId);
+        List<AssignmentSubmissionEntity> existingSubmissions = assignmentSubmissionRepository
+                .findByAssignmentIdAndStudentIdOrderByCreatedAtDesc(assignmentId, studentId);
+        for (AssignmentSubmissionEntity existing : existingSubmissions) {
+            if (existing.getScorePublishedAt() != null) {
+                throw new BusinessException("Không thể nộp lại bài tập đã được công bố điểm");
+            }
+        }
 
         boolean isLate = checkLateSubmission(assignment, now);
 
-        List<String> allowedTypes = parseAllowedFileTypes(assignment.getAllowedFileTypes());
-        int maxSizeMb = assignment.getMaxFileSizeMb() != null ? assignment.getMaxFileSizeMb() : 10;
-        validateSubmissionFiles(files, allowedTypes, maxSizeMb);
+        if ((files == null || files.isEmpty()) && (keepFileIds == null || keepFileIds.isEmpty())) {
+            throw new BusinessException("Vui lòng chọn ít nhất 1 file để nộp");
+        }
+        if (files != null && !files.isEmpty()) {
+            List<String> allowedTypes = parseAllowedFileTypes(assignment.getAllowedFileTypes());
+            int maxSizeMb = assignment.getMaxFileSizeMb() != null ? assignment.getMaxFileSizeMb() : 10;
+            validateSubmissionFiles(files, allowedTypes, maxSizeMb);
+        }
 
         UUID submissionId = UUID.randomUUID();
         createAndSaveSubmission(submissionId, assignmentId, studentId, courseId, note, isLate, now);
-        List<SubmissionFileResponse> fileResponses = uploadFiles(courseId, assignmentId, submissionId, files, now);
+
+        List<SubmissionFileResponse> fileResponses = new ArrayList<>();
+        if (files != null && !files.isEmpty()) {
+            fileResponses.addAll(uploadFiles(courseId, assignmentId, submissionId, files, now));
+        }
+        if (!existingSubmissions.isEmpty()) {
+            fileResponses.addAll(deleteOldSubmissionFiles(existingSubmissions, keepFileIds, submissionId));
+        }
 
         log.info("Student {} submitted assignment {}", studentId, assignmentId);
         return SubmissionResponse.builder()
@@ -255,31 +275,36 @@ public class StudentAssignmentServiceImpl implements StudentAssignmentService {
                 .build();
     }
 
-    private void cleanupPreviousSubmissions(UUID assignmentId, UUID studentId) {
-        List<AssignmentSubmissionEntity> existingList = assignmentSubmissionRepository
-                .findByAssignmentIdAndStudentIdOrderByCreatedAtDesc(assignmentId, studentId);
-        if (existingList.isEmpty()) return;
-
-        for (AssignmentSubmissionEntity existing : existingList) {
-            if (existing.getScorePublishedAt() != null) {
-                throw new BusinessException("Không thể nộp lại bài tập đã được công bố điểm");
+    private List<SubmissionFileResponse> deleteOldSubmissionFiles(List<AssignmentSubmissionEntity> oldSubmissions,
+                                                                    List<UUID> keepFileIds, UUID newSubmissionId) {
+        Set<UUID> keepSet = keepFileIds != null ? new HashSet<>(keepFileIds) : Collections.emptySet();
+        List<SubmissionFileResponse> keptFileResponses = new ArrayList<>();
+        for (AssignmentSubmissionEntity oldSub : oldSubmissions) {
+            List<SubmissionFileEntity> oldFiles = submissionFileRepository
+                    .findBySubmissionIdOrderByOrderIndexAsc(oldSub.getId());
+            for (SubmissionFileEntity f : oldFiles) {
+                if (keepSet.contains(f.getId())) {
+                    f.setSubmissionId(newSubmissionId);
+                    submissionFileRepository.save(f);
+                    var presigned = s3Service.generatePresignedInlineUrl(f.getS3Key(), presignedUrlExpiry);
+                    keptFileResponses.add(SubmissionFileResponse.builder()
+                            .id(f.getId())
+                            .originalFilename(f.getOriginalFilename())
+                            .fileSizeBytes(f.getFileSizeBytes())
+                            .mimeType(f.getMimeType())
+                            .extension(f.getExtension())
+                            .url(presigned.url().toString())
+                            .build());
+                } else {
+                    if (f.getS3Key() != null) {
+                        s3Service.deleteObject(f.getS3Key());
+                    }
+                    submissionFileRepository.delete(f);
+                }
             }
+            assignmentSubmissionRepository.delete(oldSub);
         }
-        for (AssignmentSubmissionEntity oldSub : existingList) {
-            deleteSubmissionAndFiles(oldSub);
-        }
-    }
-
-    private void deleteSubmissionAndFiles(AssignmentSubmissionEntity oldSub) {
-        List<SubmissionFileEntity> oldFiles = submissionFileRepository
-                .findBySubmissionIdOrderByOrderIndexAsc(oldSub.getId());
-        for (SubmissionFileEntity f : oldFiles) {
-            if (f.getS3Key() != null) {
-                s3Service.deleteObject(f.getS3Key());
-            }
-            submissionFileRepository.delete(f);
-        }
-        assignmentSubmissionRepository.delete(oldSub);
+        return keptFileResponses;
     }
 
     private AssignmentEntity resolveAssignment(UUID courseId, UUID assignmentId, UUID studentId) {
@@ -309,6 +334,7 @@ public class StudentAssignmentServiceImpl implements StudentAssignmentService {
         if (files == null || files.isEmpty()) {
             throw new BusinessException("Vui lòng chọn ít nhất 1 file để nộp");
         }
+        long totalBytes = 0;
         for (MultipartFile file : files) {
             if (file == null || file.isEmpty()) {
                 throw new BusinessException("File không được để trống");
@@ -319,10 +345,11 @@ public class StudentAssignmentServiceImpl implements StudentAssignmentService {
                     throw new BusinessException("Loại file " + mime + " không được hỗ trợ");
                 }
             }
-            long maxBytes = (long) maxSizeMb * 1024 * 1024;
-            if (file.getSize() > maxBytes) {
-                throw new BusinessException("File " + file.getOriginalFilename() + " vượt quá kích thước tối đa (" + maxSizeMb + " MB)");
-            }
+            totalBytes += file.getSize();
+        }
+        long maxBytes = (long) maxSizeMb * 1024 * 1024;
+        if (totalBytes > maxBytes) {
+            throw new BusinessException("Tổng kích thước các file vượt quá " + maxSizeMb + " MB");
         }
     }
 
@@ -392,7 +419,7 @@ public class StudentAssignmentServiceImpl implements StudentAssignmentService {
 
     private boolean canAccess(AssignmentEntity assignment, Set<UUID> studentGroupIds) {
         if (assignment.getScope() == AssignmentScope.ALL_GROUPS) {
-            return true;
+            return !studentGroupIds.isEmpty();
         }
         List<UUID> assignedGroupIds = assignmentGroupRepository.findByAssignmentId(assignment.getId())
                 .stream()
