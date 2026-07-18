@@ -189,8 +189,7 @@ public class CourseServiceImpl implements CourseService {
     private void attachStudentCounts(List<CourseResponse> content) {
         if (content.isEmpty()) return;
         List<UUID> courseIds = content.stream().map(CourseResponse::getId).toList();
-        Map<UUID, Integer> counts = courseEnrollmentRepository.countGroupedByCourseIds(courseIds).stream()
-                .collect(Collectors.toMap(row -> (UUID) row[0], row -> ((Long) row[1]).intValue()));
+        Map<UUID, Integer> counts = courseEnrollmentRepository.countMapByCourseIds(courseIds);
         content.forEach(c -> c.setStudentCount(counts.getOrDefault(c.getId(), 0)));
     }
 

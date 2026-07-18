@@ -124,8 +124,7 @@ public class StudentCourseServiceImpl implements StudentCourseService {
         // Batch count học viên — 1 query gộp, tránh N+1 (xem CourseServiceImpl.attachStudentCounts
         // cho lý do tương tự bên phía giảng viên).
         Map<UUID, Integer> studentCounts = courseEnrollmentRepository
-                .countGroupedByCourseIds(courses.stream().map(Course::getId).toList())
-                .stream().collect(Collectors.toMap(row -> (UUID) row[0], row -> ((Long) row[1]).intValue()));
+                .countMapByCourseIds(courses.stream().map(Course::getId).toList());
 
         return courses.stream().map(c -> toEnrolledCourseResponse(c, instructorNames, progressMap, studentCounts)).toList();
     }

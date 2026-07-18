@@ -6,8 +6,10 @@ import org.springframework.data.repository.query.Param;
 import project.lms_rikkei_edu.modules.course.entity.CourseEnrollmentEntity;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 public interface CourseEnrollmentRepository extends JpaRepository<CourseEnrollmentEntity, UUID> {
 
@@ -25,6 +27,15 @@ public interface CourseEnrollmentRepository extends JpaRepository<CourseEnrollme
      *  cả trang danh sách khóa học (thay vì gọi countByCourseId() lặp cho từng khóa). */
     @Query("SELECT ce.courseId, COUNT(ce) FROM CourseEnrollmentEntity ce WHERE ce.courseId IN :courseIds GROUP BY ce.courseId")
     List<Object[]> countGroupedByCourseIds(@Param("courseIds") List<UUID> courseIds);
+
+    /** Bản tiện dụng của countGroupedByCourseIds() — trả thẳng Map để nơi gọi không phải tự lặp
+     *  lại logic collect/ép kiểu. Ép kiểu qua (Number) thay vì (Long) cứng — nhất quán với cách
+     *  GroupMemberRepository.countByGroupIds() đang xử lý cùng dạng query COUNT(...) GROUP BY,
+     *  tránh ClassCastException nếu kiểu projection COUNT thay đổi theo dialect/provider. */
+    default Map<UUID, Integer> countMapByCourseIds(List<UUID> courseIds) {
+        return countGroupedByCourseIds(courseIds).stream()
+                .collect(Collectors.toMap(row -> (UUID) row[0], row -> ((Number) row[1]).intValue()));
+    }
 
     @Query("SELECT ce.courseId FROM CourseEnrollmentEntity ce WHERE ce.studentId = :studentId")
     List<UUID> findCourseIdsByStudentId(@Param("studentId") UUID studentId);

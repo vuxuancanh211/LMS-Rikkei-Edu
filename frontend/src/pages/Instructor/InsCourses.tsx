@@ -5,7 +5,7 @@
 (function () {
   const { useState, useEffect, useRef } = React;
   const Ic = window.Icon;
-  const { Modal, ModalHead, Empty, Search, Select, StatCard, Pager, RichTextEditor } = window;
+  const { Modal, ModalHead, Empty, Search, Select, StatCard, Pager, RichTextEditor, CourseOutcomesPreview } = window;
   const api = window.httpClient;
 
   function hasSearchText(value) {
@@ -376,18 +376,7 @@
                         <span className="meta-row"><Ic n="users" size={15} /> {c.studentCount ?? 0} học viên</span>
                       </div>
                       {c.description && <p className="t-sm muted clamp-2" style={{ marginBottom: 8 }}>{c.description}</p>}
-                      {(c.learningOutcomes || []).filter(o => o.trim()).length > 0 && (
-                        <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 8 }}>
-                          {c.learningOutcomes.filter(o => o.trim()).slice(0, 2).map((o, i) => (
-                            <div key={i} className="row gap-6 t-xs" style={{ color: "var(--text-2)" }}>
-                              <span style={{ color: "#10b981" }}>✓</span><span className="truncate">{o}</span>
-                            </div>
-                          ))}
-                          {c.learningOutcomes.filter(o => o.trim()).length > 2 && (
-                            <span className="t-xs muted">+{c.learningOutcomes.filter(o => o.trim()).length - 2} mục khác</span>
-                          )}
-                        </div>
-                      )}
+                      <CourseOutcomesPreview outcomes={c.learningOutcomes} style={{ marginBottom: 8 }} />
                       <div className="row gap-10" style={{ marginTop: "auto", paddingTop: 6 }}>
                         <button className="btn btn-ghost btn-sm grow"
                           onClick={() => nav("courseDetail", { slug: c.slug, autoPreview: "1" })}>
