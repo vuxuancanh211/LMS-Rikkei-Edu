@@ -121,11 +121,18 @@ public class StudentCourseServiceImpl implements StudentCourseService {
                         courses.stream().map(Course::getId).toList())
                 .stream().collect(Collectors.toMap(CourseProgressEntity::getCourseId, p -> p));
 
-        return courses.stream().map(c -> toEnrolledCourseResponse(c, instructorNames, progressMap)).toList();
+        // Batch count học viên — 1 query gộp, tránh N+1 (xem CourseServiceImpl.attachStudentCounts
+        // cho lý do tương tự bên phía giảng viên).
+        Map<UUID, Integer> studentCounts = courseEnrollmentRepository
+                .countGroupedByCourseIds(courses.stream().map(Course::getId).toList())
+                .stream().collect(Collectors.toMap(row -> (UUID) row[0], row -> ((Long) row[1]).intValue()));
+
+        return courses.stream().map(c -> toEnrolledCourseResponse(c, instructorNames, progressMap, studentCounts)).toList();
     }
 
     private StudentCourseResponse toEnrolledCourseResponse(Course c, Map<UUID, String> instructorNames,
-                                                            Map<UUID, CourseProgressEntity> progressMap) {
+                                                            Map<UUID, CourseProgressEntity> progressMap,
+                                                            Map<UUID, Integer> studentCounts) {
         String instructorName = instructorNames.getOrDefault(c.getInstructorId(), "");
         CourseProgressEntity prog = progressMap.get(c.getId());
         int chaptersCount = c.getChapters() != null ? c.getChapters().size() : 0;
@@ -156,6 +163,9 @@ public class StudentCourseServiceImpl implements StudentCourseService {
                 .sStatus(sStatus)
                 .pubStatus(c.getStatus() != null ? c.getStatus().name().toLowerCase() : "draft")
                 .chapters(chaptersCount)
+                .description(c.getDescription())
+                .learningOutcomes(c.getLearningOutcomes())
+                .studentCount(studentCounts.getOrDefault(c.getId(), 0))
                 .build();
     }
 

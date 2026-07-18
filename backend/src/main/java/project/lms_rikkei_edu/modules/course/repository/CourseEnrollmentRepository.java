@@ -21,6 +21,11 @@ public interface CourseEnrollmentRepository extends JpaRepository<CourseEnrollme
 
     long countByCourseId(UUID courseId);
 
+    /** Đếm gộp theo nhiều courseId trong 1 query — tránh N+1 khi hiển thị số học viên trên
+     *  cả trang danh sách khóa học (thay vì gọi countByCourseId() lặp cho từng khóa). */
+    @Query("SELECT ce.courseId, COUNT(ce) FROM CourseEnrollmentEntity ce WHERE ce.courseId IN :courseIds GROUP BY ce.courseId")
+    List<Object[]> countGroupedByCourseIds(@Param("courseIds") List<UUID> courseIds);
+
     @Query("SELECT ce.courseId FROM CourseEnrollmentEntity ce WHERE ce.studentId = :studentId")
     List<UUID> findCourseIdsByStudentId(@Param("studentId") UUID studentId);
 

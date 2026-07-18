@@ -3,6 +3,7 @@ package project.lms_rikkei_edu.modules.course.dto.response;
 import lombok.Builder;
 import lombok.Getter;
 
+import java.util.List;
 import java.util.UUID;
 
 @Getter
@@ -21,4 +22,7 @@ public class StudentCourseResponse {
     private String sStatus;
     private String pubStatus;
     private int chapters;
+    private String description;
+    private List<String> learningOutcomes;
+    private int studentCount;
 }

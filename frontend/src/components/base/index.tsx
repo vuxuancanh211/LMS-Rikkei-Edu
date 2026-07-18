@@ -68,8 +68,9 @@ function StatCard({ icon, iconBg, iconColor, value, label, sub, trend }) {
 }
 
 /* ---------- Course card ---------- */
-function CourseCard({ c, onOpen, onCert, cta }) {
+function CourseCard({ c, onOpen, onCert, cta, preview }) {
   const ctaLabel = cta || (c.sStatus === "done" ? "Học lại" : c.sStatus === "new" ? "Bắt đầu học" : "Tiếp tục học");
+  const outcomes = (c.learningOutcomes || []).filter(o => o.trim());
   return (
     <div className="card course-card fade-in" onClick={onOpen} style={{ cursor: "pointer" }}>
       <div className="course-thumb" style={{ backgroundImage: `url(${c.thumb})` }}>
@@ -84,6 +85,22 @@ function CourseCard({ c, onOpen, onCert, cta }) {
           <span className="meta-row"><I n="clock" size={15} /> {c.hours} giờ</span>
           {c.rating > 0 && <span className="meta-row" style={{ color: "var(--warning)" }}><I n="star" size={15} fill="currentColor" /> <b style={{ color: "var(--text)" }}>{c.rating}</b></span>}
         </div>
+        {preview && (
+          <>
+            {c.description && <p className="t-sm muted clamp-2" style={{ marginTop: 6 }}>{c.description}</p>}
+            {outcomes.length > 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 6 }}>
+                {outcomes.slice(0, 2).map((o, i) => (
+                  <div key={i} className="row gap-6 t-xs" style={{ color: "var(--text-2)" }}>
+                    <span style={{ color: "#10b981" }}>✓</span><span className="truncate">{o}</span>
+                  </div>
+                ))}
+                {outcomes.length > 2 && <span className="t-xs muted">+{outcomes.length - 2} mục khác</span>}
+              </div>
+            )}
+            <div className="meta-row" style={{ marginTop: 6 }}><I n="users" size={15} /> {c.studentCount ?? 0} học viên</div>
+          </>
+        )}
         <div style={{ marginTop: "auto", paddingTop: 6 }}>
           {c.sStatus !== "new" && (
             <div style={{ marginBottom: 14 }}>

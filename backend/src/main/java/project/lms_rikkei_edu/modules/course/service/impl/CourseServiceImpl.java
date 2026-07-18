@@ -177,7 +177,21 @@ public class CourseServiceImpl implements CourseService {
     @Transactional(readOnly = true)
     public Page<CourseResponse> listCourses(UUID instructorId, Pageable pageable, String keyword) {
         CourseListCacheGateway.Entry entry = courseListCacheGateway.find(instructorId, pageable, keyword);
-        return new PageImpl<>(entry.getContent(), pageable, entry.getTotalElements());
+        List<CourseResponse> content = entry.getContent();
+        attachStudentCounts(content);
+        return new PageImpl<>(content, pageable, entry.getTotalElements());
+    }
+
+    // Set studentCount NGOÀI vùng cache "course-list" — cache không có cơ chế evict khi học
+    // viên ghi danh/rời khóa, nếu set số học viên vào bên trong nội dung bị cache thì số liệu
+    // sẽ treo cũ tới khi cache hết hạn. Enrich lại mỗi lần gọi (1 query gộp, giới hạn trong
+    // đúng số khóa của trang hiện tại — không N+1).
+    private void attachStudentCounts(List<CourseResponse> content) {
+        if (content.isEmpty()) return;
+        List<UUID> courseIds = content.stream().map(CourseResponse::getId).toList();
+        Map<UUID, Integer> counts = courseEnrollmentRepository.countGroupedByCourseIds(courseIds).stream()
+                .collect(Collectors.toMap(row -> (UUID) row[0], row -> ((Long) row[1]).intValue()));
+        content.forEach(c -> c.setStudentCount(counts.getOrDefault(c.getId(), 0)));
     }
 
     @Override
