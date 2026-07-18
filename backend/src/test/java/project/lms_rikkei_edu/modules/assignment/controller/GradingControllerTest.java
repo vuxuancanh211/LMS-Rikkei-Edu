@@ -171,7 +171,6 @@ class GradingControllerTest {
         return InstructorSubmissionResponse.builder()
                 .id(submissionId)
                 .status("SUBMITTED")
-                .submissionNumber(1)
                 .isLate(false)
                 .studentId(UUID.randomUUID())
                 .studentName("Student A")

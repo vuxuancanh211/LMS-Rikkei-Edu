@@ -1,5 +1,6 @@
 package project.lms_rikkei_edu.modules.course.service;
 
+import org.springframework.transaction.annotation.Transactional;
 import project.lms_rikkei_edu.modules.course.dto.request.UpdateProgressRequest;
 import project.lms_rikkei_edu.modules.course.dto.response.CourseDetailResponse;
 import project.lms_rikkei_edu.modules.course.dto.response.ResourceDownloadUrlResponse;
@@ -37,4 +38,17 @@ public interface StudentCourseService {
     void resetProgressForStudents(UUID courseId, List<UUID> studentIds);
 
     void resetStudentCourseProgress(UUID courseId, UUID studentId);
+
+    /**
+     * Tính lại tiến độ course cho student (lesson + assignment) trong cùng transaction hiện tại.
+     * Dùng khi publish assignment — cần thấy được dữ liệu chưa commit.
+     */
+    void recalculateCourseProgress(UUID studentId, UUID courseId);
+
+    /**
+     * Tính lại tiến độ course cho student.
+     * Được gọi từ GradingServiceImpl khi giảng viên công bố điểm.
+     */
+    @Transactional
+    void updateAssignmentProgress(UUID studentId, UUID courseId);
 }

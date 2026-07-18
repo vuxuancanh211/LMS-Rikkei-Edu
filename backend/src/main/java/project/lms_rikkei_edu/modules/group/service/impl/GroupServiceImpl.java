@@ -38,18 +38,17 @@ import project.lms_rikkei_edu.modules.notification.enums.NotificationType;
 import project.lms_rikkei_edu.modules.notification.service.NotificationPreferenceService;
 import project.lms_rikkei_edu.modules.notification.service.NotificationService;
 import project.lms_rikkei_edu.modules.user.entity.UserEntity;
-import project.lms_rikkei_edu.modules.user.enums.UserRole;
 import project.lms_rikkei_edu.modules.user.repository.UserRepository;
 
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.Optional;
 import java.util.Collections;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -60,6 +59,9 @@ public class GroupServiceImpl implements GroupService {
 
     private static final String GROUP_REFERENCE_TYPE = "GROUP";
     private static final String COURSE_TITLE_SEPARATOR = "\" của khóa học \"";
+    private static final String COURSE_NOT_FOUND = "Course not found";
+    private static final String CANNOT_CREATE_GROUP_FOR_OTHER_COURSES = "You can only create groups for your own courses";
+    private static final String COURSE_FIELD = "course";
 
     private final StudyGroupRepository studyGroupRepository;
     private final GroupMemberRepository groupMemberRepository;
@@ -107,11 +109,11 @@ public class GroupServiceImpl implements GroupService {
         UserPrincipal currentUser = requireCurrentUser();
 
         Course course = courseRepository.findById(request.getCourseId())
-                .orElseThrow(() -> new BusinessException("Course not found", HttpStatus.NOT_FOUND));
+                .orElseThrow(() -> new BusinessException(COURSE_NOT_FOUND, HttpStatus.NOT_FOUND));
 
         if (!course.getInstructorId().equals(currentUser.getId())
                 && currentUser.getRole().name().equals("INSTRUCTOR")) {
-            throw new BusinessException("You can only create groups for your own courses", HttpStatus.FORBIDDEN);
+            throw new BusinessException(CANNOT_CREATE_GROUP_FOR_OTHER_COURSES, HttpStatus.FORBIDDEN);
         }
 
         LocalDate today = LocalDate.now(ZoneId.systemDefault());
@@ -282,9 +284,6 @@ public class GroupServiceImpl implements GroupService {
         if (!toCreate.isEmpty()) {
             courseEnrollmentRepository.saveAll(toCreate);
         }
-        if (studentIds != null && !studentIds.isEmpty()) {
-            studentCourseService.resetProgressForStudents(courseId, studentIds);
-        }
     }
 
     private void notifyAddedMembers(StudyGroupEntity group, List<GroupMemberEntity> members, UserPrincipal actor) {
@@ -392,40 +391,17 @@ public class GroupServiceImpl implements GroupService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<StudentSearchResponse> searchStudentsByEmail(String email) {
-        if (email == null || email.isBlank()) {
-            return List.of();
-        }
-        List<UserEntity> students = userRepository
-                .searchStudentsByEmail(email.trim(), UserRole.STUDENT);
-        return students.stream()
-                .map(u -> StudentSearchResponse.builder()
-                        .id(u.getId())
-                        .email(u.getEmail())
-                        .fullName(u.getFullName())
-                        .avatarUrl(u.getAvatarUrl())
-                        .build())
-                .toList();
-    }
-
-    @Override
-    @Transactional(readOnly = true)
     public List<StudentSearchResponse> getUnassignedStudents(UUID courseId) {
-        List<UUID> enrolledIds = courseEnrollmentRepository.findStudentIdsByCourseId(courseId);
-        List<UUID> inGroupIds = groupMemberRepository.findStudentIdsByCourseId(courseId);
-        Set<UUID> inGroupSet = new HashSet<>(inGroupIds);
-        List<UUID> unassignedIds = enrolledIds.stream()
-                .filter(id -> !inGroupSet.contains(id))
-                .toList();
-        if (unassignedIds.isEmpty()) return List.of();
-        List<UserEntity> students = userRepository.findAllById(unassignedIds);
-        return students.stream()
-                .map(u -> StudentSearchResponse.builder()
-                        .id(u.getId())
-                        .email(u.getEmail())
-                        .fullName(u.getFullName())
-                        .phoneNumber(u.getPhoneNumber())
-                        .avatarUrl(u.getAvatarUrl())
+        List<Object[]> rows = courseEnrollmentRepository.findUnassignedStudentsWithCourseInfo(courseId);
+        return rows.stream()
+                .map(r -> StudentSearchResponse.builder()
+                        .id((UUID) r[0])
+                        .email((String) r[1])
+                        .fullName((String) r[2])
+                        .phoneNumber((String) r[3])
+                        .avatarUrl((String) r[4])
+                        .courseId((UUID) r[5])
+                        .courseTitle((String) r[6])
                         .build())
                 .toList();
     }
@@ -544,7 +520,7 @@ public class GroupServiceImpl implements GroupService {
     private Specification<StudyGroupEntity> groupSearchSpec(UUID instructorId, UUID courseId, String keyword) {
         return (root, query, criteriaBuilder) -> {
             if (query.getResultType() != Long.class && query.getResultType() != long.class) {
-                root.fetch("course", jakarta.persistence.criteria.JoinType.LEFT);
+                root.fetch(COURSE_FIELD, jakarta.persistence.criteria.JoinType.LEFT);
                 root.fetch("instructor", jakarta.persistence.criteria.JoinType.LEFT);
                 query.distinct(true);
             }
@@ -552,14 +528,14 @@ public class GroupServiceImpl implements GroupService {
             var predicate = criteriaBuilder.equal(root.join("instructor", jakarta.persistence.criteria.JoinType.LEFT).get("id"), instructorId);
 
             if (courseId != null) {
-                var coursePredicate = criteriaBuilder.equal(root.join("course", jakarta.persistence.criteria.JoinType.LEFT).get("id"), courseId);
+                var coursePredicate = criteriaBuilder.equal(root.join(COURSE_FIELD, jakarta.persistence.criteria.JoinType.LEFT).get("id"), courseId);
                 predicate = criteriaBuilder.and(predicate, coursePredicate);
             }
 
             List<String> keywords = extractSearchKeywords(keyword);
             if (!keywords.isEmpty()) {
                 var groupName = criteriaBuilder.lower(root.get("name"));
-                var courseTitle = criteriaBuilder.lower(root.join("course", jakarta.persistence.criteria.JoinType.LEFT).get("title"));
+                var courseTitle = criteriaBuilder.lower(root.join(COURSE_FIELD, jakarta.persistence.criteria.JoinType.LEFT).get("title"));
                 var keywordPredicate = criteriaBuilder.disjunction();
                 for (String kw : keywords) {
                     keywordPredicate = criteriaBuilder.or(keywordPredicate,

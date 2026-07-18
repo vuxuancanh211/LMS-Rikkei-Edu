@@ -1,0 +1,1 @@
+ALTER TABLE assignments ADD COLUMN pass_score DECIMAL(5,2) DEFAULT NULL;

@@ -55,6 +55,7 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -138,12 +139,12 @@ class GroupServiceImplTest {
         groupService.getGroups(courseId, "Java React", PageRequest.of(0, 10));
         Specification<StudyGroupEntity> spec1 = captor.getValue();
 
-        Root<StudyGroupEntity> root = org.mockito.Mockito.mock(Root.class);
-        CriteriaQuery query = org.mockito.Mockito.mock(CriteriaQuery.class);
-        CriteriaBuilder cb = org.mockito.Mockito.mock(CriteriaBuilder.class);
-        Join join = org.mockito.Mockito.mock(Join.class);
-        Path path = org.mockito.Mockito.mock(Path.class);
-        Predicate pred = org.mockito.Mockito.mock(Predicate.class);
+        Root<StudyGroupEntity> root = mock(Root.class);
+        CriteriaQuery query = mock(CriteriaQuery.class);
+        CriteriaBuilder cb = mock(CriteriaBuilder.class);
+        Join join = mock(Join.class);
+        Path path = mock(Path.class);
+        Predicate pred = mock(Predicate.class);
 
         lenient().when(query.getResultType()).thenReturn((Class) StudyGroupEntity.class);
         lenient().when(root.join(anyString(), any(JoinType.class))).thenReturn(join);
@@ -662,21 +663,60 @@ class GroupServiceImplTest {
     }
 
     @Test
-    void searchStudentsByEmail_returnsEmpty_whenEmailBlank() {
-        assertThat(groupService.searchStudentsByEmail("  ")).isEmpty();
-        verify(userRepository, never()).searchStudentsByEmail(any(), any());
+    void getUnassignedStudents_returnsMappedResponses() {
+        UUID otherStudentId = UUID.randomUUID();
+        Object[] row1 = new Object[]{studentId, "student1@example.com", "Student One", "0123456789", "avatar1.jpg", courseId, "React Basics"};
+        Object[] row2 = new Object[]{otherStudentId, "student2@example.com", "Student Two", "0987654321", "avatar2.jpg", courseId, "React Basics"};
+        when(courseEnrollmentRepository.findUnassignedStudentsWithCourseInfo(courseId)).thenReturn(List.of(row1, row2));
+
+        List<StudentSearchResponse> result = groupService.getUnassignedStudents(courseId);
+
+        assertThat(result).hasSize(2);
+        assertThat(result.get(0).getId()).isEqualTo(studentId);
+        assertThat(result.get(0).getEmail()).isEqualTo("student1@example.com");
+        assertThat(result.get(0).getFullName()).isEqualTo("Student One");
+        assertThat(result.get(0).getPhoneNumber()).isEqualTo("0123456789");
+        assertThat(result.get(0).getAvatarUrl()).isEqualTo("avatar1.jpg");
+        assertThat(result.get(0).getCourseId()).isEqualTo(courseId);
+        assertThat(result.get(0).getCourseTitle()).isEqualTo("React Basics");
+        assertThat(result.get(1).getId()).isEqualTo(otherStudentId);
     }
 
     @Test
-    void searchStudentsByEmail_mapsStudentResults() {
-        UserEntity student = studentUser(studentId, "student@example.com");
-        when(userRepository.searchStudentsByEmail("student", UserRole.STUDENT)).thenReturn(List.of(student));
+    void getUnassignedStudents_returnsEmpty_whenNoUnassignedStudents() {
+        when(courseEnrollmentRepository.findUnassignedStudentsWithCourseInfo(courseId)).thenReturn(List.of());
 
-        List<StudentSearchResponse> result = groupService.searchStudentsByEmail(" student ");
+        List<StudentSearchResponse> result = groupService.getUnassignedStudents(courseId);
 
-        assertThat(result).hasSize(1);
-        assertThat(result.getFirst().getId()).isEqualTo(studentId);
-        assertThat(result.getFirst().getEmail()).isEqualTo("student@example.com");
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    void addMembers_withSomeAlreadyEnrolled_skipsEnrollment() {
+        UUID enrolledStudentId = UUID.randomUUID();
+        UUID newStudentId = UUID.randomUUID();
+        UserEntity enrolledStudent = studentUser(enrolledStudentId, "enrolled@example.com");
+        UserEntity newStudent = studentUser(newStudentId, "new@example.com");
+        StudyGroupEntity group = groupEntity(groupId, courseEntity(instructorId), instructorUser());
+        group.setMaxCapacity(5);
+        AddGroupMembersRequest request = new AddGroupMembersRequest();
+        request.setEmails(List.of("enrolled@example.com", "new@example.com"));
+
+        when(currentUserProvider.getCurrentUser()).thenReturn(Optional.of(principal(instructorId, UserRole.INSTRUCTOR)));
+        when(studyGroupRepository.findByIdAndInstructorId(groupId, instructorId)).thenReturn(Optional.of(group));
+        when(userRepository.findByEmailIgnoreCaseInAndDeletedAtIsNull(anyList())).thenReturn(List.of(enrolledStudent, newStudent));
+        when(groupMemberRepository.countByGroupId(groupId)).thenReturn(0L);
+        when(groupMemberRepository.findExistingStudentIds(eq(groupId), anyList())).thenReturn(List.of());
+        when(courseEnrollmentRepository.findEnrolledStudentIds(courseId, List.of(enrolledStudentId, newStudentId)))
+                .thenReturn(List.of(enrolledStudentId));
+        when(chatRoomService.getOrCreateRoomForGroup(group, group.getInstructor())).thenReturn(chatRoomEntity(group));
+        when(notificationPreferenceService.isInAppEnabled(any(), eq(NotificationType.GROUP_MEMBER_ADDED.name())))
+                .thenReturn(true);
+
+        List<GroupMemberResponse> result = groupService.addMembers(groupId, request);
+
+        assertThat(result).hasSize(2);
+        verify(courseEnrollmentRepository).saveAll(anyList());
     }
 
     private CreateGroupRequest createRequest() {

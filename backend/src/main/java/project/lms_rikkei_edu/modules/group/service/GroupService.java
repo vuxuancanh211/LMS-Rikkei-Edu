@@ -11,6 +11,7 @@ import project.lms_rikkei_edu.modules.group.dto.response.GroupMemberResponse;
 import project.lms_rikkei_edu.modules.group.dto.response.GroupResponse;
 import project.lms_rikkei_edu.modules.group.dto.response.StudentSearchResponse;
 
+import org.springframework.lang.Nullable;
 import java.util.List;
 import java.util.UUID;
 
@@ -30,9 +31,7 @@ public interface GroupService {
 
     void removeMember(UUID groupId, UUID studentId);
 
-    List<StudentSearchResponse> searchStudentsByEmail(String email);
-
-    List<StudentSearchResponse> getUnassignedStudents(UUID courseId);
+    List<StudentSearchResponse> getUnassignedStudents(@Nullable UUID courseId);
 
     GroupDetailResponse getStudentGroupDetail(UUID groupId);
 

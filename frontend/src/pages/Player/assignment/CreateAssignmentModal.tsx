@@ -18,6 +18,7 @@ import { createPortal } from 'react-dom';
     const [title, setTitle] = useState("");
     const [description, setDescription] = useState("");
     const [maxScore, setMaxScore] = useState(100);
+    const [passScore, setPassScore] = useState(50);
     const [hasStartDate, setHasStartDate] = useState(false);
     const [startDateDate, setStartDateDate] = useState("");
     const [startDateTime, setStartDateTime] = useState("00:00");
@@ -29,7 +30,6 @@ import { createPortal } from 'react-dom';
     const [scope, setScope] = useState("ALL_GROUPS");
     const [maxFileSize, setMaxFileSize] = useState(50);
     const [allowedTypes, setAllowedTypes] = useState([]);
-    const [maxSubmissions, setMaxSubmissions] = useState(3);
     const [files, setFiles] = useState([]);
     const [selectedCourseId, setSelectedCourseId] = useState(courseId || "");
     const [courses, setCourses] = useState([]);
@@ -70,11 +70,14 @@ import { createPortal } from 'react-dom';
     }, [effectiveCourseId, scope, assignment]);
 
     function toggleGroup(id) {
-      setSelectedGroupIds(prev =>
-        prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
-      );
+      setSelectedGroupIds(prev => {
+        const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id];
+        setFieldErrors(valid(maxScore, passScore, scope, next, hasStartDate, startDateDate, hasDeadline, deadlineDate));
+        return next;
+      });
     }
 
+    const [fieldErrors, setFieldErrors] = useState({});
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState("");
 
@@ -91,6 +94,20 @@ import { createPortal } from 'react-dom';
     function toLocalTimeStr(d) {
       return `${padNum(d.getHours())}:${padNum(d.getMinutes())}`;
     }
+    function valid(mx, ps, scp, gids, hsd, sdd, hdl, ddl) {
+      const errs = {};
+      const mn = Number(mx);
+      const pn = Number(ps);
+      if (!mx || isNaN(mn) || mn <= 0) errs.maxScore = "Điểm tối đa phải lớn hơn 0";
+      else if (mn > 100) errs.maxScore = "Tối đa 100 điểm";
+      if (ps != null && ps !== "" && !isNaN(pn) && pn < 0) errs.passScore = "Điểm đạt không được nhỏ hơn 0";
+      if (ps != null && ps !== "" && !isNaN(pn) && !isNaN(mn) && pn > mn) errs.passScore = "Điểm đạt không được > điểm tối đa";
+      if (scp === "SPECIFIC_GROUPS" && (!gids || gids.length === 0)) errs.groups = "Vui lòng chọn ít nhất 1 nhóm";
+      if (hsd && !sdd) errs.startDate = "Vui lòng chọn ngày bắt đầu";
+      if (hdl && !ddl) errs.deadline = "Vui lòng chọn hạn nộp";
+      return errs;
+    }
+
     function toLocalISOStr(dateStr, timeStr, fallback) {
       if (!dateStr) return null;
       const [y, m, d] = dateStr.split("-").map(Number);
@@ -103,10 +120,10 @@ import { createPortal } from 'react-dom';
       setTitle(assignment.title || "");
       setDescription(assignment.description || "");
       setMaxScore(assignment.maxScore ?? 100);
+      setPassScore(assignment.passingScore ?? Math.round((assignment.maxScore ?? 100) / 2));
       setScope(assignment.scope || "ALL_GROUPS");
       setMaxFileSize(assignment.maxFileSizeMb ?? 50);
       setAllowedTypes(assignment.allowedFileTypes || []);
-      setMaxSubmissions(assignment.maxSubmissions ?? 3);
       setSelectedGroupIds(assignment.groupIds || []);
       setAllowLate(assignment.allowLateSubmission || false);
       setLatePenalty(assignment.latePenaltyPercent ?? 10);
@@ -254,8 +271,13 @@ import { createPortal } from 'react-dom';
       await Promise.all(workers);
     }
 
+    const hasFieldErrors = Object.keys(valid(maxScore, passScore, scope, selectedGroupIds, hasStartDate, startDateDate, hasDeadline, deadlineDate)).length > 0;
+
     async function handleSubmit(publishAfter) {
       setError("");
+      const fe = valid(maxScore, passScore, scope, selectedGroupIds, hasStartDate, startDateDate, hasDeadline, deadlineDate);
+      setFieldErrors(fe);
+      if (Object.keys(fe).length > 0) return;
       if (!title.trim()) { setError("Vui lòng nhập tiêu đề"); return; }
       if (publishAfter && title.trim().length < 5) { setError("Tiêu đề phải có ít nhất 5 ký tự"); return; }
       if (allowedTypes.length === 0) { setError("Vui lòng chọn ít nhất một loại file được phép"); return; }
@@ -267,6 +289,7 @@ import { createPortal } from 'react-dom';
         title: title.trim(),
         description: description.trim() || null,
         maxScore: maxScore != null ? Number(maxScore) : null,
+        passingScore: passScore != null ? Number(passScore) : null,
         startDate,
         deadline,
         allowLateSubmission: hasDeadline ? allowLate : null,
@@ -274,7 +297,6 @@ import { createPortal } from 'react-dom';
         scope,
         maxFileSizeMb: maxFileSize != null ? Number(maxFileSize) : null,
         allowedFileTypes: allowedTypes.length > 0 ? allowedTypes : null,
-        maxSubmissions: maxSubmissions != null ? Number(maxSubmissions) : null,
         groupIds: scope === "SPECIFIC_GROUPS" ? selectedGroupIds : null,
       };
 
@@ -477,10 +499,24 @@ import { createPortal } from 'react-dom';
               <div>
                 <label style={{ fontSize: 12, fontWeight: 600, color: "#0f172a",
                   display: "block", marginBottom: 4 }}>Điểm tối đa</label>
-                <input type="number" min={0} value={maxScore}
-                  onChange={e => setMaxScore(e.target.value)}
+                <input type="number" min={0} max={100} value={maxScore}
+                  onChange={e => { setMaxScore(e.target.value); setFieldErrors(valid(e.target.value, passScore, scope, selectedGroupIds, hasStartDate, startDateDate, hasDeadline, deadlineDate)); }}
                   style={{ width: "100%", height: 36, borderRadius: 8, border: "1px solid #e2e8f0",
-                    padding: "0 10px", fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+                    padding: "0 10px", fontSize: 13, outline: "none", boxSizing: "border-box",
+                    borderColor: fieldErrors.maxScore ? "#dc2626" : "#e2e8f0" }} />
+                {fieldErrors.maxScore && <span style={{ color: "#dc2626", fontSize: 11, marginTop: 3, display: "block" }}>{fieldErrors.maxScore}</span>}
+              </div>
+
+              {/* Pass score */}
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "#0f172a",
+                  display: "block", marginBottom: 4 }}>Điểm đạt</label>
+                <input type="number" min={0} max={maxScore} value={passScore}
+                  onChange={e => { setPassScore(e.target.value); setFieldErrors(valid(maxScore, e.target.value, scope, selectedGroupIds, hasStartDate, startDateDate, hasDeadline, deadlineDate)); }}
+                  style={{ width: "100%", height: 36, borderRadius: 8, border: "1px solid #e2e8f0",
+                    padding: "0 10px", fontSize: 13, outline: "none", boxSizing: "border-box",
+                    borderColor: fieldErrors.passScore ? "#dc2626" : "#e2e8f0" }} />
+                {fieldErrors.passScore && <span style={{ color: "#dc2626", fontSize: 11, marginTop: 3, display: "block" }}>{fieldErrors.passScore}</span>}
               </div>
 
               {/* Start date toggle */}
@@ -489,7 +525,7 @@ import { createPortal } from 'react-dom';
                   <label style={{ fontSize: 12, fontWeight: 600, color: "#0f172a",
                     cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
                     <input type="checkbox" checked={hasStartDate}
-                      onChange={e => setHasStartDate(e.target.checked)}
+                      onChange={e => { setHasStartDate(e.target.checked); setFieldErrors(valid(maxScore, passScore, scope, selectedGroupIds, e.target.checked, startDateDate, hasDeadline, deadlineDate)); }}
                       style={{ accentColor: "#2563eb" }} />
                     Ngày bắt đầu
                   </label>
@@ -497,15 +533,16 @@ import { createPortal } from 'react-dom';
                 {hasStartDate && (
                   <div style={{ display: "flex", gap: 6 }}>
                     <input type="date" value={startDateDate}
-                      onChange={e => setStartDateDate(e.target.value)}
-                      style={{ flex: 1, height: 36, borderRadius: 8, border: "1px solid #e2e8f0",
+                      onChange={e => { setStartDateDate(e.target.value); setFieldErrors(valid(maxScore, passScore, scope, selectedGroupIds, hasStartDate, e.target.value, hasDeadline, deadlineDate)); }}
+                      style={{ flex: 1, height: 36, borderRadius: 8, border: `1px solid ${fieldErrors.startDate ? "#dc2626" : "#e2e8f0"}`,
                         padding: "0 10px", fontSize: 13, outline: "none", boxSizing: "border-box" }} />
                     <input type="time" value={startDateTime}
-                      onChange={e => setStartDateTime(e.target.value)}
-                      style={{ width: 90, height: 36, borderRadius: 8, border: "1px solid #e2e8f0",
+                      onChange={e => { setStartDateTime(e.target.value); setFieldErrors(valid(maxScore, passScore, scope, selectedGroupIds, hasStartDate, startDateDate, hasDeadline, deadlineDate)); }}
+                      style={{ width: 90, height: 36, borderRadius: 8, border: `1px solid ${fieldErrors.startDate ? "#dc2626" : "#e2e8f0"}`,
                         padding: "0 8px", fontSize: 13, outline: "none", boxSizing: "border-box" }} />
                   </div>
                 )}
+                {fieldErrors.startDate && <span style={{ color: "#dc2626", fontSize: 11, marginTop: 3, display: "block" }}>{fieldErrors.startDate}</span>}
               </div>
 
               {/* Deadline toggle */}
@@ -514,7 +551,7 @@ import { createPortal } from 'react-dom';
                   <label style={{ fontSize: 12, fontWeight: 600, color: "#0f172a",
                     cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
                     <input type="checkbox" checked={hasDeadline}
-                      onChange={e => setHasDeadline(e.target.checked)}
+                      onChange={e => { setHasDeadline(e.target.checked); setFieldErrors(valid(maxScore, passScore, scope, selectedGroupIds, hasStartDate, startDateDate, e.target.checked, deadlineDate)); }}
                       style={{ accentColor: "#2563eb" }} />
                     Có hạn nộp
                   </label>
@@ -522,15 +559,16 @@ import { createPortal } from 'react-dom';
                 {hasDeadline && (
                   <div style={{ display: "flex", gap: 6 }}>
                     <input type="date" value={deadlineDate}
-                      onChange={e => setDeadlineDate(e.target.value)}
-                      style={{ flex: 1, height: 36, borderRadius: 8, border: "1px solid #e2e8f0",
+                      onChange={e => { setDeadlineDate(e.target.value); setFieldErrors(valid(maxScore, passScore, scope, selectedGroupIds, hasStartDate, startDateDate, hasDeadline, e.target.value)); }}
+                      style={{ flex: 1, height: 36, borderRadius: 8, border: `1px solid ${fieldErrors.deadline ? "#dc2626" : "#e2e8f0"}`,
                         padding: "0 10px", fontSize: 13, outline: "none", boxSizing: "border-box" }} />
                     <input type="time" value={deadlineTime}
-                      onChange={e => setDeadlineTime(e.target.value)}
-                      style={{ width: 90, height: 36, borderRadius: 8, border: "1px solid #e2e8f0",
+                      onChange={e => { setDeadlineTime(e.target.value); setFieldErrors(valid(maxScore, passScore, scope, selectedGroupIds, hasStartDate, startDateDate, hasDeadline, deadlineDate)); }}
+                      style={{ width: 90, height: 36, borderRadius: 8, border: `1px solid ${fieldErrors.deadline ? "#dc2626" : "#e2e8f0"}`,
                         padding: "0 8px", fontSize: 13, outline: "none", boxSizing: "border-box" }} />
                   </div>
                 )}
+                {fieldErrors.deadline && <span style={{ color: "#dc2626", fontSize: 11, marginTop: 3, display: "block" }}>{fieldErrors.deadline}</span>}
               </div>
 
               {/* Late submission toggle */}
@@ -562,7 +600,7 @@ import { createPortal } from 'react-dom';
               <div>
                 <label style={{ fontSize: 12, fontWeight: 600, color: "#0f172a",
                   display: "block", marginBottom: 4 }}>Phạm vi</label>
-                <select value={scope} onChange={e => { setScope(e.target.value); setSelectedGroupIds([]); }}
+                <select value={scope} onChange={e => { setScope(e.target.value); setSelectedGroupIds([]); setFieldErrors(valid(maxScore, passScore, e.target.value, [], hasStartDate, startDateDate, hasDeadline, deadlineDate)); }}
                   style={{ width: "100%", height: 36, borderRadius: 8, border: "1px solid #e2e8f0",
                     padding: "0 10px", fontSize: 13, outline: "none", background: "#fff",
                     boxSizing: "border-box" }}>
@@ -570,8 +608,8 @@ import { createPortal } from 'react-dom';
                   <option value="SPECIFIC_GROUPS">Nhóm cụ thể</option>
                 </select>
                 {scope === "SPECIFIC_GROUPS" && (
-                  <div style={{ marginTop: 8, border: "1px solid #e2e8f0", borderRadius: 8,
-                    maxHeight: 160, overflowY: "auto", background: "#f8fafc" }}>
+                  <div style={{ marginTop: 8, border: `1px solid ${fieldErrors.groups ? "#dc2626" : "#e2e8f0"}`,
+                    borderRadius: 8, maxHeight: 160, overflowY: "auto", background: "#f8fafc" }}>
                     {groupsLoading ? (
                       <div style={{ padding: "10px 12px", fontSize: 12, color: "#94a3b8" }}>
                         Đang tải nhóm...
@@ -611,6 +649,7 @@ import { createPortal } from 'react-dom';
                     )}
                   </div>
                 )}
+                {fieldErrors.groups && <span style={{ color: "#dc2626", fontSize: 11, marginTop: 3, display: "block" }}>{fieldErrors.groups}</span>}
               </div>
 
               {/* Max file size */}
@@ -644,15 +683,6 @@ import { createPortal } from 'react-dom';
                 </div>
               </div>
 
-              {/* Max submissions */}
-              <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: "#0f172a",
-                  display: "block", marginBottom: 4 }}>Số lần nộp tối đa</label>
-                <input type="number" min={1} value={maxSubmissions}
-                  onChange={e => setMaxSubmissions(e.target.value)}
-                  style={{ width: "100%", height: 36, borderRadius: 8, border: "1px solid #e2e8f0",
-                    padding: "0 10px", fontSize: 13, outline: "none", boxSizing: "border-box" }} />
-              </div>
             </div>
           </div>
 
@@ -666,44 +696,44 @@ import { createPortal } from 'react-dom';
                 cursor: "pointer", fontWeight: 600 }}>
               Huỷ
             </button>
-            {isEdit && assignment.status === 'DRAFT' ? (
+              {isEdit && assignment.status === 'DRAFT' ? (
               <>
-                <button onClick={() => handleSubmit(false)} disabled={submitting}
+                <button onClick={() => handleSubmit(false)} disabled={submitting || hasFieldErrors}
                   style={{ height: 36, padding: "0 14px", borderRadius: 8, fontSize: 13,
                     border: "1.5px solid #e2e8f0", background: "#f8fafc", color: "#475569",
-                    cursor: "pointer", fontWeight: 600, display: "flex", alignItems: "center", gap: 5 }}>
+                    cursor: submitting || hasFieldErrors ? "not-allowed" : "pointer", fontWeight: 600, display: "flex", alignItems: "center", gap: 5 }}>
                   <Ic n="save" size={12} />
                   {submitting ? "Đang lưu..." : "Lưu thay đổi"}
                 </button>
-                <button onClick={() => handleSubmit(true)} disabled={submitting}
+                <button onClick={() => handleSubmit(true)} disabled={submitting || hasFieldErrors}
                   style={{ height: 36, padding: "0 14px", borderRadius: 8, fontSize: 13,
                     border: "none", background: "#2563eb", color: "#fff",
-                    cursor: "pointer", fontWeight: 600, display: "flex", alignItems: "center", gap: 5 }}>
+                    cursor: submitting || hasFieldErrors ? "not-allowed" : "pointer", fontWeight: 600, display: "flex", alignItems: "center", gap: 5 }}>
                   <Ic n="send" size={12} />
                   {submitting ? "Đang đăng..." : "Đăng"}
                 </button>
               </>
             ) : isEdit ? (
-              <button onClick={() => handleSubmit(false)} disabled={submitting}
+              <button onClick={() => handleSubmit(false)} disabled={submitting || hasFieldErrors}
                 style={{ height: 36, padding: "0 16px", borderRadius: 8, fontSize: 13,
                   border: "none", background: "#2563eb", color: "#fff",
-                  cursor: "pointer", fontWeight: 600, display: "flex", alignItems: "center", gap: 5 }}>
+                  cursor: submitting || hasFieldErrors ? "not-allowed" : "pointer", fontWeight: 600, display: "flex", alignItems: "center", gap: 5 }}>
                 <Ic n="save" size={12} />
                 {submitting ? "Đang lưu..." : "Lưu thay đổi"}
               </button>
             ) : (
               <>
-                <button onClick={() => handleSubmit(false)} disabled={submitting}
+                <button onClick={() => handleSubmit(false)} disabled={submitting || hasFieldErrors}
                   style={{ height: 36, padding: "0 14px", borderRadius: 8, fontSize: 13,
                     border: "1.5px solid #e2e8f0", background: "#f8fafc", color: "#475569",
-                    cursor: "pointer", fontWeight: 600, display: "flex", alignItems: "center", gap: 5 }}>
+                    cursor: submitting || hasFieldErrors ? "not-allowed" : "pointer", fontWeight: 600, display: "flex", alignItems: "center", gap: 5 }}>
                   <Ic n="save" size={12} />
                   {submitting ? "Đang lưu..." : "Lưu nháp"}
                 </button>
-                <button onClick={() => handleSubmit(true)} disabled={submitting}
+                <button onClick={() => handleSubmit(true)} disabled={submitting || hasFieldErrors}
                   style={{ height: 36, padding: "0 14px", borderRadius: 8, fontSize: 13,
                     border: "none", background: "#2563eb", color: "#fff",
-                    cursor: "pointer", fontWeight: 600, display: "flex", alignItems: "center", gap: 5 }}>
+                    cursor: submitting || hasFieldErrors ? "not-allowed" : "pointer", fontWeight: 600, display: "flex", alignItems: "center", gap: 5 }}>
                   <Ic n="send" size={12} />
                   {submitting ? "Đang đăng..." : "Đăng"}
                 </button>

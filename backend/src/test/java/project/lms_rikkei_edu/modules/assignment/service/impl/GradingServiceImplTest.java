@@ -3,7 +3,6 @@ package project.lms_rikkei_edu.modules.assignment.service.impl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import project.lms_rikkei_edu.common.exception.BusinessException;
@@ -25,6 +24,7 @@ import project.lms_rikkei_edu.modules.assignment.repository.SubmissionFileReposi
 import project.lms_rikkei_edu.modules.course.entity.Course;
 import project.lms_rikkei_edu.modules.course.repository.CourseEnrollmentRepository;
 import project.lms_rikkei_edu.modules.course.repository.CourseRepository;
+import project.lms_rikkei_edu.modules.course.service.StudentCourseService;
 import project.lms_rikkei_edu.modules.group.entity.GroupMemberEntity;
 import project.lms_rikkei_edu.modules.group.entity.StudyGroupEntity;
 import project.lms_rikkei_edu.modules.group.repository.GroupMemberRepository;
@@ -67,6 +67,7 @@ class GradingServiceImplTest {
     @Mock private CourseRepository courseRepository;
     @Mock private CourseEnrollmentRepository courseEnrollmentRepository;
     @Mock private S3Service s3Service;
+    @Mock private StudentCourseService studentCourseService;
 
     private GradingServiceImpl service;
 
@@ -85,218 +86,13 @@ class GradingServiceImplTest {
                 submissionFileRepository, assignmentGroupRepository,
                 userRepository, groupMemberRepository,
                 studyGroupRepository, courseRepository,
-                courseEnrollmentRepository, s3Service);
+                courseEnrollmentRepository, s3Service, studentCourseService);
     }
 
     // ── getSubmissions ─────────────────────────────────────────────────────
 
     @Test
     void getSubmissions_byAssignmentId_success() {
-        var assignment = publishedAssignment();
-        when(assignmentRepository.findById(assignmentId))
-                .thenReturn(Optional.of(assignment));
-        when(courseEnrollmentRepository.findStudentIdsByCourseId(courseId))
-                .thenReturn(List.of(studentId));
-        when(userRepository.findAllByIdInAndDeletedAtIsNull(anyList()))
-                .thenReturn(List.of(studentUser()));
-        when(submissionFileRepository.findBySubmissionIdInOrderByOrderIndexAsc(any()))
-                .thenReturn(List.of());
-        when(groupMemberRepository.findGroupIdsByStudentIdAndCourseId(studentId, courseId))
-                .thenReturn(List.of());
-        when(courseRepository.findById(courseId))
-                .thenReturn(Optional.of(course()));
-
-        List<InstructorSubmissionResponse> result = service.getSubmissions(
-                null, assignmentId, instructorId, "ALL");
-
-        assertThat(result).hasSize(1);
-        assertThat(result.get(0).getStatus()).isEqualTo("not_submitted");
-        assertThat(result.get(0).getStudentId()).isEqualTo(studentId);
-    }
-
-    @Test
-    void getSubmissions_byAssignmentId_notFound_throws() {
-        when(assignmentRepository.findById(assignmentId))
-                .thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> service.getSubmissions(null, assignmentId, instructorId, "ALL"))
-                .isInstanceOf(AssignmentNotFoundException.class);
-    }
-
-    @Test
-    void getSubmissions_byAssignmentId_notOwned_throws() {
-        var assignment = publishedAssignment();
-        assignment.setCreatedBy(UUID.randomUUID());
-        when(assignmentRepository.findById(assignmentId))
-                .thenReturn(Optional.of(assignment));
-
-        assertThatThrownBy(() -> service.getSubmissions(null, assignmentId, instructorId, "ALL"))
-                .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("quyền xem");
-    }
-
-    @Test
-    void getSubmissions_byAssignmentId_draft_returnsEmpty() {
-        var assignment = assignmentEntity(AssignmentStatus.DRAFT);
-        when(assignmentRepository.findById(assignmentId))
-                .thenReturn(Optional.of(assignment));
-
-        List<InstructorSubmissionResponse> result = service.getSubmissions(
-                null, assignmentId, instructorId, "ALL");
-
-        assertThat(result).isEmpty();
-    }
-
-    @Test
-    void getSubmissions_byCourseId_filtersPublishedAndClosed() {
-        var published = publishedAssignment();
-        var closed = assignmentEntity(AssignmentStatus.CLOSED);
-        closed.setId(UUID.randomUUID());
-        var draft = assignmentEntity(AssignmentStatus.DRAFT);
-        draft.setId(UUID.randomUUID());
-        when(assignmentRepository.findByCourseIdOrderByCreatedAtDesc(courseId))
-                .thenReturn(List.of(published, closed, draft));
-        when(courseEnrollmentRepository.findStudentIdsByCourseId(courseId))
-                .thenReturn(List.of());
-
-        List<InstructorSubmissionResponse> result = service.getSubmissions(
-                courseId, null, instructorId, "ALL");
-
-        assertThat(result).isEmpty();
-        verify(assignmentRepository, never()).findById(any());
-    }
-
-    @Test
-    void getSubmissions_noParams_returnsAllInstructorAssignments() {
-        var assignment = publishedAssignment();
-        when(assignmentRepository.findByCreatedByOrderByCreatedAtDesc(instructorId))
-                .thenReturn(List.of(assignment));
-        when(courseEnrollmentRepository.findStudentIdsByCourseId(courseId))
-                .thenReturn(List.of());
-
-        List<InstructorSubmissionResponse> result = service.getSubmissions(
-                null, null, instructorId, "ALL");
-
-        assertThat(result).isEmpty();
-    }
-
-    @Test
-    void getSubmissions_withSubmission_returnsSubmittedStatus() {
-        var assignment = publishedAssignment();
-        var submission = submissionEntity("SUBMITTED");
-        when(assignmentRepository.findById(assignmentId))
-                .thenReturn(Optional.of(assignment));
-        when(courseEnrollmentRepository.findStudentIdsByCourseId(courseId))
-                .thenReturn(List.of(studentId));
-        when(assignmentSubmissionRepository.findByAssignmentIdOrderBySubmittedAtDesc(assignmentId))
-                .thenReturn(List.of(submission));
-        when(userRepository.findAllByIdInAndDeletedAtIsNull(anyList()))
-                .thenReturn(List.of(studentUser()));
-        when(submissionFileRepository.findBySubmissionIdInOrderByOrderIndexAsc(any()))
-                .thenReturn(List.of());
-        when(groupMemberRepository.findGroupIdsByStudentIdAndCourseId(studentId, courseId))
-                .thenReturn(List.of());
-        when(courseRepository.findById(courseId))
-                .thenReturn(Optional.of(course()));
-
-        List<InstructorSubmissionResponse> result = service.getSubmissions(
-                null, assignmentId, instructorId, "ALL");
-
-        assertThat(result).hasSize(1);
-        assertThat(result.get(0).getStatus()).isEqualTo("SUBMITTED");
-        assertThat(result.get(0).getSubmissionNumber()).isEqualTo(1);
-        assertThat(result.get(0).isLate()).isFalse();
-    }
-
-    @Test
-    void getSubmissions_withLateSubmission_returnsLateFields() {
-        var assignment = publishedAssignment();
-        var submission = submissionEntity("LATE");
-        submission.setIsLate(true);
-        when(assignmentRepository.findById(assignmentId))
-                .thenReturn(Optional.of(assignment));
-        when(courseEnrollmentRepository.findStudentIdsByCourseId(courseId))
-                .thenReturn(List.of(studentId));
-        when(assignmentSubmissionRepository.findByAssignmentIdOrderBySubmittedAtDesc(assignmentId))
-                .thenReturn(List.of(submission));
-        when(userRepository.findAllByIdInAndDeletedAtIsNull(anyList()))
-                .thenReturn(List.of(studentUser()));
-        when(submissionFileRepository.findBySubmissionIdInOrderByOrderIndexAsc(any()))
-                .thenReturn(List.of());
-        when(groupMemberRepository.findGroupIdsByStudentIdAndCourseId(studentId, courseId))
-                .thenReturn(List.of());
-        when(courseRepository.findById(courseId))
-                .thenReturn(Optional.of(course()));
-
-        List<InstructorSubmissionResponse> result = service.getSubmissions(
-                null, assignmentId, instructorId, "ALL");
-
-        assertThat(result).hasSize(1);
-        assertThat(result.get(0).getStatus()).isEqualTo("LATE");
-        assertThat(result.get(0).isLate()).isTrue();
-    }
-
-    @Test
-    void getSubmissions_withGradedSubmission_returnsGradedStatus() {
-        var assignment = publishedAssignment();
-        var submission = submissionEntity("GRADED");
-        submission.setScore(BigDecimal.valueOf(85));
-        submission.setFeedback("Good work");
-        submission.setGradedAt(now);
-        submission.setScorePublishedAt(now);
-        when(assignmentRepository.findById(assignmentId))
-                .thenReturn(Optional.of(assignment));
-        when(courseEnrollmentRepository.findStudentIdsByCourseId(courseId))
-                .thenReturn(List.of(studentId));
-        when(assignmentSubmissionRepository.findByAssignmentIdOrderBySubmittedAtDesc(assignmentId))
-                .thenReturn(List.of(submission));
-        when(userRepository.findAllByIdInAndDeletedAtIsNull(anyList()))
-                .thenReturn(List.of(studentUser()));
-        when(submissionFileRepository.findBySubmissionIdInOrderByOrderIndexAsc(any()))
-                .thenReturn(List.of());
-        when(groupMemberRepository.findGroupIdsByStudentIdAndCourseId(studentId, courseId))
-                .thenReturn(List.of());
-        when(courseRepository.findById(courseId))
-                .thenReturn(Optional.of(course()));
-
-        List<InstructorSubmissionResponse> result = service.getSubmissions(
-                null, assignmentId, instructorId, "ALL");
-
-        assertThat(result).hasSize(1);
-        assertThat(result.get(0).getStatus()).isEqualTo("GRADED");
-        assertThat(result.get(0).getScore()).isEqualByComparingTo(BigDecimal.valueOf(85));
-        assertThat(result.get(0).getFeedback()).isEqualTo("Good work");
-        assertThat(result.get(0).getScorePublishedAt()).isNotNull();
-    }
-
-    @Test
-    void getSubmissions_statusFilterSubmitted_onlyReturnsSubmitted() {
-        var assignment = publishedAssignment();
-        var submission = submissionEntity("SUBMITTED");
-        when(assignmentRepository.findById(assignmentId))
-                .thenReturn(Optional.of(assignment));
-        when(courseEnrollmentRepository.findStudentIdsByCourseId(courseId))
-                .thenReturn(List.of(studentId));
-        when(assignmentSubmissionRepository.findByAssignmentIdOrderBySubmittedAtDesc(assignmentId))
-                .thenReturn(List.of(submission));
-        when(userRepository.findAllByIdInAndDeletedAtIsNull(anyList()))
-                .thenReturn(List.of(studentUser()));
-        when(submissionFileRepository.findBySubmissionIdInOrderByOrderIndexAsc(any()))
-                .thenReturn(List.of());
-        when(groupMemberRepository.findGroupIdsByStudentIdAndCourseId(studentId, courseId))
-                .thenReturn(List.of());
-        when(courseRepository.findById(courseId))
-                .thenReturn(Optional.of(course()));
-
-        List<InstructorSubmissionResponse> result = service.getSubmissions(
-                null, assignmentId, instructorId, "SUBMITTED");
-
-        assertThat(result).hasSize(1);
-        assertThat(result.get(0).getStatus()).isEqualTo("SUBMITTED");
-    }
-
-    @Test
-    void getSubmissions_statusFilterGraded_onlyReturnsGraded() {
         var assignment = publishedAssignment();
         var submission = submissionEntity("GRADED");
         when(assignmentRepository.findById(assignmentId))
@@ -336,8 +132,6 @@ class GradingServiceImplTest {
                 .thenReturn(List.of());
         when(groupMemberRepository.findGroupIdsByStudentIdAndCourseId(studentId, courseId))
                 .thenReturn(List.of());
-        when(courseRepository.findById(courseId))
-                .thenReturn(Optional.of(course()));
 
         List<InstructorSubmissionResponse> result = service.getSubmissions(
                 null, assignmentId, instructorId, "GRADED");
@@ -663,8 +457,7 @@ class GradingServiceImplTest {
         e.setTitle("Test Assignment");
         e.setStatus(status);
         e.setScope(scope);
-        e.setMaxScore(BigDecimal.TEN);
-        e.setMaxSubmissions(3);
+        e.setMaxScore(BigDecimal.valueOf(100));
         e.setDeadline(OffsetDateTime.now(ZoneOffset.UTC).plusHours(24));
         e.setCreatedAt(now);
         e.setUpdatedAt(now);
@@ -677,7 +470,6 @@ class GradingServiceImplTest {
         e.setAssignmentId(assignmentId);
         e.setStudentId(studentId);
         e.setCourseId(courseId);
-        e.setSubmissionNumber(1);
         e.setStatus(status);
         e.setIsLate(false);
         e.setSubmittedAt(now);

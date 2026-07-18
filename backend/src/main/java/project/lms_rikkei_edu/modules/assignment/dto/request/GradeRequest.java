@@ -17,7 +17,7 @@ public class GradeRequest {
     private UUID submissionId;
 
     @DecimalMin("0.00")
-    @DecimalMax("999.99")
+    @DecimalMax("100.00")
     private BigDecimal score;
 
     private String feedback;
