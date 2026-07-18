@@ -12,6 +12,7 @@ import org.springframework.web.multipart.MultipartFile;
 import project.lms_rikkei_edu.common.exception.BusinessException;
 import project.lms_rikkei_edu.infrastructure.s3.S3Service;
 import project.lms_rikkei_edu.modules.notification.enums.NotificationType;
+import project.lms_rikkei_edu.modules.user.entity.UserEntity;
 import project.lms_rikkei_edu.modules.notification.service.NotificationPreferenceService;
 import project.lms_rikkei_edu.modules.notification.service.NotificationService;
 import project.lms_rikkei_edu.modules.user.repository.UserRepository;
@@ -57,6 +58,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -580,6 +582,9 @@ class StudentAssignmentServiceImplTest {
         when(presigned.url()).thenReturn(new URL("https://example.com/hw.pdf"));
         when(s3Service.generatePresignedInlineUrl(anyString(), anyLong()))
                 .thenReturn(presigned);
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(course()));
+        when(userRepository.findByIdAndDeletedAtIsNull(studentId)).thenReturn(Optional.of(studentUser()));
+        when(notificationPreferenceService.isInAppEnabled(any(), eq(NotificationType.ASSIGNMENT_SUBMITTED.name()))).thenReturn(true);
 
         SubmissionResponse result = service.submitAssignment(
                 courseId, assignmentId, studentId, "My note", List.of(file), null);
@@ -589,6 +594,10 @@ class StudentAssignmentServiceImplTest {
         verify(assignmentSubmissionRepository).save(any(AssignmentSubmissionEntity.class));
         verify(s3Client).putObject(any(Consumer.class), any(RequestBody.class));
         verify(submissionFileRepository).save(any());
+        verify(notificationService).createNotification(
+                any(), eq(NotificationType.ASSIGNMENT_SUBMITTED.name()),
+                anyString(), anyString(), anyString(), eq(assignmentId),
+                any(), anyString(), anyString());
     }
 
     // ── new tests for submitAssignment ──
@@ -895,6 +904,79 @@ class StudentAssignmentServiceImplTest {
                 .hasMessageContaining("Upload file thất bại");
     }
 
+    @Test
+    void submitAssignment_notificationPreferenceDisabled_doesNotNotify() throws Exception {
+        enrollStudent();
+        enrollInGroup();
+        var assignment = assignmentEntity(AssignmentStatus.PUBLISHED);
+        var file = new MockMultipartFile("file", "hw.pdf", "application/pdf", new byte[1024]);
+        when(assignmentRepository.findByIdAndCourseId(assignmentId, courseId))
+                .thenReturn(Optional.of(assignment));
+        when(s3Client.putObject(any(Consumer.class), any(RequestBody.class)))
+                .thenReturn(null);
+        var presigned = mock(PresignedGetObjectRequest.class);
+        when(presigned.url()).thenReturn(new URL("https://example.com/hw.pdf"));
+        when(s3Service.generatePresignedInlineUrl(anyString(), anyLong()))
+                .thenReturn(presigned);
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(course()));
+        when(userRepository.findByIdAndDeletedAtIsNull(studentId)).thenReturn(Optional.of(studentUser()));
+        when(notificationPreferenceService.isInAppEnabled(any(), eq(NotificationType.ASSIGNMENT_SUBMITTED.name()))).thenReturn(false);
+
+        SubmissionResponse result = service.submitAssignment(courseId, assignmentId, studentId, null, List.of(file), null);
+
+        assertThat(result).isNotNull();
+        verify(notificationService, never()).createNotification(any(), any(), any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void submitAssignment_notification_courseNotFound_doesNotThrow() throws Exception {
+        enrollStudent();
+        enrollInGroup();
+        var assignment = assignmentEntity(AssignmentStatus.PUBLISHED);
+        var file = new MockMultipartFile("file", "hw.pdf", "application/pdf", new byte[1024]);
+        when(assignmentRepository.findByIdAndCourseId(assignmentId, courseId))
+                .thenReturn(Optional.of(assignment));
+        when(s3Client.putObject(any(Consumer.class), any(RequestBody.class)))
+                .thenReturn(null);
+        var presigned = mock(PresignedGetObjectRequest.class);
+        when(presigned.url()).thenReturn(new URL("https://example.com/hw.pdf"));
+        when(s3Service.generatePresignedInlineUrl(anyString(), anyLong()))
+                .thenReturn(presigned);
+        when(courseRepository.findById(courseId)).thenReturn(Optional.empty());
+
+        SubmissionResponse result = service.submitAssignment(courseId, assignmentId, studentId, null, List.of(file), null);
+
+        assertThat(result).isNotNull();
+        verify(notificationService, never()).createNotification(any(), any(), any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void submitAssignment_notification_userNotFound_usesDefaultName() throws Exception {
+        enrollStudent();
+        enrollInGroup();
+        var assignment = assignmentEntity(AssignmentStatus.PUBLISHED);
+        var file = new MockMultipartFile("file", "hw.pdf", "application/pdf", new byte[1024]);
+        when(assignmentRepository.findByIdAndCourseId(assignmentId, courseId))
+                .thenReturn(Optional.of(assignment));
+        when(s3Client.putObject(any(Consumer.class), any(RequestBody.class)))
+                .thenReturn(null);
+        var presigned = mock(PresignedGetObjectRequest.class);
+        when(presigned.url()).thenReturn(new URL("https://example.com/hw.pdf"));
+        when(s3Service.generatePresignedInlineUrl(anyString(), anyLong()))
+                .thenReturn(presigned);
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(course()));
+        when(userRepository.findByIdAndDeletedAtIsNull(studentId)).thenReturn(Optional.empty());
+        when(notificationPreferenceService.isInAppEnabled(any(), eq(NotificationType.ASSIGNMENT_SUBMITTED.name()))).thenReturn(true);
+
+        SubmissionResponse result = service.submitAssignment(courseId, assignmentId, studentId, null, List.of(file), null);
+
+        assertThat(result).isNotNull();
+        verify(notificationService).createNotification(
+                any(), eq(NotificationType.ASSIGNMENT_SUBMITTED.name()),
+                anyString(), anyString(), anyString(), eq(assignmentId),
+                any(), eq("Học viên"), anyString());
+    }
+
     // ── end new tests ──
     private void enrollStudent() {
         when(courseEnrollmentRepository.existsByCourseIdAndStudentId(courseId, studentId))
@@ -936,6 +1018,15 @@ class StudentAssignmentServiceImplTest {
         var c = new Course();
         c.setId(courseId);
         c.setTitle("Course Title");
+        c.setInstructorId(UUID.randomUUID());
         return c;
+    }
+
+    private UserEntity studentUser() {
+        var u = new UserEntity();
+        u.setId(studentId);
+        u.setFullName("Student A");
+        u.setEmail("student@test.com");
+        return u;
     }
 }

@@ -55,6 +55,7 @@ import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -412,6 +413,66 @@ class GradingServiceImplTest {
 
         verify(assignmentSubmissionRepository)
                 .batchPublishScores(eq(List.of()), any(OffsetDateTime.class));
+    }
+
+    @Test
+    void batchReleaseScores_notificationAssignmentNotFound_doesNotThrow() {
+        var ids = List.of(submissionId);
+        var request = new BatchReleaseRequest();
+        request.setSubmissionIds(ids);
+        var submission = submissionEntity("GRADED");
+
+        when(assignmentSubmissionRepository.batchPublishScores(eq(ids), any(OffsetDateTime.class)))
+                .thenReturn(1);
+        when(assignmentSubmissionRepository.findAllById(ids)).thenReturn(List.of(submission));
+        when(assignmentRepository.findById(assignmentId)).thenReturn(Optional.empty());
+
+        service.batchReleaseScores(request, instructorId);
+
+        verify(assignmentSubmissionRepository).batchPublishScores(eq(ids), any(OffsetDateTime.class));
+        verify(studentCourseService).updateAssignmentProgress(studentId, courseId);
+        verify(notificationService, never()).createNotification(any(), any(), any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void batchReleaseScores_notificationPreferenceDisabled_doesNotNotify() {
+        var ids = List.of(submissionId);
+        var request = new BatchReleaseRequest();
+        request.setSubmissionIds(ids);
+        var submission = submissionEntity("GRADED");
+
+        when(assignmentSubmissionRepository.batchPublishScores(eq(ids), any(OffsetDateTime.class)))
+                .thenReturn(1);
+        when(assignmentSubmissionRepository.findAllById(ids)).thenReturn(List.of(submission));
+        when(assignmentRepository.findById(assignmentId)).thenReturn(Optional.of(publishedAssignment()));
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(course()));
+        when(notificationPreferenceService.isInAppEnabled(any(), eq(NotificationType.SUBMISSION_GRADED.name()))).thenReturn(false);
+
+        service.batchReleaseScores(request, instructorId);
+
+        verify(notificationService, never()).createNotification(any(), any(), any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void batchReleaseScores_multipleSubmissions_deduplicatesProgressUpdate() {
+        UUID submissionId2 = UUID.randomUUID();
+        var ids = List.of(submissionId, submissionId2);
+        var request = new BatchReleaseRequest();
+        request.setSubmissionIds(ids);
+        var submission1 = submissionEntity("GRADED");
+        var submission2 = submissionEntity("GRADED");
+        submission2.setId(submissionId2);
+
+        when(assignmentSubmissionRepository.batchPublishScores(eq(ids), any(OffsetDateTime.class)))
+                .thenReturn(2);
+        when(assignmentSubmissionRepository.findAllById(ids)).thenReturn(List.of(submission1, submission2));
+        when(assignmentRepository.findById(assignmentId)).thenReturn(Optional.of(publishedAssignment()));
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(course()));
+        when(notificationPreferenceService.isInAppEnabled(any(), eq(NotificationType.SUBMISSION_GRADED.name()))).thenReturn(false);
+
+        service.batchReleaseScores(request, instructorId);
+
+        verify(studentCourseService, times(1)).updateAssignmentProgress(studentId, courseId);
     }
 
     // ── returnSubmission ───────────────────────────────────────────────────
