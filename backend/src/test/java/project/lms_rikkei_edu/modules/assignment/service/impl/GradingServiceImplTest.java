@@ -6,6 +6,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import project.lms_rikkei_edu.common.exception.BusinessException;
+import project.lms_rikkei_edu.common.security.CurrentUserProvider;
 import project.lms_rikkei_edu.infrastructure.s3.S3Service;
 import project.lms_rikkei_edu.modules.assignment.dto.request.BatchReleaseRequest;
 import project.lms_rikkei_edu.modules.assignment.dto.request.GradeRequest;
@@ -28,6 +29,9 @@ import project.lms_rikkei_edu.modules.group.entity.GroupMemberEntity;
 import project.lms_rikkei_edu.modules.group.entity.StudyGroupEntity;
 import project.lms_rikkei_edu.modules.group.repository.GroupMemberRepository;
 import project.lms_rikkei_edu.modules.group.repository.StudyGroupRepository;
+import project.lms_rikkei_edu.modules.notification.enums.NotificationType;
+import project.lms_rikkei_edu.modules.notification.service.NotificationPreferenceService;
+import project.lms_rikkei_edu.modules.notification.service.NotificationService;
 import project.lms_rikkei_edu.modules.user.entity.UserEntity;
 import project.lms_rikkei_edu.modules.user.repository.UserRepository;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest;
@@ -47,9 +51,11 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -66,6 +72,9 @@ class GradingServiceImplTest {
     @Mock private CourseRepository courseRepository;
     @Mock private S3Service s3Service;
     @Mock private StudentCourseService studentCourseService;
+    @Mock private NotificationService notificationService;
+    @Mock private NotificationPreferenceService notificationPreferenceService;
+    @Mock private CurrentUserProvider currentUserProvider;
 
     private GradingServiceImpl service;
 
@@ -84,7 +93,8 @@ class GradingServiceImplTest {
                 submissionFileRepository, assignmentGroupRepository,
                 userRepository, groupMemberRepository,
                 studyGroupRepository, courseRepository,
-                s3Service, studentCourseService);
+                s3Service, studentCourseService,
+                notificationService, notificationPreferenceService, currentUserProvider);
     }
 
     // ── getSubmissions ─────────────────────────────────────────────────────
@@ -374,11 +384,21 @@ class GradingServiceImplTest {
 
         when(assignmentSubmissionRepository.batchPublishScores(eq(ids), any(OffsetDateTime.class)))
                 .thenReturn(1);
+        var submission = submissionEntity("GRADED");
+        when(assignmentSubmissionRepository.findAllById(ids)).thenReturn(List.of(submission));
+        when(assignmentRepository.findById(assignmentId)).thenReturn(Optional.of(publishedAssignment()));
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(course()));
+        when(notificationPreferenceService.isInAppEnabled(any(), any())).thenReturn(true);
 
         service.batchReleaseScores(request, instructorId);
 
         verify(assignmentSubmissionRepository)
                 .batchPublishScores(eq(ids), any(OffsetDateTime.class));
+        verify(studentCourseService).updateAssignmentProgress(studentId, courseId);
+        verify(notificationService).createNotification(
+                eq(studentId), eq(NotificationType.SUBMISSION_GRADED.name()),
+                anyString(), anyString(), anyString(), eq(assignmentId),
+                eq(instructorId), nullable(String.class), anyString());
     }
 
     @Test
@@ -393,6 +413,66 @@ class GradingServiceImplTest {
 
         verify(assignmentSubmissionRepository)
                 .batchPublishScores(eq(List.of()), any(OffsetDateTime.class));
+    }
+
+    @Test
+    void batchReleaseScores_notificationAssignmentNotFound_doesNotThrow() {
+        var ids = List.of(submissionId);
+        var request = new BatchReleaseRequest();
+        request.setSubmissionIds(ids);
+        var submission = submissionEntity("GRADED");
+
+        when(assignmentSubmissionRepository.batchPublishScores(eq(ids), any(OffsetDateTime.class)))
+                .thenReturn(1);
+        when(assignmentSubmissionRepository.findAllById(ids)).thenReturn(List.of(submission));
+        when(assignmentRepository.findById(assignmentId)).thenReturn(Optional.empty());
+
+        service.batchReleaseScores(request, instructorId);
+
+        verify(assignmentSubmissionRepository).batchPublishScores(eq(ids), any(OffsetDateTime.class));
+        verify(studentCourseService).updateAssignmentProgress(studentId, courseId);
+        verify(notificationService, never()).createNotification(any(), any(), any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void batchReleaseScores_notificationPreferenceDisabled_doesNotNotify() {
+        var ids = List.of(submissionId);
+        var request = new BatchReleaseRequest();
+        request.setSubmissionIds(ids);
+        var submission = submissionEntity("GRADED");
+
+        when(assignmentSubmissionRepository.batchPublishScores(eq(ids), any(OffsetDateTime.class)))
+                .thenReturn(1);
+        when(assignmentSubmissionRepository.findAllById(ids)).thenReturn(List.of(submission));
+        when(assignmentRepository.findById(assignmentId)).thenReturn(Optional.of(publishedAssignment()));
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(course()));
+        when(notificationPreferenceService.isInAppEnabled(any(), eq(NotificationType.SUBMISSION_GRADED.name()))).thenReturn(false);
+
+        service.batchReleaseScores(request, instructorId);
+
+        verify(notificationService, never()).createNotification(any(), any(), any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void batchReleaseScores_multipleSubmissions_deduplicatesProgressUpdate() {
+        UUID submissionId2 = UUID.randomUUID();
+        var ids = List.of(submissionId, submissionId2);
+        var request = new BatchReleaseRequest();
+        request.setSubmissionIds(ids);
+        var submission1 = submissionEntity("GRADED");
+        var submission2 = submissionEntity("GRADED");
+        submission2.setId(submissionId2);
+
+        when(assignmentSubmissionRepository.batchPublishScores(eq(ids), any(OffsetDateTime.class)))
+                .thenReturn(2);
+        when(assignmentSubmissionRepository.findAllById(ids)).thenReturn(List.of(submission1, submission2));
+        when(assignmentRepository.findById(assignmentId)).thenReturn(Optional.of(publishedAssignment()));
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(course()));
+        when(notificationPreferenceService.isInAppEnabled(any(), eq(NotificationType.SUBMISSION_GRADED.name()))).thenReturn(false);
+
+        service.batchReleaseScores(request, instructorId);
+
+        verify(studentCourseService, times(1)).updateAssignmentProgress(studentId, courseId);
     }
 
     // ── returnSubmission ───────────────────────────────────────────────────

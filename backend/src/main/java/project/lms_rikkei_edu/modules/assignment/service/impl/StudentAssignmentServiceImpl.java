@@ -34,6 +34,10 @@ import project.lms_rikkei_edu.modules.course.repository.CourseEnrollmentReposito
 import project.lms_rikkei_edu.modules.course.repository.CourseRepository;
 import project.lms_rikkei_edu.modules.course.entity.Course;
 import project.lms_rikkei_edu.modules.group.repository.GroupMemberRepository;
+import project.lms_rikkei_edu.modules.notification.enums.NotificationType;
+import project.lms_rikkei_edu.modules.notification.service.NotificationPreferenceService;
+import project.lms_rikkei_edu.modules.notification.service.NotificationService;
+import project.lms_rikkei_edu.modules.user.repository.UserRepository;
 import project.lms_rikkei_edu.infrastructure.s3.S3Service;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -65,6 +69,9 @@ public class StudentAssignmentServiceImpl implements StudentAssignmentService {
     private final GroupMemberRepository groupMemberRepository;
     private final CourseRepository courseRepository;
     private final CourseEnrollmentRepository courseEnrollmentRepository;
+    private final NotificationService notificationService;
+    private final NotificationPreferenceService notificationPreferenceService;
+    private final UserRepository userRepository;
     private final S3Client s3Client;
     private final S3Service s3Service;
     private final ObjectMapper objectMapper;
@@ -264,6 +271,8 @@ public class StudentAssignmentServiceImpl implements StudentAssignmentService {
             fileResponses.addAll(deleteOldSubmissionFiles(existingSubmissions, keepFileIds, submissionId));
         }
 
+        notifyInstructorAssignmentSubmitted(assignment, studentId, submissionId);
+
         log.info("Student {} submitted assignment {}", studentId, assignmentId);
         return SubmissionResponse.builder()
                 .id(submissionId)
@@ -273,6 +282,40 @@ public class StudentAssignmentServiceImpl implements StudentAssignmentService {
                 .submittedAt(now)
                 .files(fileResponses)
                 .build();
+    }
+
+    private void notifyInstructorAssignmentSubmitted(AssignmentEntity assignment, UUID studentId, UUID submissionId) {
+        try {
+            Course course = courseRepository.findById(assignment.getCourseId()).orElse(null);
+            if (course == null) return;
+
+            UUID instructorId = course.getInstructorId();
+            String courseTitle = course.getTitle();
+
+            String studentName = userRepository.findByIdAndDeletedAtIsNull(studentId)
+                    .map(u -> u.getFullName())
+                    .orElse("Học viên");
+
+            String assignmentTitle = assignment.getTitle();
+            String title = "Bài tập mới được nộp";
+            String body = "Học viên \"" + studentName + "\" đã nộp bài tập \"" + assignmentTitle + "\" (khóa \"" + courseTitle + "\").";
+
+            if (!notificationPreferenceService.isInAppEnabled(instructorId, NotificationType.ASSIGNMENT_SUBMITTED.name())) {
+                return;
+            }
+            notificationService.createNotification(
+                    instructorId,
+                    NotificationType.ASSIGNMENT_SUBMITTED.name(),
+                    title,
+                    body,
+                    "ASSIGNMENT",
+                    assignment.getId(),
+                    studentId,
+                    studentName,
+                    "assignment-submitted-" + submissionId + ":" + instructorId);
+        } catch (Exception ex) {
+            log.warn("Không thể gửi thông báo nộp bài cho submissionId={}: {}", submissionId, ex.getMessage());
+        }
     }
 
     private List<SubmissionFileResponse> deleteOldSubmissionFiles(List<AssignmentSubmissionEntity> oldSubmissions,
