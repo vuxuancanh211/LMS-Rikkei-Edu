@@ -39,8 +39,9 @@
    * (giảng viên không "học" khóa của mình). onBack/onEnterContent chỉ dùng khi previewMode
    * (đóng overlay / mở trình xem bài giảng).
    */
-  function StuCourseDetail({ nav, courseId, previewMode, onBack, onEnterContent }) {
+  function StuCourseDetail({ nav, courseId, previewMode, previewRole, onBack, onEnterContent }) {
     const isPreview = !!previewMode;
+    const role = previewRole || "instructor"; // "instructor" | "admin" — chỉ có ý nghĩa khi isPreview
     const [course, setCourse]     = useState(null);
     const [loading, setLoading]   = useState(true);
     const [err, setErr]           = useState(null);
@@ -50,7 +51,9 @@
     useEffect(() => {
       if (!courseId) { setLoading(false); return; }
       setLoading(true); setErr(null);
-      const base = isPreview ? `/instructor/courses/${courseId}` : `/student/courses/${courseId}`;
+      const base = !isPreview ? `/student/courses/${courseId}`
+        : role === "admin" ? `/admin/courses/${courseId}`
+        : `/instructor/courses/${courseId}`;
       api.get(base).then(r => {
         setCourse(r.data);
         const opened = {};
@@ -58,7 +61,7 @@
         setOpenCh(opened);
       }).catch(e => setErr(e?.response?.data?.message || "Không thể tải khóa học"))
         .finally(() => setLoading(false));
-    }, [courseId, isPreview]);
+    }, [courseId, isPreview, role]);
 
     const chapters = course?.chapters || [];
     const allLessons = useMemo(() => chapters.flatMap(ch => ch.lessons || []), [chapters]);
@@ -89,12 +92,15 @@
     const requirements = course.requirements || [];
 
     return (
-      <div className="fade-in" style={{ margin: "-32px", minHeight: "100%" }}>
-        {/* Hero */}
-        <div style={{ padding: "32px 32px 90px", background: "linear-gradient(135deg,#1e3a5f,#2563eb)", color: "#fff" }}>
+      <div className="page fade-in" style={{ minHeight: "100%" }}>
+        {/* Hero — lấn ra ngoài padding của .page bằng margin âm trên chính div này (không phải
+            trên .page) để tránh margin-collapsing với <main> (mép ngoài không có padding/border
+            sẽ "rò" margin âm ra ngoài, kéo lệch cả layout cha) — margin âm chỉ an toàn khi phần
+            tử cha (.page) có padding khác 0 chặn collapse lại. */}
+        <div style={{ margin: "calc(var(--pad-page) * -1) calc(var(--pad-page) * -1) 0", padding: "32px 32px 90px", background: "linear-gradient(135deg,#1e3a5f,#2563eb)", color: "#fff" }}>
           <div className="row between wrap" style={{ marginBottom: 16 }}>
             <button className="btn btn-ghost btn-sm" style={{ background: "rgba(255,255,255,.12)", border: "none", color: "#fff" }}
-              onClick={goBack}><Ic n="arrow_left" size={15} />{isPreview ? "Quay lại chỉnh sửa" : "Khóa học của tôi"}</button>
+              onClick={goBack}><Ic n="arrow_left" size={15} />{!isPreview ? "Khóa học của tôi" : role === "admin" ? "Quay lại phê duyệt" : "Quay lại"}</button>
             {isPreview && (
               <span className="chip" style={{ background: "#fef9c3", color: "#92400e", fontWeight: 700 }}>
                 <Ic n="eye" size={12} />Xem trước — giao diện học viên
@@ -208,7 +214,7 @@
             </div>
 
             {/* Right column: sticky CTA */}
-            <div style={{ flex: "0 0 340px", minWidth: 300, marginTop: 24, position: "sticky", top: 20 }}>
+            <div style={{ flex: "0 0 340px", minWidth: 300, marginTop: 24, position: "sticky", top: "calc(var(--header-h) + 20px)" }}>
               <div className="card" style={{ overflow: "hidden" }}>
                 <div style={{ aspectRatio: "16/9", position: "relative",
                   background: course.thumbnailUrl ? `#0f172a url(${course.thumbnailUrl}) center/cover` : "linear-gradient(135deg,#1e3a5f,#2563eb)" }} />

@@ -231,6 +231,9 @@
     const [changeQuizState,   setChangeQuizState]   = useState(null); // { chapterId, lessonId, currentQuizId }
     const [editResourceState, setEditResourceState] = useState(null);
     const [previewStage,      setPreviewStage]      = useState(null); // null | "overview" | "player"
+    // true khi vào "Xem trước" thẳng từ danh sách khóa học (autoPreview) — lúc đó nút "Quay lại"
+    // phải trả về danh sách, không phải màn chỉnh sửa, vì người dùng chưa từng mở màn chỉnh sửa.
+    const [previewFromList,   setPreviewFromList]   = useState(false);
     const [history,           setHistory]           = useState([]);
     const [historyLoading,    setHistoryLoading]    = useState(false);
     const [snapshotView,      setSnapshotView]      = useState(null); // { versionNo, snapshot }
@@ -296,6 +299,7 @@
     useEffect(() => {
       if (autoPreview && courseId) {
         window.__previewCourse = { courseId, role: "instructor" };
+        setPreviewFromList(true);
         setPreviewStage("overview");
       }
     }, [autoPreview, courseId]);
@@ -782,7 +786,7 @@
             })()}
           </div>
           <div className="row gap-10 wrap" style={{ rowGap: 10 }}>
-            <button className="btn btn-ghost btn-sm" onClick={() => { window.__previewCourse = { courseId, role: "instructor" }; setPreviewStage("overview"); }}><Ic n="eye" size={15} />Xem trước</button>
+            <button className="btn btn-ghost btn-sm" onClick={() => { window.__previewCourse = { courseId, role: "instructor" }; setPreviewFromList(false); setPreviewStage("overview"); }}><Ic n="eye" size={15} />Xem trước</button>
             {!viewingVersion && (course?.status === "DRAFT" || course?.status === "REJECTED") && (
               <button className="btn btn-success btn-sm" disabled={submitting} onClick={handleSubmit}><Ic n="send" size={15} />{submitting ? "Đang gửi..." : "Gửi duyệt"}</button>
             )}
@@ -1260,7 +1264,7 @@
                   </div>
                 </div>
                 <button className="btn btn-ghost btn-block" style={{ marginTop: 12, borderColor: "var(--accent)", color: "var(--accent)" }}
-                  onClick={() => { window.__previewCourse = { courseId, role: "instructor" }; setPreviewStage("overview"); }}>
+                  onClick={() => { window.__previewCourse = { courseId, role: "instructor" }; setPreviewFromList(false); setPreviewStage("overview"); }}>
                   <Ic n="eye" size={15} />Xem như học viên
                 </button>
               </div>
@@ -1554,10 +1558,10 @@
         <ChangeQuizModal   open={!!changeQuizState}  onClose={() => setChangeQuizState(null)}   courseId={courseId} chapterId={changeQuizState?.chapterId} lessonId={changeQuizState?.lessonId} currentQuizId={changeQuizState?.currentQuizId} onChanged={() => loadCourse(true)} />
 
         {previewStage === "overview" && (
-          <div style={{ position: "fixed", inset: 0, zIndex: 200, background: "var(--bg)", overflowY: "auto", padding: 32 }}>
+          <div style={{ position: "fixed", inset: 0, zIndex: 200, background: "var(--bg)", overflowY: "auto" }}>
             {React.createElement(window.StuCourseDetail, {
               courseId, previewMode: true,
-              onBack: () => setPreviewStage(null),
+              onBack: () => (previewFromList ? nav("courses") : setPreviewStage(null)),
               onEnterContent: () => setPreviewStage("player"),
             })}
           </div>

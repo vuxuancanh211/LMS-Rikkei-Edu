@@ -696,7 +696,7 @@
     const [rejectSelect, setRejectSelect] = useState("Nội dung chưa đầy đủ");
     const [rejectNote, setRejectNote] = useState("");
     const [rejectLoading, setRejectLoading] = useState(false);
-    const [showPreview, setShowPreview] = useState(false);
+    const [previewStage, setPreviewStage] = useState(null); // null | "overview" | "player"
     const [alertState, setAlertState] = useState(null);
     const showAlert = (message, opts?) => setAlertState({ message, ...opts });
 
@@ -858,7 +858,7 @@
                 onClose={() => setDetail(null)}
                 onApprove={() => handleApprove(detail.id, detail.status)}
                 onReject={() => { setReject(detail); setDetail(null); setRejectNote(""); setRejectSelect("Nội dung chưa đầy đủ"); }}
-                onPreview={() => { setDetail(null); window.__previewCourse = { courseId: detail.id, role: "admin" }; setShowPreview(true); }}
+                onPreview={() => { setDetail(null); window.__previewCourse = { courseId: detail.id, role: "admin" }; setPreviewStage("overview"); }}
               />
           )}
         </Modal>
@@ -890,7 +890,17 @@
             </div>
           </>}
         </Modal>
-        {showPreview && React.createElement(window.PreviewPlayer, { onBack: () => setShowPreview(false) })}
+        {previewStage === "overview" && (
+          <div style={{ position: "fixed", inset: 0, zIndex: 200, background: "var(--bg)", overflowY: "auto" }}>
+            {React.createElement(window.StuCourseDetail, {
+              courseId: window.__previewCourse?.courseId,
+              previewMode: true, previewRole: "admin",
+              onBack: () => setPreviewStage(null),
+              onEnterContent: () => setPreviewStage("player"),
+            })}
+          </div>
+        )}
+        {previewStage === "player" && React.createElement(window.PreviewPlayer, { onBack: () => setPreviewStage("overview") })}
         <AlertModal open={!!alertState} onClose={() => setAlertState(null)} title={alertState?.title} message={alertState?.message} type={alertState?.type} />
       </div>
     );
