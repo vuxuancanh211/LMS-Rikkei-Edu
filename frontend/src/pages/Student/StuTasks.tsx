@@ -8,7 +8,7 @@
   const api = window.httpClient;
   const { Status: St, Search: Se, Tabs: Tb, Select: Sl, Section: Sn, Modal: Md, ModalHead: MH, StatCard: SC } = window;
 
-  const { getStudentCourseProgress, getMyAttempts } = window.__quizService;
+  const { getStudentCourseProgress, getStudentAllQuizProgress, getMyAttempts } = window.__quizService;
 
   const QUIZ_STATUS_CHIP = { DRAFT: 'neutral', PUBLISHED: 'success', ARCHIVED: 'muted' };
   const QUIZ_TYPE_LABEL  = { STATIC: 'Tự chọn câu', RANDOM_DRAW: 'Ngẫu nhiên' };
@@ -49,16 +49,7 @@
       try {
         let data = [];
         if (courseId === 'ALL') {
-          const promises = courses.map(async c => {
-            try {
-              const res = await getStudentCourseProgress(c.id);
-              return res.map(q => ({ ...q, courseId: c.id, courseTitle: c.title }));
-            } catch (e) {
-              return [];
-            }
-          });
-          const results = await Promise.all(promises);
-          data = results.flat();
+          data = await getStudentAllQuizProgress();
         } else {
           data = await getStudentCourseProgress(courseId);
           const currentCourse = courses.find(c => c.id === courseId);
@@ -383,8 +374,8 @@
 
     useEffect(() => {
       if (courseId || courses.length === 0) return;
-      const fromUrl = initialCourseId && courses.some(c => c.id === initialCourseId);
-      setCourseId(fromUrl ? initialCourseId : courses[0].id);
+      const fromUrl = initialCourseId && (initialCourseId === 'ALL' || courses.some(c => c.id === initialCourseId));
+      setCourseId(fromUrl ? initialCourseId : 'ALL');
     }, [courses, courseId, initialCourseId]);
 
     const selectCourse = v => {
@@ -398,7 +389,9 @@
       setLoading(true);
       setError('');
       try {
-        const res = await api.get(`/student/courses/${courseId}/assignments`);
+        const res = courseId === 'ALL'
+          ? await api.get('/student/assignments')
+          : await api.get(`/student/courses/${courseId}/assignments`);
         const list = res.data || [];
         setAssignments(list);
         onStatsUpdate({
@@ -424,9 +417,9 @@
       <div>
         <div className="toolbar" style={{ marginBottom: 0 }}>
           <Sl
-            value={courseId || ''}
+            value={courseId || 'ALL'}
             onChange={selectCourse}
-            options={courses.map(c => ({ v: c.id, label: c.title }))}
+            options={[{ v: 'ALL', label: 'Tất cả khóa học' }, ...courses.map(c => ({ v: c.id, label: c.title }))]}
             style={{ minWidth: 200, flex: '1 1 auto' }}
           />
           <div className="grow" />
@@ -471,7 +464,12 @@
                             <div className="stat-ic" style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--surface-3)', color: 'var(--text-2)' }}>
                               <Ic n="file" size={17} />
                             </div>
-                            <div style={{ fontWeight: 600, maxWidth: 240 }} className="truncate">{a.title}</div>
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontWeight: 600, maxWidth: 240 }} className="truncate">{a.title}</div>
+                              {courseId === 'ALL' && a.courseTitle && (
+                                <div className="t-xs muted truncate" style={{ marginTop: 4, maxWidth: 240 }}>Khóa: {a.courseTitle}</div>
+                              )}
+                            </div>
                           </div>
                         </td>
                         <td className="muted" style={{ fontSize: 12.5 }}>
@@ -522,7 +520,7 @@
           </Sn>
         )}
         <window.PageBar pg={pg} unit="bài" />
-        <AssignmentModal a={open} courseId={courseId} onClose={() => { setOpen(null); fetchAssignments(); }} />
+        <AssignmentModal a={open} courseId={open?.courseId || courseId} onClose={() => { setOpen(null); fetchAssignments(); }} />
       </div>
     );
   }

@@ -12,6 +12,8 @@ public interface StudentAssignmentService {
 
     List<StudentAssignmentListResponse> getAssignments(UUID courseId, UUID studentId);
 
+    List<StudentAssignmentListResponse> getAllAssignments(UUID studentId);
+
     StudentAssignmentDetailResponse getAssignmentDetail(UUID courseId, UUID assignmentId, UUID studentId);
 
     SubmissionResponse submitAssignment(UUID courseId, UUID assignmentId, UUID studentId, String note, List<MultipartFile> files);

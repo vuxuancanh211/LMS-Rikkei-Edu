@@ -21,6 +21,8 @@ public interface QuizRepository extends JpaRepository<QuizEntity, UUID> {
     // Giao diện danh sách quiz (QuizController#list) dùng 2 method phân trang bên dưới.
     List<QuizEntity> findByCourseId(UUID courseId);
 
+    List<QuizEntity> findByCourseIdIn(List<UUID> courseIds);
+
     Page<QuizEntity> findByCourseId(UUID courseId, Pageable pageable);
 
     Page<QuizEntity> findByCourseIdAndTitleContainingIgnoreCase(UUID courseId, String title, Pageable pageable);
