@@ -9,6 +9,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.ResultSetExtractor;
 import org.springframework.jdbc.core.RowCallbackHandler;
 import org.springframework.jdbc.core.RowMapper;
 import project.lms_rikkei_edu.modules.dashboard.dto.response.CourseDistributionDto;
@@ -23,6 +24,7 @@ import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -51,10 +53,14 @@ class InstructorDashboardServiceImplTest {
 
     @Test
     void getDashboard_ShouldReturnFullDataAndCoverAllBranches() throws SQLException {
-        when(jdbc.queryForObject(contains("status IN ('PUBLISHED', 'ACTIVE')"), eq(Integer.class), eq(instructorId)))
-                .thenReturn(4);
-        when(jdbc.queryForObject(contains("status = 'PENDING_APPROVAL'"), eq(Integer.class), eq(instructorId)))
-                .thenReturn(1);
+        when(jdbc.query(contains("FROM courses"), any(ResultSetExtractor.class), eq(instructorId)))
+                .thenAnswer(invocation -> {
+                    ResultSetExtractor<Map<String, Integer>> extractor = invocation.getArgument(1);
+                    when(rs.next()).thenReturn(true);
+                    when(rs.getInt("active_cnt")).thenReturn(4);
+                    when(rs.getInt("pending_cnt")).thenReturn(1);
+                    return extractor.extractData(rs);
+                });
         when(jdbc.queryForObject(contains("COUNT(DISTINCT ce.student_id)"), eq(Integer.class), eq(instructorId)))
                 .thenReturn(120);
         when(jdbc.queryForObject(contains("FROM study_groups WHERE instructor_id"), eq(Integer.class), eq(instructorId)))
@@ -135,8 +141,14 @@ class InstructorDashboardServiceImplTest {
 
     @Test
     void getStats_ShouldReturnStats() {
-        when(jdbc.queryForObject(contains("status IN ('PUBLISHED', 'ACTIVE')"), eq(Integer.class), eq(instructorId))).thenReturn(3);
-        when(jdbc.queryForObject(contains("status = 'PENDING_APPROVAL'"), eq(Integer.class), eq(instructorId))).thenReturn(1);
+        when(jdbc.query(contains("FROM courses"), any(ResultSetExtractor.class), eq(instructorId)))
+                .thenAnswer(invocation -> {
+                    ResultSetExtractor<Map<String, Integer>> extractor = invocation.getArgument(1);
+                    when(rs.next()).thenReturn(true);
+                    when(rs.getInt("active_cnt")).thenReturn(3);
+                    when(rs.getInt("pending_cnt")).thenReturn(1);
+                    return extractor.extractData(rs);
+                });
         when(jdbc.queryForObject(contains("COUNT(DISTINCT ce.student_id)"), eq(Integer.class), eq(instructorId))).thenReturn(50);
         when(jdbc.queryForObject(contains("FROM study_groups WHERE instructor_id"), eq(Integer.class), eq(instructorId))).thenReturn(2);
         when(jdbc.queryForObject(contains("status IN ('SUBMITTED', 'LATE')"), eq(Integer.class), eq(instructorId))).thenReturn(7);

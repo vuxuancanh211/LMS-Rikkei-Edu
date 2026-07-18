@@ -8,6 +8,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.ResultSetExtractor;
 import org.springframework.jdbc.core.RowCallbackHandler;
 import org.springframework.jdbc.core.RowMapper;
 import project.lms_rikkei_edu.modules.dashboard.dto.response.AdminDashboardResponse;
@@ -21,6 +22,7 @@ import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -42,8 +44,13 @@ class AdminDashboardServiceImplTest {
 
     @Test
     void getDashboard_ShouldReturnFullDataAndCoverAllBranches() throws SQLException {
-        when(jdbc.queryForObject(contains("role = 'STUDENT'"), eq(Integer.class))).thenReturn(500);
-        when(jdbc.queryForObject(contains("role = 'INSTRUCTOR'"), eq(Integer.class))).thenReturn(45);
+        when(jdbc.query(contains("FROM users"), any(ResultSetExtractor.class))).thenAnswer(invocation -> {
+            ResultSetExtractor<Map<String, Integer>> extractor = invocation.getArgument(1);
+            when(rs.next()).thenReturn(true);
+            when(rs.getInt("students")).thenReturn(500);
+            when(rs.getInt("instructors")).thenReturn(45);
+            return extractor.extractData(rs);
+        });
         when(jdbc.queryForObject(contains("status IN ('PUBLISHED', 'APPROVED')"), eq(Integer.class))).thenReturn(120);
         when(jdbc.queryForObject(contains("AVG(overall_percentage)"), eq(Double.class))).thenReturn(79.84);
 
@@ -140,34 +147,6 @@ class AdminDashboardServiceImplTest {
             return null;
         }).when(jdbc).query(contains("FROM course_enrollments\n                WHERE enrolled_at >= NOW() - INTERVAL '7 days'"), any(RowCallbackHandler.class));
 
-        doAnswer(invocation -> {
-            RowCallbackHandler handler = invocation.getArgument(1);
-            Timestamp nowTs = Timestamp.from(Instant.now());
-            when(rs.getString("id")).thenReturn(UUID.randomUUID().toString());
-            when(rs.getString("full_name")).thenReturn("Admin Who");
-            when(rs.getString("title")).thenReturn("React 19");
-            when(rs.getTimestamp("act_time")).thenReturn(nowTs, nowTs, null, null, nowTs, nowTs);
-            when(rs.getString("status")).thenReturn("PENDING", "PUBLISHED", "UPDATED");
-            
-            handler.processRow(rs);
-            handler.processRow(rs);
-            handler.processRow(rs);
-            return null;
-        }).when(jdbc).query(contains("FROM courses c JOIN users u ON u.id = c.instructor_id"), any(RowCallbackHandler.class));
-
-        doAnswer(invocation -> {
-            RowCallbackHandler handler = invocation.getArgument(1);
-            Timestamp nowTs = Timestamp.from(Instant.now());
-            when(rs.getString("id")).thenReturn(UUID.randomUUID().toString());
-            when(rs.getString("full_name")).thenReturn("Student Who");
-            when(rs.getString("title")).thenReturn("Assignment 1");
-            when(rs.getTimestamp("submitted_at")).thenReturn(nowTs, nowTs, null, null);
-            
-            handler.processRow(rs);
-            handler.processRow(rs);
-            return null;
-        }).when(jdbc).query(contains("FROM assignment_submissions s\n                JOIN assignments a"), any(RowCallbackHandler.class));
-
         AdminDashboardResponse response = adminDashboardService.getDashboard();
 
         assertNotNull(response);
@@ -176,7 +155,6 @@ class AdminDashboardServiceImplTest {
         assertEquals(120, response.getActiveCoursesCount());
         assertEquals(79.8, response.getAverageCompletionRate());
         assertEquals(2, response.getPendingApprovals().size());
-        assertTrue(response.getRecentActivities().size() <= 6);
         assertNotNull(response.getNewUsersData());
         assertNotNull(response.getWeeklyUsersData());
         assertNotNull(response.getEnrollmentsData());
@@ -201,8 +179,13 @@ class AdminDashboardServiceImplTest {
 
     @Test
     void getStats_ShouldReturnStats() {
-        when(jdbc.queryForObject(contains("role = 'STUDENT'"), eq(Integer.class))).thenReturn(10);
-        when(jdbc.queryForObject(contains("role = 'INSTRUCTOR'"), eq(Integer.class))).thenReturn(5);
+        when(jdbc.query(contains("FROM users"), any(ResultSetExtractor.class))).thenAnswer(invocation -> {
+            ResultSetExtractor<Map<String, Integer>> extractor = invocation.getArgument(1);
+            when(rs.next()).thenReturn(true);
+            when(rs.getInt("students")).thenReturn(10);
+            when(rs.getInt("instructors")).thenReturn(5);
+            return extractor.extractData(rs);
+        });
         when(jdbc.queryForObject(contains("status IN ('PUBLISHED', 'APPROVED')"), eq(Integer.class))).thenReturn(8);
         when(jdbc.queryForObject(contains("AVG(overall_percentage)"), eq(Double.class))).thenReturn(82.5);
 
@@ -254,13 +237,6 @@ class AdminDashboardServiceImplTest {
     void getPendingApprovals_ShouldReturnList() {
         when(jdbc.query(anyString(), any(RowMapper.class))).thenReturn(Collections.emptyList());
         java.util.List<PendingApprovalDto> res = adminDashboardService.getPendingApprovals();
-        assertNotNull(res);
-    }
-
-    @Test
-    void getRecentActivities_ShouldReturnList() {
-        doNothing().when(jdbc).query(anyString(), any(RowCallbackHandler.class));
-        java.util.List<project.lms_rikkei_edu.modules.dashboard.dto.response.SystemActivityDto> res = adminDashboardService.getRecentActivities();
         assertNotNull(res);
     }
 }

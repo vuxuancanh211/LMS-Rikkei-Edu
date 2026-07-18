@@ -175,14 +175,6 @@ export interface PendingApproval {
   status: string;
 }
 
-export interface SystemActivity {
-  id: string;
-  who: string;
-  act: string;
-  time: string;
-  type: string;
-}
-
 export interface AdminDashboardResponse {
   totalStudentsCount: number;
   totalInstructorsCount: number;
@@ -193,7 +185,6 @@ export interface AdminDashboardResponse {
   newCoursesData: number[];
   newCoursesLabels: string[];
   pendingApprovals: PendingApproval[];
-  recentActivities: SystemActivity[];
 }
 
 export async function getAdminDashboard(forceRefresh = false): Promise<AdminDashboardResponse> {
@@ -247,8 +238,4 @@ export async function getAdminEnrollmentsChart(forceRefresh = false): Promise<{
 
 export async function getAdminPendingApprovals(forceRefresh = false): Promise<PendingApproval[]> {
   return fetchCached<PendingApproval[]>('/admin/dashboard/pending-approvals', 120000, forceRefresh);
-}
-
-export async function getAdminRecentActivities(forceRefresh = false): Promise<SystemActivity[]> {
-  return fetchCached<SystemActivity[]>('/admin/dashboard/recent-activities', 120000, forceRefresh);
 }
