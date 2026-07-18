@@ -49,6 +49,9 @@ public class CourseDetailResponse {
     private Instant updatedAt;
 
     // ── Student progress fields ──
+    private int progress;
+    private int completedLessons;
+    private int totalLessons;
     private int completedAssignments;
     private int totalAssignments;
 

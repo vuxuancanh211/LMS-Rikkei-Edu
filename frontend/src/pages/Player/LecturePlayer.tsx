@@ -765,7 +765,8 @@
     const totalAssignments = course?.totalAssignments ?? 0;
     const progressCompleted = completedCount + completedAssignments;
     const progressTotal = totalLessons + totalAssignments;
-    const progressPct = progressTotal > 0 ? Math.round((progressCompleted / progressTotal) * 100) : 0;
+    const calculatedProgress = progressTotal > 0 ? Math.round((progressCompleted / progressTotal) * 100) : 0;
+    const progressPct = Math.max(0, Math.min(100, Math.max(course?.progress ?? 0, calculatedProgress)));
 
     const assignIdx      = useMemo(() => assignments.findIndex(a => a.id === selectedAssignmentId), [assignments, selectedAssignmentId]);
     const prevAssignment = assignIdx > 0 ? assignments[assignIdx - 1] : null;
@@ -783,6 +784,7 @@
     const lastSentTimeRef = useRef<number>(0);
     const updateProgress = useCallback(async (watchedPct, position, docSeconds, isCompleted) => {
       if (!courseId || !activeL?.id) return;
+      if (activeL.type === "QUIZ") return;
       const vids = (activeL.resources || []).filter((r: any) => !r.pendingDelete && r.resourceType === "VIDEO");
       const docs = (activeL.resources || []).filter((r: any) => !r.pendingDelete && r.resourceType !== "VIDEO" && r.resourceType !== "IMAGE");
       const imgs = (activeL.resources || []).filter((r: any) => !r.pendingDelete && r.resourceType === "IMAGE");
@@ -828,7 +830,7 @@
           completed: isComp,
         });
       } catch (e) { console.error("updateProgress error", e); }
-    }, [courseId, activeL?.id, videoResources.length, docResources.length]);
+    }, [courseId, activeL?.id, activeL?.type, videoResources.length, docResources.length]);
 
     const checkLessonCompletion = useCallback((currentResId?: string, forceCompleteRes?: boolean) => {
       if (!activeL?.id) return;
@@ -1016,6 +1018,7 @@
 
     const flushPendingProgress = useCallback((forceBeacon = false) => {
       if (!activeL?.id || !courseId) return;
+      if (activeL.type === "QUIZ") return;
       const docSec = Math.round(realWatchSecondsRef.current[activeL.id] || cumDocSecRef.current[activeL.id] || 0);
       if (docSec <= (lastSyncedDocSecRef.current[activeL.id] || 0) && !forceBeacon) return;
 
@@ -1032,13 +1035,27 @@
 
       lastSyncedDocSecRef.current[activeL.id] = docSec;
       if (forceBeacon && typeof navigator !== 'undefined' && navigator.sendBeacon) {
-        const url = `/api/v1/student/courses/${courseId}/lessons/${activeL.id}/progress`;
-        const blob = new Blob([payloadStr], { type: 'application/json' });
-        navigator.sendBeacon(url, blob);
+        const path = `/student/courses/${courseId}/lessons/${activeL.id}/progress`;
+        const url = api?.getUri ? api.getUri({ url: path }) : `/api${path}`;
+        const auth = window.useAuthStore?.getState?.();
+        if (auth?.accessToken && typeof fetch !== 'undefined') {
+          fetch(url, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `${auth.tokenType || 'Bearer'} ${auth.accessToken}`,
+            },
+            body: payloadStr,
+            keepalive: true,
+          }).catch(() => {});
+        } else {
+          const blob = new Blob([payloadStr], { type: 'application/json' });
+          navigator.sendBeacon(url, blob);
+        }
       } else {
         updateProgress(pct, pos, docSec, isComp);
       }
-    }, [activeL?.id, courseId, updateProgress]);
+    }, [activeL?.id, activeL?.type, courseId, updateProgress]);
 
     useEffect(() => {
       const handleExit = () => flushPendingProgress(true);

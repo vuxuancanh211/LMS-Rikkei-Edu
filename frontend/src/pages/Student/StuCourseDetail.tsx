@@ -67,7 +67,12 @@
     const allLessons = useMemo(() => chapters.flatMap(ch => ch.lessons || []), [chapters]);
     const totalLessons = allLessons.length;
     const completedCount = allLessons.filter(l => l.progress === "COMPLETED").length;
-    const progressPct = totalLessons > 0 ? Math.round((completedCount / totalLessons) * 100) : 0;
+    const completedAssignments = course?.completedAssignments ?? 0;
+    const totalAssignments = course?.totalAssignments ?? 0;
+    const progressCompleted = completedCount + completedAssignments;
+    const progressTotal = totalLessons + totalAssignments;
+    const calculatedProgress = progressTotal > 0 ? Math.round((progressCompleted / progressTotal) * 100) : 0;
+    const progressPct = Math.max(0, Math.min(100, course?.progress ?? calculatedProgress));
     const totalDurationSeconds = allLessons.reduce((sum, l) => sum + (l.durationSeconds || 0), 0);
 
     const goBack = () => (isPreview ? onBack?.() : nav("courses"));
