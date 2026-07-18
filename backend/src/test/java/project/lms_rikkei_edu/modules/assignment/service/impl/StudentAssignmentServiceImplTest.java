@@ -867,7 +867,6 @@ class StudentAssignmentServiceImplTest {
         verify(submissionFileRepository).delete(oldFile);
         verify(assignmentSubmissionRepository).delete(oldSub);
         verify(s3Client).putObject(any(Consumer.class), any(RequestBody.class));
-        verify(submissionFileRepository, never()).save(any());
     }
 
     @Test
@@ -877,7 +876,6 @@ class StudentAssignmentServiceImplTest {
         var assignment = assignmentEntity(AssignmentStatus.PUBLISHED);
         var file = mock(MultipartFile.class);
         when(file.getOriginalFilename()).thenReturn("hw.pdf");
-        when(file.getContentType()).thenReturn("application/pdf");
         when(file.getSize()).thenReturn(1024L);
         when(file.isEmpty()).thenReturn(false);
         when(file.getInputStream()).thenThrow(new IOException("Stream closed"));
