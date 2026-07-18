@@ -82,8 +82,6 @@ public class StudentCourseServiceImpl implements StudentCourseService {
     private final GroupMemberRepository groupMemberRepository;
     private final CertificateService certificateService;
 
-
-
     @Value("${app.s3.presigned-url-expiry:3600}")
     private long presignedUrlExpiry;
 
@@ -125,11 +123,17 @@ public class StudentCourseServiceImpl implements StudentCourseService {
                         courses.stream().map(Course::getId).toList())
                 .stream().collect(Collectors.toMap(CourseProgressEntity::getCourseId, p -> p));
 
-        return courses.stream().map(c -> toEnrolledCourseResponse(c, instructorNames, progressMap)).toList();
+        // Batch count học viên — 1 query gộp, tránh N+1 (xem CourseServiceImpl.attachStudentCounts
+        // cho lý do tương tự bên phía giảng viên).
+        Map<UUID, Integer> studentCounts = courseEnrollmentRepository
+                .countMapByCourseIds(courses.stream().map(Course::getId).toList());
+
+        return courses.stream().map(c -> toEnrolledCourseResponse(c, instructorNames, progressMap, studentCounts)).toList();
     }
 
     private StudentCourseResponse toEnrolledCourseResponse(Course c, Map<UUID, String> instructorNames,
-                                                            Map<UUID, CourseProgressEntity> progressMap) {
+                                                            Map<UUID, CourseProgressEntity> progressMap,
+                                                            Map<UUID, Integer> studentCounts) {
         String instructorName = instructorNames.getOrDefault(c.getInstructorId(), "");
         CourseProgressEntity prog = progressMap.get(c.getId());
         int chaptersCount = c.getChapters() != null ? c.getChapters().size() : 0;
@@ -160,6 +164,9 @@ public class StudentCourseServiceImpl implements StudentCourseService {
                 .sStatus(sStatus)
                 .pubStatus(c.getStatus() != null ? c.getStatus().name().toLowerCase() : "draft")
                 .chapters(chaptersCount)
+                .description(c.getDescription())
+                .learningOutcomes(c.getLearningOutcomes())
+                .studentCount(studentCounts.getOrDefault(c.getId(), 0))
                 .build();
     }
 
@@ -209,6 +216,7 @@ public class StudentCourseServiceImpl implements StudentCourseService {
         filterToLiveContentOnly(response);
 
         attachLessonProgress(studentId, courseId, response);
+        attachCourseStats(response, courseId, course.getInstructorId());
 
         courseProgressRepository.findByStudentIdAndCourseId(studentId, courseId)
                 .ifPresent(prog -> {
@@ -217,6 +225,15 @@ public class StudentCourseServiceImpl implements StudentCourseService {
                 });
 
         return response;
+    }
+
+    private void attachCourseStats(CourseDetailResponse response, UUID courseId, UUID instructorId) {
+        response.setStudentCount((int) courseEnrollmentRepository.countByCourseId(courseId));
+        userRepository.findById(instructorId).ifPresent(u -> {
+            response.setInstructorName(u.getFullName());
+            response.setInstructorBio(u.getBio());
+        });
+        response.setInstructorCourseCount((int) courseRepository.countByInstructorIdAndStatus(instructorId, CourseStatus.PUBLISHED));
     }
 
     @Override

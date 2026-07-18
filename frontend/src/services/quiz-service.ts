@@ -45,7 +45,7 @@ export async function listBankQuestions(courseId: string, params?: BankQuestionL
 }
 
 export async function getBankTags(courseId: string) {
-  const res = await httpClient.get(`/api/v1/bank-questions/tags`, { params: { courseId } });
+  const res = await httpClient.get(`/courses/${courseId}/bank-questions/tags`);
   return res.data; // List<String>
 }
 

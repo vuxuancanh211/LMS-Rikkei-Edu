@@ -6,6 +6,7 @@ import lombok.Getter;
 import lombok.Setter;
 import project.lms_rikkei_edu.modules.course.enums.CourseLevel;
 
+import java.util.List;
 import java.util.UUID;
 
 @Getter
@@ -16,7 +17,7 @@ public class CreateCourseRequest {
     @Size(min = 5, max = 200)
     private String title;
 
-    @Size(max = 5000)
+    @Size(max = 20000)
     private String description;
 
     private UUID categoryId;
@@ -26,4 +27,7 @@ public class CreateCourseRequest {
     private String thumbnailUrl;
 
     private Boolean chatEnabled = false;
+
+    @Size(max = 10)
+    private List<@Size(max = 300) String> learningOutcomes;
 }

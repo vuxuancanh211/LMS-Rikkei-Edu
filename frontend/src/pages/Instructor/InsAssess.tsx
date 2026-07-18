@@ -155,6 +155,11 @@ import { createPortal } from 'react-dom';
     const [bankStatusFilter, setBankStatusFilter] = useState('ALL');
     const [availableTags, setAvailableTags] = useState([]);
 
+    // Temporary states for Advanced Search Modal
+    const [tempBankStatusFilter, setTempBankStatusFilter] = useState('ALL');
+    const [tempBankFilter, setTempBankFilter] = useState('ALL');
+    const [tempBankTagFilter, setTempBankTagFilter] = useState('');
+
     // Fetch tags khi mở tab bank
     useEffect(() => {
       if (tab === 'bank' && activeCourseId) {
@@ -842,7 +847,12 @@ import { createPortal } from 'react-dom';
             </div>
           )}
           {tab === 'bank' && (
-            <button className="btn" onClick={() => setAdvSearchOpen(true)} style={{ position: 'relative' }}>
+            <button className="btn" onClick={() => {
+              setTempBankStatusFilter(bankStatusFilter);
+              setTempBankFilter(bankFilter);
+              setTempBankTagFilter(bankTagFilter);
+              setAdvSearchOpen(true);
+            }} style={{ position: 'relative' }}>
               <Ic n="filter" /> Tìm kiếm nâng cao
               {(bankStatusFilter !== 'ALL' || bankFilter !== 'ALL' || bankTagFilter.trim() !== '') && (
                 <span style={{
@@ -1134,8 +1144,8 @@ import { createPortal } from 'react-dom';
             <div>
               <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Trạng thái</label>
               <Select
-                value={bankStatusFilter}
-                onChange={setBankStatusFilter}
+                value={tempBankStatusFilter}
+                onChange={setTempBankStatusFilter}
                 options={[
                   { v: 'ALL', label: 'Tất cả trạng thái' },
                   { v: 'ACTIVE', label: 'Hoạt động' },
@@ -1147,8 +1157,8 @@ import { createPortal } from 'react-dom';
             <div>
               <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Độ khó</label>
               <Select
-                value={bankFilter}
-                onChange={setBankFilter}
+                value={tempBankFilter}
+                onChange={setTempBankFilter}
                 options={[
                   { v: 'ALL', label: 'Tất cả độ khó' },
                   { v: 'EASY', label: 'Dễ' },
@@ -1161,8 +1171,8 @@ import { createPortal } from 'react-dom';
             <div>
               <label className="t-label" style={{ display: 'block', marginBottom: 6 }}>Danh sách Tag</label>
               <Select
-                value={bankTagFilter}
-                onChange={setBankTagFilter}
+                value={tempBankTagFilter}
+                onChange={setTempBankTagFilter}
                 options={[
                   { v: '', label: 'Tất cả tag' },
                   ...availableTags.map(tag => ({ v: tag, label: tag }))
@@ -1173,11 +1183,16 @@ import { createPortal } from 'react-dom';
           </div>
           <div className="modal-foot" style={{ justifyContent: 'space-between' }}>
             <button className="btn btn-ghost" onClick={() => {
-              setBankFilter('ALL');
-              setBankStatusFilter('ALL');
-              setBankTagFilter('');
+              setTempBankFilter('ALL');
+              setTempBankStatusFilter('ALL');
+              setTempBankTagFilter('');
             }}>Xóa bộ lọc</button>
-            <button className="btn btn-primary" onClick={() => setAdvSearchOpen(false)}>Hoàn tất</button>
+            <button className="btn btn-primary" onClick={() => {
+              setBankFilter(tempBankFilter);
+              setBankStatusFilter(tempBankStatusFilter);
+              setBankTagFilter(tempBankTagFilter);
+              setAdvSearchOpen(false);
+            }}>Hoàn tất</button>
           </div>
         </Modal>
 
