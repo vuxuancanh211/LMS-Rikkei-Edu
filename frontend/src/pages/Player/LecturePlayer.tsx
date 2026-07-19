@@ -1451,10 +1451,6 @@
               </div>
             )}
           </div>
-          <button className="icon-btn" style={{ background: "rgba(255,255,255,.08)", borderColor: "rgba(255,255,255,.12)", color: "#e2e8f0" }}
-            onClick={() => { setChat(c => !c); setUserMenu(false); setNotifOpen(false); }} title="Trợ lý AI Hỗ trợ">
-            <Ic n="help" size={20} />
-          </button>
           <div style={{ position: "relative" }} onClick={e => e.stopPropagation()}>
             <div className="user-pill" style={{ background: "rgba(255,255,255,.08)", borderColor: "rgba(255,255,255,.12)" }}
               onClick={() => { setUserMenu(u => !u); setNotifOpen(false); }}>
