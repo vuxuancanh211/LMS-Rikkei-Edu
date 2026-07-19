@@ -19,4 +19,5 @@ regexes = [
     '''lms-rikkei-edu''',
     '''vuxuancanh211_LMS-Rikkei-Edu''',
     '''\$2b\$12\$a6fbTUMo6AmPJryeuC1voeh1rMM621E9T9WNBSWkAExKJxOembv3a''',
+    '''vuejs-3-composition-api''',
 ]
