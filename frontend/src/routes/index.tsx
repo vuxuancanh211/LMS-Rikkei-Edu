@@ -1,60 +1,16 @@
 import '../providers/register-modules';
 
 import type { ReactNode } from 'react';
-import { createBrowserRouter, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { createBrowserRouter, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { CertificateVerifyPage } from '../pages/CertificateVerifyPage';
+import { AppShell, RuntimeScreen } from '../layouts/AppShell';
 import { logoutRequest } from '../services';
 import { mapApiRole, useAuthStore } from '../store';
 
 const roleRoutes = {
-  student: {
-    dashboard: '/student/dashboard',
-    courses: '/student/courses',
-    courseDetail: '/student/courses/detail',
-    tasks: '/student/tasks',
-    forum: '/student/forum',
-    chat: '/student/chat',
-    certs: '/student/certs',
-    certDetail: '/student/certs',
-    groups: '/student/groups',
-    groupDetail: '/student/groups/detail',
-    settings: '/settings',
-    notifications: '/notifications',
-  },
-  instructor: {
-    dashboard: '/instructor/dashboard',
-    courses: '/instructor/courses',
-    courseDetail: '/instructor/courses',
-    groups: '/instructor/groups',
-    groupDetail: '/instructor/groups/detail',
-    assess: '/instructor/assess',
-    grading: '/instructor/grading',
-    forum: '/instructor/forum',
-    chat: '/instructor/chat',
-    aiDocs: '/instructor/ai-docs',
-    settings: '/settings',
-    notifications: '/notifications',
-  },
-  admin: {
-    dashboard: '/admin/dashboard',
-    users: '/admin/users',
-    courses: '/admin/courses',
-    approval: '/admin/approval',
-    certificates: '/admin/certificates',
-    forum: '/admin/forum',
-    forumBrowse: '/admin/forum/posts',
-    aiDocs: '/admin/ai-docs',
-    settings: '/settings',
-    notifications: '/notifications',
-  },
-};
-
-const playerRoutes = {
-  player: '/player/lecture',
-  quiz: '/player/quiz',
-  result: '/player/quiz-result',
-  preview: '/player/preview',
-  dryRun: '/player/quiz-dry-run',
+  student: { dashboard: '/student/dashboard' },
+  instructor: { dashboard: '/instructor/dashboard' },
+  admin: { dashboard: '/admin/dashboard' },
 };
 
 function dashboardForRole(role: keyof typeof roleRoutes | null) {
@@ -65,7 +21,6 @@ function dashboardForRole(role: keyof typeof roleRoutes | null) {
 function RequireAuth({ children }: { children: ReactNode }) {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const location = useLocation();
-  const routeParams = useParams();
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />;
@@ -87,111 +42,6 @@ function PublicOnly({ children }: { children: ReactNode }) {
 
 function MissingRuntime({ name }: { name: string }) {
   return <div style={{ padding: 24 }}>Không tìm thấy runtime component: {name}</div>;
-}
-
-function RoutedShell({ role, route }: { role: keyof typeof roleRoutes; route: string }) {
-  const navigate = useNavigate();
-  const location = useLocation();
-  const routeParams = useParams();
-  const authUser = useAuthStore((state) => state.user);
-  const currentRole = useAuthStore((state) => state.role);
-  const AppShell = window.AppShell;
-
-  if (!AppShell) return <MissingRuntime name="AppShell" />;
-
-  if (currentRole && route !== 'settings' && currentRole !== role) {
-    return <Navigate to={dashboardForRole(currentRole)} replace />;
-  }
-
-  const handleLogout = async () => {
-    try {
-      await logoutRequest();
-    } catch {
-      // Still clear the local session if the server-side logout fails.
-    } finally {
-      useAuthStore.getState().logout();
-      navigate('/login', { replace: true });
-    }
-  };
-
-  const params = {
-    ...Object.fromEntries(new URLSearchParams(location.search)),
-    ...routeParams,
-  };
-
-  return (
-    <AppShell
-      key={`${role}:${route}:${location.pathname}`}
-      role0={role}
-      route0={route}
-      authUser={authUser}
-      routeParams={params}
-      onLogout={handleLogout}
-      onExit={() => navigate('/gallery')}
-      onBare={(key: keyof typeof playerRoutes, extra?: Record<string, string>) => {
-        const path = playerRoutes[key] || '/player/lecture';
-        const search = extra ? '?' + new URLSearchParams(extra).toString() : '';
-        navigate(path + search);
-      }}
-      onNavigate={(nextRole: keyof typeof roleRoutes, nextRoute: string, extra?: Record<string, string>) => {
-        let params = { ...extra };
-        if (nextRoute === 'courseDetail' || nextRoute === 'player' || nextRoute === 'preview') {
-          // Không fallback về courseId đã chọn trước đó cho "courses" — đó là điều hướng tới
-          // DANH SÁCH khóa học (VD bấm "Khóa học của tôi"), nếu không có courseId tường minh thì
-          // không được tự gắn courseId cũ vào, nếu không sẽ bị redirect nhầm sang màn học 1 khóa
-          // đã xem lần trước thay vì hiện đúng danh sách (xem cùng bug đã fix ở GalleryPage.tsx).
-          const cid = params.courseId || window.__selectedCourseId || sessionStorage.getItem("selectedCourseId");
-          if (cid) params.courseId = cid;
-        }
-        if (nextRoute === 'groupDetail' || nextRoute === 'groups') {
-          const gid = params.groupId || window.__selectedGroupId || sessionStorage.getItem("selectedGroupId");
-          if (gid && nextRoute === 'groupDetail') params.groupId = gid;
-        }
-        if (nextRoute === 'approval' || nextRoute === 'approvalDetail') {
-          const aid = params.approvalId || window.__selectedApprovalId || null;
-          if (aid) params.approvalId = aid;
-        }
-        if (nextRoute === 'certDetail' || nextRoute === 'certificates') {
-          const ctid = params.certificateId || window.__selectedCertificateId || null;
-          if (ctid && nextRoute === 'certDetail') params.certificateId = ctid;
-        }
-
-        if (nextRole === 'student' && nextRoute === 'certDetail' && params.certificateId) {
-          navigate(`/student/certs/${encodeURIComponent(params.certificateId)}`);
-          return;
-        }
-        // "courseDetail" giờ có trang tổng quan riêng (StuCourseDetail, xem route bên dưới) —
-        // chỉ "player" (và "courses" kèm courseId, dùng cho deep-link "học tiếp") mới vào thẳng
-        // player, không còn ép "courseDetail" nhảy qua player nữa.
-        if (nextRole === 'student' && (nextRoute === 'player' || (nextRoute === 'courses' && params.courseId))) {
-          if (params.courseId) {
-            navigate(`/player/lecture?courseId=${encodeURIComponent(params.courseId)}`);
-            return;
-          }
-        }
-        if (nextRoute in playerRoutes) {
-          const path = playerRoutes[nextRoute as keyof typeof playerRoutes];
-          const search = params && Object.keys(params).length > 0 ? '?' + new URLSearchParams(params).toString() : '';
-          navigate(path + search);
-          return;
-        }
-        if (nextRole === 'instructor' && nextRoute === 'courseDetail' && extra?.slug) {
-          const previewSearch = extra.autoPreview ? '?autoPreview=1' : '';
-          navigate(`/instructor/courses/${encodeURIComponent(extra.slug)}${previewSearch}`);
-          return;
-        }
-        const path = roleRoutes[nextRole]?.[nextRoute as keyof (typeof roleRoutes)[typeof nextRole]];
-        if (!path) {
-          const fallbackPath = dashboardForRole(nextRole);
-          const search = params && Object.keys(params).length > 0 ? '?' + new URLSearchParams(params).toString() : '';
-          navigate(fallbackPath + search);
-          return;
-        }
-        const search = params && Object.keys(params).length > 0 ? '?' + new URLSearchParams(params).toString() : '';
-        navigate(path + search);
-      }}
-    />
-  );
 }
 
 function LoginRoute() {
@@ -230,21 +80,6 @@ function ResetPasswordRoute() {
   return <ResetPasswordScreen token={token} onBack={() => navigate('/login')} />;
 }
 
-function GalleryRoute() {
-  const GalleryPage = window.GalleryPage;
-  return GalleryPage ? <GalleryPage /> : <MissingRuntime name="GalleryPage" />;
-}
-
-function SettingsRoute() {
-  const role = useAuthStore((state) => state.role) || 'student';
-  return <RoutedShell role={role} route="settings" />;
-}
-
-function NotificationsRoute() {
-  const role = useAuthStore((state) => state.role) || 'student';
-  return <RoutedShell role={role} route="notifications" />;
-}
-
 function PlayerRoute({ name }: { name: string }) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -254,33 +89,27 @@ function PlayerRoute({ name }: { name: string }) {
   if (!Comp) return <MissingRuntime name={name} />;
 
   const handleLogout = async () => {
-    try { await logoutRequest(); } catch (e) { console.debug(e); }
-    finally {
+    try {
+      await logoutRequest();
+    } catch {
+      // Vẫn xóa phiên local nếu server logout lỗi.
+    } finally {
       useAuthStore.getState().logout();
       navigate('/login', { replace: true });
     }
   };
 
   const params = Object.fromEntries(new URLSearchParams(location.search));
-
-  // Quiz đang làm/kết quả có thể được mở từ giữa bài giảng (LecturePlayer) hoặc từ trang
-  // Bài tập & Bài kiểm tra (StuTasks) — "from"/"lessonId" được truyền xuyên suốt qua các URL
-  // quiz → quiz-result để khi thoát/nộp xong, học viên quay lại đúng nơi xuất phát và trang đó
-  // tự remount (route khác nhau) nên dữ liệu (tiến độ bài học / danh sách quiz) được tải lại mới.
   let returnPath = '/student/courses';
   if (name === 'QuizPlayer' || name === 'QuizResult') {
     returnPath = params.from === 'lecture' && params.courseId
       ? `/player/lecture?courseId=${params.courseId}${params.lessonId ? '&lessonId=' + params.lessonId : ''}`
       : '/student/tasks';
   } else if (name === 'LecturePlayer') {
-    // Vào từ Dashboard hay từ danh sách Khóa học — StuDashboard/StuCourses truyền "from" tương ứng.
     returnPath = params.from === 'dashboard' ? '/student/dashboard' : '/student/courses';
   } else if (name === 'QuizDryRunPlayer') {
-    // "Làm thử" chỉ được mở từ trang Bài tập & Bài kiểm tra của giảng viên (InsAssess) — quay lại
-    // đúng khóa học đang soạn thay vì rơi về /student/courses (sai hẳn khu vực, sai cả role).
     returnPath = params.courseId ? `/instructor/assess?courseId=${params.courseId}` : '/instructor/assess';
   } else if (name === 'PreviewPlayer') {
-    // Nút "Xem" chỉ có ở danh sách khóa học của giảng viên (InsCourses) — quay lại đúng đó.
     returnPath = '/instructor/courses';
   }
 
@@ -307,43 +136,49 @@ function PlayerRoute({ name }: { name: string }) {
   );
 }
 
+const screen = (role: string | null, route: string) => ({ element: <RuntimeScreen />, handle: { role, route } });
+
 export const router = createBrowserRouter([
   { path: '/', element: <Navigate to="/login" replace /> },
   { path: '/login', element: <PublicOnly><LoginRoute /></PublicOnly> },
   { path: '/forgot-password', element: <ForgotPasswordRoute /> },
   { path: '/reset-password', element: <ResetPasswordRoute /> },
   { path: '/verify/:code', element: <CertificateVerifyPage /> },
-  { path: '/gallery', element: <GalleryRoute /> },
-  { path: '/settings', element: <RequireAuth><SettingsRoute /></RequireAuth> },
-  { path: '/student/dashboard', element: <RequireAuth><RoutedShell role="student" route="dashboard" /></RequireAuth> },
-  { path: '/student/courses', element: <RequireAuth><RoutedShell role="student" route="courses" /></RequireAuth> },
-  { path: '/student/courses/detail', element: <RequireAuth><RoutedShell role="student" route="courseDetail" /></RequireAuth> },
-  { path: '/student/tasks', element: <RequireAuth><RoutedShell role="student" route="tasks" /></RequireAuth> },
-  { path: '/student/forum', element: <RequireAuth><RoutedShell role="student" route="forum" /></RequireAuth> },
-  { path: '/student/chat', element: <RequireAuth><RoutedShell role="student" route="chat" /></RequireAuth> },
-  { path: '/student/certs', element: <RequireAuth><RoutedShell role="student" route="certs" /></RequireAuth> },
-  { path: '/student/certs/:certificateId', element: <RequireAuth><RoutedShell role="student" route="certDetail" /></RequireAuth> },
-  { path: '/student/groups', element: <RequireAuth><RoutedShell role="student" route="groups" /></RequireAuth> },
-  { path: '/student/groups/detail', element: <RequireAuth><RoutedShell role="student" route="groupDetail" /></RequireAuth> },
-  { path: '/instructor/dashboard', element: <RequireAuth><RoutedShell role="instructor" route="dashboard" /></RequireAuth> },
-  { path: '/instructor/courses', element: <RequireAuth><RoutedShell role="instructor" route="courses" /></RequireAuth> },
-  { path: '/instructor/courses/:slug', element: <RequireAuth><RoutedShell role="instructor" route="courseDetail" /></RequireAuth> },
-  { path: '/instructor/groups', element: <RequireAuth><RoutedShell role="instructor" route="groups" /></RequireAuth> },
-  { path: '/instructor/groups/detail', element: <RequireAuth><RoutedShell role="instructor" route="groupDetail" /></RequireAuth> },
-  { path: '/instructor/assess', element: <RequireAuth><RoutedShell role="instructor" route="assess" /></RequireAuth> },
-  { path: '/instructor/grading', element: <RequireAuth><RoutedShell role="instructor" route="grading" /></RequireAuth> },
-  { path: '/instructor/forum', element: <RequireAuth><RoutedShell role="instructor" route="forum" /></RequireAuth> },
-  { path: '/instructor/chat', element: <RequireAuth><RoutedShell role="instructor" route="chat" /></RequireAuth> },
-  { path: '/instructor/ai-docs', element: <RequireAuth><RoutedShell role="instructor" route="aiDocs" /></RequireAuth> },
-  { path: '/notifications', element: <RequireAuth><NotificationsRoute /></RequireAuth> },
-  { path: '/admin/dashboard', element: <RequireAuth><RoutedShell role="admin" route="dashboard" /></RequireAuth> },
-  { path: '/admin/users', element: <RequireAuth><RoutedShell role="admin" route="users" /></RequireAuth> },
-  { path: '/admin/courses', element: <RequireAuth><RoutedShell role="admin" route="courses" /></RequireAuth> },
-  { path: '/admin/approval', element: <RequireAuth><RoutedShell role="admin" route="approval" /></RequireAuth> },
-  { path: '/admin/certificates', element: <RequireAuth><RoutedShell role="admin" route="certificates" /></RequireAuth> },
-  { path: '/admin/forum', element: <RequireAuth><RoutedShell role="admin" route="forum" /></RequireAuth> },
-  { path: '/admin/forum/posts', element: <RequireAuth><RoutedShell role="admin" route="forumBrowse" /></RequireAuth> },
-  { path: '/admin/ai-docs', element: <RequireAuth><RoutedShell role="admin" route="aiDocs" /></RequireAuth> },
+  {
+    element: <RequireAuth><AppShell /></RequireAuth>,
+    children: [
+      { path: '/settings', ...screen(null, 'settings') },
+      { path: '/notifications', ...screen(null, 'notifications') },
+      { path: '/student/dashboard', ...screen('student', 'dashboard') },
+      { path: '/student/courses', ...screen('student', 'courses') },
+      { path: '/student/courses/detail', ...screen('student', 'courseDetail') },
+      { path: '/student/tasks', ...screen('student', 'tasks') },
+      { path: '/student/forum', ...screen('student', 'forum') },
+      { path: '/student/chat', ...screen('student', 'chat') },
+      { path: '/student/certs', ...screen('student', 'certs') },
+      { path: '/student/certs/:certificateId', ...screen('student', 'certDetail') },
+      { path: '/student/groups', ...screen('student', 'groups') },
+      { path: '/student/groups/detail', ...screen('student', 'groupDetail') },
+      { path: '/instructor/dashboard', ...screen('instructor', 'dashboard') },
+      { path: '/instructor/courses', ...screen('instructor', 'courses') },
+      { path: '/instructor/courses/:slug', ...screen('instructor', 'courseDetail') },
+      { path: '/instructor/groups', ...screen('instructor', 'groups') },
+      { path: '/instructor/groups/detail', ...screen('instructor', 'groupDetail') },
+      { path: '/instructor/assess', ...screen('instructor', 'assess') },
+      { path: '/instructor/grading', ...screen('instructor', 'grading') },
+      { path: '/instructor/forum', ...screen('instructor', 'forum') },
+      { path: '/instructor/chat', ...screen('instructor', 'chat') },
+      { path: '/instructor/ai-docs', ...screen('instructor', 'aiDocs') },
+      { path: '/admin/dashboard', ...screen('admin', 'dashboard') },
+      { path: '/admin/users', ...screen('admin', 'users') },
+      { path: '/admin/courses', ...screen('admin', 'courses') },
+      { path: '/admin/approval', ...screen('admin', 'approval') },
+      { path: '/admin/certificates', ...screen('admin', 'certificates') },
+      { path: '/admin/forum', ...screen('admin', 'forum') },
+      { path: '/admin/forum/posts', ...screen('admin', 'forumBrowse') },
+      { path: '/admin/ai-docs', ...screen('admin', 'aiDocs') },
+    ],
+  },
   { path: '/player/lecture', element: <RequireAuth><PlayerRoute name="LecturePlayer" /></RequireAuth> },
   { path: '/player/quiz', element: <RequireAuth><PlayerRoute name="QuizPlayer" /></RequireAuth> },
   { path: '/player/quiz-result', element: <RequireAuth><PlayerRoute name="QuizResult" /></RequireAuth> },

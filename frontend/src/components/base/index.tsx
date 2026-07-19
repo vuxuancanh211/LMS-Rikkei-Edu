@@ -160,9 +160,11 @@ function Tabs({ items, value, onChange }) {
 
 /* ---------- Select ---------- */
 function Select({ value, onChange, options, style, name }) {
+  const selected = options.find((o) => (o.v ?? o) === value);
+  const selectedLabel = selected ? (selected.label ?? selected) : value;
   return (
-    <div style={{ position: "relative", ...style }}>
-      <select className="select" name={name} value={value} onChange={(e) => onChange(e.target.value)} style={{ appearance: "none", paddingRight: 38, cursor: "pointer" }}>
+    <div title={selectedLabel || ""} style={{ position: "relative", width: "100%", minWidth: 0, ...style }}>
+      <select className="select" name={name} value={value} onChange={(e) => onChange(e.target.value)} style={{ appearance: "none", paddingRight: 38, cursor: "pointer", width: "100%", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {options.map((o) => <option key={o.v ?? o} value={o.v ?? o}>{o.label ?? o}</option>)}
       </select>
       <I n="chevron_down" size={18} style={{ position: "absolute", right: 13, top: "50%", transform: "translateY(-50%)", color: "var(--text-3)", pointerEvents: "none" }} />
