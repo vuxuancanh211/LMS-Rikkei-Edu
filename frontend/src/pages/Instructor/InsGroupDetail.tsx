@@ -3,7 +3,7 @@
   const { useState, useEffect } = React;
   const Ic = window.Icon;
   const { Avatar, StatCard, Search, Section, Modal, ModalHead, Empty } = window;
-  const { getGroupDetail, addGroupMembers, removeGroupMember } = window.__groupService;
+  const { getGroupDetail, getUnassignedStudents, addGroupMembers, removeGroupMember } = window.__groupService;
 
   function InsGroupDetail({ nav, groupId: propGroupId }: { nav?: any; groupId?: string } = {}) {
     const [urlGroupId, setUrlGroupId] = useState(() => new URLSearchParams(window.location.search).get("groupId"));
@@ -19,6 +19,13 @@
     const [loading, setLoading] = useState(true);
     const [removeTarget, setRemoveTarget] = useState(null);
     const [removing, setRemoving] = useState(false);
+    const [addOpen, setAddOpen] = useState(false);
+    const [availableStudents, setAvailableStudents] = useState([]);
+    const [availableLoading, setAvailableLoading] = useState(false);
+    const [selectedStudents, setSelectedStudents] = useState([]);
+    const [adding, setAdding] = useState(false);
+    const [addError, setAddError] = useState("");
+    const [studentQ, setStudentQ] = useState("");
 
     useEffect(() => {
       if (!groupId) { setLoading(false); return; }
@@ -48,6 +55,54 @@
         .finally(() => setRemoving(false));
     };
 
+    const openAddMembers = () => {
+      if (!group?.courseId) return;
+      setAddOpen(true);
+      setAddError("");
+      setSelectedStudents([]);
+      setStudentQ("");
+      setAvailableLoading(true);
+      getUnassignedStudents(group.courseId)
+        .then(res => setAvailableStudents(res || []))
+        .catch(() => {
+          setAvailableStudents([]);
+          setAddError("Không thể tải danh sách học viên có thể thêm");
+        })
+        .finally(() => setAvailableLoading(false));
+    };
+
+    const toggleStudent = (student) => {
+      setSelectedStudents(prev => {
+        const exists = prev.some(item => item.id === student.id && item.courseId === student.courseId);
+        return exists
+          ? prev.filter(item => !(item.id === student.id && item.courseId === student.courseId))
+          : [...prev, student];
+      });
+    };
+
+    const handleAddMembers = async () => {
+      if (selectedStudents.length === 0 || adding) return;
+      setAdding(true);
+      setAddError("");
+      try {
+        await addGroupMembers(groupId, { emails: selectedStudents.map(student => student.email) });
+        setAddOpen(false);
+        setSelectedStudents([]);
+        const detail = await getGroupDetail(groupId);
+        setGroup(detail);
+      } catch (err) {
+        setAddError(err?.response?.data?.message || err?.message || "Không thể thêm học viên vào nhóm");
+      } finally {
+        setAdding(false);
+      }
+    };
+
+    const filteredAvailableStudents = studentQ
+      ? availableStudents.filter(student =>
+          student.fullName?.toLowerCase().includes(studentQ.toLowerCase()) ||
+          student.email?.toLowerCase().includes(studentQ.toLowerCase()))
+      : availableStudents;
+
     if (loading) return (
       <div className="page fade-in">
         <div className="row gap-10" style={{ marginBottom: 16, cursor: "pointer", color: "var(--text-2)" }} onClick={() => nav("groups")}><Ic n="arrow_left" size={18} /><span style={{ fontWeight: 600 }}>Quay lại danh sách nhóm</span></div>
@@ -64,6 +119,9 @@
             <p className="row gap-8">{group?.courseTitle}<span className={"chip chip-" + statusColor[group?.status]}>{statusLabel[group?.status]}</span>• {group?.memberCount}/{group?.maxCapacity || '∞'} thành viên • {group?.startDate}{group?.endDate ? ` \u2013 ${group?.endDate}` : ''}</p>
           </div>
           <div className="row gap-10">
+            <button className="btn btn-primary" onClick={openAddMembers} disabled={!group?.courseId || group?.status === "COMPLETED"}>
+              <Ic n="plus" size={16} />Thêm học viên
+            </button>
           </div>
         </div>
         <div className="grid grid-stats" style={{ marginBottom: 22, gridTemplateColumns: "repeat(2,1fr)" }}>
@@ -104,6 +162,40 @@
             <button className="btn btn-ghost" onClick={() => setRemoveTarget(null)} disabled={removing}>Hủy</button>
             <button className="btn" style={{ background: "#dc2626", color: "#fff" }} disabled={removing} onClick={handleRemoveConfirm}>
               {removing ? "Đang xoá..." : "Xác nhận xoá"}
+            </button>
+          </div>
+        </Modal>
+        <Modal open={addOpen} onClose={() => { if (!adding) setAddOpen(false); }} max={680}>
+          <ModalHead title="Thêm học viên vào nhóm" sub={group ? `Nhóm "${group.name}"` : ""} icon="user_plus" iconBg="#eaf1ff" iconColor="#2563eb" onClose={() => { if (!adding) setAddOpen(false); }} />
+          <div className="modal-body" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            {addError && <div style={{ padding: "10px 14px", borderRadius: 8, background: "#fef2f2", color: "#b91c1c", fontSize: 14 }}>{addError}</div>}
+            <Search placeholder="Tìm theo tên hoặc email..." value={studentQ} onChange={setStudentQ} />
+            {availableLoading ? (
+              <div className="t-center muted" style={{ padding: 48 }}>Đang tải danh sách học viên...</div>
+            ) : filteredAvailableStudents.length === 0 ? (
+              <Empty text="Không còn học viên phù hợp để thêm vào nhóm" />
+            ) : (
+              <div style={{ border: "1px solid #e2e8f0", borderRadius: 10, overflow: "hidden", maxHeight: 360, overflowY: "auto" }}>
+                {filteredAvailableStudents.map(student => {
+                  const checked = selectedStudents.some(item => item.id === student.id && item.courseId === student.courseId);
+                  return (
+                    <label key={student.id + '-' + student.courseId} className="row gap-12" style={{ padding: "12px 14px", borderBottom: "1px solid #f1f5f9", cursor: "pointer", background: checked ? "#eef2ff" : "#fff" }}>
+                      <input type="checkbox" checked={checked} onChange={() => toggleStudent(student)} style={{ width: 16, height: 16, accentColor: "#2563eb" }} />
+                      <Avatar name={student.fullName} size={34} src={student.avatarUrl} />
+                      <div className="grow" style={{ minWidth: 0 }}>
+                        <div className="t-sm" style={{ fontWeight: 700 }}>{student.fullName}</div>
+                        <div className="t-xs muted truncate">{student.email}</div>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+          <div className="modal-foot">
+            <button className="btn btn-ghost" onClick={() => setAddOpen(false)} disabled={adding}>Hủy</button>
+            <button className="btn btn-primary" onClick={handleAddMembers} disabled={selectedStudents.length === 0 || adding}>
+              {adding ? "Đang thêm..." : `Thêm ${selectedStudents.length} học viên`}
             </button>
           </div>
         </Modal>

@@ -148,42 +148,44 @@ import { getAdminCertificates, revokeCertificate } from '../../services';
         {!loading && !error && items.length === 0 && <Empty icon="award" title="Không có chứng chỉ" text="Không tìm thấy chứng chỉ phù hợp với bộ lọc hiện tại." />}
 
         {!loading && !error && items.length > 0 && (
-          <div className="card" style={{ overflow:'hidden' }}>
-            <div style={{ overflowX:'auto' }}>
-              <table className="tbl">
-                <thead>
-                  <tr>
-                    <th>Mã chứng chỉ</th>
-                    <th>Học viên</th>
-                    <th>Khóa học</th>
-                    <th>Ngày cấp</th>
-                    <th>Trạng thái</th>
-                    <th>Thao tác</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {items.map(c => (
-                    <tr key={c.id}>
-                      <td><span className="mono" style={{ fontWeight:700 }}>{c.credentialId}</span></td>
-                      <td><div style={{ fontWeight:700 }}>{c.studentName}</div></td>
-                      <td><div className="truncate" style={{ maxWidth:280, fontWeight:650 }}>{c.courseTitle}</div><div className="t-xs dim">GV: {c.instructorName || 'Rikkei Edu'}</div></td>
-                      <td className="muted">{formatDate(c.issuedAt)}</td>
-                      <td>{statusChip(c.status)}</td>
-                      <td>
-                        <div className="row gap-8">
-                          <button className="btn btn-soft btn-sm" onClick={() => window.open(`/verify/${c.credentialId}`, '_blank', 'noopener,noreferrer')}>Public URL</button>
-                          {c.status === 'ISSUED'
-                            ? <button className="btn btn-danger btn-sm" onClick={() => openRevoke(c)}>Thu hồi</button>
-                            : <span className="t-xs dim">Đã thu hồi {formatDate(c.revokedAt)}</span>}
-                        </div>
-                      </td>
+          <>
+            <div className="card" style={{ overflow:'hidden' }}>
+              <div style={{ overflowX:'auto' }}>
+                <table className="tbl">
+                  <thead>
+                    <tr>
+                      <th>Mã chứng chỉ</th>
+                      <th>Học viên</th>
+                      <th>Khóa học</th>
+                      <th>Ngày cấp</th>
+                      <th>Trạng thái</th>
+                      <th>Thao tác</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {items.map(c => (
+                      <tr key={c.id}>
+                        <td><span className="mono" style={{ fontWeight:700 }}>{c.credentialId}</span></td>
+                        <td><div style={{ fontWeight:700 }}>{c.studentName}</div></td>
+                        <td><div className="truncate" style={{ maxWidth:280, fontWeight:650 }}>{c.courseTitle}</div><div className="t-xs dim">GV: {c.instructorName || 'Rikkei Edu'}</div></td>
+                        <td className="muted">{formatDate(c.issuedAt)}</td>
+                        <td>{statusChip(c.status)}</td>
+                        <td>
+                          <div className="row gap-8">
+                            <button className="btn btn-soft btn-sm" onClick={() => window.open(`/verify/${c.credentialId}`, '_blank', 'noopener,noreferrer')}>URL công khai</button>
+                            {c.status === 'ISSUED'
+                              ? <button className="btn btn-danger btn-sm" onClick={() => openRevoke(c)}>Thu hồi</button>
+                              : <span className="t-xs dim">Đã thu hồi {formatDate(c.revokedAt)}</span>}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
             <window.PageBar pg={pg} unit="chứng chỉ" />
-          </div>
+          </>
         )}
 
         <Modal open={!!selected} onClose={() => setSelected(null)} max={720}>
