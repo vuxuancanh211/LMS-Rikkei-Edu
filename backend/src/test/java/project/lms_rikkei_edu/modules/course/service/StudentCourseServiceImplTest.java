@@ -999,7 +999,7 @@ class StudentCourseServiceImplTest {
     // ── new tests for assignment progress ──
 
     @Test
-    void getCourseDetail_withProgress_setsAssignmentCounts() {
+    void getCourseDetail_withProgress_computesAssignmentCounts() {
         Course course = new Course();
         course.setId(courseId);
         course.setStatus(CourseStatus.PUBLISHED);
@@ -1009,18 +1009,37 @@ class StudentCourseServiceImplTest {
 
         CourseDetailResponse detailResp = CourseDetailResponse.builder()
                 .id(courseId)
+                .chapters(Collections.emptyList())
                 .build();
         when(courseMapper.toDetailResponse(course)).thenReturn(detailResp);
 
-        CourseProgressEntity prog = new CourseProgressEntity();
-        prog.setCompletedAssignmentsCount(3);
-        prog.setTotalAssignmentsCount(5);
-        when(courseProgressRepository.findByStudentIdAndCourseId(studentId, courseId)).thenReturn(Optional.of(prog));
+        List<AssignmentEntity> assignments = new ArrayList<>();
+        List<AssignmentSubmissionEntity> submissions = new ArrayList<>();
+        for (int i = 0; i < 5; i++) {
+            UUID assignmentId = UUID.randomUUID();
+            AssignmentEntity assignment = new AssignmentEntity();
+            assignment.setId(assignmentId);
+            assignment.setScope(AssignmentScope.ALL_GROUPS);
+            assignment.setPassingScore(BigDecimal.valueOf(5));
+            assignments.add(assignment);
+
+            if (i < 3) {
+                AssignmentSubmissionEntity submission = new AssignmentSubmissionEntity();
+                submission.setAssignmentId(assignmentId);
+                submission.setScore(BigDecimal.valueOf(8));
+                submission.setScorePublishedAt(OffsetDateTime.now());
+                submissions.add(submission);
+            }
+        }
+        when(assignmentRepository.findPublishedByCourseId(courseId)).thenReturn(assignments);
+        when(groupMemberRepository.findGroupIdsByStudentIdAndCourseId(studentId, courseId)).thenReturn(List.of(UUID.randomUUID()));
+        when(assignmentSubmissionRepository.findByStudentIdAndAssignmentIdIn(eq(studentId), anyList())).thenReturn(submissions);
 
         CourseDetailResponse result = studentCourseService.getCourseDetail(studentId, courseId);
 
         assertThat(result.getCompletedAssignments()).isEqualTo(3);
         assertThat(result.getTotalAssignments()).isEqualTo(5);
+        assertThat(result.getProgress()).isEqualTo(60);
     }
 
     @Test

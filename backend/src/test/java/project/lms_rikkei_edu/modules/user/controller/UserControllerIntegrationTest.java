@@ -122,6 +122,27 @@ class UserControllerIntegrationTest {
     }
 
     @Test
+    void createInstructorReturnsOkWithoutCourseId() throws Exception {
+        UUID adminId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        var request = new AdminUserCreateRequest();
+        request.setFullName("New Instructor");
+        request.setEmail("teacher@test.com");
+        request.setRole("INSTRUCTOR");
+        request.setPhoneNumber("0934567891");
+        var response = userResponse(userId);
+
+        when(currentUserProvider.getCurrentUserId()).thenReturn(Optional.of(adminId));
+        when(userService.createUser(eq(adminId), any(AdminUserCreateRequest.class))).thenReturn(response);
+
+        mockMvc.perform(post("/api/admin/users")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(userId.toString()));
+    }
+
+    @Test
     void createUserRejectsInvalidRequest() throws Exception {
         var request = new AdminUserCreateRequest();
         request.setEmail("new@test.com");
