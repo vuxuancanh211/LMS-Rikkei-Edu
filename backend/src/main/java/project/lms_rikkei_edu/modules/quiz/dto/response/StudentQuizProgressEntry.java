@@ -1,0 +1,28 @@
+package project.lms_rikkei_edu.modules.quiz.dto.response;
+
+import lombok.Builder;
+import lombok.Getter;
+import project.lms_rikkei_edu.modules.quiz.enums.QuizStatus;
+import project.lms_rikkei_edu.modules.quiz.enums.QuizType;
+
+import java.math.BigDecimal;
+import java.util.UUID;
+
+@Getter
+@Builder
+public class StudentQuizProgressEntry {
+    private UUID courseId;
+    private String courseTitle;
+    private UUID quizId;
+    private String quizTitle;
+    private QuizType quizType;
+    private QuizStatus quizStatus;
+    private Integer maxAttempts; // null = không giới hạn số lần
+    private int attemptsUsed;
+    private boolean passed;
+    private BigDecimal bestScore;
+    private BigDecimal bestScorePercentage;
+    private boolean canRetry; // còn lượt và cooldown đã qua
+    private BigDecimal passScore;
+    private java.time.OffsetDateTime nextRetryAt;
+}

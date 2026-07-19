@@ -1,6 +1,7 @@
 package project.lms_rikkei_edu.infrastructure.redis;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
@@ -14,12 +15,16 @@ import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class RedisService {
 
     private final RedisTemplate<String, Object> redisTemplate;
 
     @Value("${app.redis.ttl.refresh-token}")
     private long refreshTokenTtl;
+
+    @Value("${app.redis.ttl.password-reset-token}")
+    private long passwordResetTokenTtl;
 
     @Value("${app.redis.ttl.rate-limit-window}")
     private long rateLimitWindow;
@@ -56,22 +61,97 @@ public class RedisService {
     }
 
     public boolean isAccessTokenBlacklisted(String jti) {
-        return hasKey(RedisKeyConstants.ACCESS_TOKEN_BLACKLIST + jti);
+        try {
+            return hasKey(RedisKeyConstants.ACCESS_TOKEN_BLACKLIST + jti);
+        } catch (RuntimeException exception) {
+            log.warn("Cannot check JWT blacklist in Redis: {}", exception.getMessage());
+            return false;
+        }
     }
 
     // ── Refresh Token ─────────────────────────────────────────────────────────
 
     public void saveRefreshToken(UUID userId, String tokenHash) {
-        String key = RedisKeyConstants.REFRESH_TOKEN + userId;
+        String key = RedisKeyConstants.REFRESH_TOKEN + userId + ":" + tokenHash;
         redisTemplate.opsForValue().set(key, tokenHash, Duration.ofSeconds(refreshTokenTtl));
+        redisTemplate.opsForValue().set(RedisKeyConstants.REFRESH_TOKEN + userId, tokenHash, Duration.ofSeconds(refreshTokenTtl));
+        redisTemplate.opsForSet().add(RedisKeyConstants.USER_TOKENS + userId, tokenHash);
+        redisTemplate.expire(RedisKeyConstants.USER_TOKENS + userId, Duration.ofSeconds(refreshTokenTtl));
     }
 
     public Optional<String> getRefreshToken(UUID userId) {
-        return get(RedisKeyConstants.REFRESH_TOKEN + userId).map(Object::toString);
+        Optional<Object> legacy = get(RedisKeyConstants.REFRESH_TOKEN + userId);
+        if (legacy.isPresent()) {
+            return legacy.map(Object::toString);
+        }
+        Set<Object> tokens = redisTemplate.opsForSet().members(RedisKeyConstants.USER_TOKENS + userId);
+        if (tokens != null && !tokens.isEmpty()) {
+            return Optional.ofNullable(tokens.iterator().next()).map(Object::toString);
+        }
+        return Optional.empty();
+    }
+
+    public boolean isRefreshTokenValid(UUID userId, String tokenHash) {
+        String key = RedisKeyConstants.REFRESH_TOKEN + userId + ":" + tokenHash;
+        if (Boolean.TRUE.equals(redisTemplate.hasKey(key))) {
+            return true;
+        }
+        Optional<String> legacy = getRefreshToken(userId);
+        return legacy.isPresent() && tokenHash.equals(legacy.get());
+    }
+
+    public void rotateRefreshTokenWithGracePeriod(UUID userId, String tokenHash, long graceSeconds) {
+        String key = RedisKeyConstants.REFRESH_TOKEN + userId + ":" + tokenHash;
+        if (Boolean.TRUE.equals(redisTemplate.hasKey(key))) {
+            redisTemplate.expire(key, Duration.ofSeconds(graceSeconds));
+        }
+        Optional<String> legacy = getRefreshToken(userId);
+        if (legacy.isPresent() && tokenHash.equals(legacy.get())) {
+            redisTemplate.expire(RedisKeyConstants.REFRESH_TOKEN + userId, Duration.ofSeconds(graceSeconds));
+        }
+    }
+
+    public void deleteRefreshToken(UUID userId, String tokenHash) {
+        String key = RedisKeyConstants.REFRESH_TOKEN + userId + ":" + tokenHash;
+        delete(key);
+        redisTemplate.opsForSet().remove(RedisKeyConstants.USER_TOKENS + userId, tokenHash);
+        Optional<String> legacy = getRefreshToken(userId);
+        if (legacy.isPresent() && tokenHash.equals(legacy.get())) {
+            delete(RedisKeyConstants.REFRESH_TOKEN + userId);
+        }
     }
 
     public void deleteRefreshToken(UUID userId) {
+        deleteAllRefreshTokens(userId);
+    }
+
+    public void deleteAllRefreshTokens(UUID userId) {
         delete(RedisKeyConstants.REFRESH_TOKEN + userId);
+        Set<Object> tokens = redisTemplate.opsForSet().members(RedisKeyConstants.USER_TOKENS + userId);
+        if (tokens != null) {
+            for (Object t : tokens) {
+                if (t != null) {
+                    delete(RedisKeyConstants.REFRESH_TOKEN + userId + ":" + t.toString());
+                }
+            }
+        }
+        delete(RedisKeyConstants.USER_TOKENS + userId);
+    }
+
+    // ── Password Reset Token ─────────────────────────────────────────────────
+
+    public void savePasswordResetToken(String tokenHash, UUID userId) {
+        set(RedisKeyConstants.PASSWORD_RESET_TOKEN + tokenHash, userId.toString(), passwordResetTokenTtl);
+    }
+
+    public Optional<UUID> getPasswordResetUserId(String tokenHash) {
+        return get(RedisKeyConstants.PASSWORD_RESET_TOKEN + tokenHash)
+                .map(Object::toString)
+                .map(UUID::fromString);
+    }
+
+    public void deletePasswordResetToken(String tokenHash) {
+        delete(RedisKeyConstants.PASSWORD_RESET_TOKEN + tokenHash);
     }
 
     // ── Rate Limit ────────────────────────────────────────────────────────────

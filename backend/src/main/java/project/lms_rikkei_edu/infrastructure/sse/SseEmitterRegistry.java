@@ -5,7 +5,6 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -17,13 +16,13 @@ import java.util.concurrent.CopyOnWriteArrayList;
 @Slf4j
 public class SseEmitterRegistry {
 
-    private static final long TIMEOUT_MS = 180_000L;
+    private static final long EMITTER_TIMEOUT_MS = 5 * 60 * 1000L;
 
     private final Map<UUID, CopyOnWriteArrayList<SseEmitter>> registry =
             new ConcurrentHashMap<>();
 
     public SseEmitter register(UUID userId) {
-        SseEmitter emitter = new SseEmitter(TIMEOUT_MS);
+        SseEmitter emitter = new SseEmitter(EMITTER_TIMEOUT_MS);
         registry.computeIfAbsent(userId, k -> new CopyOnWriteArrayList<>())
                 .add(emitter);
 
@@ -31,6 +30,11 @@ public class SseEmitterRegistry {
         emitter.onCompletion(cleanup);
         emitter.onTimeout(cleanup);
         emitter.onError(e -> cleanup.run());
+        try {
+            emitter.send(SseEmitter.event().name("CONNECTED").data("ok"));
+        } catch (Exception e) {
+            cleanup.run();
+        }
         return emitter;
     }
 
@@ -76,7 +80,7 @@ public class SseEmitterRegistry {
                 emitter.send(SseEmitter.event()
                         .name(eventType)
                         .data(data));
-            } catch (IOException e) {
+            } catch (Exception e) {
                 dead.add(emitter);
             }
         }

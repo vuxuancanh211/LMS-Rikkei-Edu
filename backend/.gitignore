@@ -1,10 +1,36 @@
-HELP.md
+# Maven build output
 target/
-.mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/
 
-### STS ###
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Local overrides
+docker-compose.override.yml
+
+# Compiled artifacts
+*.class
+*.jar
+
+# Logs & temp
+logs/
+*.log
+*.pid
+*.seed
+
+# Embedded databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Maven wrapper
+.mvn/wrapper/maven-wrapper.jar
+HELP.md
+
+# IDE — STS
 .apt_generated
 .classpath
 .factorypath
@@ -13,21 +39,19 @@ target/
 .springBeans
 .sts4-cache
 
-### IntelliJ IDEA ###
+# IDE — IntelliJ IDEA
 .idea
 *.iws
 *.iml
 *.ipr
 
-### NetBeans ###
+# IDE — NetBeans
 /nbproject/private/
 /nbbuild/
 /dist/
 /nbdist/
 /.nb-gradle/
 build/
-!**/src/main/**/build/
-!**/src/test/**/build/
 
-### VS Code ###
+# IDE — VS Code
 .vscode/

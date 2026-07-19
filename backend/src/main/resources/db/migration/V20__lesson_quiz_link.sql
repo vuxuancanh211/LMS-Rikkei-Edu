@@ -1,0 +1,2 @@
+ALTER TABLE lessons ADD COLUMN IF NOT EXISTS quiz_id UUID REFERENCES quizzes(id) ON DELETE RESTRICT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_lessons_quiz_id ON lessons(quiz_id) WHERE quiz_id IS NOT NULL;

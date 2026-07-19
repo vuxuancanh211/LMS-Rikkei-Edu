@@ -1,0 +1,147 @@
+# =============================================================================
+#  CI (PR GATE) — Rikkei Edu LMS
+#  Kich hoat: Pull Request dich = `dev`. Chay TRUOC merge de chan code hong.
+#  Cac job backend-ci / frontend-ci / security dat lam Required status checks.
+# =============================================================================
+name: CI (PR Gate)
+
+on:
+  pull_request:
+    branches: [dev]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+              - '.github/workflows/ci.yaml'
+            frontend:
+              - 'frontend/**'
+              - '.github/workflows/ci.yaml'
+
+  # ---------------------------------------------------------------------------
+  # Backend: build + unit + integration (JUnit 5) + JaCoCo + SonarQube
+  # Schema do Flyway tu chay khi Spring context khoi dong (ca trong integration test).
+  # ---------------------------------------------------------------------------
+  backend-ci:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_DB: lms_test
+          POSTGRES_USER: lms
+          POSTGRES_PASSWORD: lms_test_pwd
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U lms -d lms_test"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+      redis:
+        image: redis:8-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/lms_test
+      SPRING_DATASOURCE_USERNAME: lms
+      SPRING_DATASOURCE_PASSWORD: lms_test_pwd
+      SPRING_DATA_REDIS_HOST: localhost
+      SPRING_DATA_REDIS_PORT: 6379
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # Sonar can lich su de phan tich chinh xac
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      # Flyway tu chay migration (V1, V2, ...) khi Spring context khoi dong trong test.
+      - name: Build & test (unit + integration + JaCoCo)
+        run: mvn -B -ntp clean verify
+
+      # Quality gate: coverage > 80%, 0 blocker (cau hinh tren SonarQube/SonarCloud).
+      # Bo qua neu chua cau hinh SONAR_TOKEN.
+      - name: SonarQube scan
+        if: env.SONAR_TOKEN != ''
+        env:
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        run: >-
+          mvn -B -ntp sonar:sonar
+          -Dsonar.host.url=$SONAR_HOST_URL
+          -Dsonar.token=$SONAR_TOKEN
+          -Dsonar.qualitygate.wait=true
+
+  # ---------------------------------------------------------------------------
+  # Frontend: lint + typecheck + unit (Vitest) + build + Sonar (tuy chon)
+  # ---------------------------------------------------------------------------
+  frontend-ci:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck --if-present
+      - run: npm run test --if-present
+      - run: npm run build
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Secret scan (gitleaks)
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Dependency & misconfig scan (Trivy)
+        uses: aquasecurity/trivy-action@0.35.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          ignore-unfixed: true
+          timeout: 15m0s
