@@ -52,6 +52,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -235,6 +236,33 @@ class UserServiceImplTest {
 
         verify(courseEnrollmentRepository).save(any(CourseEnrollmentEntity.class));
         verify(emailService).sendNewAccountMail(eq("john@test.com"), eq("John"), anyString(), eq("Khoá học A"));
+        verify(auditLogRepository).save(any(AuditLogEntity.class));
+    }
+
+    @Test
+    void createUserInstructorSuccess_withoutCourseId() {
+        UUID adminId = UUID.randomUUID();
+        var request = adminUserCreateRequest("teacher@test.com", "Teacher", "INSTRUCTOR", "0934567891");
+        request.setCourseId(null);
+
+        when(userRepository.findByEmailIgnoreCaseAndDeletedAtIsNull("teacher@test.com"))
+                .thenReturn(Optional.empty());
+        when(userRepository.findByPhoneNumberAndDeletedAtIsNull("0934567891"))
+                .thenReturn(Optional.empty());
+        when(passwordEncoder.encode(anyString())).thenReturn("hashed_temp");
+        when(userRepository.save(any(UserEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        var expectedResponse = userResponse(UUID.randomUUID());
+        when(userMapper.toResponse(any(UserEntity.class))).thenReturn(expectedResponse);
+
+        UserResponse result = userService.createUser(adminId, request);
+
+        assertThat(result).isSameAs(expectedResponse);
+        ArgumentCaptor<UserEntity> userCaptor = ArgumentCaptor.forClass(UserEntity.class);
+        verify(userRepository).save(userCaptor.capture());
+        assertThat(userCaptor.getValue().getRole()).isEqualTo(UserRole.INSTRUCTOR);
+        verify(courseRepository, never()).findById(any());
+        verify(courseEnrollmentRepository, never()).save(any());
+        verify(emailService).sendNewAccountMail(eq("teacher@test.com"), eq("Teacher"), anyString(), isNull());
         verify(auditLogRepository).save(any(AuditLogEntity.class));
     }
 

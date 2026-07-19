@@ -18,4 +18,5 @@ regexes = [
     '''lms_test_pwd''',
     '''lms-rikkei-edu''',
     '''vuxuancanh211_LMS-Rikkei-Edu''',
+    '''vuejs-3-composition-api''',
 ]

@@ -218,13 +218,30 @@ public class StudentCourseServiceImpl implements StudentCourseService {
         attachLessonProgress(studentId, courseId, response);
         attachCourseStats(response, courseId, course.getInstructorId());
 
-        courseProgressRepository.findByStudentIdAndCourseId(studentId, courseId)
-                .ifPresent(prog -> {
-                    response.setCompletedAssignments(prog.getCompletedAssignmentsCount());
-                    response.setTotalAssignments(prog.getTotalAssignmentsCount());
-                });
+        attachStudentProgressSummary(studentId, courseId, response);
 
         return response;
+    }
+
+    private void attachStudentProgressSummary(UUID studentId, UUID courseId, CourseDetailResponse response) {
+        int totalLessons = response.getChapters() == null ? 0 : response.getChapters().stream()
+                .mapToInt(ch -> ch.getLessons() == null ? 0 : ch.getLessons().size())
+                .sum();
+        int completedLessons = response.getChapters() == null ? 0 : response.getChapters().stream()
+                .flatMap(ch -> ch.getLessons() == null ? java.util.stream.Stream.empty() : ch.getLessons().stream())
+                .mapToInt(lesson -> STATUS_COMPLETED.equals(lesson.getProgress()) ? 1 : 0)
+                .sum();
+        int[] assignmentStats = getAssignmentProgressStats(studentId, courseId);
+        int totalAssignments = assignmentStats[0];
+        int completedAssignments = assignmentStats[1];
+        int totalItems = totalLessons + totalAssignments;
+        int completedItems = completedLessons + completedAssignments;
+
+        response.setTotalLessons(totalLessons);
+        response.setCompletedLessons(completedLessons);
+        response.setTotalAssignments(totalAssignments);
+        response.setCompletedAssignments(completedAssignments);
+        response.setProgress(totalItems > 0 ? (int) Math.round((completedItems * 100.0) / totalItems) : 0);
     }
 
     private void attachCourseStats(CourseDetailResponse response, UUID courseId, UUID instructorId) {

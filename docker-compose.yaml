@@ -45,8 +45,8 @@ services:
       dockerfile: Dockerfile
     container_name: lms-rikkei-edu
     restart: always
-    ports:
-      - "8080:8080"
+    expose:
+      - "8080"
     env_file:
       - backend/.env
     environment:
@@ -65,6 +65,20 @@ services:
     networks:
       - app-network
 
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
+        VITE_WS_BASE_URL: ${VITE_WS_BASE_URL:-}
+    container_name: lms-rikkei-edu-frontend
+    restart: always
+    expose:
+      - "80"
+    networks:
+      - app-network
+
   nginx:
     image: nginx:alpine
     container_name: nginx
@@ -76,6 +90,8 @@ services:
     depends_on:
       app:
         condition: service_healthy
+      frontend:
+        condition: service_started
     networks:
       - app-network
 
