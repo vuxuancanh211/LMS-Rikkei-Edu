@@ -142,21 +142,23 @@ public class UserServiceImpl implements UserService {
 
         userRepository.save(user);
 
-        if (request.getCourseId() == null) {
-            throw new BusinessException("Vui lòng chọn khóa học");
+        if (role == UserRole.STUDENT) {
+            if (request.getCourseId() == null) {
+                throw new BusinessException("Vui lòng chọn khóa học");
+            }
+            Course course = courseRepository.findById(request.getCourseId())
+                    .orElseThrow(() -> new BusinessException("Không tìm thấy khóa học"));
+            if (!courseEnrollmentRepository.existsByCourseIdAndStudentId(course.getId(), user.getId())) {
+                CourseEnrollmentEntity enrollment = new CourseEnrollmentEntity();
+                enrollment.setId(UUID.randomUUID());
+                enrollment.setCourseId(course.getId());
+                enrollment.setStudentId(user.getId());
+                courseEnrollmentRepository.save(enrollment);
+            }
+            emailService.sendNewAccountMail(user.getEmail(), user.getFullName(), tempPassword, course.getTitle());
+        } else {
+            emailService.sendNewAccountMail(user.getEmail(), user.getFullName(), tempPassword, null);
         }
-        Course course = courseRepository.findById(request.getCourseId())
-                .orElseThrow(() -> new BusinessException("Không tìm thấy khóa học"));
-        String courseTitle = course.getTitle();
-        if (!courseEnrollmentRepository.existsByCourseIdAndStudentId(course.getId(), user.getId())) {
-            CourseEnrollmentEntity enrollment = new CourseEnrollmentEntity();
-            enrollment.setId(UUID.randomUUID());
-            enrollment.setCourseId(course.getId());
-            enrollment.setStudentId(user.getId());
-            courseEnrollmentRepository.save(enrollment);
-        }
-
-        emailService.sendNewAccountMail(user.getEmail(), user.getFullName(), tempPassword, courseTitle);
 
         writeAuditLog(adminId, "CREATE_USER", "USER", user.getId(),
                 null, String.format("{\"email\":\"%s\",\"role\":\"%s\"}", email, role),
